@@ -7,7 +7,7 @@ Knit 是独立 CLI 与项目辅助系统，负责项目初始化、任务记录�
 
 日常主入口是用户在 Pi 中对话，由主 Agent 调 Knit；CLI 同时供本人直接操作。个人开发按单人设计，多会话、多分支和换机器只要求身份、资料和恢复不出错，不建设多人协作、共享调度或团队任务库。
 
-阅读入口：[首版范围](#151-首版闭环) · [用户命令](#41-命令面) · [运行细则](OPERATIONS.md) · [术语](GLOSSARY.md) · [后续 Worktree](WORKTREE.md) · [研究依据](RESEARCH.md)。Agent 协作要求见 `AGENTS.md`。
+阅读入口：[首版范围](#151-首版闭环) · [架构](ARCHITECTURE.md) · [状态契约](STATES.md) · [技术选型](TECHNOLOGY.md) · [用户命令](#41-命令面) · [运行细则](OPERATIONS.md) · [术语](GLOSSARY.md)。后续 [Worktree](WORKTREE.md)、[研究](RESEARCH.md) 与 [开发约定](AGENTS.md) 分开维护。
 
 ## 1. 定位与原则
 
@@ -34,7 +34,9 @@ Knit 通过自身 CLI 和项目资料提供核心能力，Pi 是首个客户端�
 
 ## 2. 总体结构与权威信息
 
-Knit 安装为独立命令行工具。`knit init` 自动生成项目资料、受管入口和所选客户端的桥接扩展；Pi 用户无需单独安装全局 Pi Extension。桥接只接原生能力，核心业务由 Knit CLI 负责，内部 Pi 与 local 模块完成阶段执行。项目目录如下：
+内部按 CLI／桥接入口、核心用例、纯领域规则、内部端口／适配、基础设施分层，职责和数据写入方见 [ARCHITECTURE.md](ARCHITECTURE.md)。状态枚举与转移统一在 STATES.md，技术决定在 TECHNOLOGY.md；核心不依赖 Pi SDK 类型或 UI。
+
+首版以独立 CLI 安装，init 自动生成项目资料、受管入口和 Pi 薄桥接，用户无需另装全局 Pi Extension。桥接接原生能力，核心执行业务，内部 Pi/local 实现阶段运行。项目目录如下：
 
 ```text
 AGENTS.md                         # 保留原规则，添加 Knit 受管入口
@@ -161,26 +163,9 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 ### 3.7 状态转移与展示
 
-下表是派生展示，不新增可写状态。身份异常／未知运行优先，其次核对有效输入与检查，再处理规范和提交归档；纯记录可保存。
+完整对象清单、转移表、守卫、写入方和恢复路径以 [STATES.md](STATES.md) 为准。本文件保留产品行为概览；代码按同一状态契约实现，不从自由正文或进程退出码猜测业务阶段。
 
-| 状态组合／事实 | 展示与允许转移 |
-| --- | --- |
-| open + discuss，未运行 | 待讨论；确认输入后到 implement |
-| open + implement，未运行 | 待实施；成功执行到 check |
-| open + implement/check，run 存活 | 实施／检查中；允许记录和候选写入，可取消，不启动另一代码阶段 |
-| open + check，无有效新检查 | 待检查；pass 到 deliver，需修复到 implement，blocked 保留原因 |
-| deliver + 有效检查，候选未处理 | 待规范整理；主 Agent 采纳、拒绝或明确延期后继续，不要求新增规则 |
-| deliver + 有效检查，尚未提交归档 | 待收尾；主 Agent 调确定性工具，closed/completed 仍不能替代实际结果 |
-| closed + cancelled/superseded | 业务已结束，phase 为停止位置；按实际成果收尾归档，不假造检查通过 |
-| closed + completed，已移动但归档回执未完成 | 已移动／待提交；只继续对应操作，不能仅因目录位置就认定成功 |
-| closed，归档操作完整 | 已归档及真实 outcome；只读查询，不自动重开 |
-| 归档前有效输入变化 | 清除 completed 结论，恢复 open，按变化进入 discuss／implement／check |
-| deliver 但检查资格失效 | 待重新核对，回 open/check 并清 completed outcome；不能仅凭旧 phase 收尾 |
-| open + run 已确认失败／取消 | 未完成／可继续，保留 phase 和对照；不自动把任务 outcome 设为 cancelled |
-| 任意状态 + 旧 run 终态未知 | 待核实；诊断、记录、取消与解除按运行细则处理，不重复执行 |
-| closed 无 outcome、open 带终结 outcome、身份或回执矛盾 | 异常待核实；只按已核实操作补写，不能猜测推进 |
-
-跨分支接管按第 3.5 节处理，字段合法性、检查凭据和操作回执共同决定动作。
+业务 status/phase/outcome、run 生命周期、检查资格、规范审阅、操作与归档展示分别建模。未知实例、无效输入和未核实副作用优先阻止相关后续动作；纯记录与诊断不因代码阶段排他而全部被锁住。
 
 ## 4. 四环节轻量编排
 
@@ -195,7 +180,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 讨论在目标清楚时简短完成。代码编写环节涵盖代码、测试、配置和文档。取消或被替代的任务记录结束原因与实际完成范围。
 
-自动修复与重查默认最多两轮，绑定累计当前链的次数，内部重试不重置。仍有阻塞时保存发现和现状，只有用户明确继续或确认新的需求范围才开启新链。阶段按已有授权衔接，新增取舍或授权边界由主 Agent 与用户处理。
+自动修复最多两轮，链状态与次数见 [STATES.md](STATES.md#4-自动执行链)。普通 resume 和内部重试不重置；只有用户明确开启新修复周期或确认新范围才新建链。暂停保留发现与下一步，核心不在无人参与时自行派发阶段。
 
 执行细步骤保存在 Session，阶段结果和下一步写回任务。计划工具用于辅助展示，Knit 使用自身资料恢复流程。
 
@@ -211,11 +196,13 @@ Knit 以独立的 `knit` CLI 提供核心入口，Agent 可通过终端调用。
 | `start [--client pi]` | 通过内部适配模块启动原生客户端，不提供另一套聊天 UI |
 | `session attach --client <id> --native <引用>`／`context` | 登记或核实主会话、模型与当前调用上下文 |
 | `task new <slug>`／`task rename <id> <slug>` | 创建草稿或改名，保留身份 |
-| `task record [id]`／`task update [id]`（可用 --file 或标准输入） | 前者短锁写记录，后者执行占用下更新有效输入并保留记录；不能用记录入口绕过输入变更 |
-| `task list [--archive]`／`status [id]` | 查询当前分支可见任务、归档、阶段、run 与占用 |
+| `task ready [id]` | 明确讨论完成，校验并记录确认输入，不自动开始实施 |
+| `task accept [id] --condition <id>` | 只确认输入已明确要求的人工验收条目，绑定当前成果版本，不新增审批门槛 |
+| `task record [id]`／`task update [id]`（可用 --file 或标准输入） | 前者短锁写记录，后者执行占用下更新有效输入并保留记录；活动 run 中的输入变更保存为待应用意图 |
+| `task list [--archive]`／`status [id] [--run <run-id>]` | 查询当前任务、归档、阶段、run 与占用，status --events 仅作观察 |
 | `task adopt <id> --branch current` | 明确接管可见任务，更新绑定并使旧检查失效 |
-| `run [phase] [--task <id>] [--scope <路径...>] [--provider P --model M]`／`resume [id] [--run <run-id>]` | 正式任务核实任务与阶段，非正式辅助检查核实显式范围；恢复按指定任务或 run 定位 |
-| `cancel [run-id]` | 请求取消并显示实际终止／待确认状态 |
+| `run [phase] [--task <id>] [--scope <路径...>] [--provider P --model M]`／`resume [id] [--run <run-id> 或 --operation <id>]` | 核实正式任务或非正式范围；恢复 run 与操作分别处理，不默认重跑副作用 |
+| `cancel [run-id]`／`cancel --operation <id>`／`cancel --request <id>` | 按指定当前尝试持久化取消意图并核实实际停止；不等于取消业务任务 |
 | `task use <id>`／`task clear` | 在已登记主会话选择或清除任务，无上下文时用显式任务参数 |
 | `deliver [id]`／`archive [id]`／`task close <id> --outcome <值>` | 主 Agent 收尾与实际结束结果；run deliver 转发同一 deliver 处理器，不启动收尾 worker |
 | `assist discuss`／`assist deliver` | 仅在需要时用指定模型产生建议，不能提交、归档或推进完成 |
@@ -224,7 +211,7 @@ Knit 以独立的 `knit` CLI 提供核心入口，Agent 可通过终端调用。
 | `doctor [--json]`／`storage` | 只读诊断和容量统计 |
 | `snapshot show <run-id>`／`restore <run-id> --path <路径>`／`unlock <锁>` | 对照与显式恢复、处理占用，细则见 OPERATIONS |
 
-`run` 返回 run ID，`--wait` 只等待与展示，退出等待不等于取消。正式任务从显式参数或已核实主会话选择中定位；非正式独立检查可使用 `run check --scope ...`，任务 ID 为空，只返回该范围报告，不创建绑定／phase，也不授权正式任务收尾。模型均按调用、阶段配置、已核实主会话解析，缺失即阻塞。`resume --run` 可定位无任务 run；入口共用同一核心校验。
+`run discuss` 提供讨论输入与下一步，由主 Agent 对话，不创建 worker；`run implement/check` 派发 worker 并返回 run ID；`run deliver` 转唯一收尾处理器并返回操作 ID。--wait 只等待，--json 为单响应，--events 为脱敏 JSONL，观察结束不等于取消。非正式 check --scope 不推进正式 Task 或授权提交。后台提醒只向匹配原发起上下文投递，不能当完成证据。模型选择只适用于实际 AgentRuntime 执行；纯记录／机械收尾不需要选模型。resume --run 创建恢复尝试，resume --operation 先核实既有效果再继续。
 
 ## 5. 执行角色、检查与模型选择
 
@@ -252,11 +239,13 @@ Knit 以独立的 `knit` CLI 提供核心入口，Agent 可通过终端调用。
 
 ### 5.3 检查结论与有效范围
 
-检查结论为 `pass`、`changes_requested` 或 `blocked`，附完成条件覆盖、发现、位置、验证和未执行事项。必要人工验收尚未完成时，结论保留该条件。
+检查角色结论为 pass、changes_requested 或 blocked，针对其可验证部分附覆盖、发现、证据和未执行项。输入明确要求的人工条件另有确认门槛，默认空；技术 pass 不假报人工完成。Core 只在最新技术证据有效且必需确认齐备时判定可交付，人工确认补齐无需再调用模型。
 
-检查记录由核心写入本 run 的 `check.json`：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。正式任务以 `lastCheckRunId` 为唯一候选；输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
+检查记录由核心写入本 run 的 `check.json`：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。正式任务以 `lastCheckRunId` 为唯一候选，在检查获占用且正式接纳时更新；未获准的忙请求不算开始，已接纳后的失败不能回退更早 pass。输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
 
 任务主文档与辅助资料按稳定任务 ID、任务内相对路径识别；已登记改名／归档操作可更新物理定位并核对相同内容，不因单纯搬动任务目录反复失效。其他路径变化、引用内容改写或业务输入变化仍需核对；不改写旧 run 凭据，以操作记录关联新位置。
+
+成果 scope 按 Task 累积，恢复的新快照不清空旧成果。纯报告／结论的正式成果以显式文档纳入 scope，进度摘要不代替被验正文；小讨论仍可不建任务。需求、所选指令、授权输出、纯记录分别处理；规范本身为明确输出时以冻结旧版本为输入、新内容为成果，不机械退回讨论，新规则是否追用于本任务由主 Agent 确认。范围与数据权威见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 输入覆盖成果变更、相关未跟踪文件、验证依赖、已采纳角色／规范和第 3.3 节输入区。phase/status/outcome、运行记录、运行引用、未生效的 standards.md 候选／处理记录不计需求摘要；任务 ID 和分支另作身份校验。保存纯记录不会反复使通过结果失效，正式规则或业务要求改变仍需核对。
 
@@ -299,16 +288,19 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 
 ### 5.6 运行协议
 
-每次执行使用新 `run-id`，资料位于执行目录的 `.knit/.runtime/runs/<run-id>/`。
+每次 worker 执行使用新 run-id。CLI 发布请求与启动意图，worker 以自身身份取得占用、重新核实身份及预期需求、冻结 inputs 并完成实施快照，之后才允许调用阶段模型／写代码，不做执行锁跨进程交接。资料位于 `.knit/.runtime/runs/<run-id>/`。
 
 | 文件 | 写入方 | 内容 |
 | --- | --- | --- |
-| `request.json` | 核心 | 协议版本、任务／分支／阶段、发起方与可空主 Session、客户端／内部模块及 Knit 版本、execution/advisory 用途、有效输入与记录边界、基线、模型、cwd、工具策略和恢复引用 |
-| `launch.json` | 核心 | 启动意图、ExecutionHost 与 handle |
+| `request.json` | 核心 | 发布后不改的身份／阶段、发起方、版本、purpose、预期需求摘要与基线、输入计划引用、选定模型、cwd、工具策略、恢复引用及 acceptanceOperationId |
+| `inputs.json` | worker 内的核心 ContextPlanner | 取得占用后冻结输入、规范／角色、基线引用与指纹，发布后不改 |
+| `launch.json` | 核心 | planned/starting/confirmed/failed 启动意图、句柄与实例证据 |
 | `instructions.json` | worker | 已落实的注入清单：来源 ID、作用域、指纹、注入途径、版本和原生产物位置 |
 | `state.json` | worker | 实例身份、运行状态、Knit／原生 Session 引用和已知子进程定位 |
-| `result.json` | worker／核心 | worker 写执行终态与报告；主会话阶段由核心写事实结果，含实际 runtime、模型、cwd、Session 与用量 |
-| `check.json`／`snapshot/` | 核心 | 检查输入与有效性凭据／实施前文件和 index 恢复对照，见第 5.3 节及运行细则 |
+| `result.json` | worker | 不可变终态、结构化报告、原生引用与本 run 增量用量，不证明 Git 收尾 |
+| `scope.json`／`check.json` | CheckService | 发布后不改的成果范围／检查凭据，资格由当前目标版本推导 |
+| `snapshot/` | 核心 | preparing/ready/failed 恢复对照及覆盖说明 |
+| `events.jsonl` | worker | 只作脱敏进度观察，半行／重复不作为完成证据 |
 | `cancel.request` | 核心 | 取消请求，按需建立 |
 
 未建正式任务的执行使用空任务 ID。原始工具记录引用对应客户端的原生 Session；平台生成的临时指令、配置与输出放在本 run 的 `native/` 下。worker 获得原生 Session 引用后立即写入状态，核心核实后登记 Session 索引并更新绑定；父会话失联时可从原 run 补齐索引。
@@ -322,14 +314,14 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | 通用 | `summary` 为文本，`validation`、`blockers` 为数组，可为空。每条验证记录方法、结果和证据，结果为 `pass`、`fail` 或 `not_run` |
 | `discuss` | 辅助报告的 ready 为建议；主 Agent 确认目标、条件和资料后由核心推进 |
 | `implement` | `changedPaths` 为路径数组；核心结合启动基线核对实际差异 |
-| `check` | `verdict` 为 `pass`、`changes_requested` 或 `blocked`，另有 `coverage`、`findings`、`unverified` 数组；通过需证据有效且没有未处理阻塞 |
+| `check` | verdict、coverage、findings、unverified 及待人工确认 ID；pass 指角色可核部分有证据，Core 另外计算全部交付资格 |
 | `deliver` | worker 只提供 `summary`、`validation`、`blockers` 和整理建议；核心根据实际 Git／文件结果生成 `commits`、`archivePath`、`pending`，遗留必需交付项时保持待收尾 |
 
-主会话完成讨论与收尾，辅助请求显式标记 purpose=advisory。`assist deliver` 只返回建议，不写 Git 或阶段完成状态。每个 run 的回执写入方固定、终态不覆写；实际工作提交／归档事实由核心操作记录另记，不能将辅助报告当完成证明。
+主会话的讨论确认与收尾事实写核心操作和任务记录，不伪造 worker run/result。advisory run 只证明建议产出；正常执行结果由核心按 request 中固定 acceptanceOperationId 复核并接收。进程在接收中断时先恢复操作，不再执行一次模型阶段；worker 崩溃后的核实结论另记 run.reconcile，不能冒充正常报告。
 
 启动响应丢失时，按 run 和 handle 查找原运行。父会话退出、窗口关闭或心跳停止后，核对回执、实例和存活证据。状态未知时保留占用并调查，确认原运行终止后才允许重试。旧 PID 和旧状态标记需结合实例身份核实。
 
-取消通过 `cancel.request` 发出，worker 调用公开取消接口，等待工具结束或确认中止后写入 `cancelled`。超时显示“取消待确认”，保留现场与占用。
+取消先按 requestId 在核心操作日志保存，解析目标后向 run 发 cancel.request，或暂停确定性操作。worker 通过公开接口取消并等待工具终态；终态发布与取消意图用同一短临界区裁定。超时仅待确认，保留占用；已发生的 Git／文件效果不自动回滚，单独观察的退出不发送执行取消。
 
 同一项目不并行运行两个代码阶段或 Git 收尾。主 Agent 可持续讨论并保存纯记录；新要求先记待应用，真正修改有效输入在旧工具结束后进行。Knit 占用不约束外部编辑器或用户直接 Git 操作，阶段边界仍核实实际文件与身份。
 
@@ -442,7 +434,7 @@ CLI 只使用与本次调用匹配的上下文。无上下文的正式任务调�
 
 ### 9.3 运行状态与持久化
 
-任务 frontmatter 保存机器可读 phase 与分支；正文保存可靠结果。绑定保存本机执行位置、阶段 Session、最近运行及检查引用；Session 索引保存归属与原生定位。恢复先按第 3.6 节判断阶段，再验证对应 run 和实际输入，不能仅从正文或旧检查摘要推进。
+输入变更先保存意图；活动 run 尚未终止时不改有效输入，后续代码阶段与交付需先应用或明确撤回该变更。输入与记录、启动／worker、取消、检查、选择、规范、操作和封存的完整规则见 [STATES.md](STATES.md)。各文件唯一写入方与意图／效果顺序见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 提交、阶段写回与归档的断点记录保存于 `.knit/.runtime/operations/<operation-id>.json`。执行细步骤和工具记录留在原生 Session，本机请求、凭据和回执按协议版本读取；未知版本阻塞执行，见 [版本约定](OPERATIONS.md#5-数据版本与升级)。
 
@@ -520,7 +512,7 @@ Session 查询可按任务、客户端、主／子类型和父子关系定位，
 
 归档提交范围为本任务源／目标路径及实际相关引用。归档文档保存工作 Commit，归档 Commit 哈希由 Session 操作结果和最终报告提供。
 
-任务可按完成、取消或被替代归档。暂停保留活动任务及执行绑定。没有代码工作提交时记录实际情况。
+任务可按完成、取消或被替代归档。取消／替代只归档资料，不要求把未完成源码检查成 pass，也不默认提交部分代码；已有提交如实引用，没有就记录无工作提交，不制造空 commit。暂停保留活动任务和绑定。
 
 ## 11. 失败与中断恢复
 
@@ -546,13 +538,13 @@ Session 查询可按任务、客户端、主／子类型和父子关系定位，
 | 归档已移动、提交失败 | 按回执定位并完成归档提交 |
 | 后续归档成功、清理失败 | 报告成果与保留环境，单独处理清理 |
 
-收尾操作记录轻量操作 ID、预期状态和结果。每次恢复核实实际产物；重试前确认旧阶段及 Git 操作状态，按已完成步骤继续。
+收尾以操作 ID、尝试 requestId、预期状态和核验结果记录。取消可按 requestId 先保存意图，再绑定 run／操作；暂停确定性操作时保留已发生的 commit/move，核实在途进程，不自动回滚或把业务 outcome 改为 cancelled。每次恢复使用新请求、核实实际产物并跳过已验证步骤，迟到取消不影响新尝试；详情见 STATES.md。
 
 ## 12. 列表与资料维护
 
 调用入口见第 4.1 节；`doctor` 只读检查状态与引用，`storage` 显示容量及告警。首版保留恢复资料，不实现自动 gc。
 
-首版列表只采集当前项目，未归档区枚举 `.knit/tasks/` 直接子目录，归档区枚举 `archive/YYYY-MM/<任务目录>/task.md`。结合状态与操作回执显示：`closed` 但未归档为待收尾，已移动但操作未完成为已移动／待提交，完整归档后显示结束结果。目录位置不单独证明交付完成，异常身份或状态保留待核实。
+首版列表采集当前项目活动区及 archive/YYYY-MM。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。换机器缺本机回执时，已入库且身份／结束字段有效的档案显示 Git 历史已归档，不自动重开，也不能作为新执行的检查证明。未入库移动或未核实效果继续显示待处理。
 
 后续 Worktree 列表按 Git 登记与绑定采集各执行目录，区分同 ID 的当前资料和历史副本；不可达绑定保留条目并标明待修复。
 
@@ -597,6 +589,8 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 后续增加 REX、Codex、Claude Code 等适配实现，以及 Worktree 执行环境及根目录、`worktree.copy`、`worktree.postCreate`、`delivery.mode: "merge"` 与 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
 
 首版没有 `limits.maxTokens`、`limits.maxCostUsd` 或 `limits.workerTimeoutMs` 配置；用量只观测。主动预算停止作为后续可选能力，不由项目配置暗中启用。
+
+首版依赖与版本按 [TECHNOLOGY.md](TECHNOLOGY.md) 选取，模块与文件写入方按 ARCHITECTURE.md，所有状态按 STATES.md；实现时同步命令、配置和验收，不在本地模块另写不同枚举。
 
 ## 14. 初始化与客户端接入
 
@@ -659,6 +653,8 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 | 快照、占用和诊断 | 未跟踪与 index 对照完整；取消不自动还原，恢复按路径核对；PID 复用、未知锁、容量和旧版本都有明确入口 |
 | 用量与敏感内容 | 只累计本 run 新调用，缓存作为输入子集不重复相加；unknown 不作零，正常任务不因 token／耗时统计而取消；凭据不落请求或入库记录 |
 | 收尾入口与辅助 | run deliver 与 deliver 进入同一处理器；assist deliver 不提交／归档，主 Agent 与确定性工具核实完成事实 |
+| 状态与操作契约 | 枚举、事件、守卫和唯一写入方对应；重复接收不重复计数／提交；副作用未知先核实，状态待同步先恢复操作 |
+| 人工条件与后台提醒 | 默认不加审批；明确必需确认绑定成果版本，补齐不重跑技术模型；旧 run 只通知匹配原发起上下文，不覆盖后来任务 |
 | 单任务闭环 | 在当前项目、当前分支完成讨论、实施、独立检查、提交归档；无 Worktree 探测或操作 |
 | 任务授权、改名与归档占用 | 按授权创建，稳定 ID 与路径一致；名称冲突、跨年和跨月重试保留正确记录 |
 | 角色、规范和指令 | 只加载相关内容，主／子会话与角色范围正确；原生加载和显式注入去重，恢复时更新变化项 |
@@ -679,6 +675,8 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 
 本轮临时实验确认 `git stash create` 保存已跟踪工作内容及暂存对照，原有暂存内容和工作文件保持；未跟踪文件不在快照中，仅有未跟踪文件时没有对象。索引文件元数据可刷新，不能承诺索引字节完全不变。该实验未执行恢复，也未修改当前项目的 Git 状态。
 
+公开包与本机 SDK 核查及 TypeBox JSON schema 内存实验见 [RESEARCH.md](RESEARCH.md#1712-技术约束核查)。实验在 Node25.5.0，不代表 Node24 的编译、安装、完整会话恢复与工具终态验证通过。
+
 源码核查与 Git 实验不证明 Knit 已实现。内部装配、原生恢复、检查凭据、快照、占用、用量归一、敏感内容和命令链仍待实现验收；同文件分块、hooks 及外部并发需专项验证。
 
 ### 16.3 后续能力验收
@@ -698,12 +696,12 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 
 | 里程碑 | 范围与完成标准 |
 | --- | --- |
-| M0：适配 spike | 验证项目 Pi 桥接、真实 Session／模型来源、取消，以及新进程 open + createAgentSession 的原生恢复；建立内部 fake runtime 和临时资料根 |
+| M0：适配 spike | 干净 Node24 + 锁定 TS／SDK／TypeBox 的编译与 schema 契约；验证项目桥接、真实 Session／模型、agent_settled、受控工具取消与新进程原生恢复，建立 fake 与临时资料根 |
 | M1：最小闭环 | 在临时仓库走通一个任务：输入／记录区、phase、Pi/local、实施、独立检查、主 Agent 收尾、提交归档；包含最小规范候选提示。调用始终经过内部模块契约，授权、路径范围和凭据保护从首条写路径开始 |
-| M2：原地执行保护 | 补齐私有快照、index 保护、项目执行与记录短锁、取消终态、陈旧占用、恢复与 Git／归档断点；验证既有用户修改不会被覆盖 |
-| M3：首版可用性 | 补齐 adopt 与状态表边界、会话树选择、初始化升级、注入去重、用量口径、doctor/storage 和故障注入，完成第 16.1 节 |
+| M2：原地执行保护 | 私有快照、index 保护、执行／短锁、工具终态和陈旧占用；按意图日志覆盖 commit 成功但回执丢失、接收中断、移动断点与恢复，不重复副作用 |
+| M3：首版可用性 | 补齐状态契约、人工条件、后台提醒／树切换、adopt、初始化升级、注入去重、用量、doctor/storage、故障注入及打包安装，完成第 16.1 节 |
 
-M1 的单控制者／单 worker、固定临时仓库假设仅用于尽早验证闭环，不能宣称已可安全用于真实项目。真实项目使用前须完成 M2，首版发布完成 M3；不会先在用户现场运行不具备保护的原型。
+M1 的单控制者／单 worker、固定临时仓库假设仅用于验证闭环；fake 只进测试装配，不是生产可选值，也不用于真实项目交付。真实项目使用前完成 M2，首版发布完成 M3，不先在用户现场运行缺少保护的原型。
 
 fake runtime 通过内部装配表产生确定性事件、报告、取消、用量与假历史，不调用真实模型。受控时钟、进程身份与崩溃点覆盖阶段、归档、记录并发和恢复；它不替代真实 Pi SDK 测试。真实存储链先离线验证，模型继续执行和工具终态单列有明确模型与费用预期的冒烟测试。
 
@@ -715,4 +713,4 @@ Git 测试只用临时仓库，覆盖 dirty/index、未跟踪快照、分支接�
 
 ## 18. 规范维护
 
-需求变更同步结构、字段、命令、配置与验收。首版协议在本文件和 [OPERATIONS.md](OPERATIONS.md)，术语在 [GLOSSARY.md](GLOSSARY.md)；后续 Worktree 和研究分别保存在 [WORKTREE.md](WORKTREE.md)、[RESEARCH.md](RESEARCH.md)。跨文件引用与范围一起维护，协作要求见 `AGENTS.md`。
+需求变更同步结构、字段、命令、配置和验收。模块／协议依赖以 ARCHITECTURE.md、状态转移以 STATES.md、技术决定以 TECHNOLOGY.md 为详细规范；本文件保留产品概览，OPERATIONS.md 补充执行细则。术语、后续 Worktree 和来源分别在 GLOSSARY.md、WORKTREE.md、RESEARCH.md。修改时同步相关摘要，不另造一套枚举；开发约定见 AGENTS.md。

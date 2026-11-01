@@ -2,7 +2,7 @@
 
 ## 当前工作
 
-本仓库处于设计阶段。`DESIGN.md` 与其链接的运行细则、术语和后续研究资料保存设计规范，本文件保存 Agent 协作要求。实现、Git 初始化与正式任务创建按用户的明确指令开展。
+本仓库处于设计阶段。`DESIGN.md` 保存产品规范，详细架构、状态、技术与运行约定分别在 `ARCHITECTURE.md`、`STATES.md`、`TECHNOLOGY.md`、`OPERATIONS.md`；术语和研究按链接查阅。本文件保存开发 Agent 协作要求。实现、Git 初始化与正式任务创建按用户明确指令开展。
 
 本文件是开发 Knit 仓库的 Agent 入口，不作为 `knit init` 的产品模板。用户项目入口由安装包模板生成，并保留用户原有规则。
 
@@ -19,7 +19,7 @@
 ## 开发约定
 
 - 实现范围以 `DESIGN.md` 第 15.1 节为准。Knit 是独立 CLI，内部模块可替换；init 自动生成项目级 Pi 桥接，不要求另装全局 Pi Extension，也不建设对外插件平台。首版不实现任何 Worktree 功能；规范随真实任务持续演进，研究不自动扩大交付范围。
-- 先找出受影响的结构、字段、命令、信任、配置、引用和验收场景，再同步修改。运行细则在 `OPERATIONS.md`，术语在 `GLOSSARY.md`；Worktree 和研究分别在 `WORKTREE.md`、`RESEARCH.md`。
+- 先找出受影响的结构、字段、命令、信任、配置、引用和验收场景，再同步修改。模块和协议按 `ARCHITECTURE.md`，状态枚举／转移按 `STATES.md`，依赖与技术取舍按 `TECHNOLOGY.md`；执行细则在 `OPERATIONS.md`，术语在 `GLOSSARY.md`。Worktree 和研究分别在 `WORKTREE.md`、`RESEARCH.md`。实现只加载当前任务所需资料，不把全部研究强行灌入上下文。
 - 修改命名或路径时，核对创建、复制交接、Worktree、分支、绑定、列表、恢复和归档的完整链路。
 - 区分可读名称、稳定身份和实际执行位置，沿用 `DESIGN.md` 中各自的用途。
 - 文风整理保持既定行为、授权边界和数据语义；必要的设计变更单独说明。

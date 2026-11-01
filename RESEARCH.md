@@ -138,3 +138,15 @@ Trellis 由独立 CLI 创建项目工作流与平台资料，Pi 配置器生成�
 `finish-work` 提醒核对规范缺口，`update-spec` 从设计决定、调试教训和重复错误更新规则，要求具体约定、示例、失败边界与测试，并避免重复和一次性细节。Knit 将其融入任务与收尾：记录候选，核对后更新设计／开发规范及索引，后续任务按需读取；不保证每任务必有新规则，也不把模型提示词约定说成自动代码保证。
 
 来源：[独立初始化](https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/commands/init.ts)、[Pi 项目配置](https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/configurators/pi.ts)、[收尾检查](https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/common/commands/finish-work.md)、[更新规范](https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/common/skills/update-spec.md)。
+
+## 17.12 技术约束核查
+
+本轮读取本机已安装 Pi 1.4.0 的 package、SDK／CLI 文档、extensions 类型／加载器和 bash 工具定义；npm 只读查询确认该版本可取得，engines 为 Node >=22.19，TypeScript 6.0.3 已发布。SDK 使用 ESM、typebox 1.3.27、yaml 2.9.0，并公开 sendMessage、registerTool、createBashTool／BashOperations。
+
+本机 Node v25.5.0、Git 2.54.0。只在内存做 TypeBox 1.3.27 JSON schema 往返校验实验，确认合法值通过、错误 action 与多余字段被拒；未运行模型或完整 SDK 恢复。这不是 Node24 基线兼容验收。
+
+官方资料核查：Node24 为维护期 LTS，计划支持至 2028-04-30；Commander15 要求 Node>=22.12；TypeBox1 与旧 @sinclair/typebox0.34 API 不同，锁定版本后按其 exports 实现；YAML2 提供 Document 编辑，但不保证注释和文本字节完全不变。Node 自带测试运行器适用于本版的端口注入与临时仓库测试。
+
+依据：[Node 生命周期](https://nodejs.org/en/about/previous-releases)、[发布计划](https://github.com/nodejs/Release/blob/main/schedule.json)、[Commander15](https://github.com/tj/commander.js/blob/v15.0.0/Readme.md)、[TypeBox](https://github.com/sinclairzx81/typebox)、[TypeBox1.3.27](https://www.npmjs.com/package/typebox/v/1.3.27)、[YAML2](https://eemeli.org/yaml/)、[Node24 测试运行器](https://nodejs.org/docs/latest-v24.x/api/test.html)、[Pi SDK1.4.0](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.4.0)、[TypeScript6.0.3](https://www.npmjs.com/package/typescript/v/6.0.3)。
+
+技术决定见 [TECHNOLOGY.md](TECHNOLOGY.md)，接口存在与元数据满足要求不代表已实现或通过端到端验收。
