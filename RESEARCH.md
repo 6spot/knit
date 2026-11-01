@@ -141,7 +141,7 @@ Trellis 由独立 CLI 创建项目工作流与平台资料，Pi 配置器生成�
 
 ## 17.12 技术约束核查
 
-本轮读取本机已安装 Pi 1.4.0 的 package、SDK／CLI 文档、extensions 类型／加载器和 bash 工具定义；npm 只读查询确认该版本可取得，engines 为 Node >=22.19，TypeScript 6.0.3 已发布。SDK 使用 ESM、typebox 1.3.27、yaml 2.9.0，并公开 sendMessage、registerTool、createBashTool／BashOperations。
+早期包元数据核查读取本机已安装 Pi 1.4.0 的 package、SDK／CLI 文档、extensions 类型／加载器和 bash 工具定义；npm 只读查询确认该版本可取得，engines 为 Node >=22.19，TypeScript 6.0.3 已发布。SDK 使用 ESM、typebox 1.3.27、yaml 2.9.0，并公开 sendMessage、registerTool、createBashTool／BashOperations。 这是历史技术事实，当前 Pi 接入使用本机 CLI；不据此引入 SDK、绑定其编译器／schema 版本或推定业务链路通过。
 
 本机 Node v25.5.0、Git 2.54.0。只在内存做 TypeBox 1.3.27 JSON schema 往返校验实验，确认合法值通过、错误 action 与多余字段被拒；未运行模型或完整 SDK 恢复。这不是 Node24 基线兼容验收。
 
@@ -180,3 +180,9 @@ M1 开发诊断只做结构化 stderr、白名单及最小等价冒烟；私有�
 默认 `agent.resume: prefer` 采用已授权兜底：优先恢复原生记录，旧记录不可用时沿同一客户端自动创建新 Session，读取任务要求、适用正式规范、进度、已有执行事实与当前代码续做；来源和原因留存，阶段／修复次数／scope 不因换会话重置。旧执行未知、模型不可用或任务归属不明仍阻塞。
 
 [独立文件续做实验](validation/session-fallback/README.md) 已动态验证缺失记录触发新会话、初始历史为空、真实工具读取任务与进度文件、完成剩余代码并经控制器复跑测试通过。模型总结自行改变了阶段／次数，控制器未采纳；权威任务文件与控制器值不变，旧报告及校验更正一并留存。本例不替代损坏／兼容触发分类等产品实现后验收。
+
+## 17.17 整体设计一致性审查
+
+九份系统文档已按本机 CLI、单一候选仓储及 prefer 新会话续做统一核对。跨 run 原生文件与 run 证据分开，opening／available 与模型首轮启动分开，项目安装 ready 与 Pi 项目信任分开；草案应用／撤回、关闭与迟到结果、共享锁根、只读历史和完成结果连接均补齐对应规则。技术版本仍是产品设计选择，文件／SQLite 与 Node24 组合验收未被写成已通过。
+
+问题和修正记录、当前决定与尚待实现的验收见[整体审查资料](validation/design-audit/README.md)。本轮仅修订设计与做文档／旧证据完整性校验，未安装依赖、发模型请求或实现产品。

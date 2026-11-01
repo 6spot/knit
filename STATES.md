@@ -33,17 +33,19 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 
 | 事件／入口 | 守卫 | 转移与效果 |
 | --- | --- | --- |
-| TaskCreated：task new | 用户授权、身份唯一 | open/discuss，不自动实施 |
+| TaskCreated：task new | 用户授权、身份唯一、有效 Git HEAD／分支（DESIGN14.1） | open/discuss，不自动实施 |
 | DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备 | discuss → implement，保存确认输入引用 |
-| InputsUpdated：task update --kind clarify | 原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则转 open/check 并清 completed |
-| InputsUpdated：task update --kind change | 新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
+| InputsUpdated：task update --kind clarify | 未完整归档且非 cancelled/superseded；原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则转 open/check 并清 completed |
+| InputsUpdated：task update --kind change | 未完整归档且非 cancelled/superseded；新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
+| PendingApplied：task update --apply-pending | 草案摘要与基线输入均匹配，旧执行已结束且结果事实收敛 | 按草案保存的 kind 应用 InputsUpdated，清本份草案，不发模型 |
+| PendingWithdrawn：task update --withdraw-pending | 含更新操作 ID 的草案版本摘要匹配、有撤回理由 | 清本份草案并留记录，冻结输入／phase 不变；不作用于后来草案 |
 | InputsUpdateProposed：运行中 update | 已有活动 run，不改其冻结输入 | 保存 kind、理由、预期原摘要和拟修改内容，待工具终态后应用 |
 | RecordWritten：task record | 只改记录、未封存、短锁内核对版本 | 不改有效输入或 phase，不使检查失效 |
-| ImplementationAccepted | execution 报告及实际成果有效 | implement → check，累积 scope |
+| ImplementationAccepted | Task 为 open/implement，execution 报告及实际成果有效 | implement → check，累积 scope |
 | CheckAccepted | 最新获准检查及目标版本匹配 | pass → deliver；changes_requested → implement；blocked 保留 check |
 | RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check；discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施 |
 | BusinessClosed：deliver 或 task close | 正常完成须有效检查及主 Agent 完成判断 | closed/completed/deliver，Git 收尾另看回执 |
-| TaskEndRequested：task close | 明确取消／替代，先停活动工具并核实效果 | closed 及相应 outcome，不默认提交部分源码 |
+| TaskEndRequested：task close | 明确取消／替代，无该任务活动／未知 run 或未核实 Git 效果；待接收结果先核实事实并收敛 | closed 及相应 outcome，不默认提交部分源码 |
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 
@@ -53,7 +55,7 @@ clarify 包括解释原要求、纠正表述、补充定位或验证资料；新
 
 待应用变更在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
 
-adopt 不创建或切换分支。无活动／未知 run、未核实 Git 效果且输入一致时：discuss/implement 保持，check 待复查，deliver 回 open/check 并清 completed。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
+adopt 不创建或切换分支。必须没有活动或状态未知的 run、没有未核实的 Git 效果，且输入已收敛一致。满足这些守卫后：discuss/implement 保持，check 待复查，deliver 回 open/check 并清 completed。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
 
 ## 4. 自动修复计数
 
@@ -73,9 +75,9 @@ launch 使用 planned/starting/confirmed/failed。starting 响应丢失先查匹
 stateDiagram-v2
     [*] --> claimed
     claimed --> preparing
-    preparing --> running: 占用 输入 快照 会话与指令就绪
+    preparing --> running: 占用 输入 快照 会话参数与指令就绪
     running --> finalizing: 模型与工具稳定结束
-    finalizing --> completed: 合法报告和持久化完成
+    finalizing --> completed: 合法报告和本 run 证据持久化
     claimed --> cancelling: 取消
     preparing --> cancelling: 取消
     running --> cancelling: 取消
@@ -89,7 +91,7 @@ stateDiagram-v2
 
 Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开 prompt 完成／agent_settled 及真实工具终态为边界。result 先持久化，state 再收敛，均由 worker 写，终态不覆写。check 的 changes_requested 可是执行 completed；advisory 完成不推进 Task。
 
-崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。
+崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。 Task 关闭与该任务启动／接收在同一任务短临界区核对 status、phase 与版本；迟到旧结果保留为执行事实，不能重开 cancelled/superseded、覆盖其 outcome 或继续自动修复。
 
 status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。
 
@@ -105,16 +107,16 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 | 状态 | 含义 |
 | --- | --- |
-| opening | 本次打开／创建尚在准备，不能宣称可恢复 |
+| opening | 原生引用尚未确认达到可恢复条件，与 run 的准备／运行状态分别判断 |
 | available | 原生归属、引用和必要持久性已核实 |
 | missing | 曾有可恢复记录，当前缺失或不可读取，保留引用及原因 |
 | incompatible | 客户端、版本、角色或身份不匹配，不交另一客户端解释 |
 
-创建未完成或尚未落盘的具体原因记录在本次 run 准备结果中，不再新增 Session 状态。失败尝试不覆盖旧可用阶段引用，不伪造消息触发原生保存。dispose 不删除原生历史。实施与检查不可复用活跃主会话文件。
+创建未完成或尚未落盘的具体原因记录在本次 run 准备结果中，不再新增 Session 状态。run 已终态而引用仍 opening 时显示不可恢复原因，不冒充进程仍运行。失败尝试不覆盖旧可用阶段引用，不伪造消息触发原生保存。dispose 不删除原生历史。实施与检查不可复用活跃主会话文件。 新会话 opening 期间可在参数／指令就绪后调用模型，available 不是首轮调用的前置条件；只有原生持久化已核实才作为可恢复阶段引用。原生文件由客户端保存，不能为了置 available 伪造一轮模型或直接追加文件。 执行、工具终态和报告均有效时，仅原生引用暂不可恢复不导致重新执行模型；单独记录引用失败原因，不更新可恢复指针，下次按 prefer 兜底。run 自身结果／证据写入失败仍不能宣称完成。
 
-默认 resume=prefer：先核实旧工具结束，再取跨项目稳定的 Session 执行占用，由原客户端加载并核对原生 ID／历史。旧记录缺失、损坏、不兼容或恢复失败时自动创建新 Session；旧对象保持原状态与引用，新对象 opening→available 后才更新阶段引用，来源与原因记录在本次准备结果中。新会话读当前任务、正式规范、进度、已有事实和实际代码续做，不重置 phase、修复次数、scope 或检查资格。客户端缺失、模型不可用和旧工具状态未知仍阻塞，新建失败不递归兜底；默认配置变化不改变旧记录归属。
+默认 resume=prefer：先核实旧工具结束，再按项目执行锁→客户端原生 ID 锁的顺序取得占用，由原客户端加载并核对原生 ID／历史。旧记录缺失、损坏、不兼容或恢复失败时，保持项目占用、释放旧 Session 锁，再锁预分配的新原生 ID 并自动创建新 Session；旧对象保持原状态与引用，新对象 opening→available 后才更新阶段引用，来源与原因记录在本次准备结果中。新会话读当前任务、正式规范、进度、已有事实和实际代码续做，不重置 phase、修复次数、scope 或检查资格。客户端缺失、模型不可用和旧工具状态未知仍阻塞，新建失败不递归兜底；默认配置变化不改变旧记录归属。
 
-活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目。树切换重新核实，不清掉后来选择的别的任务。后台结果只投递匹配原发起会话／路径。已有继续授权、无暂停和待应用输入时，完成消息可唤醒主 Agent 决定下一环节；忙时按原生队列排入，不打断新输入，切会话或关闭时仅保留结果供 status/resume。M0 必须真实验证轮外投递与是否触发模型回合，不能仅凭 sendMessage 类型存在认定可行；监听器关闭不取消 worker。
+活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目；未落盘只记录待确认原因，不增加专用持久化状态。树切换重新核实，不清掉后来选择的别的任务。桥接只观察当前发起上下文可核实的 run，轮询／去重／投递按 DESIGN9.3；切会话／树或关闭停止观察但不取消 worker。完成可按已有继续授权触发回合，忙时用 follow-up；核心结果和原生通知分别核实，不承诺模型轮次恰好一次。已有受控回调实验不代替 Knit 真实桥接链路验收。
 
 ## 8. 检查资格
 
@@ -184,7 +186,7 @@ restore 默认预览，执行核对当前指纹、范围和终态。Task 输入�
 
 ## 13. 入口与验证范围
 
-context 提供讨论输入；task ready 推进讨论确认；task update 显式声明 clarify/change；run implement/check 派发或复查；assist 只给建议；deliver、archive、task close 职责分别处理；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
+context 提供讨论输入；task ready 推进讨论确认；task update 写入输入显式声明 clarify/change，草案应用／撤回分别校验摘要；run implement/check 派发或复查；assist 只给建议；deliver、archive、task close 职责分别处理；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
 
 测试按不变量和副作用选择：
 

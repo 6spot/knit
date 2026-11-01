@@ -65,7 +65,8 @@ flowchart TD
 | AgentRuntime | probe、指令准备、new/resume、历史、执行、取消、dispose；输出事件和报告 | 本机 Pi CLI／stdin-stdout RPC；实施与检查 Session 分离 |
 | ExecutionHost | probe、launch、inspect；返回实例身份与定位 | local；同一 worker 程序 |
 | GitPort | 状态、路径／index、提交树、提交与引用验证 | 原生 Git，argv 调用 |
-| FileStore／LockStore | 受控读改写、单写入方文件、执行与短时占用 | 本地文件系统 |
+| MetadataStore | Session／binding／operation 及短事务 | M0 在原子文件与 SQLite 中选一个；不双写权威镜像 |
+| FileStore／LockStore | 项目正文、证据文件、执行与短时占用 | 本地文件系统；不把文件端口等同元数据后端已定 |
 | ProcessPort／Clock | 进程身份、进程组、终态、心跳、单调耗时 | POSIX 实现；测试可注入 |
 
 Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CLI 的 `clear_queue`／`abort`，按公开 `toolCallId` 与稳定终态核实执行；不注入 SDK 工具包装器。外层只管理自身启动的进程与进程组，CLI 被强杀不代表工具全部终止；无法确认旧工具终态时保留占用并阻塞新执行，外部服务和脱离进程组的程序不获得自动接管或回滚保证。
@@ -76,7 +77,7 @@ Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CL
 2. CLI 核心做只读预检、选定模型身份，发布不可变 request 与启动意图；request 记录任务／分支、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
 3. local 启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。
 4. worker 只装配所选 runtime；默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。
-5. worker 持久化原生会话并写终态 result。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。
+5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。
 6. 结果接收可在 worker 内调用同一核心用例；若中断，后续 CLI 按结果与操作意图重入。收到结果不意味着自动发起下一个模型或 Git 操作，主 Agent 根据工作流与当前用户意图继续。
 
 确定性 deliver 在首版由核心 CLI 同步执行，不另建后台任务平台。单独观察断开不等于取消；实际执行进程被终止则按操作中断核实工具／Git 结果并恢复，不承诺界面关闭后自动完成交付。
@@ -102,12 +103,12 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
 | 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |
 | standards.md | 主 Agent 经记录工具 | 未生效候选，审阅事实由操作记录证明 |
-| 原生历史 | 桥接／runtime 的原生 API | Core 不直接并发改写活跃原生文件 |
+| 原生历史 | 运行中主会话的宿主 API／阶段 Pi CLI 自身 | Core 和 worker 不直接追加或并发改写原生文件；阶段记录在独立 native-sessions 位置跨 run 保留 |
 | diagnostics JSONL（M3A） | 启用保存的执行者 | 可丢弃的排查信息，不作业务证据；M1 仅 stderr |
 
-Session、binding、operation 的文件／SQLite 实现由 M0 同路径实验决定；若选数据库就以它为唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。
+Session、binding、operation 的文件／SQLite 实现由 M0 同路径实验决定；若选数据库就以它为唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
 
-讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
+讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason，以及至多一份 pendingInput 草案和基线／草案摘要；该草案不属于当前冻结输入。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
 
 ## 7. 写入与恢复协议
 
@@ -144,7 +145,7 @@ ContextPlanner 区分需求、所选指令版本、授权输出和纯记录。�
 
 ## 9. 代码组织与协议
 
-建议实现目录如下，当前尚未创建：
+已按下列结构建立目录与职责README，尚无业务实现。文件式开发优先顺序及唯一状态表见 [TASKS.md](TASKS.md)；开发阻塞记入 [BLOCKERS.md](BLOCKERS.md)，可用伪代码／暂定接口交接并继续独立任务，完整验收后才标完成：
 
 ```text
 src/
@@ -161,13 +162,13 @@ assets/pi/             # 生成到用户项目的薄桥接模板
 test/                  # 根测试目录
 ```
 
-取消以已确认的 run/operation ID 和执行 token 定位。prepare 先持久化 ID 并返回，桥接确认后才 start；ID 未确认前不执行模型或项目业务副作用。不设请求级取消协议，恢复以新 run ID／操作 token 隔离旧取消；终态与取消仍在同一短临界区裁定。
+取消以已确认的 run/operation ID 和执行 token 定位。prepare 先持久化 ID；持有调用的桥接或直接 CLI 入口保存 ID 后确认 start，之前无模型或项目业务副作用。确认是入口内部握手，不是人类二次许可或新增公开命令。start 响应丢失查原 ID，不重复启动。不设请求级取消协议，恢复以新 run ID／操作 token 隔离旧取消；终态与取消仍在同一短临界区裁定。
 
 单独取消观察只结束观察；Pi 桥接执行工具取消必须另向核心持久化意图，不直接先杀掉调用进程。Git 操作取消停止未开始步骤，核实在途命令的真实结果后进入 needs_attention，已提交／已移动的事实不撤销。
 
 CLI JSON 响应含 protocolVersion、requestId、outcome、data、reasonCode、nextActions；outcome 为 accepted/completed/blocked/needs_attention/error。业务待处理不是模型工具崩溃，桥接应展示下一步，不做无条件重试。
 
-普通 `--json` 输出单响应，日志走 stderr；显式 `--events` 使用 JSONL，最后包含终态响应。流中断只表示观察结束。取消由独立意图落盘，不能让取消请求随被中断的等待子进程一起丢失。
+普通 `--json` 输出单响应，日志走 stderr；显式 `--events` 使用 JSONL，最后包含终态响应。流中断只表示观察结束。取消由独立意图落盘，不能让取消请求随被中断的等待子进程一起丢失。 这些是协议响应，与可丢弃的 events／诊断 JSONL 区分：协议只按 LF 增量解码，尾部半条响应不作成功，须按已知对象核实；不得忽略畸形帧后宣称命令完成。
 
 所有提交操作由核心接收明确的完整目标 branch 和授权来源声明，并在 operation 保存来源定位／摘要、默认分支候选及实际目标。核心不宣称理解自然语言授权，Main Agent 负责取舍；主分支检测不授予权限。详见 OPERATIONS 的授权细则。
 

@@ -1,0 +1,62 @@
+{
+  "status": "passed",
+  "recorded_at_utc": "2026-11-01T16:28:26.331524+00:00",
+  "documentation_files": 9,
+  "headings": 132,
+  "local_links": 77,
+  "tables": 39,
+  "code_fences": 7,
+  "JSON_examples": 1,
+  "cross_document_policy_checks": "passed",
+  "old_active_assumptions": "no forbidden residue",
+  "frozen_evidence_fingerprints_checked": 113,
+  "frozen_evidence_modified": false,
+  "model_requests": 0,
+  "product_tests_run": false,
+  "documents": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "eb82f8bfa8adfb630e738a78bd02159f62cc4caffdebe80693fbfa176418c6c8"
+    },
+    {
+      "path": "DESIGN.md",
+      "sha256": "0e7860c9305f07d8c0ac4e6774c096479671c5adfaf0335e29e22129a84f02d3"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "sha256": "2c1d36fac8826b95a25d2be4ab792556b4ec6a1032a993be5a961513524e2fab"
+    },
+    {
+      "path": "STATES.md",
+      "sha256": "65320c71b385cda0e467d726dca878f8616cae8d2af0e59381788ea7d100dd51"
+    },
+    {
+      "path": "TECHNOLOGY.md",
+      "sha256": "3a3d6531fcaa3f64eec33fef41a7e4862e42e4f204a1050cb0f0b133689e25d6"
+    },
+    {
+      "path": "OPERATIONS.md",
+      "sha256": "0546141e05c558153337ba74fa93806d94655a9de4aa4740ce50f4de25266a2d"
+    },
+    {
+      "path": "GLOSSARY.md",
+      "sha256": "069c71e06f3b8a48621b2c1ae4f81cb3b1dc73d6d72d60d8053369c003eef860"
+    },
+    {
+      "path": "RESEARCH.md",
+      "sha256": "e7dbae0ea0b0dd7b8e3ae7e206e92006241ae37be4136e1c57c65a29590b4f4d"
+    },
+    {
+      "path": "WORKTREE.md",
+      "sha256": "f671b5899e73aeb34f5af420ab515a8428820839076cc153baf794b17d3fdd2e"
+    }
+  ],
+  "audit_readme_sha256": "1926b6253f20ec398fb114ee9e1bf06edde0a818968278ffd92d35e2b2ad8da6",
+  "remaining_acceptance": [
+    "M0 file-vs-SQLite comparison",
+    "Node24 build/package matrix",
+    "generated host tool schema and trust",
+    "actual worker-result-to-bridge notification",
+    "Knit implementation state/locks/cancel/delivery tests"
+  ]
+}
