@@ -53,7 +53,7 @@ flowchart TD
 | OperationService | 意图、步骤、效果核验、幂等接收、重试及显式放弃 |
 | DiagnosticsService | 只读状态投影、doctor、storage、用量展示及恢复建议 |
 
-核心只把原生工具回执、代码／文件版本引用或明确用户确认作为相应证据。模型称“测试通过”不能替代实际工具记录；工具退出成功也不能证明覆盖了全部目标。检查可核部分的 verdict、当前目标的资格和任务明确要求的人工确认分别处理，默认不增加人工门槛。
+核心只把原生工具回执、代码／文件版本引用或明确用户确认作为相应证据。模型称“测试通过”不能替代实际工具记录；工具退出成功也不能证明覆盖了全部目标。人工确认由主 Agent 按用户要求核对并记录，首版不设独立门槛命令或状态。
 
 这些是代码职责，首版不拆成服务或独立部署。所有状态转移由同一份领域规则解释；CLI、桥接、worker 内的结果接收和恢复工具复用它。
 
@@ -83,35 +83,33 @@ Pi 日常 run 可后台返回 ID，让主会话继续讨论。桥接可观察事
 
 ## 6. 数据与唯一写入方
 
-所有本机文件都在 Git 忽略、私有权限的 `.knit/.runtime/` 中。下表的写入方是逻辑角色，同一核心服务可运行于不同 CLI／worker 进程，但写入必须经过同一守卫和占用。
+Task、规范和候选在可入库的项目目录；本机索引、运行证据、快照和诊断在 Git 忽略、私有权限的 .knit/.runtime/。原生历史在客户端管理的位置。下表的写入方是逻辑服务，不等于任意进程可绕守卫写入。
 
-| 文件／数据 | 写入方 | 权威用途 |
+| 数据 | 写入方 | 权威用途 |
 | --- | --- | --- |
-| task.md 输入及 frontmatter | TaskService | 业务目标与 status/phase/outcome/branch；记录区另受短锁保护 |
-| installation.json、init-manifest.json | InitializationService | 本机安装、文件所有权、模板与初始化状态 |
-| sessions/*.json | SessionService | 身份关系；selectedTaskId 是有效原生路径的已核实投影 |
-| bindings/*.json | 核心任务／运行服务 | 本机路径、分支、Session、范围／检查引用、当前链与收尾引用 |
-| runs/*/request.json | RunCoordinator，发布后不改 | run、purpose、模型、cwd、工具、恢复意图、acceptanceOperationId |
-| runs/*/inputs.json | worker 内的核心 ContextPlanner，发布后不改 | 取得占用后冻结输入原文／引用及指纹，不随记录区更新 |
-| runs/*/launch.json | RunCoordinator | 启动步骤、实例句柄和响应是否确认 |
-| runs/*/state.json | worker | 认领、准备、运行、取消和执行终态，含版本／实例证据 |
-| runs/*/instructions.json | worker | 本次实际指令来源、途径与可确认生效信息 |
-| runs/*/result.json | worker，终态不改 | 执行报告、原生引用和增量用量；不是 Git 交付证明 |
-| runs/*/scope.json、check.json | CheckService | 已确认成果范围／检查证据；发布后不改 |
-| runs/*/events.jsonl | worker | 进度和脱敏事件，不能代替状态／终态回执 |
-| runs/*/snapshot/ | 核心快照服务 | 恢复对照与 ready 证据 |
-| cancel.request | 核心 | 幂等取消意图，run 及 owner token 固定 |
-| operations/*.json | OperationService | 状态迁移、请求级取消、文件／Git 效果和幂等恢复事实 |
-| standards.md | 主 Agent 经核心记录工具 | 未生效候选；对应审阅事实在操作回执 |
-| 原生 Session 文件 | 主会话桥接或阶段 runtime 的原生 API | 对话、工具和分支关联；Core 不直接并发改写活跃原生文件 |
+| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/phase/outcome/branch，记录短锁保护 |
+| installation/init 清单 | InitializationService | 本机安装、文件所有权、模板与准备状态 |
+| Session 元数据 | SessionService | 身份、角色、关系和原生引用；选择仅作已核实快照 |
+| binding 元数据 | 核心任务／运行服务 | 位置、分支、范围、运行／检查引用、修复 ID／计数／停止原因 |
+| run request/inputs | RunCoordinator／ContextPlanner | 不可变请求；取得占用后冻结输入，含固定 acceptanceOperationId |
+| run launch | RunCoordinator | 启动意图、实例句柄与确认 |
+| run state/result | worker | 真实准备、执行、取消与终态；result 不证明 Git 交付 |
+| instructions、events | worker | 指令落实与脱敏进度，事件不代替结果 |
+| scope/check | CheckService | 不可变范围和检查证据，当前适用性另行推导 |
+| snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready |
+| cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
+| 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |
+| standards.md | 主 Agent 经记录工具 | 未生效候选，审阅事实由操作记录证明 |
+| 原生历史 | 桥接／runtime 的原生 API | Core 不直接并发改写活跃原生文件 |
+| diagnostics JSONL | 启用 --dev 的执行者 | 可丢弃的排查信息，不作业务证据 |
 
-讨论和收尾由主 Agent 完成时写核心操作及任务记录，不伪造 worker run/result。advisory worker 的 result 只证明建议已产出。worker 崩溃后核心可在 run.reconcile 操作中确认 failed/cancelled，不能伪写 completed 的 worker 报告。
+Session、binding、operation 的文件／SQLite 实现由 M0 同路径实验决定；若选数据库就以它为唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。
 
-binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、chain、activeFinalization。引用缺失时按 Task、run 和操作回执核对，不能从正文猜通过。跨机只有入库 Task 时，本机检查资格为 missing。
+讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
 
 ## 7. 写入与恢复协议
 
-可变元数据按 Task、Session、Init 和 Operation 聚合，尽量在各自单文件内原子替换；同一 Task 的受控文件与 binding 通过稳定 Task 短锁串行读改写。指纹、已发布报告和范围按引用连接，不把一份事实复制成多套可写状态。
+可变关联元数据由仓储封装，M0 比较原子文件与 SQLite 短事务。选择数据库可同时提交 Session、binding、operation 的内部更新；Task Markdown、Git 与原生历史仍是外部效果，不能假定同一事务覆盖。任务文件受稳定 Task 短锁保护，指纹与已发布证据只按引用连接。
 
 关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数的 nextState 是待实现目标，只有效果核验和回执完成后才能对外当成事实；不能先改 phase 再尝试执行。
 
@@ -120,17 +118,17 @@ binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、ses
 - 状态决定为纯函数：当前状态、事件和已观测事实，返回允许的转移／效果计划或带原因的拒绝。函数不直接访问文件、模型或 Git。
 - 数据文件原子替换不能代替事务。多文件效果在同一操作中逐步核验；中间状态显示 pending operation，不能当作最终状态继续执行。
 - 已生效但检查点未写的效果，恢复时以当前内容／Git OID 核实并补记，不能再次盲目 commit、move 或 append。
-- 同一 run 接收结果使用 request 中固定的 acceptanceOperationId；同一用户请求由桥接带稳定 requestId。重复请求返回已知结果或恢复同一操作。
+- 同一 run 按固定 acceptanceOperationId 接收，prepare/start 用既有对象 ID 幂等。requestId 可作日志关联，不成为取消对象或单独工作流。重复调用返回既有结果，不另执行。
 - 已完成的证据不改写。新输入、新检查、恢复后的重跑使用新 run；指针失效不等于删除旧证据。
 - 未完成的输入／Git／归档操作会阻塞相关后续动作；记录或选择冲突只影响相应对象，不用一个异常锁死全部功能。
 
-task update 在活动 run 中可先保存待应用输入操作，不改当前有效输入。当前 run 继续旧范围或明确取消；新代码阶段和交付必须先应用或明确撤回该待应用变更。纯记录不用进入此流程。
+task update 显式声明 clarify/change 和理由：前者保持 phase、摘要改变仅使检查 stale，后者回 discuss。核心只做摘要和结构校验，不作语义分类。运行中先保存待应用操作，结束后按原 kind 应用；新代码阶段／交付需先处理，纯记录不走此流程。
 
 ## 8. 并发和版本边界
 
 执行占用覆盖代码阶段、Git 收尾、初始化和有效输入／正式规范修改。任务记录、候选和选择用短锁；次序为执行占用在前、短锁在后，不能持短锁等执行占用。临界区只做受控读改写，不拿任务文件锁等待模型或 Git hooks。
 
-归档先写完整收尾记录，再在任务短锁下捕捉 seal 版本。封存后的补记返回后续处理；本次归档不能声称包含后来内容。归档移动、binding 与清关联按操作检查点恢复。
+归档先写完整收尾记录，再在任务短锁下捕捉 seal 版本。封存中补记明确返回未保存，不自动转存或留修改。结束后按原意重试为新档案修改，不归入原提交或重开业务。归档移动、binding 与清关联按操作检查点恢复。
 
 以报告／结论本身为正式成果的任务，把可验收正文放在显式成果文件并纳入 scope，Task 记录区只留摘要、验证和引用；不能借纯记录的排除规则免检业务产物。简短日常讨论仍可不建正式任务。
 
@@ -161,12 +159,20 @@ assets/pi/             # 生成到用户项目的薄桥接模板
 test/                  # 根测试目录
 ```
 
-取消以原调用 requestId 定位当前尝试，目标尚未分配 ID 时也先在操作日志保存意图。目标出现后转发到 run 的 cancel.request 或确定性操作；每个有副作用的步骤开始前重核。新恢复尝试使用新 requestId，不让迟到的取消误伤它。worker 的终态裁定与取消请求在同一短临界区排序，包含 finalizing 时收到取消的情况。
+取消以已确认的 run/operation ID 和执行 token 定位。prepare 先持久化 ID 并返回，桥接确认后才 start；ID 未确认前不执行模型或项目业务副作用。不设请求级取消协议，恢复以新 run ID／操作 token 隔离旧取消；终态与取消仍在同一短临界区裁定。
 
-单独取消观察只结束观察；Pi 执行工具取消必须另向核心持久化意图，不直接先杀掉调用进程。Git 操作取消停止未开始步骤，核实在途命令的真实结果后进入 needs_attention，已提交／已移动的事实不撤销。
+单独取消观察只结束观察；Pi 桥接执行工具取消必须另向核心持久化意图，不直接先杀掉调用进程。Git 操作取消停止未开始步骤，核实在途命令的真实结果后进入 needs_attention，已提交／已移动的事实不撤销。
 
 CLI JSON 响应含 protocolVersion、requestId、outcome、data、reasonCode、nextActions；outcome 为 accepted/completed/blocked/needs_attention/error。业务待处理不是模型工具崩溃，桥接应展示下一步，不做无条件重试。
 
 普通 `--json` 输出单响应，日志走 stderr；显式 `--events` 使用 JSONL，最后包含终态响应。流中断只表示观察结束。取消由独立意图落盘，不能让取消请求随被中断的等待子进程一起丢失。
 
 单条 Pi 工具 schema 与核心命令 schema 同源生成，桥接嵌入无业务代码的 JSON schema；参数到核心后再次校验。原生效果由桥接执行。关联条目保存需核实持久性，尚未落盘则待确认；上下文注入按本次生效信息核实，通知只报告投递。不能伪造原生历史来补齐能力。主 Agent 负责语义授权与取舍，程序的字段校验不能冒充它。
+
+## 10. 开发诊断
+
+核心用例与基础设施使用轻量可选 DiagnosticSink，默认空实现；领域函数仍无 I/O。--dev 只观察决定、摘要、状态与耗时，不开启 SDK HTTP debug，不改规则、模型或工具权限。
+
+CLI 本次标志传给对应 worker；Pi /knit dev on/off 是当前原生会话内布尔开关，不是新状态机，reload／切会话默认关闭。正常结果、观察流、诊断流分开；桥接工具只向模型返回业务摘要和诊断路径，详细流分离到本地展示；普通终端合并 stderr 的边界见 OPERATIONS。
+
+诊断字段按白名单产生，失败只报告诊断不可用，不改写业务结果。详细格式、保存与对比见 [OPERATIONS](OPERATIONS.md#6-开发者模式)。

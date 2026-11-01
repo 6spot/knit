@@ -1,301 +1,193 @@
 # Knit 状态与转移
 
-本文件是首版状态契约，配合 [架构](ARCHITECTURE.md)、[产品规范](DESIGN.md) 和 [运行细则](OPERATIONS.md) 阅读。所有运行行为待实现；下列枚举、事件、守卫与恢复路径用于代码和测试。
+本文定义首版需要持久化的业务状态和执行协议；架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，操作细则见 [OPERATIONS.md](OPERATIONS.md)。当前均为待实现设计。元数据的文件／SQLite 物理布局由 M0 对比决定，不改变这里的权威与守卫。
 
-## 1. 建模规则与状态目录
+## 1. 状态边界
 
-状态分三类：持久状态可按事件修改；不可变证据发布后不改；观察／展示由证据推导，不另建一个可写的“总状态”。Task phase 表示下一项业务工作，不能充当 worker 或 Git 进度。
+首版围绕下列对象实现，不为每个观察值建立独立状态机。
 
-| 对象 | 持久状态／权威 | 写入方 | 观察与展示 |
-| --- | --- | --- | --- |
-| 初始化 | init-manifest：preparing/ready/failed；无文件为 absent | 初始化用例 | ready 之外仍核对实际文件和兼容性 |
-| 初始化文件步骤 | planned/applied/verified、冲突原因，保留尝试记录 | 初始化用例 | missing、unchanged、conflict 是实际检查结论 |
-| Task | task.md：status、phase、outcome、branch | 核心 TaskService | 运行中、待检查、待规范、待收尾、已归档等派生 |
-| 自动执行链 | binding.chain：active/paused/finished，次数与原因 | 核心协调用例 | 只限制同一授权链，不是后台调度器 |
-| 启动 | launch.json：planned/starting/confirmed/failed | 核心启动用例 | 未确认、响应丢失结合 worker 实例核实 |
-| worker | state/result：claimed/preparing/running/finalizing/cancelling，及 completed/failed/cancelled | worker | 整体 requested、unknown、conflict 由核心推导 |
-| 取消 | cancel.request；worker acknowledgement 与终态 | 核心／worker 各写自己的文件 | requested、acknowledged、unconfirmed、confirmed |
-| Session | 索引身份、原生引用与来源 | 核心 SessionService | opening/available/missing/incompatible 等可用性 |
-| 活动选择 | 原生有效路径的选择事件，索引为投影 | 桥接持久化，核心解释 | none/active/suspended/history_only |
-| 成果范围／检查 | scope.json、check.json，不可变 | 核心 CheckService | missing/pending/valid/stale/blocked |
-| 人工验收门槛 | 输入中明确要求的条目 + acceptance.confirm 操作证据 | 核心验收用例 | pending/confirmed/obsolete；默认无此门槛 |
-| 规范审阅 | 候选文件 + 当前版本的审阅回执 | 核心记录用例 | absent/pending/reviewed/stale；决定另列 |
-| 操作 | operations：planned/running/needs_attention/completed/abandoned | 核心 OperationService | 每步按真实文件／Git 效果核验 |
-| 收尾封存 | delivery 操作的 seal 及版本 | 核心收尾用例 | open/sealed/archived；binding 只保存引用 |
-| 快照 | snapshot/manifest：preparing/ready/failed | 核心快照用例 | 仅 ready 可作为恢复对照 |
-| 占用 | 锁目录与 owner token | 持有者与核实后的恢复用例 | free/held/suspect/unknown/reclaimable |
-| 桥接／观察者 | 内存 attached/observing/disconnected/stopped；安装映射另存 | 主客户端适配 | 监听器退出不改变 worker 状态 |
-| 实现实例 | 内存 created/ready/in_use/disposing/disposed | 装配与进程所有者 | 构造失败清理已取得资源，不建立持久插件状态 |
-| 数据兼容性 | 文件中的版本，不能擅改 | 对应写入方 | supported/migration_required/unsupported/corrupt |
+| 对象 | 权威与职责 | 状态／判断 |
+| --- | --- | --- |
+| Task | Git 项目中的 task.md | status、phase、outcome、branch |
+| run | 一次 worker 尝试的请求与执行回执 | 启动、准备、执行、取消及终态 |
+| Session 引用 | 本机索引及所属客户端的原生记录 | opening/available/missing/incompatible |
+| 检查凭据 | 核心发布的 scope/check 证据，绑定只存引用 | 当前资格由输入及成果版本推导 |
+| 规范候选 | standards.md 和匹配的审阅回执 | 是否需要提示及本次处理决定 |
+| 确定性操作 | 核心操作意图、步骤及实际效果 | planned/running/needs_attention/completed/abandoned |
 
-诊断派生值不能覆盖原事实。例如检查文件中的 pass 不变，当前目标变化只使其资格 stale；心跳可疑不把 worker 写成 failed。每个转移处理必须记录事件来源、预期版本、允许动作、效果及核验结果。
+初始化、快照、占用和兼容性属于执行协议，保留必要结果，不另做产品工作流。桥接监听器和模块实例只是实现资源，不进入持久状态契约。开发者模式是输出开关，也不增加业务状态。
 
-## 2. 初始化
+原始证据发布后不改；unknown、stale、suspect 等是观察，不得据此伪写成功或失败。模型判断语义与授权，核心校验身份、摘要、版本和实际效果。
+
+## 2. 初始化与准备
+
+init 清单使用 preparing/ready/failed，无清单表示尚未初始化。只读检查不修改状态；开始写入前保存文件计划，项目资料只补缺，受管代码按旧基线更新，冲突保留人工内容。所有必需项核实后才 ready；失败重试先核对已生效步骤。
+
+ready 不等于每条命令前置条件满足。非 Git 项目可 init；正式代码阶段和提交仍要求有效 HEAD、分支及干净的 Git 操作状态。未知较新版本只读诊断，不猜迁移。
+
+快照 preparing → ready 或 failed。可信 worker 程序可以先启动、取得占用并准备快照；正式 implement 只有快照 ready 后才调用阶段模型／开始写代码。不做 CLI 到 worker 的执行锁交接。
+
+## 3. Task 与输入变更
+
+open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/completed 的 phase 为 deliver；取消／替代保留停止位置。业务结束与 Git 收尾分别判断。
+
+| 事件／入口 | 守卫 | 转移与效果 |
+| --- | --- | --- |
+| TaskCreated：task new | 用户授权、身份唯一 | open/discuss，不自动实施 |
+| DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备 | discuss → implement，保存确认输入引用 |
+| InputsUpdated：task update --kind clarify | 原目标、条件和范围不变，主 Agent 提供说明 | 保持 phase；有效摘要变化则检查 stale，不自动重跑 |
+| InputsUpdated：task update --kind change | 新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
+| InputsUpdateProposed：运行中 update | 已有活动 run，不改其冻结输入 | 保存 kind、理由、预期原摘要和拟修改内容，待工具终态后应用 |
+| RecordWritten：task record | 只改记录、未封存、短锁内核对版本 | 不改有效输入或 phase，不使检查失效 |
+| ImplementationAccepted | execution 报告及实际成果有效 | implement → check，累积 scope |
+| CheckAccepted | 最新获准检查及目标版本匹配 | pass → deliver；changes_requested → implement；blocked 保留 check |
+| RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check，保留范围，不重聊需求；获准检查时更新最新候选 |
+| BusinessClosed：deliver 或 task close | 正常完成须有效检查及主 Agent 完成判断 | closed/completed/deliver，Git 收尾另看回执 |
+| TaskEndRequested：task close | 明确取消／替代，先停活动工具并核实效果 | closed 及相应 outcome，不默认提交部分源码 |
+
+clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
+
+clarify 保持 deliver 时也不能据 stale 检查提交；显式 run check 触发复查入口。未归档 completed 发生有效输入变更须回 open 并清 completed，clarify 仍保留 deliver 位置。已完整归档的资料维护不自动重开任务。
+
+待应用变更在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
+
+adopt 不创建或切换分支。无活动／未知 run、未核实 Git 效果且输入一致时：discuss/implement 保持，check 待复查，deliver 回 open/check 并清 completed。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
+
+## 4. 自动修复计数
+
+binding 只保存 repairCycleId、repairRounds、stopReason，不建立独立链文件或 active/paused/finished 状态机。新授权周期计数为 0；开始修复轮时累计，重复通知与内部 retry 不重复计数，普通 resume 不重置。
+
+达到项目上限、用户暂停或真实阻塞时写 stopReason，主 Agent 不自动续跑。用户明确开启新修复周期或确认新范围后才分配新 ID；clarify 不构成重置理由。取消旧 run 只影响其对应周期，不能暂停后来新开的周期。
+
+## 5. run 启动与执行
+
+run 只代表 worker 执行，正式阶段为 implement/check，discuss/deliver 的独立建议由 assist 创建 advisory run。context 和确定性 deliver 不创建 run。
+
+准备入口先持久化 run ID／owner token 并把 ID 返回调用方；桥接确认拿到 ID 后才允许执行。准备尚未确认时不调用模型、不改项目业务文件、不做 Git 收尾。CLI 表面仍为一条 run 命令，内部复用 prepare/start；准备中断只留下可查询、可明确放弃的未启动意图。重发 start 按同 ID 认领，不产生第二个实例。
+
+launch 使用 planned/starting/confirmed/failed。starting 响应丢失先查匹配的 claim 和实例，不重启；无法证明有无旧运行时显示 unknown。OS 进程已启动不等于 Agent 已开始。worker 自行取得执行占用，重新核实预期输入，冻结 inputs 并完成必要准备。
 
 ```mermaid
 stateDiagram-v2
-    [*] --> absent
-    absent --> preparing: 计划通过并取得执行占用
-    ready --> preparing: 明确补缺或升级受管文件
-    failed --> preparing: 核实部分结果后重试
-    preparing --> ready: 所需文件与映射均验证
-    preparing --> failed: 冲突或写入未完成
-```
-
-| 事件 | 守卫与动作 | 失败／恢复 |
-| --- | --- | --- |
-| InitChecked | 只读计划，不变状态 | 冲突列差异；不执行模型、依赖安装或 Git 初始化 |
-| InitStarted | schema 可识别、文件所有权已知、无冲突写入；取得项目执行占用，先写 preparing | 预检拒绝且未写入时不伪造一次初始化成功或失败 |
-| ArtifactApplied | 项目资料只补缺；受管桥接／入口对照旧基线，原子写候选并核验 | 当前不等于 before/after 均视为冲突，不覆盖 |
-| InitPublished | 全部必需文件、版本、私有映射匹配，发布桥接后 ready | 中间失败保留逐项结果，桥接拒绝处理未 ready 实例 |
-| ArtifactChangedExternally | manifest 不改成假 failed，健康视图指出冲突／缺失 | init 核实后补缺，已修改的项目正文不重置 |
-
-ready 是初始化完成事实，不证明所有命令前置条件成立。非 Git 项目可 ready；正式代码／提交仍要求有效 HEAD 和分支。CLI 查询不要求 Pi 或桥接已运行。未知版本只读显示，不猜测迁移。
-
-## 3. Task 业务状态
-
-合法组合：open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/completed 的 phase 为 deliver；取消／替代保留停止位置。业务结束与提交归档完成分别判断。
-
-```mermaid
-stateDiagram-v2
-    [*] --> discuss: 创建 open 任务
-    discuss --> implement: DiscussionConfirmed
-    implement --> check: ImplementationAccepted
-    check --> implement: ChangesRequested
-    check --> deliver: CurrentCheckAccepted
-    deliver --> check: 当前检查不适用
-    deliver --> archived: 确定性收尾完整
-    implement --> discuss: 有效需求实变
-    check --> discuss: 有效需求实变
-    deliver --> discuss: 有效需求实变
-```
-
-图中 archived 为展示，字段不增加第五个 phase。所有未归档阶段均可在工具终态核实后 closed/cancelled 或 closed/superseded。换机器只有 Git 归档资料时，核实文件已入库、ID 与结束字段后显示“Git 历史已归档、无本机执行凭据”，不自动重开，也不把它当新交付的检查证明。
-
-| 事件 | 前置条件 | 业务转移与效果 |
-| --- | --- | --- |
-| TaskCreated | 用户已授权创建，当前任务身份唯一 | open/discuss，保存当前分支，不自动实施 |
-| DiscussionConfirmed | 主 Agent／用户明确输入可实施，必需资料齐全 | discuss → implement；记录确认的输入引用，不以模型建议代替确认 |
-| InputsUpdateProposed | 有效输入变更，活动 run 尚未停 | 保存待应用操作，不修改有效输入；阻止后续代码阶段和交付，记录仍可写 |
-| InputsUpdated | 已取得执行占用、无未知工具，当前版本匹配 | open/discuss，清 completed 与旧检查资格；可随后明确确认到 implement |
-| RecordWritten | 记录区或未生效候选、任务短锁、未封存 | status/phase/outcome 和有效输入均不变 |
-| ImplementationAccepted | execution run 正常结束、报告与实际范围有效、无执行阻塞 | implement → check，保存 scope 引用 |
-| CheckAccepted | 本次最新检查、输入／目标版本匹配、必需条件有证据 | pass → deliver；changes_requested → implement；blocked 保留 check 与原因 |
-| RecheckRequested | 明确复查，未完整归档且相关收尾已核实处理 | deliver 或未归档 completed → open/check，保留范围与历史，不重聊需求 |
-| BusinessClosed | completed 需要有效检查及主 Agent 完成判断 | closed/completed/deliver；不等于 Git 交付完成 |
-| TaskEndRequested | 明确取消／替代；若仍运行先请求停止并等待确认 | 工具终态后 closed，相应 outcome，phase 保留停止位置 |
-| DeliveryCompleted | 收尾操作 completed，必要文件／Git 证据均核实 | 展示已归档及实际 outcome，结束该任务活动关联 |
-| NewBusinessChangeBeforeArchive | 归档未完成且明确新业务要求 | 清 completed，回 open 及相应阶段；已发生提交保留并按事实处理 |
-
-DiscussionConfirmed 对应 `task ready`，由主 Agent 在自然对话确认后代调；也可由明确的 ready+run 组合请求触发，仍需先落确认事实。程序检查结构和证据，主 Agent负责语义授权与取舍。
-
-adopt 不切换 Git 分支，未核实的 Git／归档效果先处理。无活动／未知 run、任务与仓库一致且有效需求未变：discuss/implement 保持，check 待重查，deliver 回 open/check 并清 completed。检查证据留历史，原 Session 通过新分支上下文核实后可用。取消／替代只接管收尾，完整归档不自动重开；输入不同按 InputsUpdated，不凭本机旧 phase 覆盖当前文件。
-
-## 4. 自动执行链
-
-| 当前 | 事件／条件 | 下一状态与效果 |
-| --- | --- | --- |
-| 无链／finished | 明确开始新的授权工作 | active，生成新 ID 与次数 0 |
-| active | 正常阶段结束，范围和授权未变 | active；主 Agent 可按工作流继续，核心不自行启动新模型 |
-| active | 开始一轮自动修复 | 核实未达上限后计数；重查不重复计一轮 |
-| active | 达上限、阻塞、用户停止后续衔接 | paused，记录原因，不自动重置后重试 |
-| paused | 普通中断恢复且未要求新修复周期 | 沿用原次数；原上限仍约束 |
-| paused | 用户明确开启新修复周期／新范围 | 旧链结束，新链 active；保留关系，不借内部 retry 重置 |
-| active／paused | 完整交付或业务取消／替代收妥 | finished |
-
-取消已经完成的 run 不撤销结果，但应阻止该链继续自动启动下一阶段。范围改变、暂停和当前选择变化不能改掉旧 run 的任务身份。
-
-## 5. 启动与 worker
-
-### 5.1 启动意图
-
-| 当前 | 事件 | 动作与下一状态 |
-| --- | --- | --- |
-| 无 request | RunRequested | 只读预检后发布不可变 request 和预期输入引用，launch=planned；实际冻结在 worker 取得占用后 |
-| planned | LaunchStarted | 先 starting，再调用 host.launch；OS 进程启动不等于 Agent 已开始 |
-| starting | LaunchConfirmed | 保存句柄和实例证据 → confirmed；worker 随后自己取得执行占用、准备快照与输入 |
-| starting | 调用响应丢失 | 不重启；观察匹配 request 的 worker 和宿主实例 |
-| planned／starting | 确认没有产生运行且调用失败 | failed，记录原因后释放本次已取得占用 |
-| 任意未终结 | 发现已认领的同 run worker | 采用原实例补定位；不能启动第二个 |
-
-launch 已 confirmed 不证明 worker 完成；旧句柄也不证明仍活着。无法证明有无实例时整体视图为 unknown，禁止重启。
-
-### 5.2 worker 生命周期
-
-```mermaid
-stateDiagram-v2
-    [*] --> claimed: 原子认领 run
-    claimed --> preparing: 核实 token 和请求
-    preparing --> running: 占用 输入 快照 原生会话与指令就绪
-    running --> finalizing: 模型回合与工具结束
-    finalizing --> completed: 原生持久化和报告有效
-    claimed --> cancelling: 收到取消
-    preparing --> cancelling: 收到取消
-    running --> cancelling: 收到取消
-    finalizing --> cancelling: 终态发布前确认取消
+    [*] --> claimed
+    claimed --> preparing
+    preparing --> running: 占用 输入 快照 会话与指令就绪
+    running --> finalizing: 模型与工具稳定结束
+    finalizing --> completed: 合法报告和持久化完成
+    claimed --> cancelling: 取消
+    preparing --> cancelling: 取消
+    running --> cancelling: 取消
+    finalizing --> cancelling: 终态发布前取消
     cancelling --> cancelled: 工具终态确认
-    preparing --> failed: 可确认的准备失败
-    running --> failed: 可确认的执行失败
-    finalizing --> failed: 报告或持久化失败
+    claimed --> failed: 可确认失败
+    preparing --> failed: 可确认失败
+    running --> failed: 可确认失败
+    finalizing --> failed: 可确认失败
 ```
 
-terminal result 先持久化，state 再收敛终态；均由该 worker 写入，终态不覆写。Pi 的 agent_end 可能位于 SDK 自动重试之间，不能单独作为终态；按公开 prompt 完成／agent_settled 和实际工具终态进入 finalizing。completed 只表示执行结束，不直接决定 Task 或 Git 结果。
+Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开 prompt 完成／agent_settled 及真实工具终态为边界。result 先持久化，state 再收敛，均由 worker 写，终态不覆写。check 的 changes_requested 可是执行 completed；advisory 完成不推进 Task。
 
-失败／取消必须保存实际部分结果。进程突然消失而工具不明时不能制造终态；核心记录 run.reconcile 操作，经实例和工具核实后只能补充 failed/cancelled 的恢复结论，不伪造成功报告。正常结果的 phase 接收通过 request 中固定 acceptanceOperationId 幂等执行。
+崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。
 
-### 5.3 整体 run 展示
+status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。
 
-优先级：证据冲突 → conflict；有效终态与工具确认 → 对应终态；活跃实例 → preparing/running/cancelling；仅启动意图 → requested/launching；无法核实 → unknown。结果已写但接收未完成时显示“执行已结束、状态待同步”，先恢复固定接收操作，不重复实施。阶段可继续的提醒在接收和占用收妥后发出，不能只看 result 文件出现。
+## 6. 对象级取消
 
-### 5.4 桥接与观察者
+首版仅支持 cancel --run 和 cancel --operation，不设请求级取消路由。执行前已有目标 ID；桥接明确执行取消时持久化对象意图，不先杀掉调用进程。普通 CLI --wait 退出与单独观察取消只停止观察。
 
-| 事件 | 转移与边界 |
+run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复取消返回同一结果，旧取消不影响新 run。取消与终态发布在同一短临界区裁定，不比较 mtime；先发布终态则返回已结束，先登记取消则停止新调用并等待已知工具终态。30 秒宽限后仅显示待确认，保留占用。
+
+确定性操作先有 operation ID 与本次执行 token。取消停止未开始步骤，核实在途 Git／文件效果后进入 needs_attention（reason=cancelled）；不自动撤销 commit/move，也不改变 Task outcome。恢复同操作取得新执行 token，迟到取消不作用于新尝试。意图已转达不等于目标已停止。
+
+## 7. Session 与活动选择
+
+| 状态 | 含义 |
 | --- | --- |
-| 模板、安装映射与原生 API 可用 | attached，可提供上下文和工具，不要求已有 worker |
-| run 启动或重连已有 run | observing，只观察，不生成第二个 worker |
-| 原生会话／分支切换 | 重算选择与通知范围；不向新的无关上下文自动投递旧结果 |
-| 观察流断开 | disconnected，保留 run；可由状态和日志重连 |
-| reload／dispose／Pi 退出 | stopped，关闭观察资源；不据此取消后台 worker |
+| opening | 本次打开／创建尚在准备，不能宣称可恢复 |
+| available | 原生归属、引用和必要持久性已核实 |
+| missing | 曾有可恢复记录，当前缺失或不可读取，保留引用及原因 |
+| incompatible | 客户端、版本、角色或身份不匹配，不交另一客户端解释 |
 
-明确取消执行动作才向核心另写 cancel；取消单独的观察或关闭 CLI 等待仅停止观察。重复提醒不重复接受结果或推进阶段。
+创建未完成或尚未落盘的具体原因记录在本次 run 准备结果中，不再新增 Session 状态。失败尝试不覆盖旧可用阶段引用，不伪造消息触发原生保存。dispose 不删除原生历史。实施与检查不可复用活跃主会话文件。
 
-## 6. 取消
+恢复先核实旧工具结束，再取跨项目稳定的 Session 执行占用，由原客户端加载。明确新建使用新 Session 并保留来源关系，默认配置变化不改变旧记录归属。
 
-请求以调用 requestId 定位当前尝试；目标 ID 尚未产生时在操作日志先保存意图，副作用前重核。目标绑定后转发 run.cancel.request 或确定性操作，不按当前选择猜目标。恢复的新尝试有新 requestId，迟到的取消不能误伤它。
-
-### 6.1 worker 取消
-
-取消意图以 runId、requestId、owner token 固定。重复请求返回相同意图，不能指向恢复后新 run。worker 确认后进入 cancelling，停止新模型／工具动作，等待已知工具结束；30 秒宽限到期只显示 unconfirmed，保留占用。
-
-若终态先发布，返回已经结束，不覆写结果；若取消先持久化，在包括 finalizing 的同一短临界区裁定取消，不能靠 mtime 或模型文字猜顺序。停止链仍需核实链 ID，不影响后来新开的链。未知工具仍存活时不得启动另一代码阶段。
-
-关闭 CLI 等待仅结束观察。Pi 的执行工具取消另向核心请求，不能先把调用进程杀掉；单独 status --events 的取消只停止观察。
-
-### 6.2 确定性操作取消
-
-取消提交／归档／初始化／恢复操作，先保存意图，停止未开始步骤并核实在途进程。已有 commit/move 或部分文件效果如实保留，进入 needs_attention（reason=cancelled），不自动回滚，不将任务 outcome 改为 cancelled。工具未知时保留执行占用；确认结束后释放，后续 resume --operation 使用新请求尝试并跳过已验证步骤。取消意图已转达不等于目标已停止。
-
-## 7. Session 与选择
-
-| 事件 | 身份／可用性转移 |
-| --- | --- |
-| 分配 Knit Session ID | opening，可尚无原生引用，不能声称可恢复 |
-| 原生打开／创建且持久性已核实 | available，补齐客户端、定位、角色和关系；binding 只引用已确认的可恢复记录 |
-| 有分配引用但尚不能核实落盘 | pending_persistence，保留引用和待确认效果，不宣称可恢复，不伪造消息触发保存 |
-| 创建尝试失败且从未取得引用 | not_created，只保留尝试，不把预分配 ID 当可恢复会话 |
-| 恢复 | 先取得 Session 执行占用，核实旧工具结束，再由原客户端 open；新 run 不改旧引用 |
-| 文件缺失／版本或角色不匹配 | missing/incompatible/needs_verification；保留引用，不改用其他客户端 |
-| 明确 new／切换客户端 | 新 Session 与来源关系，旧记录保留 |
-| SDK dispose | 原生文件仍可 available；实例释放不表示会话被删除 |
-
-worker 不能复用活跃主会话文件作为阶段 Session。恢复旧 Session 时 opening 属于本次尝试，不抹掉其原有引用；not_created 不覆盖旧的可用阶段 Session。内部实例的 dispose 不删除原生记录。
-
-选择事件由核心决定，Pi 桥接在本次有效分支写专用条目，随后核心确认。步骤为计划、重核原生上下文、追加事件、原生确认、更新索引。追加后响应丢失时按 operationId 查已有条目；不得重复追加或并发编辑活跃原生文件。
-
-原生选择条目已持久化后才确认该保存步骤，未能核实时为待确认；单独通知不承担此持久化义务。当前有效路径最后一个匹配项目的选择事件决定投影；taskId=null 是清除，不能回退复活早期选择。路径或 Git 分支改变重新核实：可执行／待收尾为 active，暂不匹配为 suspended，完整归档为 history_only，无事件为 none。归档只结束同 Task 关联，不清掉后来选的别的任务。
+活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目。树切换重新核实，不清掉后来选择的别的任务。后台结果只提醒匹配原发起会话／路径，监听器关闭不取消 worker。
 
 ## 8. 检查资格
 
-check.json 的 verdict 与范围是不可变证据，资格针对目标版本实时推导。lastCheckRunId 在检查取得占用并获准执行时更新；未获准的忙请求不算一次已开始检查，获准后的准备／执行失败则不能回退更早 pass。Task 范围累积，不随恢复的新 run 起点清空；若规范文件本身为已授权输出，冻结输入与新成果分开，按主 Agent 明确的适用决定选择版本，不能自动追加新验收条件。
+最新获准检查的 lastCheckRunId 是唯一候选；仅被忙拒绝的请求不算开始，已接纳后的准备／执行失败不回退旧 pass。
 
-| 情况 | 资格与动作 |
+| 事实 | 当前资格 |
 | --- | --- |
-| 无本机证据、scope 无法重建 | missing，要求明确范围并检查，不凭 phase 通过 |
-| 最新 check 尚在运行 | pending，不能用更早 pass 收尾 |
-| 最新报告 pass，身份／输入／成果匹配，必需人工项已确认 | valid，可进入收尾 |
-| 技术检查 pass，但明确必需的人工项尚未确认 | blocked（waiting_human），保留技术证据，不重跑模型来代替用户确认 |
-| 最新 changes_requested/blocked，或必需项未验证 | blocked，修复／补证据 |
-| 业务输入、已选规范、源码、分支或 restore 变化 | stale，重新核对；旧结论仅对原版本成立 |
-| 纯记录、运行引用、未生效候选、metadata phase 变化 | 资格不变 |
-| Task 等价改名／归档移动 | 按 Task ID 与任务内相对路径重定位，核实操作后资格不变 |
+| 无凭据或缺范围 | missing，补足范围并检查 |
+| 最新检查尚未结束 | pending，不能借更早 pass 收尾 |
+| pass 且身份／输入／成果版本匹配 | valid |
+| changes_requested、blocked 或必需证据缺失 | blocked |
+| clarify/change、生效规则、成果、分支或 restore 影响选定目标 | stale，复查 |
+| 纯记录、运行引用、未生效候选、等价改名／归档移动 | 不变 |
 
-工作提交后按选定 work commit 的内容核对资格，不因后来无关工作区变动声称该变动已交付。将新变动纳入本任务需重新确认范围。重复接收同 run 不重复写凭据、计修复次数或推进 phase。
+检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-输入确认时仅记录用户明确要求的 requiredHumanConditions，默认空，框架不额外加审批。检查 verdict 表示角色可验证部分的结论，人工条件列出待确认 ID，不能伪报完成。task accept 记录当前 Task、输入和成果版本的明确用户确认；条件／版本变化后确认 obsolete。基础技术 verdict 必须 pass，不能用人工一句话绕过 changes_requested 或真实 blocked。人工门槛齐备后重算资格即可，不为补一个确认重新调用模型；语义与授权由主 Agent 负责，核心验证来源和版本。
+scope 按 Task 累积，恢复新起点不清空旧成果。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过；Git 中已结束的归档只显示历史，不自动重开。
 
 ## 9. 规范候选
 
-| 事实 | 展示／动作 |
+无候选无需新增；有 standards.md 而无匹配审阅回执则机械提示。回执匹配 Task、分支与候选摘要时可继续，决定为 applied/deferred/rejected/mixed。延期／拒绝有理由即可，不强制新规则生效；候选或分支变化重新提示。
+
+采纳需核实正式规范正文与索引。正式规则修改取得执行占用，其影响按输入／检查规则处理；历史审阅和已归档事实不撤销。
+
+## 10. 确定性操作与恢复
+
+操作 planned → running → completed；冲突、失败、取消或未知效果进入 needs_attention，核实后恢复。只有明确撤回且没有未知效果才 abandoned；completed/abandoned 不改回运行中。步骤保留尝试与已核验证据。
+
+| 实际效果 | 恢复行为 |
 | --- | --- |
-| 无 standards.md | absent，收尾记未发现候选，不强制新增 |
-| 有候选，无匹配回执 | pending，机械提示主 Agent 审阅 |
-| 回执与 Task、分支、候选摘要匹配 | reviewed，可继续；决定为 applied/deferred/rejected/mixed |
-| 候选内容或绑定分支改变 | stale，重新提示，不借旧的“看过了”跳过 |
+| 仍为 before | 可执行原授权步骤 |
+| 已为 after | 补检查点，跳过重复效果 |
+| 前后均不匹配 | 保留现场，needs_attention |
+| 进程或 Git 效果未知 | 先核实，不重试或假放弃 |
 
-延期或拒绝要有理由，允许正常交付；采纳需记录正式规范引用，并在已有授权内更新正文和索引。实际规则变化另由输入／检查规则处理，不能把候选自动加成本次验收条件。规则以后再次变化，不撤销“当时已处理”的历史事实。
-
-## 10. 操作与步骤
-
-```mermaid
-stateDiagram-v2
-    [*] --> planned
-    planned --> running: 守卫与占用满足
-    running --> needs_attention: 冲突 失败 未知副作用
-    needs_attention --> running: 核实后恢复同一目标
-    running --> completed: 所有效果已验证
-    planned --> abandoned: 明确撤回且无未知效果
-    needs_attention --> abandoned: 效果已知且明确结束本操作
-```
-
-步骤尝试记录 started/applied/verified 或 failed，旧尝试不删；failed 是尝试结果，不等于可以盲目从头再来。恢复规则如下：
-
-| 实际证据 | 处理 |
-| --- | --- |
-| 仍为预期 before | 可按授权继续该效果 |
-| 已为预期 after | 补验证检查点，跳过重复效果 |
-| 前后都不匹配 | needs_attention，保留新内容，不能覆盖 |
-| Git／进程效果未知 | 先核实；无证据不重试或放弃 |
-| 只有记录／选择冲突 | 只阻相关对象；其他合法阶段不因它全局卡死 |
-| 已有待应用有效输入或未核实 Git 效果 | 阻后续代码／交付，先处理或明确撤回 |
-
-completed/abandoned 不重写为运行中。新目标使用新操作并关联旧事实；放弃不撤销已存在的 commit/move，不自动 reset/amend。普通 doctor 只报告；resume --operation 明确恢复该操作，不偷偷启动模型。需要修复时先形成限定范围计划，按相同日志与守卫执行。
+SQLite 若入选，可把关联元数据置于短事务；Git、Markdown 和原生历史效果仍逐步核验。事务／短锁不跨模型调用、工具等待或 hooks。记录／选择冲突只影响相关对象，输入或未核实 Git 效果阻相关后续代码及交付。
 
 ## 11. 收尾与封存
 
-`deliver` 是唯一收尾处理器，`run deliver` 转发它，`assist deliver` 只创建 advisory run。
+正常完成调用 deliver；archive 只处理可归档资料或继续已有归档，不能绕过正常交付条件；task close 只记业务结束。
 
-| 步骤 | 效果与完成证据 |
+| 步骤 | 完成证据 |
 | --- | --- |
-| preflight | Task／分支／授权、无未知工具、当前候选审阅满足；正常 completed 交付另需检查资格，取消／替代仅归档资料 |
-| work_commit | 正常交付冻结候选路径／目标树并限定提交，核实 commit 和 index；无成果或仅取消归档时跳过并记原因 |
-| prepare_archive | 把结果、验证、work commit 与业务结束写进记录／元数据，再次核对候选及输入 |
-| seal_archive | 短锁内固定任务记录版本、目录、引用计划和首次归档月份 |
-| move_task | 移动与逐文件指纹匹配；部分状态核实后补记，不能另建同 ID 草稿 |
-| archive_commit | 只提交本任务路径与预定引用，核实真实树与 OID，不把自身哈希写回该 commit |
-| finalize | 更新定位和历史关系、按条件清活动选择、操作 completed，展示实际结束结果 |
+| preflight | 绑定分支及提交授权明确、工具终态、候选已处理；正常完成另需有效检查与主 Agent 完成判断 |
+| work_commit | 限定候选路径与目标树，核实真实 OID、范围与 index 保护；无需工作提交则跳过并记原因 |
+| prepare_archive | 完整结果、验证、工作提交和结束结果进入记录 |
+| seal_archive | 短锁内捕捉记录版本、目录与首次归档月份 |
+| move_task | ID、目标和文件指纹匹配 |
+| archive_commit | 本任务路径及明确引用的真实提交，不能写自身哈希反复提交 |
+| finalize | 关联和定位收妥，条件清选择，操作 completed |
 
-检查结论只用于正常完成交付。closed/cancelled 或 superseded 的资料归档，不要求把未完代码检查成 pass，也不默认提交部分源码；封存实际结果、未提交改动／恢复引用并归档资料。有意义的工作提交已存在则引用它，没有则明确记录无工作提交，不造空 commit。
+main／默认分支不隐含提交许可。已有明确授权或用户认可的项目策略覆盖当前分支时不重复确认；adopt 的继续意图不自动授权提交。
 
-收尾结果分别报告工作提交、移动、归档提交、待办，不能用 closed 或目录存在代替整体验证。重试沿用操作及首次目标；hook 或外部改动改变预期树时 needs_attention，不自动改历史。
+封存期间 task record 返回未保存（sealed），不写任务、不自动转存、不制造未提交修改。主 Agent 不得汇报已记录；封存结束后按原记录意图重试，作为档案的新资料修改，明确其未包含在原归档提交，是否提交按已有授权。此补记不重开任务，也不篡改旧交付回执。
 
-封存前记录可保存；封存后只允许本操作已计划的效果，新的补记返回后续处理。工具已终止且尚未移动时可明确解除封存、重新准备；已移动或提交结果不明时先恢复／核实该操作，不能直接放开并发写。需要改变业务目标时暂停收尾并做明确修复，不自动撤销 Git。
+需改业务目标时先暂停收尾。未移动且工具已结束时可明确解除封存后重新准备；已移动或结果未知先核实与修复，不自动 reset。
 
-## 12. 快照、占用与兼容
+取消／替代仅归档实际资料，不要求未完成代码检查成 pass，不默认提交部分源码，不造空 commit。重试沿同一操作及首次目标，结果分别报告工作提交、移动、归档提交和待办。
 
-快照 preparing → ready 或 failed；失败不能调用阶段模型／开始写代码。可信 worker 程序可以先启动并取得占用来准备快照，不做跨进程占用交接。ready 不代表代码没改过，只证明起点已保存。restore 是独立操作：预览不改文件，执行需期望当前指纹、占用及工具终态；恢复后旧检查对新目标不再有效。
+## 12. 占用与兼容性
 
-Task 管理文件保存起点用于对照，不能把整份旧 task.md 还原覆盖后来记录和状态。输入恢复经 task update 保留当前记录；runtime、索引和原生 Session 不由通用源码 restore 覆盖。快照一致性只冻结业务输入和成果起点，允许的纯记录更新不使准备失败。
+本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明。旧 token 不能写回；Session 键不随项目改变。
 
-占用通过本地原子 mkdir 获取，held → release 必须匹配 token；执行占用还需工具终态，短锁只保护读改写。心跳可疑只得到 suspect，身份无法核实为 unknown；同机器和实例证据证明终止后才 reclaimable。人工强解是显式风险操作与审计，不证明外部工具结束；旧 token 不得写回业务状态。
+restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复使旧检查不再适用于新目标。未知版本只读报告，首版无自动 gc。
 
-兼容性 supported 允许按命令守卫运行；已知旧版需明确迁移路径；未知新版／损坏只读报告。首版没有历史迁移器，不用字段猜测代替迁移。内部资源释放不删除原生文件、检查或回执，首版不自动 gc。
+## 13. 入口与验证范围
 
-## 13. 命令与状态入口
+context 提供讨论输入；task ready 推进讨论确认；task update 显式声明 clarify/change；run implement/check 派发或复查；assist 只给建议；deliver、archive、task close 职责分别处理；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
 
-| 入口 | 主要事件／边界 |
-| --- | --- |
-| init | InitChecked/InitStarted/InitPublished |
-| task new/ready/update/record/adopt/close | 对应 Task 事件；ready 是语义确认，record 不改输入 |
-| task accept --condition | 仅确认输入已明确要求的人工条目，不能自动新增门槛或替代技术检查 |
-| run discuss / context | 只提供讨论输入与下一步，由主 Agent 对话，不伪造 worker run |
-| run implement/check | RunRequested；正常结果经固定接收操作成为 Task 事件 |
-| assist discuss/deliver | advisory run，不能触发 Git 或业务完成 |
-| deliver / run deliver / archive | 同一收尾与步骤恢复，不另建完成路径 |
-| cancel --run / --operation / --request | 取消指定当前尝试，不按选择推断；停止执行与业务结束分别处理 |
-| resume --run | 核实原实例终态后新 run，保持所属客户端与链计数 |
-| resume --operation | 核实同操作效果，再继续步骤，不先重跑 worker |
-| standards propose/review | 候选版本与审阅事实，采纳影响输入时按输入守卫处理 |
-| snapshot show/restore/unlock | 只读对照或明确有副作用动作，不能自动越过终态与指纹 |
-| doctor/status/storage | 派生展示，不推进任何业务状态 |
+测试按不变量和副作用选择：
 
-每个事件需测试正常、拒绝、重复、崩溃后恢复；至少覆盖桥接失联、原生分支变化、记录并发、adopt、最新检查失效、候选变更、取消与完成竞争、commit 成功但回执丢失、移动后中断和未知锁。验收应断言下一步允许做什么，而不仅断言状态字符串。
+- 只读查询和内存资源做必要的正常／错误验证，不套持久恢复矩阵。
+- 输入、阶段接收和计数覆盖分类、版本冲突、重复接收与相关中断。
+- 启动／取消覆盖实例不明、工具终态、完成竞争与旧 token。
+- Git／文件移动在关键效果前后注入崩溃，验证无重复提交、无无关 index／文件损失。
+- 开发者模式验证脱敏、业务结果等价及输出通道，不为诊断事件再建一套状态测试。
+
+归属及里程碑见 DESIGN 第 16 节。M2 的数据保护测试不能推迟到发布阶段。
