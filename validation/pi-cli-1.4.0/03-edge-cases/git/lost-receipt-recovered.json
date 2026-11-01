@@ -1,0 +1,6 @@
+{
+  "decision": "effect already applied; checkpoint reconstructed without another commit",
+  "actual_commit": "9c912bd73e2f58c692e54e9f2fbae2814d81f74d",
+  "parent_matches": true,
+  "blob_matches": true
+}

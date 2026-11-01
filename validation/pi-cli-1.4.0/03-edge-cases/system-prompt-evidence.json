@@ -1,0 +1,225 @@
+{
+  "status": "passed",
+  "proof": [
+    {
+      "session_id": "6871f1c8-b25b-4c47-920a-f1fe085ca539",
+      "entry_id": "46cd1bcb",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "bash"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "6871f1c8-b25b-4c47-920a-f1fe085ca539",
+      "entry_id": "998182eb",
+      "section_names": [
+        "tools",
+        "rules"
+      ],
+      "tools_added": [],
+      "tools_removed": [
+        {
+          "name": "bash"
+        }
+      ],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": false
+    },
+    {
+      "session_id": "a7976f25-9ba8-447f-8ff3-919f5fbca5e7",
+      "entry_id": "876c7f56",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "bash"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "a7976f25-9ba8-447f-8ff3-919f5fbca5e7",
+      "entry_id": "6809400c",
+      "section_names": [
+        "tools",
+        "rules"
+      ],
+      "tools_added": [],
+      "tools_removed": [
+        {
+          "name": "bash"
+        }
+      ],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": false
+    },
+    {
+      "session_id": "32affbae-11f0-43c0-bdf8-882865600ebf",
+      "entry_id": "a96fe9a6",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "write",
+        "bash",
+        "read"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "32affbae-11f0-43c0-bdf8-882865600ebf",
+      "entry_id": "eb631b8d",
+      "section_names": [
+        "tools",
+        "rules"
+      ],
+      "tools_added": [],
+      "tools_removed": [
+        {
+          "name": "write"
+        },
+        {
+          "name": "bash"
+        }
+      ],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": false
+    },
+    {
+      "session_id": "01a196ef-f4a1-77b5-bb3d-e249e0addf80",
+      "entry_id": "fcb7fdd2",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "cwd"
+      ],
+      "tools_added": [],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": false
+    },
+    {
+      "session_id": "adf138c1-8be5-421d-90c0-122e05f458ea",
+      "entry_id": "f6eb7a43",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "bash"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "0b831631-e2de-43e7-841e-88972814acb8",
+      "entry_id": "52f9fb1d",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "read",
+        "bash",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "a1a72938-0a13-4785-a17b-68841dcedf03",
+      "entry_id": "238f27b8",
+      "section_names": [
+        "preamble",
+        "tools",
+        "rules",
+        "docs",
+        "addendum",
+        "cwd"
+      ],
+      "tools_added": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "tools_removed": [],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": true
+    },
+    {
+      "session_id": "a1a72938-0a13-4785-a17b-68841dcedf03",
+      "entry_id": "5d3f75f5",
+      "section_names": [
+        "tools",
+        "rules"
+      ],
+      "tools_added": [],
+      "tools_removed": [
+        {
+          "name": "read"
+        },
+        {
+          "name": "write"
+        },
+        {
+          "name": "edit"
+        },
+        {
+          "name": "bash"
+        },
+        {
+          "name": "grep"
+        },
+        {
+          "name": "find"
+        },
+        {
+          "name": "ls"
+        }
+      ],
+      "knit_project_AGENTS_injected": false,
+      "append_prompt_marker_present": false
+    }
+  ]
+}

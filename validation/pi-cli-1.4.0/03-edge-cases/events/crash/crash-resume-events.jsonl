@@ -1,0 +1,65 @@
+{"type": "agent_start"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_end", "role": "system", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_end", "role": "user", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "toolUse"}
+{"type": "tool_execution_start", "toolName": "read", "toolCallId": "call_8d4dada3bf8342ca9de7bf4bcd1037ca|fc_08b95356d2170d1b016ae724da02a08191a3eb998bd9eaefd3"}
+{"type": "tool_execution_end", "toolName": "read", "toolCallId": "call_8d4dada3bf8342ca9de7bf4bcd1037ca|fc_08b95356d2170d1b016ae724da02a08191a3eb998bd9eaefd3", "durationMs": 3, "isError": false}
+{"type": "message_start"}
+{"type": "message_end", "role": "toolResult", "stopReason": null}
+{"type": "turn_end"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "stop"}
+{"type": "turn_end"}
+{"type": "agent_end"}
+{"type": "agent_settled", "aborted": false}
+{"type": "queue_update"}

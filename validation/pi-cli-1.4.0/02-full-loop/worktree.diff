@@ -1,0 +1,7 @@
+diff --git a/unrelated.txt b/unrelated.txt
+index 02a017c..7de0d98 100644
+--- a/unrelated.txt
++++ b/unrelated.txt
+@@ -1 +1 @@
+-user staged content
++user unstaged content

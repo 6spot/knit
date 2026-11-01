@@ -1,0 +1,82 @@
+{
+  "status": "passed",
+  "documentation_files": 9,
+  "local_links_checked": 75,
+  "JSON_examples": 1,
+  "fixture_minimal_change": true,
+  "replayed_unittest": true,
+  "metadata_authority_preserved": true,
+  "private_modes_and_ignore": true,
+  "JSONL_records": 382,
+  "remaining_probe_processes": [],
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "82ac529224dabfa3d130a0d982e8db2fb3991e6176cd289c2eb5611611c1d611"
+    },
+    {
+      "path": "README.md",
+      "sha256": "64304a01daec6f806d538fe50b597a6ac4df95b233dfebe53ddf69d8d3af3ad2"
+    },
+    {
+      "path": "after-unittest.txt",
+      "sha256": "3296badeba28a66cfc386750c73cfdc6f81dcffabf270ac54256dd6164ac05f5"
+    },
+    {
+      "path": "assistant-final.txt",
+      "sha256": "7623dea09e524f7e06548bc9af8ea0761da3ef58238ce9c5e6cb22ff3edbb1d5"
+    },
+    {
+      "path": "before-unittest.txt",
+      "sha256": "8bf9afec632e3a27a913972cdbc443975b7f315be3aa480718579f54eb8383b1"
+    },
+    {
+      "path": "fixture/after-duration.py",
+      "sha256": "06d00569479dcf0dc4005f2eb78aef155de3d0dd72776756ed70d808cfdfe399"
+    },
+    {
+      "path": "fixture/after-test_duration.py",
+      "sha256": "0ef7de45ea9dcd2f524dd43d9312139a32694c4e4fa1d803af4836e9e76a513e"
+    },
+    {
+      "path": "fixture/duration.py",
+      "sha256": "68549a20596801fc0b22c2f0e6132d5eeeb28d5937c3deaa38421a15c8f7e422"
+    },
+    {
+      "path": "fixture/progress.md",
+      "sha256": "79d2719146d093287b0e3a113d72c252354a6677f1f4c9c56169ea46cc699ed0"
+    },
+    {
+      "path": "fixture/task.md",
+      "sha256": "b044efb349b2fa9d06de43847ba386668cb353554da960349fdbb757de65cc15"
+    },
+    {
+      "path": "fixture/test_duration.py",
+      "sha256": "0ef7de45ea9dcd2f524dd43d9312139a32694c4e4fa1d803af4836e9e76a513e"
+    },
+    {
+      "path": "fresh-fallback-events.jsonl",
+      "sha256": "ee04f56e1c451b10919f3b0a3f923c85df9878de5d16cbdd111349195ecbadc7"
+    },
+    {
+      "path": "private-native/2026-11-01T12-40-17-167Z_e56c7418-458f-4309-9c04-f23c1401e5e9.jsonl",
+      "sha256": "a366e08d2772acf09efc1d7055368abb4242d73581c533b06282b889e341622c"
+    },
+    {
+      "path": "report-attempt1.json",
+      "sha256": "951a2e6cb123724bbc9a4654ccfbbd4200937f6e7127dd7e46e62ae94c171ad1"
+    },
+    {
+      "path": "report.json",
+      "sha256": "472792a6bdf29a536b8babf7e8fae68bb1a5fd50346dfabac76370ab57f24f92"
+    },
+    {
+      "path": "scripts/attempts/run_probe-v1.py",
+      "sha256": "5d694180c25cff34512c360479c29071b336bd8f8ec3a97910669df01a9fb8f1"
+    },
+    {
+      "path": "scripts/run_probe.py",
+      "sha256": "7f4ecc43c1417177a8beec1eb112d9c43e8a36d9c9a854b07b3123fd35d7800d"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+test_invalid_durations (test_duration.ParseDurationTests) ... ok
+test_non_strings (test_duration.ParseDurationTests) ... ok
+test_valid_durations (test_duration.ParseDurationTests) ... 
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='2m')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 0 != 120
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='3s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 0 != 3
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='1h2m')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 3600 != 3720
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='1h3s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 3600 != 3603
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='2m3s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 0 != 123
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='1h2m3s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 3600 != 3723
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text=' \t1h\n2m\t3s\r\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 3600 != 3723
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='90m')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 0 != 5400
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='120s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 0 != 120
+
+======================================================================
+FAIL: test_valid_durations (test_duration.ParseDurationTests) (text='001h 02m 03s')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/me/IdeaProjects/knit/validation/session-fallback/.work/test_duration.py", line 25, in test_valid_durations
+    self.assertEqual(parse_duration(text), expected)
+AssertionError: 3600 != 3723
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+FAILED (failures=10)

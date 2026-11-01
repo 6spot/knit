@@ -1,0 +1,153 @@
+{"type": "message_start"}
+{"type": "message_end", "role": "custom", "stopReason": null}
+{"type": "agent_start"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_end", "role": "system", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_end", "role": "custom", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "stop"}
+{"type": "turn_end"}
+{"type": "agent_end"}
+{"type": "agent_settled", "aborted": false}
+{"type": "agent_start"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_end", "role": "user", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "toolUse"}
+{"type": "tool_execution_start", "toolName": "bash", "toolCallId": "call_c2327dd65d4949c7b121c795f12fa192|fc_0ebf321979a38948016ae724e623ac8191a03292208a3af28f"}
+{"type": "tool_execution_update", "toolName": "bash", "toolCallId": "call_c2327dd65d4949c7b121c795f12fa192|fc_0ebf321979a38948016ae724e623ac8191a03292208a3af28f"}
+{"type": "tool_execution_update", "toolName": "bash", "toolCallId": "call_c2327dd65d4949c7b121c795f12fa192|fc_0ebf321979a38948016ae724e623ac8191a03292208a3af28f"}
+{"type": "tool_execution_end", "toolName": "bash", "toolCallId": "call_c2327dd65d4949c7b121c795f12fa192|fc_0ebf321979a38948016ae724e623ac8191a03292208a3af28f", "durationMs": 3091, "isError": false}
+{"type": "message_start"}
+{"type": "message_end", "role": "toolResult", "stopReason": null}
+{"type": "turn_end"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "stop"}
+{"type": "turn_end"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_end", "role": "custom", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "stop"}
+{"type": "turn_end"}
+{"type": "agent_end"}
+{"type": "agent_settled", "aborted": false}
+{"type": "queue_update"}

@@ -1,0 +1,57 @@
+{
+  "status": "completed",
+  "provider": "magpie",
+  "model": "group/openai",
+  "cases": [
+    {
+      "name": "model-tool-cancel-and-resume",
+      "status": "passed",
+      "seconds": 8.65,
+      "details": {
+        "model_tool_cancelled": true,
+        "child_terminal": true,
+        "queue_cleared": true,
+        "abort_seconds": 0.0,
+        "aborted_settled": true,
+        "same_session_resume_after_cancel": true,
+        "native_session_id": "a7976f25-9ba8-447f-8ff3-919f5fbca5e7",
+        "usage_before_resume": {
+          "tokens": {
+            "input": 4890,
+            "output": 91,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 4981
+          },
+          "cost_usd": 0.01069
+        },
+        "resume_usage": {
+          "tokens": {
+            "input": 928,
+            "output": 9,
+            "cacheRead": 3968,
+            "cacheWrite": 0,
+            "total": 4905
+          },
+          "cost_usd": 0.0023428
+        }
+      }
+    },
+    {
+      "name": "project-extension-load-and-reload",
+      "status": "passed",
+      "seconds": 1.29,
+      "details": {
+        "trusted_project_auto_loaded": true,
+        "reload_public_host_API": true,
+        "versions": [
+          "v1",
+          "v2"
+        ],
+        "model_runs": 0,
+        "sdk_dependency": false
+      }
+    }
+  ],
+  "sdk_imported": false
+}

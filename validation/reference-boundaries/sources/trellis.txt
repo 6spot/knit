@@ -1,0 +1,572 @@
+
+SOURCE packages/cli/src/templates/pi/extensions/trellis/index.ts.txt
+COMMIT f089cb3286071199e84118dee86b6d76aab032f1
+
+LINES 660-722
+660:     addBase(dirname(e));
+661:     addBase(join(dirname(e), "lib"));
+662:   }
+663:   for (const c of [...new Set(candidates)])
+664:     if (exists(c)) return { command: process.execPath, args: [c] };
+665:   return { command: "pi", args: [] };
+666: }
+667: 
+668: function resolveRunCfg(
+669:   input: SubagentInput,
+670:   agentCfg: AgentConfig,
+671:   inheritedThinking?: string,
+672:   inheritedModel?: string,
+673: ): PiRunConfig {
+674:   const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+675:   const normalize = (v: unknown): string | undefined => {
+676:     const s = typeof v === "string" && v.trim() ? v.trim().toLowerCase() : "";
+677:     return THINKING_LEVELS.includes(s) ? s : undefined;
+678:   };
+679:   const suffixRe = /:(off|minimal|low|medium|high|xhigh|max)$/i;
+680:   const inputModel = str(input.model);
+681:   const agentModel = agentCfg.model;
+682:   const rawModel = inputModel ?? agentModel ?? str(inheritedModel);
+683:   const inputSuffixThinking = normalize(inputModel?.match(suffixRe)?.[1]);
+684:   const agentSuffixThinking = normalize(agentModel?.match(suffixRe)?.[1]);
+685:   const baseModel = rawModel?.replace(suffixRe, "");
+686:   const thinking =
+687:     normalize(input.thinking) ??
+688:     inputSuffixThinking ??
+689:     normalize(agentCfg.thinking) ??
+690:     agentSuffixThinking ??
+691:     normalize(inheritedThinking);
+692:   if (baseModel && thinking && thinking !== "off")
+693:     return { model: `${baseModel}:${thinking}`, thinking, tools: agentCfg.tools };
+694:   return { model: baseModel || rawModel, thinking, tools: agentCfg.tools };
+695: }
+696: 
+697: function contextModelRef(ctx?: PiExtensionContext): string | undefined {
+698:   const provider = str(ctx?.model?.provider);
+699:   const modelId = str(ctx?.model?.id);
+700:   return provider && modelId ? `${provider}/${modelId}` : undefined;
+701: }
+702: 
+703: function buildPiArgs(cfg: PiRunConfig): string[] {
+704:   const args = ["--mode", "json", "-p", "--no-session"];
+705:   if (cfg.model)
+706:     args.push(
+707:       "--model",
+708:       cfg.thinking && cfg.thinking !== "off" && !cfg.model.includes(":")
+709:         ? `${cfg.model}:${cfg.thinking}`
+710:         : cfg.model,
+711:     );
+712:   else if (cfg.thinking && cfg.thinking !== "off")
+713:     args.push("--thinking", cfg.thinking);
+714:   if (cfg.tools && cfg.tools.length > 0)
+715:     args.push("--tools", cfg.tools.join(","));
+716:   return args;
+717: }
+718: 
+719: // ── BoundedBufferCollector ─────────────────────────────────────────────
+720: class BBC {
+721:   private c: Buffer[] = [];
+722:   private len = 0;
+
+LINES 1514-1608
+1514:   cfg: PiRunConfig,
+1515:   state: RunState,
+1516:   emit: () => void,
+1517:   key?: string | null,
+1518:   signal?: AbortSignal,
+1519:   parentSessionId?: string | null,
+1520: ): Promise<{ output: string; failed: boolean }> {
+1521:   return new Promise((resolve) => {
+1522:     if (signal?.aborted) {
+1523:       state.status = "cancelled";
+1524:       state.errorMessage = "cancelled";
+1525:       state.finishedAt = Date.now();
+1526:       emit();
+1527:       resolve({ output: "cancelled", failed: true });
+1528:       return;
+1529:     }
+1530:     const inv = resolvePiCli();
+1531:     const childEnv = buildChildEnv(key, parentSessionId);
+1532:     const cli = spawn(inv.command, [...inv.args, ...buildPiArgs(cfg)], {
+1533:       cwd: root,
+1534:       env: childEnv,
+1535:       stdio: ["pipe", "pipe", "pipe"],
+1536:       windowsHide: true,
+1537:     });
+1538:     const stdout = new BBC(MAX_STDOUT);
+1539:     const stderr = new BBC(MAX_STDERR);
+1540:     let buf = "";
+1541:     let settled = false;
+1542:     let aborted = false;
+1543:     let killTimer: ReturnType<typeof setTimeout> | null = null;
+1544:     const abort = () => {
+1545:       aborted = true;
+1546:       cli.kill();
+1547:       killTimer = setTimeout(() => {
+1548:         if (!settled && cli.exitCode === null) cli.kill("SIGKILL");
+1549:       }, ABORT_KILL_GRACE_MS);
+1550:       killTimer?.unref?.();
+1551:     };
+1552:     const done = (v: { output: string; failed: boolean }) => {
+1553:       if (settled) return;
+1554:       settled = true;
+1555:       if (killTimer) clearTimeout(killTimer);
+1556:       signal?.removeEventListener("abort", abort);
+1557:       emit();
+1558:       resolve(v);
+1559:     };
+1560:     signal?.addEventListener("abort", abort, { once: true });
+1561:     state.status = "running";
+1562:     state.startedAt = Date.now();
+1563:     emit();
+1564:     const processLine = (line: string) => {
+1565:       const evt = parseJsonEvent(line);
+1566:       if (evt && applyEvent(state, evt)) emit();
+1567:     };
+1568:     cli.stdout?.on("data", (d: Buffer) => {
+1569:       stdout.append(d);
+1570:       buf += d.toString("utf-8");
+1571:       if (buf.length > MAX_LINE_BUFFER) buf = buf.slice(-MAX_LINE_BUFFER);
+1572:       const lines = buf.split(/\r?\n/);
+1573:       buf = lines.pop() ?? "";
+1574:       for (const l of lines) processLine(l);
+1575:     });
+1576:     cli.stderr?.on("data", (d: Buffer) => {
+1577:       stderr.append(d);
+1578:       state.stderrTail = appendTail(
+1579:         state.stderrTail,
+1580:         d.toString("utf-8"),
+1581:         MAX_TAIL,
+1582:       );
+1583:     });
+1584:     cli.stdin?.on("error", (e: Error & { code?: string }) => {
+1585:       if (!aborted && e.code !== "EPIPE")
+1586:         done({ output: e.message, failed: true });
+1587:     });
+1588:     cli.on("error", (e) => {
+1589:       state.status = aborted ? "cancelled" : "failed";
+1590:       state.errorMessage = e instanceof Error ? e.message : String(e);
+1591:       state.finishedAt = Date.now();
+1592:       done({ output: finalize(state, state.errorMessage), failed: true });
+1593:     });
+1594:     cli.on("close", (code) => {
+1595:       if (buf.trim()) processLine(buf);
+1596:       const out = stdout.toString();
+1597:       const err = stderr.toString();
+1598:       state.stderrTail = appendTail("", err, MAX_TAIL);
+1599:       state.finishedAt = Date.now();
+1600:       if (aborted) {
+1601:         state.status = "cancelled";
+1602:         state.errorMessage = "cancelled";
+1603:         done({ output: finalize(state, "cancelled"), failed: true });
+1604:         return;
+1605:       }
+1606:       if (code === 0) {
+1607:         if (state.status === "pending" || state.status === "running")
+1608:           state.status = "succeeded";
+
+SOURCE packages/cli/src/templates/trellis/scripts/common/task_store.py
+COMMIT f089cb3286071199e84118dee86b6d76aab032f1
+
+LINES 1485-1568
+1485:         print(
+1486:             "[OK] session_auto_commit: false — skipping git stage/commit.",
+1487:             file=sys.stderr,
+1488:         )
+1489:         return True
+1490: 
+1491:     source_rel = f"{DIR_WORKFLOW}/{DIR_TASKS}/{task_name}"
+1492:     rc, tracked_out, _ = run_git(
+1493:         ["ls-files", "--", source_rel],
+1494:         cwd=repo_root,
+1495:     )
+1496:     source_was_tracked = rc == 0 and bool(tracked_out.strip())
+1497: 
+1498:     paths = safe_archive_paths_to_add(
+1499:         repo_root, task_name=task_name, modified_children=modified_children
+1500:     )
+1501:     if not paths:
+1502:         print("[OK] No task changes to commit.", file=sys.stderr)
+1503:         return True
+1504: 
+1505:     success, _, err = safe_git_add(paths, repo_root, retry_on_index_lock=True)
+1506:     if not success:
+1507:         if err and "ignored by" in err.lower():
+1508:             print_gitignore_warning(paths)
+1509:         elif stderr_indicates_index_lock(err):
+1510:             _print_index_lock_warning(
+1511:                 "git add", task_name, repo_root, [*paths, source_rel]
+1512:             )
+1513:         else:
+1514:             print(
+1515:                 f"[WARN] git add failed: {err.strip() if err else 'unknown error'}",
+1516:                 file=sys.stderr,
+1517:             )
+1518:         return not source_was_tracked
+1519: 
+1520:     # Belt-and-suspenders for the phantom-delete bug: `safe_git_add` uses
+1521:     # `git add` (no -A) which only stages additions/modifications. The
+1522:     # source task directory was moved away by `shutil.move`, so its files
+1523:     # need an explicit `git rm --cached` to stage the deletions in this
+1524:     # same commit — otherwise they sit as uncommitted "phantom deletes"
+1525:     # against HEAD until something later picks them up.
+1526:     #
+1527:     # `--ignore-unmatch` makes this a no-op when the task was never tracked
+1528:     # (e.g. archiving a task that lived only in working tree).
+1529:     rc, _, err = run_git_retry_index_lock(
+1530:         ["rm", "-r", "--cached", "--ignore-unmatch", "--", source_rel],
+1531:         cwd=repo_root,
+1532:     )
+1533:     if rc != 0 and stderr_indicates_index_lock(err):
+1534:         # Committing now would record the archived copy without the
+1535:         # source-side deletes — a half-archived tree in history.
+1536:         _print_index_lock_warning(
+1537:             "git rm --cached", task_name, repo_root, [*paths, source_rel]
+1538:         )
+1539:         return not source_was_tracked
+1540: 
+1541:     # `source_rel` may only appear in a pathspec while git still knows that
+1542:     # path. `git commit -- <pathspec>` rejects the whole argument list with
+1543:     # "did not match any file(s) known to git" as soon as one entry matches
+1544:     # nothing, and a task that was never committed before archiving has no
+1545:     # source-side deletions staged either (see the `--ignore-unmatch` above).
+1546:     commit_paths = [*paths, source_rel] if source_was_tracked else list(paths)
+1547:     rc, _, _ = run_git(
+1548:         ["diff", "--cached", "--quiet", "--", *commit_paths],
+1549:         cwd=repo_root,
+1550:     )
+1551:     if rc == 0:
+1552:         print("[OK] No task changes to commit.", file=sys.stderr)
+1553:         return True
+1554: 
+1555:     commit_msg = f"chore(task): archive {task_name}"
+1556:     # Commit with an explicit pathspec: a bare `git commit` would sweep any
+1557:     # unrelated entries the developer had staged before archiving into the
+1558:     # chore commit (#579). `source_rel` is included so the source-side
+1559:     # deletions staged above land in the same commit.
+1560:     rc, _, err = run_git_retry_index_lock(
+1561:         ["commit", "-m", commit_msg, "--", *commit_paths], cwd=repo_root
+1562:     )
+1563:     if rc == 0:
+1564:         print(f"[OK] Auto-committed: {commit_msg}", file=sys.stderr)
+1565:         return True
+1566:     elif stderr_indicates_index_lock(err):
+1567:         _print_index_lock_warning(
+1568:             "git commit", task_name, repo_root, [*paths, source_rel]
+
+SOURCE packages/cli/src/templates/trellis/scripts/common/safe_commit.py
+COMMIT f089cb3286071199e84118dee86b6d76aab032f1
+
+LINES 1-30
+1: """
+2: Safe git-add helpers for Trellis-owned paths.
+3: 
+4: Why this module exists
+5: ----------------------
+6: A real user incident: a project's `.gitignore` listed `.trellis/` (company-wide
+7: template / personal habit). When `add_session.py` and `task.py archive` ran
+8: their auto-commit and `git add` failed with `ignored by .gitignore`, the AI
+9: agent driving the workflow "fixed" it by retrying with
+10: `git add -f .trellis/` — which fan-out-included every ignored subtree
+11: (`.trellis/.backup-*/`, `.trellis/worktrees/`, `.trellis/.template-hashes.json`,
+12: `.trellis/.runtime/`), committing 548 files / 83474 lines of caches/backups.
+13: 
+14: Design
+15: ------
+16: - Scripts only stage SPECIFIC product paths (journal files, index.md, the
+17:   current task dir, the archive dir). Never the whole `.trellis/` tree.
+18: - If plain `git add <specific>` fails with "ignored by", DO NOT retry with
+19:   ``-f``. The presence of `.trellis/` in `.gitignore` is treated as user
+20:   intent ("keep .trellis/ local-only"). The script warns and skips the
+21:   auto-commit; users who want auto-staging can either fix their `.gitignore`
+22:   or set ``session_auto_commit: false`` and manage git themselves.
+23: - The warning includes a negative example: ``Do NOT use `git add -f .trellis/` ...``
+24:   so any AI rereading the log doesn't reinvent the bug.
+25: 
+26: History note: 0.5.10 introduced an automatic ``git add -f`` retry on the
+27: specific paths. That was reverted in 0.5.11 — auto-forcing into a tree the
+28: user had gitignored violates user intent even when the path list is narrow.
+29: The wider-grain forbidden command stays forbidden, and the narrow-grain auto
+30: ``-f`` is gone too.
+
+LINES 54-125
+54:     ".trellis/worktrees/",
+55:     ".trellis/.template-hashes.json",
+56:     ".trellis/.runtime/",
+57:     ".trellis/.cache/",
+58: )
+59: 
+60: 
+61: def safe_trellis_paths_to_add(
+62:     repo_root: Path,
+63:     task_name: str | None = None,
+64: ) -> list[str]:
+65:     """Return the list of repo-relative paths the auto-commit should stage.
+66: 
+67:     Only includes paths that exist on disk so callers don't pass non-existent
+68:     arguments to git. The caller is responsible for `git diff --cached`
+69:     checking afterwards.
+70: 
+71:     Included:
+72:       - .trellis/workspace/<developer>/journal-*.md
+73:       - .trellis/workspace/<developer>/index.md
+74:       - .trellis/tasks/<task_name>/   (ONLY the current task dir when
+75:         ``task_name`` is passed; plus its archive location if the task
+76:         already lives under archive/)
+77: 
+78:     Excluded (intentionally — these must not be staged):
+79:       - .trellis/.backup-*, .trellis/worktrees/,
+80:         .trellis/.template-hashes.json, .trellis/.runtime/, .trellis/.cache/
+81: 
+82:     Scope contract (see #303 / break-loop analysis): when ``task_name`` is
+83:     passed, the task segment stages ONLY that task directory — it never walks
+84:     ``tasks_dir.iterdir()`` over all active tasks. This mirrors
+85:     :func:`safe_archive_paths_to_add` and prevents dirty changes in OTHER
+86:     parallel-window task dirs from being bundled into the session auto-commit.
+87: 
+88:     Backwards-compat: with no ``task_name``, the function walks every active
+89:     task directory (+ the archive subtree) the old wide way. New callers
+90:     should always pass ``task_name``.
+91:     """
+92:     paths: list[str] = []
+93: 
+94:     # Workspace journal files + index.md
+95:     developer = get_developer(repo_root)
+96:     if developer:
+97:         ws = repo_root / DIR_WORKFLOW / DIR_WORKSPACE / developer
+98:         if ws.is_dir():
+99:             for f in sorted(ws.glob(f"{FILE_JOURNAL_PREFIX}*.md")):
+100:                 if f.is_file():
+101:                     paths.append(
+102:                         f"{DIR_WORKFLOW}/{DIR_WORKSPACE}/{developer}/{f.name}"
+103:                     )
+104:             index_md = ws / "index.md"
+105:             if index_md.is_file():
+106:                 paths.append(
+107:                     f"{DIR_WORKFLOW}/{DIR_WORKSPACE}/{developer}/index.md"
+108:                 )
+109: 
+110:     tasks_dir = repo_root / DIR_WORKFLOW / DIR_TASKS
+111:     if not tasks_dir.is_dir():
+112:         return paths
+113: 
+114:     if task_name is not None:
+115:         # Narrow scope — ONLY the current task directory (active or archived).
+116:         # Never iterdir() all tasks: parallel-window dirty task dirs must not
+117:         # leak into the session auto-commit.
+118:         active_task = tasks_dir / task_name
+119:         if active_task.is_dir():
+120:             paths.append(f"{DIR_WORKFLOW}/{DIR_TASKS}/{task_name}")
+121:         archived_task = tasks_dir / DIR_ARCHIVE / task_name
+122:         if archived_task.is_dir():
+123:             paths.append(
+124:                 f"{DIR_WORKFLOW}/{DIR_TASKS}/{DIR_ARCHIVE}/{task_name}"
+125:             )
+
+LINES 145-221
+145:     repo_root: Path,
+146:     task_name: str | None = None,
+147:     modified_children: list[str] | None = None,
+148: ) -> list[str]:
+149:     """Return paths to stage after `task.py archive`.
+150: 
+151:     Scoped to ONLY the paths the archive operation actually touched:
+152: 
+153:       - the archive subtree (where the freshly-moved task lives)
+154:       - the source task directory (for source-side deletes; caller pairs
+155:         this with `git rm --cached` since `git add` won't stage deletes
+156:         for a path that no longer exists in the working tree)
+157:       - any child task directories whose `task.json` was edited to drop
+158:         the archived parent (parent-children relationship update)
+159: 
+160:     This narrow scope avoids "scope creep" — dirty changes in OTHER
+161:     active task dirs (parallel-window edits) are NOT bundled into the
+162:     archive commit. Callers handle each kind of change in its own
+163:     commit boundary.
+164: 
+165:     Backwards-compat: with no arguments, the function walks the whole
+166:     `.trellis/tasks/` subtree the old way (active tasks + archive). New
+167:     callers should always pass `task_name`.
+168:     """
+169:     paths: list[str] = []
+170:     tasks_dir = repo_root / DIR_WORKFLOW / DIR_TASKS
+171:     if not tasks_dir.is_dir():
+172:         return paths
+173: 
+174:     archive_dir = tasks_dir / DIR_ARCHIVE
+175: 
+176:     if task_name is not None:
+177:         # Narrow scope — only paths that still exist on disk (so
+178:         # `git add` doesn't choke on the moved-away source). The caller
+179:         # handles the source-side deletes via `git rm --cached`
+180:         # explicitly.
+181:         if archive_dir.is_dir():
+182:             paths.append(
+183:                 f"{DIR_WORKFLOW}/{DIR_TASKS}/{DIR_ARCHIVE}"
+184:             )
+185:         for child_name in modified_children or []:
+186:             paths.append(f"{DIR_WORKFLOW}/{DIR_TASKS}/{child_name}")
+187:         return paths
+188: 
+189:     # Legacy wide scope (no task_name): preserve old behavior so callers
+190:     # that have not been updated keep working.
+191:     if archive_dir.is_dir():
+192:         paths.append(f"{DIR_WORKFLOW}/{DIR_TASKS}/{DIR_ARCHIVE}")
+193:     for child in sorted(tasks_dir.iterdir()):
+194:         if not child.is_dir():
+195:             continue
+196:         if child.name == DIR_ARCHIVE:
+197:             continue
+198:         paths.append(f"{DIR_WORKFLOW}/{DIR_TASKS}/{child.name}")
+199:     return paths
+200: 
+201: 
+202: def _stderr_indicates_ignored(stderr: str) -> bool:
+203:     """git add error indicates the path is excluded by .gitignore."""
+204:     if not stderr:
+205:         return False
+206:     lowered = stderr.lower()
+207:     return "ignored by" in lowered
+208: 
+209: 
+210: def safe_git_add(
+211:     paths: list[str], repo_root: Path, retry_on_index_lock: bool = False
+212: ) -> tuple[bool, bool, str]:
+213:     """Run `git add` on specific paths; never retry with -f.
+214: 
+215:     Returns ``(success, used_force, stderr)``. The ``used_force`` field is
+216:     kept for signature compatibility with the 0.5.10 implementation but is
+217:     always ``False`` — we never auto-force.
+218: 
+219:     Behavior:
+220:       - No paths passed → success, no force, empty stderr.
+221:       - Plain ``git add -- <paths>`` succeeds → return success.
+
+SOURCE packages/cli/src/templates/trellis/scripts/common/cli_adapter.py
+COMMIT f089cb3286071199e84118dee86b6d76aab032f1
+LINES 480-545
+480:     def build_resume_command(self, session_id: str) -> list[str]:
+481:         """Build CLI command for resuming a session.
+482: 
+483:         Args:
+484:             session_id: Session ID to resume (ignored for iFlow)
+485: 
+486:         Returns:
+487:             List of command arguments
+488:         """
+489:         if self.platform == "opencode":
+490:             return ["opencode", "run", "--session", session_id]
+491:         elif self.platform == "iflow":
+492:             # iFlow uses -c to continue most recent conversation
+493:             # session_id is ignored as iFlow doesn't support session IDs
+494:             return ["iflow", "-c"]
+495:         elif self.platform == "codex":
+496:             return ["codex", "resume", session_id]
+497:         elif self.platform == "kiro":
+498:             return ["kiro", "resume", session_id]
+499:         elif self.platform == "gemini":
+500:             return ["gemini", "--resume", session_id]
+501:         elif self.platform == "antigravity":
+502:             raise ValueError(
+503:                 "Antigravity workflows are UI slash commands; CLI resume is not supported."
+504:             )
+505:         elif self.platform == "devin":
+506:             raise ValueError(
+507:                 "Devin workflows are UI slash commands; CLI resume is not supported."
+508:             )
+509:         elif self.platform == "qoder":
+510:             return ["qodercli", "--resume", session_id]
+511:         elif self.platform == "codebuddy":
+512:             raise ValueError(
+513:                 "CodeBuddy does not support non-interactive mode (no CLI agent)"
+514:             )
+515:         elif self.platform == "copilot":
+516:             raise ValueError(
+517:                 "GitHub Copilot is IDE-only; CLI resume is not supported."
+518:             )
+519:         elif self.platform == "droid":
+520:             raise ValueError(
+521:                 "Factory Droid CLI resume is not yet supported."
+522:             )
+523:         elif self.platform == "pi":
+524:             return ["pi", "-c", session_id]
+525:         elif self.platform == "trae":
+526:             raise ValueError(
+527:                 "Trae is IDE-only; CLI resume is not supported."
+528:             )
+529:         elif self.platform == "omp":
+530:             raise ValueError(
+531:                 "OMP uses native task tool for agent runs; CLI resume is not supported."
+532:             )
+533:         elif self.platform == "grok":
+534:             return ["grok", "-c"]
+535:         elif self.platform == "kimi":
+536:             return ["kimi", "--session", session_id]
+537:         else:
+538:             return ["claude", "--resume", session_id]
+539: 
+540:     def get_resume_command_str(self, session_id: str, cwd: str | None = None) -> str:
+541:         """Get human-readable resume command string.
+542: 
+543:         Args:
+544:             session_id: Session ID to resume
+545:             cwd: Optional working directory to cd into
+
+SOURCE packages/cli/src/templates/trellis/scripts/common/task_utils.py
+COMMIT f089cb3286071199e84118dee86b6d76aab032f1
+LINES 295-350
+295:     until those orphans exit — the exact "command that never returns" the
+296:     timeout exists to prevent.
+297: 
+298:     POSIX: the hook is started with ``start_new_session=True``, so the shell and
+299:     every descendant share one fresh process group; SIGKILL the group.
+300:     Windows: ``taskkill /F /T`` walks the tree (best effort).
+301:     Either way ``proc.kill()`` is the fallback.
+302: 
+303:     Limitation: a hook that calls ``setsid`` itself leaves the group and
+304:     survives this. Accepted and out of scope — a hook is arbitrary code, and the
+305:     timeout is a liveness guarantee, not a containment boundary.
+306:     """
+307:     import os
+308:     import signal
+309:     import subprocess
+310: 
+311:     if os.name == "posix":
+312:         try:
+313:             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+314:             return
+315:         except (ProcessLookupError, PermissionError, OSError):
+316:             pass
+317:     else:
+318:         try:
+319:             subprocess.run(
+320:                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+321:                 capture_output=True,
+322:             )
+323:         except (OSError, ValueError):
+324:             pass
+325: 
+326:     try:
+327:         proc.kill()
+328:     except OSError:
+329:         pass
+330: 
+331: 
+332: def _release_hook_process(proc: subprocess.Popen[str]) -> None:
+333:     """Close our pipe ends and reap a finished hook under a bound.
+334: 
+335:     ``Popen`` used as a context manager calls ``wait()`` with no timeout when
+336:     the block exits. That is the one place the liveness guarantee could still
+337:     be lost: if ``_kill_hook_tree`` failed outright — both the process-group
+338:     kill and the direct kill raising — the lifecycle command would block there
+339:     forever, which is the exact hang the timeout exists to prevent.
+340:     """
+341:     import subprocess
+342: 
+343:     for stream in (proc.stdout, proc.stderr, proc.stdin):
+344:         if stream is not None:
+345:             try:
+346:                 stream.close()
+347:             except OSError:
+348:                 pass
+349:     try:
+350:         proc.wait(timeout=HOOK_KILL_GRACE_SECONDS)

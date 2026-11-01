@@ -1,0 +1,50 @@
+{
+  "recorded_at_utc": "2026-11-01T12:04:53.809833+00:00",
+  "pi_executable": "/Users/me/.pi/agent/bin/pi",
+  "pi_version": "1.4.0",
+  "node_version": "v26.3.0",
+  "python_version": "3.9.6",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "git_version": "git version 2.54.0 (Apple Git-157)",
+  "model": {
+    "provider": "magpie",
+    "id": "group/openai"
+  },
+  "extra_dependencies_installed": false,
+  "sdk_imports": false,
+  "installed_reference_fingerprints": [
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/cli-integration.md",
+      "sha256": "edf8e723a70b4c3c40275db0391219e55d30597936212a9cfdef33963dd37f93"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/cli.md",
+      "sha256": "c45e59f31574de71770a71c9a7c9b6ac03bf9cad4928aa31bb6614d661733679"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/rpc.md",
+      "sha256": "37a03d180115460a0a275022f4aeabef1e5345458df6a9b6e8a6de18474de720"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/rpc-commands.md",
+      "sha256": "4deeee367852f4633ef594bc079f9e9fb14640a4e3ba8a69b7c89b6f54740838"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/json.md",
+      "sha256": "f103191816fdcf3627dfc98b89acad8a28eee737697130ddaeb2581131213543"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md",
+      "sha256": "46fc0baeb00db8ca8db399e33e0f506e86e425693b291258357e8063e2f3353c"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/session-format.md",
+      "sha256": "4f8fc42179b332bcf71fe4c85cc95d914853ff7486d68742954a45316b512a4a"
+    },
+    {
+      "path": "/Users/me/.pi/agent/install/releases/1.4.0/node_modules/@earendil-works/pi-coding-agent/docs/environment-variables.md",
+      "sha256": "097f2101e285f51f509be0b176d458825b83b929a635ae29d2a43703168170dd"
+    }
+  ],
+  "note": "Local CLI capabilities on this installed version only. Not Node24 product packaging or another client compatibility validation."
+}

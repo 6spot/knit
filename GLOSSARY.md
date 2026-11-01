@@ -14,7 +14,7 @@
 | 操作 operation | 带稳定 ID 的确定性效果意图、步骤与核验回执；副作用未知先核实，不能盲目重做 |
 | worker | 执行阶段请求的本机进程，按需加载所选 AgentRuntime；进程结束后原生 Session 和 run 资料可继续保留 |
 | ClientAdapter | 内部模块，生成项目入口与桥接，启动客户端并取得真实主会话上下文 |
-| AgentRuntime | 内部模块，负责阶段 Agent 的执行、取消、历史和原生恢复 |
+| AgentRuntime | 内部模块，负责阶段 Agent 执行、取消、历史与恢复；首版调用本机 Pi CLI，旧记录无法恢复时同客户端新会话读任务资料续做 |
 | ExecutionHost | 内部模块，启动和定位 worker；首版 local，REX 后续 |
 | 项目桥接 | init 自动生成的客户端集成文件，Pi 为 `.pi/extensions/knit.ts`；只转交原生事件、模型、工具和上下文，业务由 Knit CLI 处理 |
 | 可插拔模块 | 随 Knit 源码维护和构建的内部实现，通过固定装配表替换，不是第三方插件 SDK |
@@ -29,9 +29,10 @@
 | 收尾辅助 | advisory worker 提供建议；只有主 Agent 与确定性工具的实际结果能证明提交和归档 |
 | 用量 | 本 run 新模型调用的 token／费用／耗时统计，缓存是输入子集；首版不作为自动停止阈值 |
 | 检查凭据 | 核心发布后不改的 check.json，只取最新候选并核对当前目标；stale 不删除旧事实 |
-| clarify / change | 主 Agent 声明的输入更新类型：澄清保持 phase、摘要变化令检查 stale；实变回 discuss |
+| clarify / change | 澄清保持早期 phase；摘要变化令检查 stale，deliver 因此回 open/check；实变回 discuss |
 | 自动修复计数 | binding 中的 repairCycleId、repairRounds、stopReason；恢复与 clarify 不重置，不做独立链状态机 |
-| 开发者模式 | --dev 或 Pi 当前会话开关，只增脱敏诊断，不改变规则／模型／权限或自动增加轮次 |
+| 开发者模式 | M1 仅 --dev 的脱敏结构化 stderr；M3A 加私有日志和 Pi 会话开关，不改规则或自动多调模型 |
+| 提交确认与来源 | --branch 明确完整目标，authorizationRef 追溯指令或认可策略；核心核引用／版本，主 Agent 判断授权语义 |
 | Git 分支 | 项目版本控制分支；首版任务随其所在 Git 分支保存 |
 | 会话分支／对话树 | 原生 Session 的消息路径，与 Git 分支分别处理 |
 | 快照 | 实施前的本机文件与索引恢复对照，不等于 Git 工作提交或外部副作用回滚 |

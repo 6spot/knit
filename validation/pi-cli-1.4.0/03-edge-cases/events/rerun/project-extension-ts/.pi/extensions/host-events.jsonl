@@ -1,0 +1,7 @@
+{"time":1793533627832,"event":"session_start","version":"v1","reason":"startup","session":"2c990f91-2758-4b58-9401-a7128f9ad75c"}
+{"time":1793533627835,"event":"status","version":"v1","session":"2c990f91-2758-4b58-9401-a7128f9ad75c"}
+{"time":1793533627836,"event":"reload_requested","version":"v1"}
+{"time":1793533627836,"event":"shutdown","version":"v1"}
+{"time":1793533627845,"event":"session_start","version":"v2","reason":"reload","session":"2c990f91-2758-4b58-9401-a7128f9ad75c"}
+{"time":1793533628857,"event":"status","version":"v2","session":"2c990f91-2758-4b58-9401-a7128f9ad75c"}
+{"time":1793533628861,"event":"shutdown","version":"v2"}

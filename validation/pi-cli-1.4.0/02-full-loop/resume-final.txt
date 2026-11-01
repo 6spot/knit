@@ -1,0 +1,1 @@
+{"files":["duration.py","test_duration.py"],"function":"parse_duration","rejectedExample":"1m1h"}

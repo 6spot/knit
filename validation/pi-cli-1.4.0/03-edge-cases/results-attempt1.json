@@ -1,0 +1,136 @@
+{
+  "status": "completed",
+  "provider": "magpie",
+  "model": "group/openai",
+  "cases": [
+    {
+      "name": "control-errors-and-framing",
+      "status": "passed",
+      "seconds": 0.22,
+      "details": {
+        "unicode_LF_framing": true,
+        "invalid_model_rejected_without_change": true,
+        "invalid_cursor_rejected": true,
+        "missing_session_response_success": true,
+        "missing_session_file_exists": false,
+        "selected_session_after_missing_open": true,
+        "boundary": "Missing session must be prechecked by caller if CLI accepts it as a new empty session."
+      }
+    },
+    {
+      "name": "model-tool-cancel-and-resume",
+      "status": "passed",
+      "seconds": 8.68,
+      "details": {
+        "model_tool_cancelled": true,
+        "child_terminal": true,
+        "queue_cleared": true,
+        "abort_seconds": 4.7,
+        "aborted_settled": true,
+        "same_session_resume_after_cancel": true,
+        "native_session_id": "6871f1c8-b25b-4c47-920a-f1fe085ca539",
+        "usage_before_resume": {
+          "tokens": {
+            "input": 4887,
+            "output": 91,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 4978
+          },
+          "cost_usd": 0.010684
+        },
+        "resume_usage": {
+          "tokens": {
+            "input": 925,
+            "output": 9,
+            "cacheRead": 3968,
+            "cacheWrite": 0,
+            "total": 4902
+          },
+          "cost_usd": 0.0023368
+        }
+      }
+    },
+    {
+      "name": "hard-interruption-and-resume",
+      "status": "passed",
+      "seconds": 17.05,
+      "details": {
+        "checkpoint_persisted": true,
+        "native_history_persisted_before_kill": true,
+        "child_survived_cli_SIGKILL": true,
+        "test_child_cleaned_before_resume": true,
+        "same_native_session_resumed": true,
+        "checkpoint_recovered": true,
+        "usage_before_crash": {
+          "tokens": {
+            "input": 5341,
+            "output": 119,
+            "cacheRead": 4992,
+            "cacheWrite": 0,
+            "total": 10452
+          },
+          "cost_usd": 0.012371199999999999,
+          "assistant_messages": 2,
+          "tool_calls": 2
+        },
+        "resume_usage": {
+          "tokens": {
+            "input": 5289,
+            "output": 62,
+            "cacheRead": 4992,
+            "cacheWrite": 0,
+            "total": 10343
+          },
+          "cost_usd": 0.0116972
+        },
+        "finding": "CLI exit alone is not proof that every spawned tool process ended."
+      }
+    },
+    {
+      "name": "project-extension-load-and-reload",
+      "status": "failed",
+      "seconds": 0.19,
+      "error": ""
+    },
+    {
+      "name": "out-of-turn-notification-and-queue",
+      "status": "passed",
+      "seconds": 20.16,
+      "details": {
+        "outside_turn_passive_delivered_without_model": true,
+        "outside_turn_wake_triggered_model": true,
+        "handled_response_not_mistaken_for_completion": true,
+        "busy_followup_queued_after_tool": true,
+        "first_answer_before_followup": [
+          "",
+          "BUSY_DONE",
+          "QUEUED_702eaf3b5f7647efbafedd29efbe1221"
+        ],
+        "context_switch_no_misdelivery": true,
+        "wake_usage": {
+          "tokens": {
+            "input": 4866,
+            "output": 28,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 4894
+          },
+          "cost_usd": 0.010012
+        },
+        "queue_usage": {
+          "tokens": {
+            "input": 559,
+            "output": 103,
+            "cacheRead": 14592,
+            "cacheWrite": 0,
+            "total": 15254
+          },
+          "cost_usd": 0.0036072
+        },
+        "host_api_from_installed_pi_only": true
+      }
+    }
+  ],
+  "sdk_imported": false
+}

@@ -1,0 +1,42 @@
+{
+  "cases": [
+    {
+      "name": "hook-failure",
+      "verification": "passed",
+      "behavior": "hook rejected commit; HEAD and unrelated work preserved",
+      "exit_code": 1,
+      "head_unchanged": true,
+      "unrelated_preserved": true
+    },
+    {
+      "name": "hook-scope-expansion",
+      "verification": "passed",
+      "behavior": "finding: pre-commit hook can expand commit scope despite --only",
+      "actual_paths": [
+        "result.txt",
+        "unrelated.txt"
+      ],
+      "commit": "9308b02f9e6f64543774d34706b684cd39463772",
+      "scope_expansion_detected": true,
+      "unrelated_file_and_index_preserved": true,
+      "required_boundary": "Verify actual commit tree; preserve facts and report needs_attention, never assume --only is a sandbox or auto rewrite history."
+    },
+    {
+      "name": "commit-success-receipt-lost",
+      "verification": "passed",
+      "behavior": "actual subprocess exit after successful commit, no receipt; recovered by Git facts",
+      "performer_exit": 77,
+      "no_duplicate_commit": true,
+      "unrelated_preserved": true,
+      "commit": "9c912bd73e2f58c692e54e9f2fbae2814d81f74d"
+    },
+    {
+      "name": "archive-move-checkpoint-lost",
+      "verification": "passed",
+      "behavior": "move already applied; verified target then archive commit, no second move",
+      "unrelated_preserved": true,
+      "commit": "46f47093e0fb0a24e4fb96713e355e4b63c84302"
+    }
+  ],
+  "not_product_implementation": true
+}

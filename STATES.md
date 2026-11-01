@@ -35,19 +35,21 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | --- | --- | --- |
 | TaskCreated：task new | 用户授权、身份唯一 | open/discuss，不自动实施 |
 | DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备 | discuss → implement，保存确认输入引用 |
-| InputsUpdated：task update --kind clarify | 原目标、条件和范围不变，主 Agent 提供说明 | 保持 phase；有效摘要变化则检查 stale，不自动重跑 |
+| InputsUpdated：task update --kind clarify | 原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则转 open/check 并清 completed |
 | InputsUpdated：task update --kind change | 新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
 | InputsUpdateProposed：运行中 update | 已有活动 run，不改其冻结输入 | 保存 kind、理由、预期原摘要和拟修改内容，待工具终态后应用 |
 | RecordWritten：task record | 只改记录、未封存、短锁内核对版本 | 不改有效输入或 phase，不使检查失效 |
 | ImplementationAccepted | execution 报告及实际成果有效 | implement → check，累积 scope |
 | CheckAccepted | 最新获准检查及目标版本匹配 | pass → deliver；changes_requested → implement；blocked 保留 check |
-| RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check，保留范围，不重聊需求；获准检查时更新最新候选 |
+| RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check；discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施 |
 | BusinessClosed：deliver 或 task close | 正常完成须有效检查及主 Agent 完成判断 | closed/completed/deliver，Git 收尾另看回执 |
 | TaskEndRequested：task close | 明确取消／替代，先停活动工具并核实效果 | closed 及相应 outcome，不默认提交部分源码 |
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 
-clarify 保持 deliver 时也不能据 stale 检查提交；显式 run check 触发复查入口。未归档 completed 发生有效输入变更须回 open 并清 completed，clarify 仍保留 deliver 位置。已完整归档的资料维护不自动重开任务。
+核心操作使选定目标的检查 stale 时，若当前 phase=deliver，确定性回 open/check 并清 completed；clarify、adopt、restore 和生效规范变化使用同一规则，不保留不可交付的 deliver。其他阶段不因 clarify 回讨论，摘要未变不迁移。run check 是显式复查入口；非正式 check --scope 不推进正式 Task。已完整归档的资料维护不自动重开。
+
+外部编辑造成的失效在只读查询中报告“应检查、状态待同步”，查询不改 task.md；下一写动作先在占用内收敛 phase，不允许提交。
 
 待应用变更在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
 
@@ -110,9 +112,9 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 创建未完成或尚未落盘的具体原因记录在本次 run 准备结果中，不再新增 Session 状态。失败尝试不覆盖旧可用阶段引用，不伪造消息触发原生保存。dispose 不删除原生历史。实施与检查不可复用活跃主会话文件。
 
-恢复先核实旧工具结束，再取跨项目稳定的 Session 执行占用，由原客户端加载。明确新建使用新 Session 并保留来源关系，默认配置变化不改变旧记录归属。
+默认 resume=prefer：先核实旧工具结束，再取跨项目稳定的 Session 执行占用，由原客户端加载并核对原生 ID／历史。旧记录缺失、损坏、不兼容或恢复失败时自动创建新 Session；旧对象保持原状态与引用，新对象 opening→available 后才更新阶段引用，来源与原因记录在本次准备结果中。新会话读当前任务、正式规范、进度、已有事实和实际代码续做，不重置 phase、修复次数、scope 或检查资格。客户端缺失、模型不可用和旧工具状态未知仍阻塞，新建失败不递归兜底；默认配置变化不改变旧记录归属。
 
-活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目。树切换重新核实，不清掉后来选择的别的任务。后台结果只提醒匹配原发起会话／路径，监听器关闭不取消 worker。
+活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目。树切换重新核实，不清掉后来选择的别的任务。后台结果只投递匹配原发起会话／路径。已有继续授权、无暂停和待应用输入时，完成消息可唤醒主 Agent 决定下一环节；忙时按原生队列排入，不打断新输入，切会话或关闭时仅保留结果供 status/resume。M0 必须真实验证轮外投递与是否触发模型回合，不能仅凭 sendMessage 类型存在认定可行；监听器关闭不取消 worker。
 
 ## 8. 检查资格
 
@@ -129,7 +131,7 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-scope 按 Task 累积，恢复新起点不清空旧成果。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过；Git 中已结束的归档只显示历史，不自动重开。
+scope 按 Task 累积，恢复新起点不清空旧成果。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过：未归档正常完成任务先回 open/check；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选
 
@@ -156,7 +158,7 @@ SQLite 若入选，可把关联元数据置于短事务；Git、Markdown 和原�
 
 | 步骤 | 完成证据 |
 | --- | --- |
-| preflight | 绑定分支及提交授权明确、工具终态、候选已处理；正常完成另需有效检查与主 Agent 完成判断 |
+| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束、候选已处理；正常完成另需有效检查和主 Agent 完成判断 |
 | work_commit | 限定候选路径与目标树，核实真实 OID、范围与 index 保护；无需工作提交则跳过并记原因 |
 | prepare_archive | 完整结果、验证、工作提交和结束结果进入记录 |
 | seal_archive | 短锁内捕捉记录版本、目录与首次归档月份 |
@@ -164,7 +166,9 @@ SQLite 若入选，可把关联元数据置于短事务；Git、Markdown 和原�
 | archive_commit | 本任务路径及明确引用的真实提交，不能写自身哈希反复提交 |
 | finalize | 关联和定位收妥，条件清选择，操作 completed |
 
-main／默认分支不隐含提交许可。已有明确授权或用户认可的项目策略覆盖当前分支时不重复确认；adopt 的继续意图不自动授权提交。
+deliver 和会提交的 archive 统一要求 --branch <refs/heads/...>，拒绝短名或 current；该参数确认目标，不能冒充用户授权。桥接 Agent 需声明 authorizationRef，CLI 代调可 --authorization-ref，直接调用至少记录调用声明，不能伪记人工已核实。核心核对来源存在／版本，语义授权仍由主 Agent 负责。
+
+认可的项目策略写在 .knit/workflow.md 的 Git 交付约定，模板不默认授予主分支提交许可。默认分支候选按显式 delivery.defaultBranch、本地 origin/HEAD、unknown 识别，不按 main/master 名称猜、不联网探测。operation 记录候选及来源、实际目标与授权来源；unknown 不阻已有明确授权。已覆盖不重复确认，adopt 仍不自动授权提交。详见 OPERATIONS。
 
 封存期间 task record 返回未保存（sealed），不写任务、不自动转存、不制造未提交修改。主 Agent 不得汇报已记录；封存结束后按原记录意图重试，作为档案的新资料修改，明确其未包含在原归档提交，是否提交按已有授权。此补记不重开任务，也不篡改旧交付回执。
 
@@ -188,6 +192,7 @@ context 提供讨论输入；task ready 推进讨论确认；task update 显式�
 - 输入、阶段接收和计数覆盖分类、版本冲突、重复接收与相关中断。
 - 启动／取消覆盖实例不明、工具终态、完成竞争与旧 token。
 - Git／文件移动在关键效果前后注入崩溃，验证无重复提交、无无关 index／文件损失。
-- 开发者模式验证脱敏、业务结果等价及输出通道，不为诊断事件再建一套状态测试。
+
+M1 开发者模式只做结构化 stderr、白名单与一个业务等价冒烟；私有日志、Pi 会话开关及完整通道验证归 M3A。
 
 归属及里程碑见 DESIGN 第 16 节。M2 的数据保护测试不能推迟到发布阶段。

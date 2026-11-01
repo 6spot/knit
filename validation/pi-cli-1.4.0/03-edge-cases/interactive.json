@@ -1,0 +1,24 @@
+{
+  "status": "passed",
+  "mode": "actual CLI interactive PTY",
+  "sdk_imported": false,
+  "interactive_slash_reload_loaded_v2": true,
+  "passive_callback_did_not_start_model": true,
+  "outside_turn_callback_woke_interactive_model": true,
+  "interactive_exit_code": 0,
+  "passive_notice_in_native_history": true,
+  "native_session_id": "01a196ef-f4a1-77b5-bb3d-e249e0addf80",
+  "usage": {
+    "tokens": {
+      "input": 686,
+      "output": 22,
+      "cacheRead": 3968,
+      "cacheWrite": 0,
+      "total": 4676
+    },
+    "cost_usd": 0.0019887999999999998,
+    "assistant_messages": 1,
+    "tool_calls": 0
+  },
+  "validation_correction": "Initial postcheck looked in message.content; native custom messages are custom_message entries with top-level content. Rechecked existing native file without repeating model request."
+}

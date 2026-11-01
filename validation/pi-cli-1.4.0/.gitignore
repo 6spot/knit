@@ -1,0 +1,4 @@
+private-native/
+.work/
+__pycache__/
+*.pyc

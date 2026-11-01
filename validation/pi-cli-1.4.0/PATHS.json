@@ -1,0 +1,14 @@
+{
+  "original_root": "/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-pi-cli-capability-7k_zoz_8",
+  "original_loop": "/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-pi-cli-capability-7k_zoz_8/loop-test-7xj8datx",
+  "archive_root": "/Users/me/IdeaProjects/knit/validation/pi-cli-1.4.0",
+  "native_sessions": "private-native/full-loop (Git ignored; raw native history)",
+  "excluded": [
+    ".DS_Store",
+    "agent/auth.json",
+    "agent/models-store.json",
+    "nested .git",
+    "__pycache__"
+  ],
+  "note": "Original reports retained unchanged. Paths in original JSON refer to the original temporary experiment; fixture and repo.bundle preserve code and commit history."
+}

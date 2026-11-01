@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "source_files_compared_with_fixed_git_blobs": 15,
+  "excerpts_sha256_checked": 3,
+  "local_links": "passed",
+  "model_requests": 0,
+  "runtime_tests_of_references": false,
+  "readme_sha256": "568f6c5049461b20a499ee9a4de39ac79472bb8c23b527b3620b56d46af555ae"
+}

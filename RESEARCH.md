@@ -149,10 +149,34 @@ Trellis 由独立 CLI 创建项目工作流与平台资料，Pi 配置器生成�
 
 依据：[Node 生命周期](https://nodejs.org/en/about/previous-releases)、[发布计划](https://github.com/nodejs/Release/blob/main/schedule.json)、[Commander15](https://github.com/tj/commander.js/blob/v15.0.0/Readme.md)、[TypeBox](https://github.com/sinclairzx81/typebox)、[TypeBox1.3.27](https://www.npmjs.com/package/typebox/v/1.3.27)、[YAML2](https://eemeli.org/yaml/)、[Node24 测试运行器](https://nodejs.org/docs/latest-v24.x/api/test.html)、[Pi SDK1.4.0](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.4.0)、[TypeScript6.0.3](https://www.npmjs.com/package/typescript/v/6.0.3)。
 
-技术决定见 [TECHNOLOGY.md](TECHNOLOGY.md)，接口存在与元数据满足要求不代表已实现或通过端到端验收。
+Pi 接入以[第 17.14 节的本机 CLI 实测](#1714-m0-主体验验证边界)为准；本节的 SDK 包元数据核查不构成引入 SDK 的决定。其他技术候选见 [TECHNOLOGY.md](TECHNOLOGY.md)，接口存在与元数据满足要求不代表产品已实现或通过验收。
 
 ## 17.13 存储与诊断验证计划
 
 首版不再预先排除 SQLite。内部 Session、binding、operation 更新可纳同一短事务，是否减少复杂度须按 TECHNOLOGY 第 8 节的真实写路径与文件方案对比；外部 Markdown、Git、原生历史仍分别核验。当前尚未执行此对比，也未选定 SQLite 驱动或宣称 Node24 组合已通过。
 
 M0 驱动核查入口：[Node24 SQLite API](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)。需实际确认支持状态、事务／busy 行为、只读副作用与打包成本，不用本机 Node25 实验代替。开发者模式的脱敏 stepKey、摘要、I/O／事务计数可用于比较，不记录 SQL 参数、正文或凭据；它不是新状态库或模型调试调用。
+
+## 17.14 M0 主体验验证边界
+
+本机 Pi 1.4.0 已通过直接 CLI RPC 完成真实实施、独立检查、新进程原生恢复、受控模型工具取消和确定性 Git 收尾；未导入 SDK 或安装额外依赖。受信项目 `.ts` 扩展自动加载、宿主 reload、真实交互 CLI 的 `/reload`、轮外被动消息与实际唤醒、忙时 follow-up 和会话变化后的回调防误投均已实际核验。原始报告、代码、Git bundles、修正记录与文件指纹保存在 [CLI 验证资料](validation/pi-cli-1.4.0/README.md)，逐项结果见[验证清单](validation/pi-cli-1.4.0/MATRIX.md)。
+
+实测限制必须保留：不存在的 session 路径可被打开为新空会话；启动时未登记模型可被合成描述符，不能仅凭 `get_state` 字符串认定可用；强杀 CLI 后受控工具子进程仍可能存活；Git hook 能扩张 `commit --only` 的提交范围。实验均已核实实际效果、清理自有进程，并保留恢复证据。宿主轮外消息实验使用受控回调，尚不代表 Knit worker 到宿主的产品传输协议完成。
+
+本轮完成的是 CLI 能力验证，不将产品任务状态、规范演进、init 所有权、授权、占用／接管、存储选择或 Node24 打包验收记为通过。正常关闭、受控取消与强制中断分别记录；不能由本例外推任意 daemon、远端副作用或外部并发都可自动恢复。
+
+M1 开发诊断只做结构化 stderr、白名单及最小等价冒烟；私有日志和 Pi 会话开关归 M3A。同步目录检测只是本机最佳努力提示，云同步不是跨机锁；不能将 Git 忽略等同云排除，也不能仅因目录名认定不支持。
+
+## 17.15 参考项目的会话、模型、取消与提交边界
+
+固定快照的 Trellis 与 GSD Pi 子任务使用 `--no-session`；Spec Kit Pi integration 的 workflow resume 主要复用步骤检查点。它们没有在这些入口统一承担 Knit 的原生 worker 身份恢复保证；Trellis 另有通用 CLI 恢复命令，不能与一次性 Pi 子任务混为一谈。
+
+取消确有实现：Trellis Pi 工具杀直接 CLI 子进程，GSD Pi dispatcher 杀进程组，Spec Kit capture 管理 POSIX 进程组／Windows Job，并明确脱离边界的程序可能存活。模型解析主要依配置及客户端；GSD 还存在保留当前模型的 fail-open 策略，不等于 Knit 指定不可用即阻塞。提交方面，Trellis 选择资料 pathspec 但可覆盖 archive 子树，GSD 的 commit helper 用独立 index 与 `--only`；Spec Kit 可选 Git 扩展默认关闭，启用后是项目范围 `git add .`。这些路径都不能证明任意 hook 下严格单任务隔离。
+
+逐项解释、15 份固定源码指纹与摘录见[参考边界对照](validation/reference-boundaries/README.md)。本轮只读源码，未运行参考项目模型或测试套件，也不将这些做法自动改为 Knit 策略。
+
+## 17.16 原生恢复失败后的文件续做
+
+默认 `agent.resume: prefer` 采用已授权兜底：优先恢复原生记录，旧记录不可用时沿同一客户端自动创建新 Session，读取任务要求、适用正式规范、进度、已有执行事实与当前代码续做；来源和原因留存，阶段／修复次数／scope 不因换会话重置。旧执行未知、模型不可用或任务归属不明仍阻塞。
+
+[独立文件续做实验](validation/session-fallback/README.md) 已动态验证缺失记录触发新会话、初始历史为空、真实工具读取任务与进度文件、完成剩余代码并经控制器复跑测试通过。模型总结自行改变了阶段／次数，控制器未采纳；权威任务文件与控制器值不变，旧报告及校验更正一并留存。本例不替代损坏／兼容触发分类等产品实现后验收。

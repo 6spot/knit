@@ -1,0 +1,38 @@
+{
+  "model_requests": 0,
+  "sdk_imported": false,
+  "project_extension_disabled": true,
+  "explicit_bash_executed": true,
+  "explicit_bash_cancelled": true,
+  "child_terminated": true,
+  "missing_session": {
+    "command_success": true,
+    "session_id_changed": true,
+    "messages": 0,
+    "file_created": false
+  },
+  "model_tokens": 0,
+  "EOF_exit_code": 0,
+  "status": "passed",
+  "startup_invalid_selection": [
+    {
+      "requested_provider": "knit-not-a-provider",
+      "requested_model": "knit-not-a-model",
+      "exit_code": 1,
+      "selected_model": null,
+      "fallback_detected": false,
+      "stderr_present": true
+    },
+    {
+      "requested_provider": "magpie",
+      "requested_model": "knit-not-a-model-8c923",
+      "exit_code": 0,
+      "selected_model": {
+        "provider": "magpie",
+        "id": "knit-not-a-model-8c923"
+      },
+      "fallback_detected": false,
+      "stderr_present": true
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+test_invalid_durations (test_duration.ParseDurationTests) ... ok
+test_non_strings (test_duration.ParseDurationTests) ... ok
+test_valid_durations (test_duration.ParseDurationTests) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK

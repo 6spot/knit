@@ -1,0 +1,85 @@
+{
+  "status": "passed",
+  "stage_usage": [
+    {
+      "role": "implementation",
+      "elapsed_seconds": 40.9,
+      "incremental_tokens": {
+        "input": 13783,
+        "output": 1129,
+        "cacheRead": 24960,
+        "cacheWrite": 0,
+        "total": 39872
+      },
+      "incremental_estimated_cost_usd": 0.041352
+    },
+    {
+      "role": "check",
+      "elapsed_seconds": 47.31,
+      "incremental_tokens": {
+        "input": 6863,
+        "output": 1709,
+        "cacheRead": 18432,
+        "cacheWrite": 0,
+        "total": 27004
+      },
+      "incremental_estimated_cost_usd": 0.0326592
+    },
+    {
+      "role": "resume",
+      "elapsed_seconds": 2.97,
+      "incremental_tokens": {
+        "input": 2258,
+        "output": 29,
+        "cacheRead": 3968,
+        "cacheWrite": 0,
+        "total": 6255
+      },
+      "incremental_estimated_cost_usd": 0.0052028
+    }
+  ],
+  "total_new_native_tokens": {
+    "input": 22904,
+    "output": 2867,
+    "cacheRead": 47360,
+    "cacheWrite": 0,
+    "total": 73131
+  },
+  "normalized_input_including_cache": 70264,
+  "normalized_output": 2867,
+  "estimated_cost_usd": 0.079214,
+  "cost_caveat": "Pi configured-price estimate, not provider billing statement",
+  "real_checker_tool_evidence": [
+    {
+      "kind": "unittest",
+      "tool_call_id": "call_8252d5e8bf0246b8b8630abaea1becf6|fc_01811174f4d8dafb016ae71f35c67c81919c0b6567a79fcf49",
+      "passed": true
+    },
+    {
+      "kind": "extra_boundary_checks",
+      "tool_call_id": "call_9179761112ed43b79da5d155ec7bb12d|fc_01811174f4d8dafb016ae71f3eb9a4819183c69fa2b2fcbecc",
+      "checks": 929,
+      "failures": 0
+    }
+  ],
+  "git_commits": {
+    "work_commit": {
+      "oid": "d51da394045ec6b27e1486b55a454998660c43b9",
+      "paths": [
+        "duration.py",
+        "test_duration.py"
+      ]
+    },
+    "archive_commit": {
+      "oid": "59c8b3eff6e9e59ef3c722d7515ff93311b5051c",
+      "paths": [
+        "archive/2026-11/cli-loop/task.md",
+        "tasks/cli-loop/task.md"
+      ]
+    }
+  },
+  "final_status": "MM unrelated.txt",
+  "sdk_used": false,
+  "native_session_count": 2,
+  "cli_process_count": 3
+}

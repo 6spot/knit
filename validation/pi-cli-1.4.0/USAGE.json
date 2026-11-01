@@ -1,0 +1,103 @@
+{
+  "method": "unique (native session id, assistant entry id); includes the original successful loop and all additional attempts; never sum resumed cumulative session stats",
+  "native_recorded_only": true,
+  "all_sessions": [
+    {
+      "session_id": "6871f1c8-b25b-4c47-920a-f1fe085ca539",
+      "assistant_entries": 3,
+      "tokens": {
+        "input": 5812,
+        "output": 100,
+        "cacheRead": 3968,
+        "cacheWrite": 0,
+        "totalTokens": 9880
+      },
+      "estimated_cost_usd": 0.013020799999999999
+    },
+    {
+      "session_id": "a7976f25-9ba8-447f-8ff3-919f5fbca5e7",
+      "assistant_entries": 3,
+      "tokens": {
+        "input": 5818,
+        "output": 100,
+        "cacheRead": 3968,
+        "cacheWrite": 0,
+        "totalTokens": 9886
+      },
+      "estimated_cost_usd": 0.013032799999999997
+    },
+    {
+      "session_id": "32affbae-11f0-43c0-bdf8-882865600ebf",
+      "assistant_entries": 4,
+      "tokens": {
+        "input": 10630,
+        "output": 181,
+        "cacheRead": 9984,
+        "cacheWrite": 0,
+        "totalTokens": 20795
+      },
+      "estimated_cost_usd": 0.0240684
+    },
+    {
+      "session_id": "01a196ef-f4a1-77b5-bb3d-e249e0addf80",
+      "assistant_entries": 1,
+      "tokens": {
+        "input": 686,
+        "output": 22,
+        "cacheRead": 3968,
+        "cacheWrite": 0,
+        "totalTokens": 4676
+      },
+      "estimated_cost_usd": 0.0019887999999999998
+    },
+    {
+      "session_id": "adf138c1-8be5-421d-90c0-122e05f458ea",
+      "assistant_entries": 4,
+      "tokens": {
+        "input": 5425,
+        "output": 131,
+        "cacheRead": 14592,
+        "cacheWrite": 0,
+        "totalTokens": 20148
+      },
+      "estimated_cost_usd": 0.0136192
+    },
+    {
+      "session_id": "0b831631-e2de-43e7-841e-88972814acb8",
+      "assistant_entries": 4,
+      "tokens": {
+        "input": 6863,
+        "output": 1709,
+        "cacheRead": 18432,
+        "cacheWrite": 0,
+        "totalTokens": 27004
+      },
+      "estimated_cost_usd": 0.0326592
+    },
+    {
+      "session_id": "a1a72938-0a13-4785-a17b-68841dcedf03",
+      "assistant_entries": 7,
+      "tokens": {
+        "input": 16041,
+        "output": 1158,
+        "cacheRead": 28928,
+        "cacheWrite": 0,
+        "totalTokens": 46127
+      },
+      "estimated_cost_usd": 0.0465548
+    }
+  ],
+  "totals": {
+    "input": 51275,
+    "output": 3401,
+    "cacheRead": 83840,
+    "totalTokens": 138516
+  },
+  "estimated_cost_usd": 0.144944,
+  "assistant_stop_reasons": {
+    "toolUse": 14,
+    "error": 2,
+    "stop": 10
+  },
+  "cost_caveat": "Configured Pi price estimate. An interrupted stream may not report complete provider usage; not a billing statement."
+}

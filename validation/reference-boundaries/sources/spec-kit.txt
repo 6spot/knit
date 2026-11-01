@@ -1,0 +1,466 @@
+
+SOURCE src/specify_cli/integrations/pi/__init__.py
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 1-55
+1: """Pi Coding Agent integration."""
+2: 
+3: from __future__ import annotations
+4: 
+5: from collections.abc import Mapping, Sequence
+6: from pathlib import Path
+7: from typing import Any
+8: 
+9: from ..base import MarkdownIntegration
+10: 
+11: 
+12: class PiIntegration(MarkdownIntegration):
+13:     key = "pi"
+14:     config = {
+15:         "name": "Pi Coding Agent",
+16:         "folder": ".pi/",
+17:         "commands_subdir": "prompts",
+18:         "install_url": "https://www.npmjs.com/package/@earendil-works/pi-coding-agent",
+19:         "requires_cli": True,
+20:     }
+21:     registrar_config = {
+22:         "dir": ".pi/prompts",
+23:         "format": "markdown",
+24:         "args": "$ARGUMENTS",
+25:         "extension": ".md",
+26:     }
+27:     multi_install_safe = True
+28: 
+29:     def build_exec_args(
+30:         self,
+31:         prompt: str,
+32:         *,
+33:         model: str | None = None,
+34:         output_json: bool = True,
+35:         integration_args: Sequence[str] | None = None,
+36:         integration_options: Mapping[str, Any] | None = None,
+37:         project_root: Path | None = None,
+38:     ) -> list[str] | None:
+39:         """Build CLI arguments for non-interactive ``pi`` execution.
+40: 
+41:         ``MarkdownIntegration``'s default requests ``--output-format json``,
+42:         which Pi does not define: it rejects the unknown option and exits 1
+43:         before the prompt runs. Pi selects JSONL events with ``--mode json``,
+44:         the same flag the OMP integration already passes.
+45:         """
+46:         self.validate_runtime_config(integration_args, integration_options)
+47:         if not self.config or not self.config.get("requires_cli"):
+48:             return None
+49:         args = [self._resolve_executable(), "-p", prompt]
+50:         self._apply_extra_args_env_var(args)
+51:         if model:
+52:             args.extend(["--model", model])
+53:         if output_json:
+54:             args.extend(["--mode", "json"])
+55:         return args
+
+SOURCE src/specify_cli/integrations/_capture.py
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 149-225
+149: 
+150: class _ProcessTree:
+151:     """Run a process so that it and its process group or job can be killed.
+152: 
+153:     Killing only the CLI would leave the tools it started running, still
+154:     changing the project and holding the pipes open after the step has
+155:     failed. On POSIX the CLI leads a new session and its process group is
+156:     killed; on Windows it runs inside a job object that is terminated. The
+157:     boundary is that group or job, not every descendant: a process that
+158:     moves to another session or process group (POSIX) or breaks away from
+159:     the job (Windows), as a daemonising helper can, survives the kill.
+160:     A separate session also keeps the terminal's Ctrl+C from reaching the CLI
+161:     directly: the interrupt is handled here, by killing the group or job.
+162:     """
+163: 
+164:     def __init__(self, args: Sequence[str], cwd: str | None) -> None:
+165:         isolation: dict[str, Any] = (
+166:             {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED}
+167:             if os.name == "nt"
+168:             else {"start_new_session": True}
+169:         )
+170:         self.proc = subprocess.Popen(
+171:             args,
+172:             stdout=subprocess.PIPE,
+173:             stderr=subprocess.PIPE,
+174:             cwd=cwd,
+175:             **isolation,
+176:         )
+177:         self._job: Any = None
+178:         if os.name == "nt":
+179:             try:
+180:                 self._job = _start_in_job(self.proc)
+181:             except BaseException:
+182:                 # Fail closed: a CLI whose descendants could not be killed
+183:                 # never runs.
+184:                 self.proc.kill()
+185:                 self.proc.wait()
+186:                 for pipe in (self.proc.stdout, self.proc.stderr):
+187:                     if pipe is not None:
+188:                         pipe.close()
+189:                 raise
+190: 
+191:         self._lock = threading.Lock()
+192:         # Set when another thread kills the tree through interrupt().
+193:         self.interrupted = False
+194: 
+195:     def _send_kill(self) -> None:
+196:         if self._job is not None:
+197:             _windows().TerminateJobObject(self._job, 1)
+198:         elif os.name != "nt":
+199:             try:
+200:                 os.killpg(self.proc.pid, signal.SIGKILL)
+201:             except OSError:
+202:                 pass
+203:         try:
+204:             self.proc.kill()
+205:         except OSError:
+206:             pass
+207: 
+208:     def interrupt(self) -> None:
+209:         """Kill the process group or job from another thread.
+210: 
+211:         The thread running the capture sees the process exit and reports
+212:         the capture as interrupted.
+213:         """
+214:         with self._lock:
+215:             self.interrupted = True
+216:             self._send_kill()
+217: 
+218:     def kill(self) -> None:
+219:         """Kill the process group or job, then reap the process."""
+220:         with self._lock:
+221:             self._send_kill()
+222:         self.proc.wait()
+223: 
+224:     def close(self) -> None:
+225:         with self._lock:
+
+LINES 248-275
+248:         _active.discard(tree)
+249: 
+250: 
+251: @contextmanager
+252: def cancel_captures() -> Iterator[None]:
+253:     """Kill every running capture, and any that starts, until the block ends.
+254: 
+255:     Ctrl+C raises ``KeyboardInterrupt`` in the main thread only, and a
+256:     captured CLI runs in its own session or job, so it does not receive the
+257:     terminal's Ctrl+C either. When the main thread is interrupted while
+258:     worker threads run captures, wait for those workers inside this block:
+259:     their captures are killed and report ``interrupted``, and a capture that
+260:     starts meanwhile is killed as soon as it is registered.
+261:     """
+262:     global _cancelling
+263:     with _active_lock:
+264:         _cancelling += 1
+265:         trees = list(_active)
+266:     try:
+267:         for tree in trees:
+268:             tree.interrupt()
+269:         yield
+270:     finally:
+271:         with _active_lock:
+272:             _cancelling -= 1
+273: 
+274: 
+275: @contextmanager
+
+LINES 433-516
+433:     return text.replace("\r\n", "\n").replace("\r", "\n")
+434: 
+435: 
+436: def run_captured(
+437:     args: Sequence[str],
+438:     *,
+439:     cwd: str | None = None,
+440:     timeout: float | None = None,
+441:     max_bytes: int = DEFAULT_CAPTURE_MAX_BYTES,
+442: ) -> CapturedProcess:
+443:     """Run *args* and capture stdout and stderr, each capped at *max_bytes*.
+444: 
+445:     *max_bytes* counts raw bytes before decoding; ``-1`` disables the cap. A
+446:     timeout or ``KeyboardInterrupt`` kills the process and is reported on the
+447:     result (exit code ``-1`` or ``130``) together with the output read so far,
+448:     instead of being raised, after the process's group (POSIX) or job
+449:     (Windows) is killed; a descendant that left it is not killed. ``OSError``
+450:     from starting the process propagates.
+451:     """
+452:     if not capture_max_bytes_is_valid(max_bytes):
+453:         raise ValueError(
+454:             f"max_bytes must be a positive integer or -1, got {max_bytes!r}."
+455:         )
+456: 
+457:     tree: _ProcessTree | None = None
+458:     sinks = (_Sink(max_bytes), _Sink(max_bytes))
+459:     readers: list[threading.Thread] = []
+460:     deadline = None if timeout is None else time.monotonic() + timeout
+461:     timed_out = interrupted = False
+462:     try:
+463:         try:
+464:             with _deferred_interrupt() as pending_interrupt:
+465:                 tree = _ProcessTree(args, cwd)
+466:                 _register(tree)
+467:                 for pipe, sink in zip((tree.proc.stdout, tree.proc.stderr), sinks):
+468:                     reader = threading.Thread(
+469:                         target=_drain, args=(pipe, sink), daemon=True
+470:                     )
+471:                     reader.start()
+472:                     readers.append(reader)
+473:             # From here a Ctrl+C raises KeyboardInterrupt inside this try.
+474:             if pending_interrupt:
+475:                 raise KeyboardInterrupt
+476:             try:
+477:                 tree.proc.wait(timeout=timeout)
+478:             except subprocess.TimeoutExpired:
+479:                 timed_out = True
+480:             else:
+481:                 # The process can exit while a descendant still holds the
+482:                 # pipes open; the same deadline bounds the wait for
+483:                 # end-of-file.
+484:                 # cancel_captures() kills the CLI, but a detached helper can
+485:                 # still hold the pipes, so this wait also stops on it.
+486:                 timed_out = not _join(readers, deadline, lambda: tree.interrupted)
+487:         except KeyboardInterrupt:
+488:             interrupted = True
+489:             if tree is None:
+490:                 # Setup was interrupted, and the constructor has already
+491:                 # killed the process it started.
+492:                 return CapturedProcess(
+493:                     exit_code=130, stdout="", stderr="", interrupted=True
+494:                 )
+495:         except BaseException:
+496:             if tree is not None:
+497:                 tree.kill()
+498:             raise
+499:         if tree.interrupted:
+500:             # Killed through cancel_captures() while this thread waited.
+501:             interrupted, timed_out = True, False
+502: 
+503:         if timed_out or interrupted:
+504:             # Killing the group or job closes the write ends of the pipes its
+505:             # processes hold, so the readers reach end-of-file. Only a
+506:             # descendant that left the group or job could keep them open; the
+507:             # grace period bounds that wait.
+508:             tree.kill()
+509:             _join(readers, time.monotonic() + _DRAIN_GRACE_SECONDS)
+510:             # A pipe whose reader never started is closed here instead.
+511:             for pipe in (tree.proc.stdout, tree.proc.stderr)[len(readers) :]:
+512:                 pipe.close()
+513:     finally:
+514:         if tree is not None:
+515:             _unregister(tree)
+516:             tree.close()
+
+SOURCE src/specify_cli/workflows/step/prompt/__init__.py
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 144-215
+144:                 if capture_max_bytes is not None:
+145:                     error = capture_failure(
+146:                         dispatch_result, subject="Prompt", timeout=timeout
+147:                     )
+148:                 else:
+149:                     error = (
+150:                         dispatch_result["stderr"]
+151:                         or f"Prompt exited with code {dispatch_result['exit_code']}"
+152:                     )
+153:                 return StepResult(
+154:                     status=StepStatus.FAILED,
+155:                     output=output,
+156:                     error=error,
+157:                 )
+158:             return StepResult(
+159:                 status=StepStatus.COMPLETED,
+160:                 output=output,
+161:             )
+162:         else:
+163:             output["exit_code"] = 1
+164:             output["dispatched"] = False
+165:             return StepResult(
+166:                 status=StepStatus.FAILED,
+167:                 output=output,
+168:                 error=(
+169:                     f"Cannot dispatch prompt: "
+170:                     f"integration {integration!r} "
+171:                     f"CLI not found or not installed, "
+172:                     f"or the integration does not support CLI dispatch. "
+173:                     f"If the CLI is missing, install it; if the integration "
+174:                     f"does not support CLI dispatch, set the step's "
+175:                     f"'integration' to one that does."
+176:                 ),
+177:             )
+178: 
+179:     @staticmethod
+180:     def _timeout_error(config: dict[str, Any]) -> str | None:
+181:         """Return an error message if ``config['timeout']`` is invalid, else None.
+182: 
+183:         Shared by execute() and validate() so both paths reject the same
+184:         values with the same message, mirroring the shell step. An absent
+185:         ``timeout`` is valid (the default is used). bool is a subclass of int,
+186:         but ``timeout: true`` is a config error rather than a duration, so it
+187:         is rejected explicitly. Non-finite floats (YAML ``.inf``/``.nan``) pass
+188:         a plain ``> 0`` check but would raise in subprocess.run(), and a
+189:         non-positive timeout makes subprocess.run() report an immediate
+190:         TimeoutExpired, so both are rejected too.
+191:         """
+192:         if "timeout" not in config:
+193:             return None
+194:         timeout = config["timeout"]
+195:         try:
+196:             valid_timeout = (
+197:                 not isinstance(timeout, bool)
+198:                 and isinstance(timeout, (int, float))
+199:                 and timeout > 0
+200:                 and math.isfinite(timeout)
+201:             )
+202:         except OverflowError:
+203:             # An int too large to convert to float (e.g. a 400-digit YAML
+204:             # scalar) clears every clause above and raises here — and would
+205:             # raise the same from subprocess.run(timeout=...).
+206:             valid_timeout = False
+207:         if not valid_timeout:
+208:             return (
+209:                 f"Prompt step {config.get('id', '?')!r}: 'timeout' must be a "
+210:                 f"positive number of seconds, got {timeout!r}."
+211:             )
+212:         return None
+213: 
+214:     @staticmethod
+215:     @project_dispatch
+
+SOURCE src/specify_cli/workflows/_command_resume_state.py
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 100-49
+
+
+SOURCE extensions/git/scripts/bash/auto-commit.sh
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 160-211
+160:         fi
+161:     done < "$_config_file"
+162: 
+163:     # If event-specific key not found, use default
+164:     if [ "$_enabled" = "false" ] && [ "$_default_enabled" = "true" ]; then
+165:         # Only use default if the event wasn't explicitly set to false
+166:         # Check if event section existed at all
+167:         if ! grep -q "^[[:space:]]*${EVENT_NAME}:" "$_config_file" 2>/dev/null; then
+168:             _enabled=true
+169:         fi
+170:     fi
+171: else
+172:     # No config file — auto-commit disabled by default
+173:     exit 0
+174: fi
+175: 
+176: if [ "$_enabled" != "true" ]; then
+177:     exit 0
+178: fi
+179: 
+180: # Check if there are changes to commit
+181: if git diff --quiet HEAD 2>/dev/null && git diff --cached --quiet 2>/dev/null && [ -z "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+182:     echo "[specify] No changes to commit after $EVENT_NAME" >&2
+183:     exit 0
+184: fi
+185: 
+186: # In conventional mode, the commit message must be supplied by the agent
+187: # (via the generated_message argument); never fall back to the fixed message.
+188: if [ "$_commit_style" = "conventional" ]; then
+189:     if [ -n "$GENERATED_MESSAGE" ]; then
+190:         _commit_msg="$GENERATED_MESSAGE"
+191:     else
+192:         echo "[specify] Error: commit_style is 'conventional' but no generated commit message was supplied; aborting auto-commit (pass --message-file <path>, or a raw message as arg 2, or set commit_style: fixed)" >&2
+193:         exit 1
+194:     fi
+195: fi
+196: 
+197: # Derive a human-readable command name from the event
+198: # e.g., after_specify -> specify, before_plan -> plan
+199: _command_name=$(echo "$EVENT_NAME" | sed 's/^after_//' | sed 's/^before_//')
+200: _phase=$(echo "$EVENT_NAME" | grep -q '^before_' && echo 'before' || echo 'after')
+201: 
+202: # Use custom message if configured, otherwise default
+203: if [ -z "$_commit_msg" ]; then
+204:     _commit_msg="[Spec Kit] Auto-commit ${_phase} ${_command_name}"
+205: fi
+206: 
+207: # Stage and commit
+208: _git_out=$(git add . 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
+209: _git_out=$(git commit -q -m "$_commit_msg" 2>&1) || { echo "[specify] Error: git commit failed: $_git_out" >&2; exit 1; }
+210: 
+211: echo "[OK] Changes committed ${_phase} ${_command_name}" >&2
+
+SOURCE extensions/git/commands/speckit.git.commit.md
+COMMIT 7370e592f3cd9c06e5b698983957e227c75b30e2
+
+LINES 1-63
+1: ---
+2: description: "Auto-commit changes after a Spec Kit command completes"
+3: ---
+4: 
+5: # Auto-Commit Changes
+6: 
+7: Automatically stage and commit all changes after a Spec Kit command completes.
+8: 
+9: ## Behavior
+10: 
+11: This command is invoked as a hook after (or before) core commands. It:
+12: 
+13: 1. Determines the event name from the hook context (e.g., if invoked as an `after_specify` hook, the event is `after_specify`; if `before_plan`, the event is `before_plan`)
+14: 2. Checks `.specify/extensions/git/git-config.yml` for the `auto_commit` section
+15: 3. Looks up the specific event key to see if auto-commit is enabled
+16: 4. Falls back to `auto_commit.default` if no event-specific key exists
+17: 5. Determines the commit message based on `commit_style` (see below)
+18: 6. If enabled and there are uncommitted changes, runs `git add .` + `git commit`
+19: 
+20: ## Commit Message Styles
+21: 
+22: Controlled by the `commit_style` key in `.specify/extensions/git/git-config.yml`:
+23: 
+24: - **`fixed`** (default): use the per-command `message` if configured, otherwise a generic `[Spec Kit] Auto-commit <phase> <command>` message.
+25: - **`conventional`**: inspect the actual changes (`git diff` / `git status`) since the last commit and generate a single-line [Conventional Commit](https://www.conventionalcommits.org/) message (`type(scope): subject`, e.g. `feat: add OAuth specification` or `docs: update implementation plan`) that accurately summarizes the change. Write this message to a temporary file and pass the file's path to the script (see Execution below). The configured `message` values are ignored in this mode.
+26: 
+27: ## Execution
+28: 
+29: Determine the event name from the hook that triggered this command, then run the script:
+30: 
+31: - **Bash**: `.specify/extensions/git/scripts/bash/auto-commit.sh <event_name> [--message-file <path>]`
+32: - **PowerShell**: `.specify/extensions/git/scripts/powershell/auto-commit.ps1 <event_name> [-MessageFile <path>]`
+33: 
+34: Replace `<event_name>` with the actual hook event (e.g., `after_specify`, `before_plan`, `after_implement`). Only pass a generated message when `commit_style: conventional` is configured — first check `.specify/extensions/git/git-config.yml` for the value of `commit_style`:
+35: 
+36: - If `conventional`: inspect the diff and generate a Conventional Commit message. **Do not interpolate the generated message directly into a shell command string** — its content is derived from repository changes and may contain characters (quotes, `$(...)`, backticks) that a shell would execute or that would break command quoting. Instead, write the message to a temporary file using your file-editing tool (not a shell `echo`/`printf`), then pass that file's path via `--message-file <path>` (Bash) or `-MessageFile <path>` (PowerShell).
+37: - If `fixed` or absent: run the script with just `<event_name>`; it uses the configured/static message.
+38: 
+39: ## Configuration
+40: 
+41: In `.specify/extensions/git/git-config.yml`:
+42: 
+43: ```yaml
+44: # "fixed" (default) uses the messages below; "conventional" asks the agent
+45: # to generate a Conventional Commit message from the diff instead.
+46: commit_style: fixed
+47: 
+48: auto_commit:
+49:   default: false          # Global toggle — set true to enable for all commands
+50:   after_specify:
+51:     enabled: true          # Override per-command
+52:     message: "[Spec Kit] Add specification"
+53:   after_plan:
+54:     enabled: false
+55:     message: "[Spec Kit] Add implementation plan"
+56: ```
+57: 
+58: ## Graceful Degradation
+59: 
+60: - If Git is not available or the current directory is not a repository: skips with a warning
+61: - If no config file exists: skips (disabled by default)
+62: - If no changes to commit: skips with a message
+63: - If `commit_style: conventional` is set and no generated message was supplied: fails with a clear error instead of silently falling back to the fixed message format

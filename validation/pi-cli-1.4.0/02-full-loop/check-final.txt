@@ -1,0 +1,33 @@
+{
+  "verdict": "pass",
+  "findings": [],
+  "validation": {
+    "reviewed": [
+      "tasks/cli-loop/task.md",
+      "duration.py",
+      "test_duration.py"
+    ],
+    "runtime": "Python 3.9.6",
+    "unittest": {
+      "command": "python3 -B -m unittest discover -v",
+      "tests_passed": 3
+    },
+    "inline_boundary_checks": {
+      "passed": 929,
+      "failed": 0,
+      "coverage": [
+        "All valid unit combinations with zero, leading zeros, and values above 59",
+        "Outer and inter-group whitespace, including Unicode whitespace",
+        "Duplicate and reversed units",
+        "Missing units, signs, decimals, junk, and empty input",
+        "Non-string inputs raising TypeError",
+        "100-digit integer groups"
+      ]
+    },
+    "files_modified": false,
+    "git_mutations": false
+  },
+  "unverified": [
+    "Behavior on Python versions other than 3.9.6."
+  ]
+}

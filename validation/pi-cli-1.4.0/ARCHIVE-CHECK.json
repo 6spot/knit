@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "model_requests": 0,
+  "checks": {
+    "manifest_files": 92,
+    "JSONL_records_parsed": 2131,
+    "local_links": true,
+    "private_modes_and_git_ignore": true,
+    "public_credential_pattern_scan": true,
+    "bundles_cloned_fsck_and_dirty_state_replayed": [
+      "02-full-loop/repo.bundle",
+      "03-edge-cases/git/failing-hook.bundle",
+      "03-edge-cases/git/interrupted-move.bundle",
+      "03-edge-cases/git/lost-receipt.bundle",
+      "03-edge-cases/git/scope-hook.bundle"
+    ],
+    "unittest_from_cloned_bundle": true,
+    "usage_arithmetic": true,
+    "all_final_case_results_resolved": true,
+    "remaining_probe_processes": []
+  }
+}

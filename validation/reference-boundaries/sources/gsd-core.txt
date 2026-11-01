@@ -1,0 +1,605 @@
+
+SOURCE pi/gsd.cjs
+COMMIT 1ec5c812b79dc1cc487d0873d18b03449b11c106
+
+LINES 229-278
+229:  * unrecognized tier) returns `undefined`, leaving pi's model choice untouched.
+230:  * NEVER returns a payload with a missing/empty model id.
+231:  *
+232:  * @param {{ tier?: string }} [opts]
+233:  * @returns {(event: object, ctx: object) => Promise<object|undefined>}
+234:  */
+235: function buildBeforeProviderRequestHandler({ tier = 'sonnet' } = {}) {
+236:   return async function onBeforeProviderRequest(event, ctx) {
+237:     try {
+238:       const effectiveCwd = (ctx && ctx.cwd) || process.cwd();
+239:       const { loadConfig } = require(path.join(GSD_CORE, 'bin', 'lib', 'config-loader.cjs'));
+240:       const config = loadConfig(effectiveCwd);
+241:       const overrides = (config && config.model_profile_overrides) || undefined;
+242: 
+243:       // #2460: FAIL-OPEN when the user has not explicitly configured
+244:       // model_profile_overrides[runtime][tier]. pi is provider-agnostic
+245:       // (kimi-coding, zai, openrouter, openai-codex, minimax, anthropic, …);
+246:       // the built-in RUNTIME_PROFILE_MAP.pi.sonnet default is `claude-sonnet-5`,
+247:       // an Anthropic-ecosystem assumption that is wrong for every non-Anthropic
+248:       // provider. Returning the built-in default unconditionally rewrote every
+249:       // outgoing request to a model the active provider did not know.
+250:       //
+251:       // resolveTierEntry falls back to the built-in catalog when no override is
+252:       // present, so we cannot call it to detect "did the user opt in?" — we
+253:       // inspect the override map directly. Only when the user has explicitly
+254:       // set model_profile_overrides[runtime][tier] do we steer; otherwise we
+255:       // return undefined and pi's chosen model flows through untouched.
+256:       const userRaw = overrides && overrides.pi ? overrides.pi[tier] : undefined;
+257:       // `''` is treated the same as null/undefined: an explicit empty-string
+258:       // override is the user clearing a previously-set value, NOT opting in to
+259:       // steering. Without this guard, `resolveTierEntry`'s falsy `if (userRaw)`
+260:       // check would silently fall back to the built-in catalog and rewrite
+261:       // payload.model to claude-sonnet-5 — re-introducing the exact bug this
+262:       // handler exists to prevent.
+263:       if (userRaw === undefined || userRaw === null || userRaw === '') {
+264:         return undefined; // fail-open — leave pi's model untouched
+265:       }
+266: 
+267:       const { resolveTierEntry } = require(path.join(GSD_CORE, 'bin', 'lib', 'model-resolver.cjs'));
+268:       const entry = resolveTierEntry({ runtime: 'pi', tier, overrides });
+269:       const modelId = entry && typeof entry.model === 'string' && entry.model.length > 0 ? entry.model : null;
+270:       if (!modelId) return undefined; // fail-open — leave pi's model untouched
+271:       const basePayload = (event && typeof event === 'object' && event.payload && typeof event.payload === 'object')
+272:         ? event.payload
+273:         : {};
+274:       return { ...basePayload, model: modelId };
+275:     } catch {
+276:       return undefined; // fail-open on any resolution error
+277:     }
+278:   };
+
+LINES 924-944
+924: // Pi has no subagent primitive, so GSD supplies one: `gsd_dispatch` runs a `gsd-*` role in an
+925: // isolated child `pi` process. Everything is fail-closed: every refusal is an error RESULT (never a
+926: // throw, never an inline fallback that would run the role's work in the orchestrating session).
+927: // The dispatcher lives in this file because the installer copies exactly one file
+928: // (extensions/gsd.js); a sibling module would not be installed.
+929: const DISPATCH = Object.freeze({
+930:   ROLE_RE: /^gsd-[a-z0-9-]+$/,
+931:   SAFE_VALUE_RE: /^[A-Za-z0-9_.:/@+][A-Za-z0-9_.:/@+,-]*$/,
+932:   MAX_DEPTH: 1,
+933:   TIMEOUT_MS: 30 * 60 * 1000,
+934:   KILL_GRACE_MS: 5000,
+935:   TASKKILL_TIMEOUT_MS: 10000,
+936:   STDOUT_CAP: 1024 * 1024,
+937:   MAX_LINE: 16 * 1024 * 1024,
+938:   STDERR_TAIL: 8 * 1024,
+939:   TRUNCATION_MARKER: '\n[GSD: dispatch output truncated at 1 MiB]',
+940:   FAILED_STOP_REASONS: Object.freeze(['error', 'aborted', 'length']),
+941: });
+942: 
+943: const dispatchFail = (code, message) => ({ ok: false, code, message });
+944: const errorText = (e) => (e && e.message ? e.message : String(e));
+
+LINES 1044-1090
+1044:  * The dispatcher. Seams (all optional): `spawn`, `kill`, `env`, `platform`, `extensionDir`, `command`, `execPath`, `exists`.
+1045:  * Calls run strictly one at a time (ADR-5559 section 2).
+1046:  */
+1047: function createDispatcher(deps = {}) {
+1048:   const extensionDir = deps.extensionDir || __dirname;
+1049:   const spawn = deps.spawn || require('child_process').spawn;
+1050:   const killProcess = deps.kill || ((pid, signal) => process.kill(pid, signal));
+1051:   const env = deps.env || process.env;
+1052:   const platform = deps.platform || process.platform;
+1053:   const isWindows = platform === 'win32';
+1054:   const timeoutMs = Number(env.GSD_PI_DISPATCH_TIMEOUT_MS) > 0 ? Number(env.GSD_PI_DISPATCH_TIMEOUT_MS) : DISPATCH.TIMEOUT_MS;
+1055:   let queue = Promise.resolve();
+1056: 
+1057:   function terminate(child) {
+1058:     if (isWindows) {
+1059:       const killer = spawn(taskkillPath(env), ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true });
+1060:       const bound = setTimeout(() => { if (killer && typeof killer.kill === 'function') { try { killer.kill(); } catch { /* gone */ } } }, DISPATCH.TASKKILL_TIMEOUT_MS);
+1061:       if (killer && typeof killer.once === 'function') killer.once('exit', () => clearTimeout(bound));
+1062:       return;
+1063:     }
+1064:     try { killProcess(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
+1065:   }
+1066: 
+1067:   function runChild(child, signal, finishWith) {
+1068:     let timedOut = false;
+1069:     let closed = false;
+1070:     let escalate = null;
+1071:     let buffered = '';
+1072:     let last = null;
+1073:     let stderrTail = '';
+1074:     let overflow = false;
+1075: 
+1076:     const stop = () => {
+1077:       timedOut = true;
+1078:       terminate(child);
+1079:       if (!isWindows) {
+1080:         escalate = setTimeout(() => { if (!closed) { try { killProcess(-child.pid, 'SIGKILL'); } catch { /* gone */ } } }, DISPATCH.KILL_GRACE_MS);
+1081:       }
+1082:     };
+1083:     const deadline = setTimeout(stop, timeoutMs);
+1084:     const onAbort = () => stop();
+1085:     if (signal) {
+1086:       if (signal.aborted) stop(); else signal.addEventListener('abort', onAbort, { once: true });
+1087:     }
+1088: 
+1089:     const onLine = (line) => {
+1090:       if (!line.trim()) return;
+
+LINES 1140-1208
+1140:     const depth = rawDepth === undefined || rawDepth === '' ? 0 : (/^\d{1,6}$/.test(rawDepth) ? Number(rawDepth) : Infinity);
+1141:     if (depth >= DISPATCH.MAX_DEPTH) {
+1142:       return Promise.resolve(dispatchFail('depth-exceeded', 'A dispatched role cannot dispatch another role (Pi dispatch is flat).'));
+1143:     }
+1144:     const resolved = resolveDispatchRole(p.role, extensionDir);
+1145:     if (!resolved.ok) return Promise.resolve(resolved);
+1146:     const roleTools = resolved.meta.tools ? resolved.meta.tools.split(',').map((s) => s.trim()).filter(Boolean).join(',') : '';
+1147:     const tools = roleTools || '-gsd_dispatch';
+1148:     if ((roleTools && !DISPATCH.SAFE_VALUE_RE.test(roleTools)) || (resolved.meta.model && !DISPATCH.SAFE_VALUE_RE.test(resolved.meta.model))) {
+1149:       return Promise.resolve(dispatchFail('role-unresolved', `${p.role} has a tools or model value that is not a plain identifier list.`));
+1150:     }
+1151:     let taskDir;
+1152:     try {
+1153:       taskDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-pi-dispatch-'));
+1154:       fs.chmodSync(taskDir, 0o700);
+1155:     } catch (e) {
+1156:       return Promise.resolve(dispatchFail('child-failed', `Could not create a private task directory: ${errorText(e)}`));
+1157:     }
+1158:     const taskFile = path.join(taskDir, 'task.md');
+1159:     const cleanup = () => { try { fs.rmSync(taskDir, { recursive: true, force: true }); } catch { /* best-effort */ } };
+1160:     // The child reads the role from a copy of the bytes that were just hash-verified, so a swap of
+1161:     // the installed file between the check and the child's start changes nothing.
+1162:     const roleCopy = path.join(taskDir, 'role.md');
+1163:     try {
+1164:       fs.writeFileSync(taskFile, typeof p.task === 'string' ? p.task : '', { mode: 0o600 });
+1165:       fs.writeFileSync(roleCopy, resolved.bytes, { mode: 0o600 });
+1166:     } catch (e) {
+1167:       cleanup();
+1168:       return Promise.resolve(dispatchFail('child-failed', `Could not write the task file: ${errorText(e)}`));
+1169:     }
+1170:     const args = [
+1171:       '--mode', 'json', '-p', '--no-session', '--no-mcp', '--no-extensions', '--no-approve',
+1172:       '--append-system-prompt', roleCopy,
+1173:       ...(resolved.meta.model ? ['--model', resolved.meta.model] : []),
+1174:       '--tools', tools,
+1175:       `@${taskFile}`,
+1176:     ];
+1177:     const childEnv = { ...env, GSD_PI_DISPATCH_DEPTH: String(depth + 1) };
+1178:     return new Promise((resolve) => {
+1179:       const finishWith = (result) => { cleanup(); resolve(result); };
+1180:       let child;
+1181:       try {
+1182:         const command = deps.command || resolvePiCommand({
+1183:           platform, env, execPath: deps.execPath || process.execPath, exists: deps.exists || ((f) => { try { return fs.statSync(f).isFile(); } catch { return false; } }),
+1184:         });
+1185:         if (command === null) {
+1186:           finishWith(dispatchFail('pi-not-found', 'No runnable `pi` was found on PATH.'));
+1187:           return;
+1188:         }
+1189:         child = spawn(command, args, {
+1190:           cwd: (ctx && ctx.cwd) || process.cwd(),
+1191:           env: childEnv,
+1192:           detached: !isWindows,
+1193:           stdio: ['ignore', 'pipe', 'pipe'],
+1194:           windowsHide: true,
+1195:         });
+1196:       } catch (e) {
+1197:         finishWith(spawnFailure(e));
+1198:         return;
+1199:       }
+1200:       runChild(child, ctx && ctx.signal, finishWith);
+1201:     });
+1202:   }
+1203: 
+1204:   return {
+1205:     dispatch(params, ctx) {
+1206:       const run = queue.then(() => runOne(params, ctx));
+1207:       queue = run.catch(() => undefined);
+1208:       return run;
+
+SOURCE src/model-resolver.cts
+COMMIT 1ec5c812b79dc1cc487d0873d18b03449b11c106
+
+LINES 518-590
+518: function resolveTierInternal(cwd: string, agentType: string): string {
+519:   return resolveTierFromConfig(loadConfig(cwd), agentType);
+520: }
+521: 
+522: function resolveModelInternal(cwd: string, agentType: string): string {
+523:   const config = loadConfig(cwd);
+524: 
+525:   // 1. Per-agent override (#2041: map Claude full IDs → Agent-tool aliases on
+526:   // the claude runtime, mirroring the model_policy path #1144; non-Claude
+527:   // runtimes and non-Claude values pass through verbatim).
+528:   const modelOverrides = config['model_overrides'] as Record<string, string> | null | undefined;
+529:   // Own-property guard (see resolveTierFromConfig above): without it, an
+530:   // agentType of "toString" against `model_overrides: {}` returned the
+531:   // inherited Function.prototype.toString as the resolved "model" — verified
+532:   // reachable purely via the CLI, no override value needed.
+533:   const override = (modelOverrides && Object.hasOwn(modelOverrides, agentType))
+534:     ? modelOverrides[agentType]
+535:     : undefined;
+536:   if (override) {
+537:     const mapped = mapClaudeOverrideForRuntime(override, resolveActiveRuntime(config), agentType);
+538:     if (mapped !== null) return mapped;
+539:     // Unmappable Claude ID — fall through to tier resolution (matches model_policy).
+540:   }
+541: 
+542:   // 2. Compute the tier (#2229: shared with resolveTierFromConfig so the tier a
+543:   // workflow reads and the tier a model is resolved from can never diverge).
+544:   // eslint-disable-next-line @typescript-eslint/no-base-to-string
+545:   const profile = String(config['model_profile'] || 'balanced').toLowerCase();
+546:   // Own-property guard (see computeProfileTier above): without it, agentType
+547:   // "toString" returned Function.prototype.toString as `agentModels`
+548:   // (truthy), which skipped the "unknown agent" fallback below and made
+549:   // resolveModelInternal return undefined instead of a tier-derived string.
+550:   const modelProfilesMapForModel = MODEL_PROFILES as unknown as Record<string, Record<string, string>>;
+551:   const agentModels = Object.hasOwn(modelProfilesMapForModel, agentType) ? modelProfilesMapForModel[agentType] : undefined;
+552:   const tier = computeProfileTier(config, agentType);
+553: 
+554:   // 2.5. model_policy preset (#49, #1133)
+555:   // `configRuntime` is retained ONLY as the EXPLICIT-OPT-IN signal for step 3's
+556:   // precedence over the omit gate (see the note there). Every actual runtime
+557:   // question — which tier map to read, which value policy applies — now uses
+558:   // the active runtime (#4505).
+559:   const configRuntime = config['runtime'] as string | null | undefined;
+560:   // #4505/#4495: GSD_RUNTIME -> config.runtime -> per-install marker -> 'claude'.
+561:   // Never undefined, so the "no runtime declared anywhere" case still resolves
+562:   // 'claude' and step 3's deliberate claude skip (#1156/#2297/#4192) is
+563:   // unchanged for every existing install.
+564:   const activeRuntime = resolveActiveRuntime(config);
+565:   if (tier && tier !== 'inherit') {
+566:     const onClaude = activeRuntime === 'claude';
+567:     const effectiveRuntime = activeRuntime;
+568:     const mergedPolicy = config['model_policy']
+569:       ? { ...(config['model_policy'] as Record<string, unknown>), runtime: effectiveRuntime }
+570:       : null;
+571:     const policyModel = resolveModelPolicy(mergedPolicy, tier);
+572:     if (policyModel) {
+573:       // Non-Claude runtimes take full model IDs verbatim (unchanged behavior).
+574:       if (!onClaude) return policyModel;
+575:       // Claude Code's Agent tool takes tier aliases (opus/sonnet/haiku/fable),
+576:       // not full model IDs — map the policy-resolved ID back to an alias (#1133).
+577:       const aliasForId = Object.hasOwn(CLAUDE_POLICY_ID_TO_ALIAS, policyModel)
+578:         ? CLAUDE_POLICY_ID_TO_ALIAS[policyModel]
+579:         : undefined;
+580:       if (typeof aliasForId === 'string' && aliasForId) return aliasForId;
+581:       // The policy value may already be a bare Claude agent alias (e.g. "fable").
+582:       if (CLAUDE_AGENT_ALIASES.has(policyModel)) return policyModel;
+583:       // No Claude alias for this ID (e.g. a pinned minor version like
+584:       // claude-opus-4-5). Warn once and fall through to the tier alias rather
+585:       // than returning an ID Claude Code cannot spawn.
+586:       warnModelPolicyUnmappable(agentType, policyModel, tier);
+587:     }
+588:   }
+589: 
+590:   // #4505: the omit DECISION is computed here, ahead of step 3, though the
+
+SOURCE src/commands.cts
+COMMIT 1ec5c812b79dc1cc487d0873d18b03449b11c106
+
+LINES 2350-2440
+2350:     failures: removedEntries.map(e => ({
+2351:       file: e.path,
+2352:       error: verdict === 'not-restored'
+2353:         ? 'update-index --cacheinfo restore failed'
+2354:         : 'update-index --cacheinfo restore could not be verified — the index was not readable',
+2355:       timed_out: false,
+2356:     })),
+2357:   });
+2358: 
+2359:   // #2608: fail closed before `git commit` runs. Checked ahead of the
+2360:   // nothing_to_commit branch below so a run where EVERY path failed to stage
+2361:   // reports the staging cause rather than "nothing to commit", and ahead of the
+2362:   // commit itself so a multi-file scope never partially commits the subset that
+2363:   // happened to stage.
+2364:   if (stagingFailures.length > 0) {
+2365:     // Fail closed AND clean. Without this the paths that DID stage stay in the
+2366:     // index with no commit made, so the next bare `git commit` sweeps them up —
+2367:     // the same silent partial commit this fix exists to prevent, deferred one
+2368:     // step. Mirrors cmdPrSubrepo's rollback-then-error convention. Only paths
+2369:     // this call staged are unstaged (preStaged is excluded), and the reset is
+2370:     // best-effort: if the index is unwritable — the very failure being reported
+2371:     // — the reset cannot succeed either, and the staging error is still what
+2372:     // gets returned.
+2373:     const removedPaths = new Set(removedEntries.map(e => e.path));
+2374:     const toUnstage = stagedPaths.filter(p => !preStaged.has(p) && !removedPaths.has(p));
+2375:     if (toUnstage.length > 0) {
+2376:       // `asPathspec` here too. This reset is the LAST place a removal-derived
+2377:       // name reaches git as a pathspec, and it is the most damaging: driven,
+2378:       // a wildcard-named entry that slipped into `toUnstage` globbed and
+2379:       // unstaged the CALLER'S OWN pre-staged deletion and modification, then
+2380:       // reported only the contradiction that triggered the rollback.
+2381:       execGit(['reset', '-q', '--', ...toUnstage.map(asPathspec)], { cwd });
+2382:     }
+2383:     // Removals are restored from the recorded entries, never via `reset`
+2384:     // (no HEAD to reset to on an unborn branch; not the pre-staged blob when
+2385:     // the caller had one) — and unconditionally, since a removal this call
+2386:     // performed is this call's to undo whether or not the path was pre-staged.
+2387:     // DISCLOSE a failed restore here too. The earlier reading -- that this exit
+2388:     // is already reporting a failure, so the restore's result adds nothing --
+2389:     // is wrong, and the counterexample is the ordinary one: the reported
+2390:     // failure is usually a DIFFERENT cause (a contradictory declaration, a
+2391:     // reappeared path), so a caller reading `failures` sees only that cause
+2392:     // and learns nothing about the removal still sitting in its index. Append
+2393:     // rather than replace: the original failure is still the reason.
+2394:     const restoreVerdict = restoreRemovedEntries();
+2395:     const failures = restoreVerdict === 'restored'
+2396:       ? stagingFailures
+2397:       : [...stagingFailures, ...removedEntries.map(e => ({
+2398:           file: e.path,
+2399:           error: restoreVerdict === 'not-restored'
+2400:             ? 'staged removal could NOT be restored during rollback — it is still staged in the index'
+2401:             : 'staged removal was rolled back but the result could NOT be VERIFIED — the index was not readable',
+2402:           timed_out: false,
+2403:         }))];
+2404:     const first = stagingFailures[0];
+2405:     const result = {
+2406:       committed: false,
+2407:       hash: null,
+2408:       reason: first.timed_out ? 'staging_timeout' : 'staging_failed',
+2409:       file: first.file,
+2410:       error: first.error,
+2411:       failures,
+2412:     };
+2413:     output(result, raw, 'failed');
+2414:     return;
+2415:   }
+2416: 
+2417:   // Commit — when the caller declared a scope (--files), append a pathspec so
+2418:   // only the declared files land in the commit, not the entire index (#2112).
+2419:   // The pathspec uses stagedPaths (not filesToStage) so skipped missing files
+2420:   // are excluded — otherwise git would record them as deletions (#2014).
+2421:   // During a merge, git refuses partial commits — fall back to a bare commit.
+2422:   // --amend is left without a pathspec: amending with -- <paths> is a different
+2423:   // operation that rewrites the tip with only those paths.
+2424:   const mergeHeadProbe = execGit(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd });
+2425:   const isMergeInProgress = mergeHeadProbe.exitCode === 0;
+2426:   // PROVENANCE FOR THIS WHOLE BLOCK: every behavioural claim below was DRIVEN
+2427:   // against git 2.54, not reasoned by analogy. Individual claims state what was
+2428:   // observed and omit the version; where a claim is version-SENSITIVE rather
+2429:   // than merely version-observed, it says so at the claim.
+2430:   //
+2431:   // #3776: git refuses a PARTIAL commit (`git commit -- <paths>`) while a merge
+2432:   // or a cherry-pick is in progress, so in those states the pathspec describes
+2433:   // nothing about what would actually land and the empty-diff decision below
+2434:   // must not be made from it. The three sequencer states do NOT agree:
+2435:   //   MERGE_HEAD        -> `fatal: cannot do a partial commit during a merge.`
+2436:   //   CHERRY_PICK_HEAD  -> `fatal: cannot do a partial commit during a cherry-pick.`
+2437:   //   REVERT_HEAD       -> permitted; behaves like an ordinary commit.
+2438:   // REVERT_HEAD is therefore deliberately absent: including it would suppress
+2439:   // this fix during a revert, reintroducing the very misreport it removes.
+2440:   // `canScope` below keeps its narrower merge-only test on purpose — widening it
+
+LINES 2580-2695
+2580:   // It is still NOT hook-free in general, and `--no-verify` does not widen that
+2581:   // claim: `post-index-change` fires on this call with or without the flag
+2582:   // (driven both ways), so a repo using that hook sees TWO extra invocations
+2583:   // for the probe — git fires it twice per `commit --dry-run`, and twice again
+2584:   // for the real commit (driven: 2/2/2 across flagged probe, unflagged probe
+2585:   // and real commit). Stated rather than claimed away; the narrower
+2586:   // claim is the true one. `--porcelain` keeps the output to a couple
+2587:   // of machine-readable lines instead of a full status listing — the rc is
+2588:   // identical either way (driven: 0 would-record / 1 nothing), but the plain
+2589:   // form prints every untracked path, which on a large tree is output this
+2590:   // probe has no use for and `execGit` would have to buffer. rc 0 means the
+2591:   // commit would record something, so the guard must stand aside.
+2592:   //
+2593:   // Reconstructing it was tried and is WRONG in three measured ways, all of
+2594:   // them silent drops of named content. Comparing `git hash-object` against
+2595:   // `HEAD:<path>` misses a mode-only change (`chmod +x` leaves the blob
+2596:   // identical while `git commit -- <path>` records `100755`); it cannot hash a
+2597:   // submodule path at all (`fatal: Unable to hash sub`, while the commit
+2598:   // advances the gitlink); and the path it needs must be parsed out of
+2599:   // `ls-files` output, which `core.quotePath` renders as `"caf\303\251.md"`
+2600:   // by default, so the probe reads a filename that does not exist. Asking git
+2601:   // needs no path parsed and no case enumerated.
+2602:   //
+2603:   // Scoped to this branch on purpose. The diff probe above answers the ordinary
+2604:   // case cheaply and is pinned against the configuration vectors below; the
+2605:   // dry run is the heavier, exact answer, and it runs only when an
+2606:   // assume-unchanged path is actually present.
+2607:   //
+2608:   // The `ls-files` read is an OPTIMISATION, never a gate — so an unreadable one
+2609:   // must not decide anything. It exists only to keep the dry run off the hot
+2610:   // path when no assume-unchanged entry is present; when it cannot answer, the
+2611:   // dry run simply runs, because the dry run needs nothing from it. Both
+2612:   // failing-closed (drop the content) and failing-open (re-enter #3776) are
+2613:   // wrong answers to a question we can just ask directly.
+2614:   const assumeUnchangedWouldRecord = (): boolean => {
+2615:     const listed = execGit(['ls-files', '-v', '--', ...stagedPaths.map(asPathspec)], { cwd });
+2616:     // Only the TAG is read; the path is deliberately never parsed out — see the
+2617:     // `core.quotePath` note above, and the dry run below needs no path anyway.
+2618:     if (listed.exitCode === 0
+2619:       && !listed.stdout.split('\n').some((line) => /^[a-z] /.test(line))) return false;
+2620:     const dryRun = execGit(
+2621:       ['commit', '--dry-run', '--porcelain', '--no-verify', '-m', sanitizedMessage as string, '--', ...stagedPaths.map(asPathspec)],
+2622:       { cwd },
+2623:     );
+2624:     // Only a CONFIRMED "nothing to record" closes the path: rc 1 from a git
+2625:     // that actually answered. This is the one probe in the guard whose rc 0
+2626:     // is the REASSURING answer, so it inverts the diff probe's safety: there
+2627:     // a timeout can only yield non-zero and reads as "not clean"; here
+2628:     // `execGit` collapses a spawn timeout (or any spawn error) to
+2629:     // `exitCode: 1` (`_spawnResult`: `result.status ?? 1`), byte-identical to
+2630:     // git's own "nothing to record" — and the guard then reports
+2631:     // `nothing_to_commit` about content it never asked git to write. Same
+2632:     // conflation the sequencer probes above defend against, same remedy: an
+2633:     // unanswered probe falls toward the commit, where git speaks for itself
+2634:     // (and a genuine error there is reported loudly, as it always was). rc 128
+2635:     // is likewise not an answer. Timeout kill of a dry run CAN leave a stale
+2636:     // `index.lock` behind (it refreshes the index); the real commit then
+2637:     // fails on it, loudly — never silently.
+2638:     if (isSpawnTimeout(dryRun) || dryRun.error !== null) return true;
+2639:     return dryRun.exitCode !== 1;
+2640:   };
+2641:   const nothingToCommit = guardApplies
+2642:     && (stagedPaths.length === 0
+2643:       || (!partialCommitRefused
+2644:         && execGit(
+2645:           ['diff', '--quiet', '--ignore-submodules=dirty', '--no-textconv', 'HEAD', '--', ...stagedPaths.map(asPathspec)],
+2646:           { cwd },
+2647:         ).exitCode === 0
+2648:         && !assumeUnchangedWouldRecord()));
+2649:   if (nothingToCommit) {
+2650:     // Nothing is being recorded, so any removal this call staged has no commit
+2651:     // to land in. Put it back before reporting no state change. Reachable on
+2652:     // two shapes, and keying on either one alone leaves the other broken:
+2653:     // an unborn HEAD (a removal never joins `stagedPaths`, so the pathspec is
+2654:     // empty), and a HEAD that simply does not carry the removed path -- an
+2655:     // index-only entry the caller `git add`ed but never committed, where the
+2656:     // `diff HEAD` probe reads clean because the path is absent on both sides.
+2657:     const rv = restoreRemovedEntries();
+2658:     if (rv !== 'restored') { output(removalsLeftStaged(rv), raw, 'failed'); return; }
+2659:     // #4454: an explicit --files list where every named path was missing
+2660:     // reaches this branch via `stagedPaths.length === 0` above — surface
+2661:     // which path(s) were the reason, same as the success result below.
+2662:     const result = {
+2663:       committed: false,
+2664:       hash: null,
+2665:       reason: 'nothing_to_commit',
+2666:       ...(skippedFiles.length > 0 ? { skipped_files: skippedFiles } : {}),
+2667:     };
+2668:     output(result, raw, 'nothing');
+2669:     return;
+2670:   }
+2671:   const canScope = explicitFiles && stagedPaths.length > 0 && !amend
+2672:     && !isMergeInProgress;
+2673:   const commitArgs = amend
+2674:     ? ['commit', '--amend', '--no-edit']
+2675:     : ['commit', '-m', sanitizedMessage as string];
+2676:   if (noVerify) commitArgs.push('--no-verify');
+2677:   if (canScope) {
+2678:     commitArgs.push('--', ...stagedPaths.map(asPathspec));
+2679:   }
+2680:   // #3859 follow-up: on git 2.39.5 (confirmed on the CI Linux bench image,
+2681:   // ghcr.io/open-gsd/gsd-tester-linux:v1.8.0-node24; NOT reproducible on git
+2682:   // 2.50.1) `git commit` itself — not just `git diff` — consults
+2683:   // `diff.ignoreSubmodules` when deciding whether there is anything to
+2684:   // record. With a local `diff.ignoreSubmodules=all` and a submodule gitlink
+2685:   // genuinely bumped, that git version silently REFUSES the commit (prints a
+2686:   // `git status`-style "Changes to be committed" dump and exits 1, having
+2687:   // written nothing) even though the diff probe above (already pinned with
+2688:   // its own `--ignore-submodules=dirty`) correctly reported the change as
+2689:   // present. The result was misclassified as generic `commit_failed` because
+2690:   // git's refusal text does not contain "nothing to commit".
+2691:   // Originally scoped to `canScope` on the assumption that only a
+2692:   // PATHSPEC-LIMITED `git commit -- <paths>` exercises this git internal
+2693:   // path. That assumption was wrong: reproduced directly against the pinned
+2694:   // v1.8.0-node24 tester image, a bare WHOLE-INDEX `git commit -m ...` (no
+2695:   // pathspec at all) is refused identically when the only staged change is a
+
+LINES 2765-2782
+2765:     return;
+2766:   }
+2767: 
+2768:   // Get short hash
+2769:   const hashResult = execGit(['rev-parse', '--short', 'HEAD'], { cwd });
+2770:   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
+2771:   // #4454: report explicit --files paths that were skipped as missing (the
+2772:   // #2014 guard above) so a caller can tell a partial commit from a complete
+2773:   // one, without changing the payload shape when nothing was skipped.
+2774:   const result = {
+2775:     committed: true,
+2776:     hash,
+2777:     reason: 'committed',
+2778:     ...(skippedFiles.length > 0 ? { skipped_files: skippedFiles } : {}),
+2779:   };
+2780:   output(result, raw, hash || 'committed');
+2781: }
+2782: 
+
+SOURCE gsd-core/workflows/resume-project.md
+COMMIT 1ec5c812b79dc1cc487d0873d18b03449b11c106
+
+LINES 1-90
+1: @~/.claude/gsd-core/references/response-language-directive.md
+2: 
+3: <trigger>
+4: Use this workflow when:
+5: - Starting a new session on an existing project
+6: - User says "continue", "what's next", "where were we", "resume"
+7: - Any planning operation when .planning/ already exists
+8: - User returns after time away from project
+9: </trigger>
+10: 
+11: <purpose>
+12: Instantly restore full project context so "Where were we?" has an immediate, complete answer.
+13: </purpose>
+14: 
+15: <required_reading>
+16: @~/.claude/gsd-core/references/continuation-format.md
+17: </required_reading>
+18: 
+19: <process>
+20: 
+21: <step name="initialize">
+22: Load all context in one call:
+23: 
+24: ```bash
+25: IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+26: $ARGUMENTS
+27: GSD_ARGS_END
+28: GSD_ARGS=${GSD_ARGS%$'\n'}
+29: _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { set -- "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}" "$HOME/.gemini/antigravity-ide" "$HOME/.gemini/antigravity-cli" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}" "${CLINE_CONFIG_DIR:-$HOME/.cline}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}" "${CODEX_HOME:-$HOME/.codex}" "${COPILOT_CONFIG_DIR:-${COPILOT_HOME:-$HOME/.copilot}}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}" "${HERMES_HOME:-$HOME/.hermes}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}" "${KIMI_CONFIG_DIR:-$HOME/.config/agents}" "$HOME/.agents" "${KIMI_CODE_HOME:-$HOME/.kimi-code}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}" "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}" "${TRAE_CONFIG_DIR:-$HOME/.trae}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}" "${ZCODE_CONFIG_DIR:-$HOME/.zcode}" "${GROK_AGENTS_HOME:-$HOME/.agents}"; for _h; do _gsd_at "$_h/gsd-core/bin/${_GSD_SHIM_NAME}" && return 0; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+30: GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+31: INIT=$(gsd_run query init.resume ${GSD_WS:+--ws=${GSD_WS##* }})
+32: if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
+33: ```
+34: 
+35: Parse JSON for: `state_exists`, `roadmap_exists`, `project_exists`, `planning_exists`, `requirements_exists`, `init_incomplete`, `has_interrupted_agent`, `interrupted_agent_id`, `commit_docs`.
+36: 
+37: **If `init_incomplete` is true (#4040 — interrupted bootstrap):** `.planning/` exists but initialization never finished — one or more of `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` were never created. This is NOT a STATE.md-reconstruction case (there is no project history to reconstruct from). Route to initialization recovery: resume `/gsd:new-project`, which continues from the first missing artifact and keeps the existing PROJECT.md and any already-created artifacts. Do not proceed to load_state.
+38: 
+39: **If `state_exists` is true:** Proceed to load_state
+40: **If `state_exists` is false but `roadmap_exists` or `project_exists` is true (and `init_incomplete` is false):** Offer to reconstruct STATE.md
+41: **If `planning_exists` is false:** This is a new project - route to /gsd:new-project
+42: </step>
+43: 
+44: <step name="load_state">
+45: 
+46: Read and parse STATE.md, then PROJECT.md:
+47: 
+48: ```bash
+49: cat .planning/STATE.md
+50: cat .planning/PROJECT.md
+51: ```
+52: 
+53: **From STATE.md extract:**
+54: 
+55: - **Project Reference**: Core value and current focus
+56: - **Current Position**: Phase X of Y, Plan A of B, Status
+57: - **Progress**: Visual progress bar
+58: - **Recent Decisions**: Key decisions affecting current work
+59: - **Pending Todos**: Ideas captured during sessions
+60: - **Blockers/Concerns**: Issues carried forward
+61: - **Session Continuity**: Where we left off, any resume files
+62: 
+63: **From PROJECT.md extract:**
+64: 
+65: - **What This Is**: Current accurate description
+66: - **Requirements**: Validated, Active, Out of Scope
+67: - **Key Decisions**: Full decision log with outcomes
+68: - **Constraints**: Hard limits on implementation
+69: 
+70: </step>
+71: 
+72: <step name="check_incomplete_work">
+73: Look for incomplete work that needs attention:
+74: 
+75: ```bash
+76: # #2962: zsh aborts the block on an unmatched for-list glob (nomatch); bash passes it through. nullglob both.
+77: shopt -s nullglob 2>/dev/null; setopt NULL_GLOB 2>/dev/null
+78: 
+79: # Check for structured handoff (preferred — machine-readable)
+80: cat .planning/HANDOFF.json 2>/dev/null || true
+81: 
+82: # Check for continue-here files (phase + non-phase + legacy fallback), three levels below .planning.
+83: # Guarded glob loops, not `find` and not a chained `ls` of bare globs (#4805, #3689):
+84: #  - a chained `ls` of bare globs aborts under zsh's default NOMATCH on the first miss, silently
+85: #    dropping every pattern after it, including `.planning/.continue-here*.md` (#3689);
+86: #  - `find` is an external binary that allowlisted agent shells (an fd-only policy, for one) refuse, and a
+87: #    per-line `2>/dev/null || true` then hid the refusal, so a checkpoint on disk looked absent (#4805).
+88: # The shell alone does this: nullglob (set above) drops an unmatched glob, `[ -e ]` guards the shells that
+89: # keep it, and an absent directory simply matches nothing. Output is `.planning/...` and `./...` as before.
+90: for f in .planning/.continue-here*.md .planning/*/.continue-here*.md .planning/*/*/.continue-here*.md ./.continue-here*.md; do

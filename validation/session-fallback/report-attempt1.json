@@ -1,0 +1,17 @@
+{
+  "status": "failed",
+  "scenario": "native history missing; continue from durable task files",
+  "provider": "magpie",
+  "model": "group/openai",
+  "old_session_id": "d213debf-e948-4795-a551-8016267cbc72",
+  "old_record_exists": false,
+  "fallback_reason": "native_record_missing",
+  "task_id": "fallback-fixture",
+  "phase": "implement",
+  "repair_rounds": 1,
+  "helper_sha256": "bc30b2f1f8e70ae9c58eae435991a8c24e8fd9e4316e6b2233764fead779a5d5",
+  "new_session_id": "e56c7418-458f-4309-9c04-f23c1401e5e9",
+  "new_session_initial_history_empty": true,
+  "error": "",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/me/IdeaProjects/knit/validation/session-fallback/scripts/run_probe.py\", line 31, in <module>\n    assert 'fallback-fixture' in final and 'implement' in final and 'repair_rounds' in final\nAssertionError\n"
+}

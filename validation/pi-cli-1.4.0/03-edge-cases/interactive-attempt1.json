@@ -1,0 +1,11 @@
+{
+  "status": "failed",
+  "mode": "actual CLI interactive PTY",
+  "sdk_imported": false,
+  "interactive_slash_reload_loaded_v2": true,
+  "passive_callback_did_not_start_model": true,
+  "outside_turn_callback_woke_interactive_model": true,
+  "interactive_exit_code": 0,
+  "error": "",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/me/IdeaProjects/knit/validation/pi-cli-1.4.0/scripts/run_interactive.py\", line 58, in <module>\n    assert any(passive in str(e.get('message',{}).get('content','')) for e in records)\nAssertionError\n"
+}

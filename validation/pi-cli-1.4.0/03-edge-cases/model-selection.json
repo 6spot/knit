@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "cases": [
+    {
+      "requested_model": "group/openai",
+      "startup_selected": {
+        "provider": "magpie",
+        "id": "group/openai"
+      },
+      "locally_available": true,
+      "RPC_set_model_success": true,
+      "model_requests": 0,
+      "exit_code": 0
+    },
+    {
+      "requested_model": "knit-not-a-model-8c923",
+      "startup_selected": {
+        "provider": "magpie",
+        "id": "knit-not-a-model-8c923"
+      },
+      "locally_available": false,
+      "RPC_set_model_success": false,
+      "model_requests": 0,
+      "exit_code": 0
+    }
+  ],
+  "finding": "Startup can synthesize an unregistered model descriptor. Exact get_state match alone does not establish availability; check registry or call set_model before prompt."
+}

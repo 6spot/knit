@@ -22,7 +22,7 @@ init 维护两类文件：配置、工作流、角色和规范属于项目资料
 
 ## 2. 占用与解除
 
-首版只协调本用户、本机 Knit 的执行。项目与锁目录要求本地文件系统；检测到 NFS／SMB 等网络文件系统，或无法满足原子占用和进程身份核实条件时，阻塞写操作。跨机并发及外部编辑器、Git 进程不受 Knit 锁控制，阶段边界仍要核对实际状态。
+首版只协调本用户、本机 Knit 的执行。项目与锁目录要求本地文件系统；已识别 NFS／SMB 或确实不能满足原子占用／身份核实条件时阻塞写操作。已知云同步根内的本地目录由 doctor 告警，不仅因目录名阻塞。跨机并发及外部编辑器、Git 进程不受 Knit 锁控制，阶段边界仍要核对实际状态。
 
 项目锁键包含规范化项目路径与仓库身份；Session 执行锁键仅使用客户端和原生定位，不随项目变化。键固定排序后以 mkdir 原子占用，已存在即失败。`owner.json` 保存协议、token、动作／run、机器／启动标识、进程 PID 与开始时间；心跳原子更新，释放核对 token。
 
@@ -32,7 +32,7 @@ init 维护两类文件：配置、工作流、角色和规范属于项目资料
 | task record 的进度、经过、验证与运行引用；规范候选和延期／拒绝记录 | 短时任务文件／元数据占用，允许与长阶段并行 |
 | Session 关联与查询元数据 | 对应短时元数据占用，不推进 phase |
 
-记录只改记录区并保留当前输入。update 必须声明 clarify/change 与说明：clarify 保持 phase、有效摘要变化令检查 stale，change 回 discuss；摘要未变不影响检查。运行中保存拟修改及 kind，工具终态后可 resume --operation 应用，不能借记录绕过输入变更。
+记录只改记录区，输入 update 声明 clarify/change 与说明。clarify 保持早期 phase，摘要变化使检查 stale；当前 deliver 一旦选定目标检查失效就回 open/check 清 completed，change 回 discuss。摘要未变不迁移，运行中保存拟修改与 kind，工具终态后再应用，不借记录绕输入。
 
 prepare 先持久化 run/operation ID，调用方确认拿到后才 start；ID 前不调用模型或执行项目业务副作用。取消按对象 ID 与 owner token 保存，终态裁定同一短锁排序。新 run ID／操作 token 隔离旧取消，不设请求级路由；确定性操作核实效果后 needs_attention，不回滚或改变业务 outcome。
 
@@ -45,6 +45,8 @@ prepare 先持久化 run/operation ID，调用方确认拿到后才 start；ID �
 逃生入口为 `/knit unlock <lock-id>` 或 `knit unlock <lock-id>`：先显示 owner token、存量进程和受影响 run。正常解除只处理已证实终止的占用。无法核实时，用户可交互选择 `--force --expect-token <token>`，明确确认已手动处理旧进程，记录原因和诊断后解除；已证实仍活着的匹配进程不允许强解。Agent 工具不自动强解。
 
 强解不能证明外部工具已经停下，也不能撤销其副作用。worker 在心跳、工具边界和写回前校验 token；丢失占用后停止新动作，旧回执不得推进任务。已经发出的 shell 不受 token 撤销保护。新运行仍需核对文件、Git、工具终态与快照，不能把解锁当作原运行成功或已安全取消。
+
+已知 iCloud/File Provider、Dropbox 等同步根采用平台可取得的根路径与规范化实际路径尽力识别，不扫描个人文件或读取服务凭据；检测不完整，未命中不代表安全。Git 忽略不阻止云同步，不能同步／跨机并发使用活跃 runtime，SQLite WAL 和文件锁均不因此获得跨机互斥。建议使用非同步目录或验证已排除 runtime；doctor 不自动移动数据或修改云配置。此告警归 M2 最小诊断，M3A 完善展示；不新增云服务集成。
 
 ## 3. 实施快照与显式恢复
 
@@ -64,6 +66,8 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 ## 4. 用量、存储与诊断
 
+默认 `agent.resume: "prefer"` 优先由原客户端加载原生记录；旧记录无法恢复时自动新建会话，读取当前任务要求、正式规范、进度、已有执行事实与当前代码续做。先确认旧执行和工具结束，核对任务／目录及模型；不把模型不可用或未知工具状态当作换会话的理由。报告新建原因和旧来源，新会话可用后更新阶段引用；新建失败不循环创建。Task ID、阶段、修复次数和累计成果保持，由核心维护，不能接受模型自报值来重置或迁移；参见 DESIGN 第 9.4 节。
+
 首版只观测 token、费用与耗时，不按累计 token 或固定运行总时长自动取消。主 Agent 可分步推进、利用原生上下文管理和恢复能力继续大任务；是否拆分正式任务仍按用户授权。未来主动预算停止若确有需求再设计，首版配置不提供该开关。
 
 每个 run 只计本次新调用，使用调用／消息标识去重；恢复时读取旧历史不重新计算其消费。保存原生用量与归一口径：inputTokens 是含缓存的总输入，outputTokens 为输出，totalTokens 为两者之和；cacheReadTokens／cacheWriteTokens 为输入子集，不能再次相加。若原始 input 已含缓存则不重复加入，若分开报告则先合成总输入。无法无歧义映射时标 unknown，并保留原字段。
@@ -80,6 +84,16 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 元数据由 M0 在文件与 SQLite 间比较后选择。数据库若入选，事务只覆盖内部 Session/binding/operation 更新，不跨模型、Git hooks 等等待；项目文件锁、执行占用、Git 和原生记录的核验仍保留，不再维护一套 JSON 权威镜像。
 
+### 4.1 提交目标与授权来源
+
+所有会创建提交的 deliver/archive 显式给 --branch <refs/heads/...>；拒绝短名、current 或与 Task 绑定／实际分支不符的值。prepare/start、暂停恢复及 Git 写入前重核，不创建或切换分支。--branch 确认目标，不能当作人类授权证明。
+
+桥接 Agent 声明 authorizationRef；终端代调可 --authorization-ref <ref>。来源是原生用户指令引用，或 .knit/workflow.md 中 Git 交付约定的路径／版本。策略生成或 Agent 自行编辑不等于用户认可；主 Agent 须确认原授权和当前约束。直接 CLI 无引用时只记录显式调用声明，不伪记身份或消息已验证；Agent 经 CLI 仍需已有授权。
+
+默认分支候选检测顺序：显式 delivery.defaultBranch 完整本地 ref；否则读取本地 refs/remotes/origin/HEAD 并映射为本地 ref；再否则 unknown。显式配置格式非法则报告配置错误，不忽略回落。无 origin 的本地仓库不猜 main/master，不联网补 HEAD。缓存可能过时，检测仅用于展示／审计，不授予权限，也不让 unknown 阻塞已明确授权的当前目标。
+
+operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
+
 ## 5. 数据版本与升级
 
 项目 schemaVersion:1 声明共享布局、配置与任务字段，init 清单另有版本。本机 metadata、run 证据、快照与占用按 protocolVersion:1；SQLite 若入选使用对应数据库 schema 版本，M0 确定物理格式。进度／诊断自带版本，不能冒充状态证据。首版没有用户配置覆盖层。
@@ -90,22 +104,22 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 ## 6. 开发者模式
 
-开发者模式默认关闭。CLI 用 knit --dev <命令>，仅本次调用及其 worker／观察生效；Pi 用 /knit dev on/off，只有当前原生会话有效，新会话、fork、切到另一原生会话或 reload 默认关闭。独立 CLI 不继承 Pi 内存开关；需要时显式 --dev。关闭开关不改变已启动 worker 的请求标志，不修改运行中业务输入。
+开发者模式默认关闭，只观察，不改变模型、权限、检查、取消、恢复或自动工具／模型次数；不启 fake，不开原生客户端网络 debug，不进业务摘要。诊断是可丢弃信息，不作回执。
 
-| 通道 | 行为 |
+| 里程碑 | 能力 |
 | --- | --- |
-| stdout / --json | 保持正常摘要和机器协议，至多附 diagnosticsRef，不混日志 |
-| stderr | --dev 输出结构化诊断，便于终端观察或脚本收集 |
-| 私有文件 | 有 run/operation 的实际执行可写 .runtime/diagnostics/<对象ID>/<写入者ID>.jsonl；文件 0600，目录 0700，Git 忽略 |
-| 只读调用 | status/doctor/init --check 等只输出，不因 --dev 建目录或日志 |
-| Pi 桥接工具 | 分离 stderr，本地进度显示摘要与路径，不把完整诊断写入模型工具结果或触发额外轮次 |
+| M0 实验 | 验证脚本可向 stderr 输出稳定 stepKey、reasonCode、摘要和仓储调用／事务计数，用于候选比较，不先建完整日志设施 |
+| M1 | knit --dev <命令> 与桥接本次调用标志；只做结构化 stderr，不自动保存文件，不提供 Pi 会话开关 |
+| M3A | 私有 JSONL 保存、Pi /knit dev on/off 当前会话开关、完整通道／文件失败验证；不是 M1 前置 |
 
-每个进程独立写一个片段，不跨进程争抢追加同一文件。普通终端工具可能把 stderr 合并进模型工具结果；主 Agent 优先走桥接；普通终端可能合并 stderr，手调时可重定向诊断到私有文件。普通 CLI 观察退出也不等于执行取消，直调需保留对象 ID 并显式 cancel，不能宣称平台已自动隔离／停止。
+M1 stdout／--json 保持业务协议，stderr 为诊断。白名单只含对象 ID、步骤、模块／存储版本、声明 kind、摘要、reasonCode、状态决定、耗时和可观察仓储／事务计数；不是 OS 物理 I/O 测量。decision.proposed 与 effect.applied/verified 区分计划和事实，不按 token／输出字符记日志。
 
-每条诊断使用 diagnosticVersion:1 和稳定 event/stepKey，按需记录时间／耗时、Task/run/operation ID、模块与版本、storeBackend、声明 kind、状态前后值、摘要前后值、reasonCode、文件类别、读写／事务次数及步骤结果。决定用 decision.proposed、实际效果用 effect.applied／effect.verified 等事件区分，不把计划当生效事实。执行 token 只记指纹，不输出可复用值。比较时按 stepKey、输入版本与对象关系对齐，忽略墙钟、耗时、随机 ID、token 指纹；首版不另做 compare 命令。
+即使 M1 也不收集环境值、凭据、完整配置、正文、提示词、工具原文、HTTP 头／体；token 只记指纹，路径尽量项目相对。桥接分离 stderr，不自动注入模型或触发额外回合。普通终端可能合并 stderr，直调可自行重定向到私有文件；它的观察退出也不等于执行取消。
 
-诊断在核心用例决定／守卫、元数据提交和文件／Git 步骤边界产生，不按每个模型 token 或输出字符记录。原生模型与工具原文仍留客户端历史。字段按白名单生成，不采集环境值、凭据、完整配置、需求正文、规范正文、系统提示词、工具原文或 HTTP 请求头／体；路径尽量用项目相对形式。不开 SDK 的底层网络 debug。
+M1 只保留一个同 fake 输入的开关等价冒烟，比较业务摘要、成果／Git 内容和模型／工具次数，忽略时间、随机 ID 与诊断字段，不做全事件矩阵。M0 比较与 M1 排查可直接收集 stderr，无须等待持久日志。
 
---dev 不改变模型、权限、检查、取消或恢复，不启 fake，不增加自动工具／模型调用。诊断 JSONL 不参与输入摘要和检查资格，可单独删除，不影响恢复；它不替代操作回执。诊断专用输出失败只提示并停止该输出，不能据此把正常业务判失败；真实业务元数据写入失败仍按原规则处理。
+M3A 才启用 .runtime/diagnostics/<对象ID>/<写入者ID>.jsonl，每进程独立片段，文件 0600、目录 0700、Git 忽略；只读 status/doctor/init --check 即使 --dev 也不建目录或日志。日志可删，不影响恢复；专用诊断失败只提示，不吞真实元数据写入错误。
 
-开发者模式纳 M1：用相同 fake 输入分别开关，比较规范化业务响应、成果／Git 内容、业务摘要及模型／工具次数；忽略 diagnosticsRef、诊断技术标志、时间与随机 ID。M0 存储实验可用同一诊断字段比较文件写入、事务与恢复步骤；M2 验证日志丢失不会改变事实判定。
+Pi 会话开关仅影响当前原生会话后续调用，切会话、fork 或 reload 默认关闭，不写项目／用户配置，不改已启动 worker 的请求。CLI --dev 仅本次及其 worker，不继承 Pi 开关。
+
+诊断版本为 diagnosticVersion:1，M3A 按 event/stepKey、输入版本和对象关系对齐，忽略墙钟、耗时、随机 ID、token 指纹与 diagnosticsRef；不另做 compare 命令。完整日志仍不自动进模型上下文，用户明确排查时按需读取。

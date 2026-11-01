@@ -1,0 +1,256 @@
+{
+  "scope": "Read-only fixed-source review; not reference-project runtime verification",
+  "projects": {
+    "trellis": {
+      "repository": "https://github.com/mindfold-ai/Trellis",
+      "commit": "f089cb3286071199e84118dee86b6d76aab032f1",
+      "version": "0.6.17"
+    },
+    "gsd-core": {
+      "repository": "https://github.com/open-gsd/gsd-core",
+      "commit": "1ec5c812b79dc1cc487d0873d18b03449b11c106",
+      "version": "next 1.19.0 snapshot; not asserted to be latest stable"
+    },
+    "spec-kit": {
+      "repository": "https://github.com/github/spec-kit",
+      "commit": "7370e592f3cd9c06e5b698983957e227c75b30e2",
+      "version": "1.2.6.dev0 snapshot"
+    }
+  },
+  "sources": [
+    {
+      "project": "trellis",
+      "path": "packages/cli/src/templates/pi/extensions/trellis/index.ts.txt",
+      "sha256_full_source": "b53f1b5ac66f4ed15a46e1f5b013e0074e23695e86a55a724d4c273032d9fb41",
+      "ranges": [
+        [
+          660,
+          722
+        ],
+        [
+          1514,
+          1608
+        ]
+      ],
+      "url": "https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/pi/extensions/trellis/index.ts.txt"
+    },
+    {
+      "project": "trellis",
+      "path": "packages/cli/src/templates/trellis/scripts/common/task_store.py",
+      "sha256_full_source": "dd6d79c93437d56bfe1e3a641bba0e9c2d064167a834ecf03228ff808cd704e1",
+      "ranges": [
+        [
+          1485,
+          1568
+        ]
+      ],
+      "url": "https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/trellis/scripts/common/task_store.py"
+    },
+    {
+      "project": "trellis",
+      "path": "packages/cli/src/templates/trellis/scripts/common/safe_commit.py",
+      "sha256_full_source": "262ad740552279fe6ec6a2a9865b2965ce2448577cf973a4d702dfe2f5f91f04",
+      "ranges": [
+        [
+          1,
+          30
+        ],
+        [
+          54,
+          125
+        ],
+        [
+          145,
+          221
+        ]
+      ],
+      "url": "https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/trellis/scripts/common/safe_commit.py"
+    },
+    {
+      "project": "gsd-core",
+      "path": "pi/gsd.cjs",
+      "sha256_full_source": "635c0cb4d70cc7c68940666914d5ee751fe210e2896cb9ce262fca68ffc16db6",
+      "ranges": [
+        [
+          229,
+          278
+        ],
+        [
+          924,
+          944
+        ],
+        [
+          1044,
+          1090
+        ],
+        [
+          1140,
+          1208
+        ]
+      ],
+      "url": "https://github.com/open-gsd/gsd-core/blob/1ec5c812b79dc1cc487d0873d18b03449b11c106/pi/gsd.cjs"
+    },
+    {
+      "project": "gsd-core",
+      "path": "src/model-resolver.cts",
+      "sha256_full_source": "d4ad4768794ddb6c295199dd728dbbeb03d9bb46557ad2fb505fbf7fe5897697",
+      "ranges": [
+        [
+          518,
+          590
+        ]
+      ],
+      "url": "https://github.com/open-gsd/gsd-core/blob/1ec5c812b79dc1cc487d0873d18b03449b11c106/src/model-resolver.cts"
+    },
+    {
+      "project": "gsd-core",
+      "path": "src/commands.cts",
+      "sha256_full_source": "52857c3df4c4de269a4c7d807e875ff95c29ca7035414c95f1799c75cbb4a949",
+      "ranges": [
+        [
+          2350,
+          2440
+        ],
+        [
+          2580,
+          2695
+        ],
+        [
+          2765,
+          2782
+        ]
+      ],
+      "url": "https://github.com/open-gsd/gsd-core/blob/1ec5c812b79dc1cc487d0873d18b03449b11c106/src/commands.cts"
+    },
+    {
+      "project": "gsd-core",
+      "path": "gsd-core/workflows/resume-project.md",
+      "sha256_full_source": "bfaa76506389f8b10efdde14b08c27eff0d98cf7433b6a4fd2de822555aafcda",
+      "ranges": [
+        [
+          1,
+          90
+        ]
+      ],
+      "url": "https://github.com/open-gsd/gsd-core/blob/1ec5c812b79dc1cc487d0873d18b03449b11c106/gsd-core/workflows/resume-project.md"
+    },
+    {
+      "project": "spec-kit",
+      "path": "src/specify_cli/integrations/pi/__init__.py",
+      "sha256_full_source": "73a41c1368a2d818a15e46678e332f94b055d768db003bce3e3be7806bd1967c",
+      "ranges": [
+        [
+          1,
+          68
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/src/specify_cli/integrations/pi/__init__.py"
+    },
+    {
+      "project": "spec-kit",
+      "path": "src/specify_cli/integrations/_capture.py",
+      "sha256_full_source": "130be9aec6499d4f545a4dbe583b3fece46b5e5a99ebe3ead7f80cdb203cd3a0",
+      "ranges": [
+        [
+          149,
+          225
+        ],
+        [
+          248,
+          275
+        ],
+        [
+          433,
+          516
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/src/specify_cli/integrations/_capture.py"
+    },
+    {
+      "project": "spec-kit",
+      "path": "src/specify_cli/workflows/step/prompt/__init__.py",
+      "sha256_full_source": "59f217de874b228e9c0e2c9331254acf59d1300832f6b45cbadea9286d9a73b9",
+      "ranges": [
+        [
+          144,
+          215
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/src/specify_cli/workflows/step/prompt/__init__.py"
+    },
+    {
+      "project": "spec-kit",
+      "path": "src/specify_cli/workflows/_command_resume_state.py",
+      "sha256_full_source": "cd771505e4fd822a4bc00c87aa62d4ce1161d137b2a545fe6ec11a8ffbdf8a47",
+      "ranges": [
+        [
+          100,
+          185
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/src/specify_cli/workflows/_command_resume_state.py"
+    },
+    {
+      "project": "spec-kit",
+      "path": "extensions/git/scripts/bash/auto-commit.sh",
+      "sha256_full_source": "351baa7f4f0ecdfb281790ef223f8981a587ec8a2582c013824b1bcfc6039869",
+      "ranges": [
+        [
+          160,
+          211
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/extensions/git/scripts/bash/auto-commit.sh"
+    },
+    {
+      "project": "spec-kit",
+      "path": "extensions/git/commands/speckit.git.commit.md",
+      "sha256_full_source": "8e6826f161365dc9c738f006d64103d967caf3ee6502dfe756bfb9ff51be3d71",
+      "ranges": [
+        [
+          1,
+          65
+        ]
+      ],
+      "url": "https://github.com/github/spec-kit/blob/7370e592f3cd9c06e5b698983957e227c75b30e2/extensions/git/commands/speckit.git.commit.md"
+    },
+    {
+      "project": "trellis",
+      "path": "packages/cli/src/templates/trellis/scripts/common/cli_adapter.py",
+      "sha256_full_source": "5d6bd9d6f5c631e7e792db7dd343351317f9643bc87b73a9a98abd51cefb4307",
+      "ranges": [
+        [
+          480,
+          545
+        ]
+      ],
+      "url": "https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/trellis/scripts/common/cli_adapter.py"
+    },
+    {
+      "project": "trellis",
+      "path": "packages/cli/src/templates/trellis/scripts/common/task_utils.py",
+      "sha256_full_source": "35f544317a95e98d05fe089794071482175739e8c1f3b3b0228dae48602ffe90",
+      "ranges": [
+        [
+          295,
+          350
+        ]
+      ],
+      "url": "https://github.com/mindfold-ai/Trellis/blob/f089cb3286071199e84118dee86b6d76aab032f1/packages/cli/src/templates/trellis/scripts/common/task_utils.py"
+    }
+  ],
+  "excerpts": [
+    {
+      "path": "sources/gsd-core.txt",
+      "sha256": "210755ed28781ec72904c30c8e487f534fca05cf138c2db4b17a7ac71d829608"
+    },
+    {
+      "path": "sources/spec-kit.txt",
+      "sha256": "a14c0467616d54e6c5a49f8abfd0ec3e64ebf19a98413f1103af981064c4198a"
+    },
+    {
+      "path": "sources/trellis.txt",
+      "sha256": "336864191ea5643e81ec1176e543c10f85af3cc9fac4398c53cb23d31bd732ca"
+    }
+  ]
+}

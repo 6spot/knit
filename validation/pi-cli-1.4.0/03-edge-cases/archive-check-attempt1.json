@@ -1,0 +1,9 @@
+{
+  "status": "failed",
+  "model_requests": 0,
+  "checks": {
+    "manifest_files": 90
+  },
+  "error": "Unterminated string starting at: line 1 column 42 (char 41)",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/me/IdeaProjects/knit/validation/pi-cli-1.4.0/scripts/verify_archive.py\", line 27, in <module>\n    if line:json.loads(line);records+=1\n  File \"/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.py\", line 346, in loads\n    return _default_decoder.decode(s)\n  File \"/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py\", line 337, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n  File \"/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.py\", line 353, in raw_decode\n    obj, end = self.scan_once(s, idx)\njson.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 42 (char 41)\n"
+}

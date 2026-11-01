@@ -1,0 +1,38 @@
+{"type": "agent_start"}
+{"type": "turn_start"}
+{"type": "message_start"}
+{"type": "message_end", "role": "system", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_end", "role": "user", "stopReason": null}
+{"type": "message_start"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_update"}
+{"type": "message_end", "role": "assistant", "stopReason": "stop"}
+{"type": "turn_end"}
+{"type": "agent_end"}
+{"type": "agent_settled", "aborted": false}

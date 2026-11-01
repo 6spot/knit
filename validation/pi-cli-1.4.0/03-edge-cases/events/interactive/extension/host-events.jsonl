@@ -1,0 +1,16 @@
+{"time":1793533670814,"event":"session_start","version":"v1","reason":"startup","session":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671278,"event":"status","version":"v1","session":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671321,"event":"shutdown","version":"v1"}
+{"time":1793533671346,"event":"session_start","version":"v2","reason":"reload","session":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671375,"event":"status","version":"v2","session":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671445,"event":"scheduled","version":"v2","mode":"passive","token":"PTY_PASSIVE_99f1802133a7470e8f17d42bd862bec3","origin":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671948,"event":"callback","version":"v2","mode":"passive","token":"PTY_PASSIVE_99f1802133a7470e8f17d42bd862bec3","idle":true,"origin":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533671952,"event":"sent","version":"v2","mode":"passive","token":"PTY_PASSIVE_99f1802133a7470e8f17d42bd862bec3"}
+{"time":1793533673023,"event":"scheduled","version":"v2","mode":"wake","token":"PTY_WAKE_0aa27bea818c430986304e43eaabdf64","origin":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533673524,"event":"callback","version":"v2","mode":"wake","token":"PTY_WAKE_0aa27bea818c430986304e43eaabdf64","idle":true,"origin":"01a196ef-f4a1-77b5-bb3d-e249e0addf80"}
+{"time":1793533673526,"event":"sent","version":"v2","mode":"wake","token":"PTY_WAKE_0aa27bea818c430986304e43eaabdf64"}
+{"time":1793533673530,"event":"agent_start","version":"v2"}
+{"time":1793533673539,"event":"custom_message","version":"v2","customType":"knit-cli-validation"}
+{"time":1793533676498,"event":"assistant","version":"v2","text":"PTY_WAKE_0aa27bea818c430986304e43eaabdf64"}
+{"time":1793533676501,"event":"agent_end","version":"v2"}
+{"time":1793533677202,"event":"shutdown","version":"v2"}

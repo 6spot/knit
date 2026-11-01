@@ -1,0 +1,44 @@
+{
+  "status": "passed",
+  "scenario": "native history missing; continue from durable task files",
+  "provider": "magpie",
+  "model": "group/openai",
+  "old_session_id": "d213debf-e948-4795-a551-8016267cbc72",
+  "old_record_exists": false,
+  "fallback_reason": "native_record_missing",
+  "task_id": "fallback-fixture",
+  "phase": "implement",
+  "repair_rounds": 1,
+  "helper_sha256": "bc30b2f1f8e70ae9c58eae435991a8c24e8fd9e4316e6b2233764fead779a5d5",
+  "new_session_id": "e56c7418-458f-4309-9c04-f23c1401e5e9",
+  "new_session_initial_history_empty": true,
+  "same_task_metadata_preserved": true,
+  "controller_unittest_passed": true,
+  "usage": {
+    "tokens": {
+      "input": 7096,
+      "output": 366,
+      "cacheRead": 34688,
+      "cacheWrite": 0,
+      "total": 42150
+    },
+    "cost_usd": 0.021320799999999997,
+    "assistant_messages": 7,
+    "tool_calls": 6
+  },
+  "agent_settled": true,
+  "native_record": "private-native/2026-11-01T12-40-17-167Z_e56c7418-458f-4309-9c04-f23c1401e5e9.jsonl",
+  "model_reported_metadata": {
+    "phase": "complete",
+    "repair_rounds": 2
+  },
+  "model_metadata_applied": false,
+  "metadata_boundary": "Model returned complete/2; task files and controller remain implement/1. State claims are advisory, not an authority.",
+  "validation_correction": "Original model request completed successfully. Initial checker incorrectly required echoed state metadata as evidence; rechecked file authority and actual code/test effects without another model request.",
+  "actual_read_tool_paths": [
+    "task.md",
+    "progress.md",
+    "duration.py",
+    "test_duration.py"
+  ]
+}
