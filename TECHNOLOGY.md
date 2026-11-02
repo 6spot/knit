@@ -1,6 +1,6 @@
 # Knit 技术选型
 
-本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。工程目录骨架与[开发任务队列](TASKS.md)已建立；package.json／锁文件与最小工具链已由任务001建立并通过Node24验证，业务命令尚未实现。版本事实与来源见 [技术核查](RESEARCH.md#1712-技术约束核查)。
+本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。工程目录骨架与[开发任务队列](TASKS.md)已建立；package.json、锁文件、工具链与业务命令已实现至 Linux 候选（001–025）。版本事实与来源见 [技术核查](RESEARCH.md#1712-技术约束核查)。
 
 ## 1. 选择结果
 
@@ -75,7 +75,7 @@ Pi RPC 的 prompt 响应仅表示接受／排队／命令处理，不是阶段�
 
 ## 6. 构建与交付验证
 
-预期工程命令为 typecheck、build、test、pack 检查，在建立 package.json 时落实；当前仓库没有这些脚本，不能提前宣称已运行。
+工程命令 typecheck、build、test、pack 检查已落实并在 Linux 候选验证；不能把 Linux 结果外推为 macOS 兼容。
 
 - M0 按第 6.1 节真实加载项目桥接，验证 reload、模型、轮外投递与触发回合、agent_settled、受控工具取消和新进程恢复；存储另按第 8 节对比，不能用类型核查替代。
 - M1 用同一契约、fake 和临时仓库跑闭环，含真实 Pi 冒烟与本地安装；开发诊断只做 --dev 结构化 stderr、脱敏和一个等价冒烟。

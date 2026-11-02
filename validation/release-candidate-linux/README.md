@@ -12,8 +12,8 @@ knit start --dir <project> -- --version   1.4.0
 
 包内容仅 `README.md`、`package.json`、`assets/`、`dist/`；无 `src/`、`test/`、`tasks/`、`validation/`、研究或私有记录、凭据、开发任务目录。桥接模板与 `dist/contracts/bridge-tools.json` 同源并随包发布。
 
-## 未完成／阻塞
+## 平台范围
 
-- macOS 未在真实机器执行构建、安装、init、start 或桥接；不能声称 macOS 兼容。
-- 未发布 npm、未部署、未创建外部发布流程。
-- 因此任务025保持 blocked，任务026发布就绪审查不能通过。
+- Linux + Node 24 + Pi 1.4.0：已实际安装、init、start。
+- macOS：未实测，后续按 B001 补验；当前候选不声明 macOS 兼容，用户 2026-11-02 已接受以 Linux 为准。
+- 未执行 npm publish、部署或外部发布。候选包名 `knit@0.1.0` 在公共 registry 可能已被占用；未来发布需改 scope／名称、版本和许可证后再评估。

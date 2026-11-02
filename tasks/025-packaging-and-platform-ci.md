@@ -75,6 +75,6 @@
   - 包排除 validation／任务／私有历史／日志／凭据：PASS（162 文件清单）。
   - 不 npm publish／部署／push／外部发布：保持。
 - 证据位置：`validation/release-candidate-linux/README.md`、`version.txt`、`init.txt`、`start.txt`、`start.err`。
-- 未解决问题／决定：macOS 构建／安装矩阵未执行，任务保持 blocked；不创建无法验证的 CI 兼容声明。任务026依赖完整平台矩阵，不能通过发布闸门。
-- 对下一项的交接：026 只能在补齐 macOS 实测或用户明确接受仅 Linux 候选后复审；当前不宣称首版跨平台可发布。
+- 未解决问题／决定：用户 2026-11-02 明确接受“目前以 Linux 通过为准，macOS 后续验证”。因此 025 以 Linux 候选完成，README 只声明 Linux；macOS 保留 B001 后续补测，不宣称跨平台兼容。未新增无 runner 的 CI 配置。
+- 对下一项的交接：026 可按“Linux 候选首版”独立审查；不得把 macOS 写成已支持，发布说明需保留平台限制。
 优先扫描下一编号（阻塞时可继续跳过）：[026 独立完成首版发布就绪审查](026-release-independent-gate.md)。

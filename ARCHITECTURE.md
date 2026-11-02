@@ -1,6 +1,6 @@
 # Knit 架构设计
 
-本文定义首版的模块、进程、数据和协议边界。产品范围见 [DESIGN.md](DESIGN.md)，状态规则见 [STATES.md](STATES.md)，技术选择见 [TECHNOLOGY.md](TECHNOLOGY.md)。以下均为待实现设计。
+本文定义首版的模块、进程、数据和协议边界。产品范围见 [DESIGN.md](DESIGN.md)，状态规则见 [STATES.md](STATES.md)，技术选择见 [TECHNOLOGY.md](TECHNOLOGY.md)。以下为当前实现边界；Linux 候选已通过任务025，macOS 后续验证。
 
 ## 1. 产品与执行边界
 

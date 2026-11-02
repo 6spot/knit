@@ -1,6 +1,6 @@
 # Knit 状态与转移
 
-本文定义首版需要持久化的业务状态和执行协议；架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，操作细则见 [OPERATIONS.md](OPERATIONS.md)。当前均为待实现设计。元数据物理实现已定为单一 SQLite 库（M0 实证），不改变这里的权威与守卫。
+本文定义首版需要持久化的业务状态和执行协议；架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，操作细则见 [OPERATIONS.md](OPERATIONS.md)。当前规则已实现至 Linux 候选；macOS 后续验证。元数据物理实现已定为单一 SQLite 库（M0 实证），不改变这里的权威与守卫。
 
 ## 1. 状态边界
 

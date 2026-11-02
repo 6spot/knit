@@ -1,6 +1,6 @@
 # Knit 运行细则
 
-本文件补充 [DESIGN.md](DESIGN.md) 的运行规则；模块与唯一写入方见 [ARCHITECTURE.md](ARCHITECTURE.md)，枚举／转移见 [STATES.md](STATES.md)，依赖版本见 [TECHNOLOGY.md](TECHNOLOGY.md)。首版独立 CLI、Pi／local 和项目薄桥接，行为仍待实现；Worktree、REX 等属于后续。
+本文件补充 [DESIGN.md](DESIGN.md) 的运行规则；模块与唯一写入方见 [ARCHITECTURE.md](ARCHITECTURE.md)，枚举／转移见 [STATES.md](STATES.md)，依赖版本见 [TECHNOLOGY.md](TECHNOLOGY.md)。首版独立 CLI、Pi／local 和项目薄桥接已实现至 Linux 候选；Worktree、REX 等属于后续。
 
 ## 1. 内部模块与项目桥接
 
