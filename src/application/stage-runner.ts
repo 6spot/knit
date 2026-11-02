@@ -62,6 +62,8 @@ export interface StageRunnerOptions {
   cancelGraceMs?: number;
   /** 与项目执行锁同源的锁管理器；传入后阶段独占该 Session 锁。 */
   locks?: LockManager;
+  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
+  lostOwnership?: () => string | null;
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
 }
 
@@ -124,6 +126,7 @@ export class StageRunner {
   private readonly promptTimeoutMs: number;
   private readonly cancelGraceMs: number;
   private readonly locks: LockManager | null;
+  private readonly lostOwnership: (() => string | null) | null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
 
   constructor(options: StageRunnerOptions) {
@@ -140,6 +143,7 @@ export class StageRunner {
     this.promptTimeoutMs = options.promptTimeoutMs ?? 900_000;
     this.cancelGraceMs = options.cancelGraceMs ?? 5_000;
     this.locks = options.locks ?? null;
+    this.lostOwnership = options.lostOwnership ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
   }
 
@@ -205,6 +209,13 @@ export class StageRunner {
       await runtime.dispose(2_000);
       return this.cancelled(session, "", { inputTokens: null, outputTokens: null }, { startEntryId: null, leafEntryId: null }, null);
     }
+    const lostBeforeStart = this.lostOwnership?.() ?? null;
+    if (lostBeforeStart !== null) {
+      // 占用已丢失：不发起任何新的模型调用，直接走失败路径。
+      await this.markSession(session, "opening", `lock_ownership_lost:${lostBeforeStart}`, false);
+      await runtime.dispose(2_000).catch(() => null);
+      return this.failure(session, `lock_ownership_lost:${lostBeforeStart}`, null, null, null);
+    }
     const start = await runtime.start();
     if (!start.ok) {
       await this.markSession(session, "incompatible", `runtime_start_failed:${start.failure ?? "unknown"}`, false);
@@ -217,6 +228,7 @@ export class StageRunner {
     const beforeLeaf = sessionFile !== null && existsSync(sessionFile) ? await readLeafEntryId(sessionFile) : null;
     const statsBefore = await runtime.getStats();
     let cancelRequested = false;
+    let ownershipLost: string | null = null;
     const promptPromise = runtime.prompt(userPrompt, this.promptTimeoutMs);
     void promptPromise.catch(() => {});
     const cancelWatch = setInterval(() => {
@@ -226,18 +238,49 @@ export class StageRunner {
         void runtime?.abort().catch(() => {});
       }
     }, 100);
+    // 占用丢失同样立即中止：不再执行任何新的工具调用或写回（OPERATIONS.md 第2节）。
+    const ownershipWatch = setInterval(() => {
+      if (ownershipLost !== null) return;
+      const lost = this.lostOwnership?.() ?? null;
+      if (lost !== null) {
+        ownershipLost = lost;
+        void runtime?.abort().catch(() => {});
+      }
+    }, 100);
     // 取消不是只看 RPC ack：超过宽限仍未稳定则终止本次 Pi 进程组，并留下真实终态。
     let stopDeadline = false;
     const cancelDeadline = (async () => {
-      while (!cancelRequested && !stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
-      if (!cancelRequested) return { settled: false, aborted: false, exit: null };
+      while (!cancelRequested && ownershipLost === null && !stopDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!cancelRequested && ownershipLost === null) return { settled: false, aborted: false, exit: null };
       await new Promise((resolve) => setTimeout(resolve, this.cancelGraceMs));
       return { settled: false, aborted: true, exit: null };
     })();
     const settled = await Promise.race([promptPromise, cancelDeadline]);
     stopDeadline = true;
     clearInterval(cancelWatch);
+    clearInterval(ownershipWatch);
     if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
+    const lostDuringPrompt = ownershipLost ?? this.lostOwnership?.() ?? null;
+    if (lostDuringPrompt !== null) {
+      // 丢失占用：立即终止本阶段 Pi 进程组，以 lock_ownership_lost 失败终止，不写回任何推进性结果。
+      await this.terminatePiTree(piPid);
+      await runtime.dispose(3_000).catch(() => null);
+      const sessionFileAfterLost = session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
+      await this.markSession(
+        session,
+        sessionFileAfterLost !== null ? "available" : "opening",
+        `lock_ownership_lost:${lostDuringPrompt}`,
+        sessionFileAfterLost !== null,
+        sessionFileAfterLost,
+      );
+      return this.failure(
+        session,
+        `lock_ownership_lost:${lostDuringPrompt}`,
+        { inputTokens: null, outputTokens: null },
+        { startEntryId: null, leafEntryId: null },
+        sessionFileAfterLost,
+      );
+    }
     if (!settled.settled && cancelRequested) {
       await this.terminatePiTree(piPid);
       await runtime.dispose(3_000).catch(() => null);

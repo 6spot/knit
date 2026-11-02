@@ -59,7 +59,7 @@ function action() {
 }
 
 const rl = createInterface({ input: process.stdin });
-rl.on("line", (line) => {
+rl.on("line", async (line) => {
   let request;
   try {
     request = JSON.parse(line);
@@ -99,6 +99,16 @@ rl.on("line", (line) => {
   if (type === "prompt") {
     respond(id, {});
     const spec = action();
+    if (spec.waitFile) {
+      // 测试钩子：等待信号文件出现后再动作，模拟进行中的阶段执行；
+      // 被中止（settle）后直接返回，不执行任何写入或报告。
+      const signal = join(cwd, spec.waitFile);
+      const deadline = Date.now() + (spec.waitTimeoutMs ?? 30_000);
+      while (!settled && !existsSync(signal) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (settled) return;
+    }
     for (const write of spec.writes ?? []) {
       const target = join(cwd, write.path);
       mkdirSync(dirname(target), { recursive: true });

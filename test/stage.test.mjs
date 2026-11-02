@@ -865,3 +865,59 @@ test("SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("心跳丢失后 worker 停止新动作：fake-pi 下一次调用被拒绝，run 以 lock_ownership_lost 终止", async () => {
+  const dir = project("heartbeat-lost");
+  // 缩短心跳间隔，使测试秒级完成；heartbeatStaleMs 保持大于间隔即可。
+  const configPath = join(dir, ".knit", "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.limits.heartbeatIntervalMs = 100;
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const runId = (await s.coordinator.prepare(prepareInput(dir, task.taskId, "implement"))).request.runId;
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    // waitFile 永不出现：fake-pi 停在动作边界，只有被中止才退出等待。
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      waitFile: ".knit-heartbeat-guard-never",
+      writes: [{ path: "README.md", content: "# 丢失占用后不得写入\n" }],
+      report: { summary: "不应到达", changedPaths: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId });
+    assert.equal(started.confirmed, true);
+
+    // 等待阶段进入 running（fake-pi 停在 waitFile，不会自行结束）。
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const status = await s.coordinator.status({ dir, runId });
+      if (status.state === "running") break;
+      if (["completed", "failed", "cancelled"].includes(status.state)) throw new Error(`阶段提前终止: ${status.state}`);
+      if (Date.now() > deadline) throw new Error(`未进入 running: ${status.state}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    // 模拟占用被外部强制解除：删除锁目录后，worker 下一次心跳必然失败。
+    rmSync(join(dir, ".locks"), { recursive: true, force: true });
+
+    const status = await waitTerminal(s, dir, runId);
+    assert.equal(status.state, "failed");
+    assert.ok(
+      status.result.failureReason.startsWith("lock_ownership_lost"),
+      `期望 lock_ownership_lost，实际 ${status.result.failureReason}`,
+    );
+    // fake-pi 的下一次动作被拒绝：等待信号期间被中止，未发生任何写入或写回。
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+    // 事件中留下心跳失败事实；丢失占用的失败结论落在 result 与 state。
+    const events = readFileSync(join(dir, ".knit", ".runtime", "runs", runId, "events.jsonl"), "utf8");
+    assert.ok(events.includes("lock_heartbeat_failed"));
+    const resultFile = JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "runs", runId, "result.json"), "utf8"));
+    assert.equal(resultFile.state, "failed");
+    assert.ok(resultFile.failureReason.startsWith("lock_ownership_lost"));
+    assert.equal(new RunStore(dir).readState(runId)?.reason.startsWith("lock_ownership_lost"), true);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

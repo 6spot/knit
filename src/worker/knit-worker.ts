@@ -291,13 +291,16 @@ async function main(): Promise<number> {
         runs: store,
         locks,
         cancelGraceMs: config.limits.cancelGraceMs,
+        lostOwnership: () => heartbeatError,
       }).execute();
     } catch (error) {
       const reason = error instanceof InfrastructureError ? error.code : "stage_error";
       store.appendEvent(request.runId, { event: "stage_exception", reason });
       return fail(reason);
     }
-    if (heartbeatError !== null) {
+    // 心跳已报丢失且回执本身不是 lock_ownership_lost（如阶段自然完成）时，
+    // 旧回执不得推进任务：改走 fail；阶段内已按 lock_ownership_lost 失败的直接发布该失败事实。
+    if (heartbeatError !== null && execution.result.failureReason?.startsWith("lock_ownership_lost") !== true) {
       return fail(`lock_ownership_lost:${heartbeatError}`);
     }
     if (store.readCancel(request.runId) !== null && execution.result.state === "completed") {
