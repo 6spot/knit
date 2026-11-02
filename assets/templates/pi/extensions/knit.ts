@@ -210,6 +210,11 @@ export default function (pi: any) {
       const status = core(["status", "--run", run.runId, "--json", "--dir", root]);
       if (status.code !== 0 || status.response?.data === null) continue;
       const view = status.response.data;
+      const currentBranch = branchNow();
+      if (typeof view.branch === "string" && currentBranch !== null && view.branch !== currentBranch) {
+        diag("notice_skipped_branch", { runId: view.runId, branch: view.branch });
+        continue;
+      }
       const resultState = view.result?.state ?? null;
       const acceptanceState = view.acceptance?.state ?? null;
       const terminal = ["completed", "cancelled", "failed"].includes(resultState ?? view.state);

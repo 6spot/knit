@@ -1,0 +1,10 @@
+✔ task use/clear：未落盘只待确认，原生有效路径为权威，清除不复活旧选择 (156.199076ms)
+✔ 选择分支与当前分支不一致：不生效，不把旧树选择投到新分支 (63.941701ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 638.022138

@@ -109,6 +109,8 @@ export function registerTaskCommands(program: Command): void {
         (result) => {
           console.log(`任务 ${result.taskId}: ${result.adopted ? "已接管" : "已绑定"} ${result.branch}`);
           if (result.previousBranch === null) console.log("原分支: 无（首次接管）");
+          else if (result.previousBranch !== result.branch) console.log(`原分支: ${result.previousBranch}`);
+          if (result.checkInvalidated) console.log(`旧检查已失效；阶段保持 ${result.phase}`);
         },
       );
     });

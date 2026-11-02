@@ -32,6 +32,7 @@ import {
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
+import { gitSync } from "../infrastructure/process.js";
 import { LockManager } from "../infrastructure/locks.js";
 import type { MetadataStore, SessionQuery } from "../ports/infrastructure.js";
 
@@ -155,6 +156,12 @@ export class SessionService {
   private sessionLockKey(record: Pick<SessionRecord, "ref">) {
     // 锁保护实际原生记录资源，跨项目同一原生 ID 仍互斥；不用会随 fallback 改变的目录。
     return { scope: "session" as const, rawKey: `${record.ref.client}:${record.ref.nativeSessionId}` };
+  }
+
+  /** 当前本地分支；detached HEAD 返回 null，不猜分支。 */
+  private currentBranch(root: string): string | null {
+    const result = gitSync(["symbolic-ref", "--quiet", "HEAD"], root);
+    return result.code === 0 && result.stdout.trim() !== "" ? result.stdout.trim() : null;
   }
 
   private async requireSession(knitSessionId: string): Promise<SessionRecord> {
@@ -374,13 +381,17 @@ export class SessionService {
     if (normalizeRoot(record.cwd) !== root) {
       throw new GuardError("project_conflict", `会话登记在 ${record.cwd}，与 ${root} 不一致`);
     }
+    const current = this.currentBranch(root);
+    if (input.branch !== undefined && input.branch !== null && current !== null && input.branch !== current) {
+      throw new GuardError("branch_mismatch", `选择分支 ${input.branch} 与当前分支 ${current} 不一致`);
+    }
     this.assertTaskUsable(root, input.taskId);
     if (input.persisted && (input.entryRef === undefined || input.entryRef === null)) {
       throw new GuardError("entry_ref_required", "条目已落盘时必须给出原生条目引用");
     }
     const selection: SelectionSnapshot = {
       taskId: input.taskId,
-      branch: input.branch ?? record.branch,
+      branch: input.branch ?? current ?? record.branch,
       entryRef: input.persisted ? (input.entryRef ?? null) : null,
       operationId: input.operationId ?? `sel-${this.randomHex(6)}`,
       recordedAt: this.now().toISOString(),
@@ -405,7 +416,7 @@ export class SessionService {
     }
     const selection: SelectionSnapshot = {
       taskId: null,
-      branch: input.branch ?? record.branch,
+      branch: input.branch ?? this.currentBranch(root) ?? record.branch,
       entryRef: input.persisted ? (input.entryRef ?? null) : null,
       operationId: input.operationId ?? `sel-${this.randomHex(6)}`,
       recordedAt: this.now().toISOString(),
@@ -514,7 +525,11 @@ export class SessionService {
     }
     let taskId = data.taskId;
     let reason: string | null = null;
-    if (taskId !== null) {
+    const current = this.currentBranch(root);
+    if (data.branch !== null && current !== null && data.branch !== current) {
+      taskId = null;
+      reason = "branch_changed";
+    } else if (taskId !== null) {
       try {
         this.assertTaskUsable(root, taskId);
       } catch {

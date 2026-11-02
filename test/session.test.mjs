@@ -258,6 +258,39 @@ test("task use/clear：未落盘只待确认，原生有效路径为权威，清
   }
 });
 
+test("选择分支与当前分支不一致：不生效，不把旧树选择投到新分支", async () => {
+  const dir = gitProject("selection-branch");
+  installTemplates(dir);
+  const { store, session, tasks, agentDir } = makeServices(dir);
+  try {
+    const task = await tasks.newTask({ dir, title: "分支选择", slug: "branch-sel" });
+    writeNativeSession(agentDir, dir, "main-other-branch", [
+      { type: "message", id: "b1", parentId: null },
+      selectionEntry("b2", "b1", { taskId: task.taskId, branch: "refs/heads/other", operationId: "sel-other" }),
+    ]);
+    const attached = await session.attach({ dir, nativeSessionId: "main-other-branch", kind: "main", role: "implement" });
+    const resolved = await session.resolveSelection(dir, attached.record.knitSessionId);
+    assert.equal(resolved.taskId, null);
+    assert.equal(resolved.effective, false);
+    assert.equal(resolved.reason, "branch_changed");
+    assert.equal(resolved.entryRef, "b2");
+    await assert.rejects(
+      () => session.useTask({
+        dir,
+        knitSessionId: attached.record.knitSessionId,
+        taskId: task.taskId,
+        branch: "refs/heads/other",
+        persisted: true,
+        entryRef: "b2",
+      }),
+      (error) => error.guardReason === "branch_mismatch",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("临时 cwd 与项目迁移不误选：cwd 不一致返回未生效", async () => {
   const dir = gitProject("cwd");
   const elsewhere = gitProject("cwd-other");

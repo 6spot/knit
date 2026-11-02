@@ -1,0 +1,10 @@
+✔ task adopt：分支变化保持早期 phase，deliver 回 check，清检查资格并保留历史 (100.136452ms)
+✔ task adopt：活动 run 或未核实 Git 效果拒绝，不写 Task (69.08194ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 588.228472

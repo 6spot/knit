@@ -57,7 +57,7 @@ function fakeAction(dir, value) {
   return path;
 }
 
-test("task adopt：接管当前完整分支，已绑定其它分支拒绝", () => {
+test("task adopt：接管当前完整分支，纯分支变化改绑并使旧检查失效", () => {
   const dir = project("adopt");
   try {
     const task = newTask(dir);
@@ -71,9 +71,12 @@ test("task adopt：接管当前完整分支，已绑定其它分支拒绝", () =
     const again = jsonCli(dir, ["task", "adopt", task.taskId, "--branch", "current"]);
     assert.equal(again.parsed.data.adopted, false);
     writeFileSync(file, readFileSync(file, "utf8").replace(/^branch: .*$/m, "branch: refs/heads/other"));
-    const rejected = jsonCli(dir, ["task", "adopt", task.taskId, "--branch", "current"]);
-    assert.equal(rejected.parsed.outcome, "error");
-    assert.equal(rejected.parsed.reasonCode, "invalid_request");
+    const rebound = jsonCli(dir, ["task", "adopt", task.taskId, "--branch", "current"]);
+    assert.equal(rebound.parsed.outcome, "completed", rebound.stderr);
+    assert.equal(rebound.parsed.data.adopted, true);
+    assert.equal(rebound.parsed.data.previousBranch, "refs/heads/other");
+    assert.equal(rebound.parsed.data.checkInvalidated, true);
+    assert.match(readFileSync(file, "utf8"), /^branch: refs\/heads\/main$/m);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -136,6 +139,7 @@ test("run implement + status --events：真实 worker 终态观察，事件流�
     const runId = run.parsed.data.request.runId;
     const status = jsonCli(dir, ["status", "--run", runId]);
     assert.equal(status.parsed.data.result.state, "completed");
+    assert.equal(status.parsed.data.branch, "refs/heads/main", "观察投影保留发起分支");
     const resumed = jsonCli(dir, ["resume", "--run", runId]);
     assert.equal(resumed.parsed.outcome, "completed");
     assert.equal(resumed.parsed.data.resumed, false);
@@ -262,6 +266,7 @@ test("桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JS
   assert.match(template, /knit_deliver/);
   assert.match(template, /knit_snapshot/);
   assert.match(template, /knit\.selection/);
+  assert.match(template, /notice_skipped_branch/);
   assert.match(template, /followUp/);
 });
 

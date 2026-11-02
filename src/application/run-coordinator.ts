@@ -66,6 +66,8 @@ export interface RunStatusProjection {
   runId: string;
   taskId: string;
   phase: RunPhase;
+  /** 请求冻结时的任务分支；用于观察通知不误投切树后的上下文。 */
+  branch: string | null;
   initiator: RunRequestFile["initiator"];
   createdAt: string;
   updatedAt: string;
@@ -366,6 +368,7 @@ export class RunCoordinator {
       runId: request.runId,
       taskId: request.taskId,
       phase: request.phase,
+      branch: request.expected.branch,
       initiator: request.initiator,
       createdAt: request.createdAt,
       updatedAt: state?.updatedAt ?? launch?.updatedAt ?? request.createdAt,

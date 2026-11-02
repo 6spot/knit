@@ -181,6 +181,82 @@ test("task record：只改记录区、版本核对、并行短锁串行", async 
   }
 });
 
+test("task adopt：分支变化保持早期 phase，deliver 回 check，清检查资格并保留历史", async () => {
+  const dir = gitProject("adopt");
+  const { store, service } = makeService(dir);
+  try {
+    const task = await service.newTask({ dir, title: "接管", slug: "adopt" });
+    const file = taskFile(dir, task.relativePath);
+    const doc = parseTaskDocument(readFileSync(file, "utf8"), file);
+    writeFileSync(file, renderTaskDocument({
+      ...doc,
+      frontmatter: { ...doc.frontmatter, branch: "refs/heads/other", phase: "deliver", status: "open", outcome: null },
+    }));
+    const binding = await store.bindings.get(task.taskId);
+    await store.bindings.save({ ...binding, branch: "refs/heads/other", lastCheckRunId: "run-000000000001" });
+    const adopted = await service.adopt({ dir, taskId: task.taskId, branch: "current" });
+    assert.equal(adopted.branch, "refs/heads/main");
+    assert.equal(adopted.previousBranch, "refs/heads/other");
+    assert.equal(adopted.adopted, true);
+    assert.equal(adopted.checkInvalidated, true);
+    assert.equal(adopted.phase, "check");
+    const after = parseTaskDocument(readFileSync(file, "utf8"), file);
+    assert.equal(after.frontmatter.branch, "refs/heads/main");
+    assert.equal(after.frontmatter.phase, "check");
+    assert.equal(after.frontmatter.status, "open");
+    assert.equal(after.frontmatter.outcome, null);
+    assert.equal((await store.bindings.get(task.taskId)).lastCheckRunId, null);
+    const again = await service.adopt({ dir, taskId: task.taskId, branch: "current" });
+    assert.equal(again.adopted, false);
+    assert.equal(again.checkInvalidated, false);
+    await assert.rejects(
+      () => service.adopt({ dir, taskId: task.taskId, branch: "refs/heads/other" }),
+      (error) => error.guardReason === "branch_mismatch",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("task adopt：活动 run 或未核实 Git 效果拒绝，不写 Task", async () => {
+  const dir = gitProject("adopt-guard");
+  const { store, service } = makeService(dir);
+  const gate = { settled: async () => false };
+  const guarded = new TaskService({
+    store,
+    locks: new LockManager({ root: join(dir, ".lock-root") }),
+    runActivity: gate,
+  });
+  try {
+    const task = await service.newTask({ dir, title: "接管守卫", slug: "adopt-guard" });
+    const file = taskFile(dir, task.relativePath);
+    const before = readFileSync(file, "utf8");
+    const doc = parseTaskDocument(before, file);
+    writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, branch: "refs/heads/other" } }));
+    await assert.rejects(
+      () => guarded.adopt({ dir, taskId: task.taskId, branch: "current" }),
+      (error) => error.guardReason === "runs_unsettled",
+    );
+    assert.match(readFileSync(file, "utf8"), /^branch: refs\/heads\/other$/m);
+    await store.operations.save({
+      operationId: "op-adopt-unverified",
+      kind: "delivery.deliver",
+      state: "needs_attention",
+      reason: "hook",
+      recordedAt: new Date().toISOString(),
+      taskId: task.taskId,
+    });
+    await assert.rejects(
+      () => service.adopt({ dir, taskId: task.taskId, branch: "current" }),
+      (error) => error.guardReason === "git_effect_unverified",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("task ready：discuss → implement 并冻结输入摘要；phase 不符拒绝", async () => {
   const dir = gitProject("ready");
   const { store, service } = makeService(dir);

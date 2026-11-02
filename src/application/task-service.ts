@@ -139,6 +139,9 @@ export interface TaskAdoptResult {
   branch: string;
   previousBranch: string | null;
   adopted: boolean;
+  /** 分支变化使旧检查失去交付资格时为 true；历史检查文件仍保留。 */
+  checkInvalidated: boolean;
+  phase: string;
 }
 
 export interface TaskRecordInput {
@@ -420,51 +423,90 @@ export class TaskService {
    */
   async adopt(input: TaskAdoptInput): Promise<TaskAdoptResult> {
     const root = normalizeRoot(input.dir);
-    const branch = input.branch === "current" ? this.currentBranch(root) : input.branch;
+    const current = this.currentBranch(root);
+    const branch = input.branch === "current" ? current : input.branch;
     if (!/^refs\/heads\/[^\s]+$/.test(branch)) {
       throw new TaskGuardError("invalid_branch", `接管分支必须是完整 refs/heads/...: ${branch}`);
     }
-    const located = this.locate(root, input.taskId);
-    if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
-    const file = join(located.dir, TASK_FILE);
-    const before = readWithVersion(file);
-    if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
-    const document = parseTaskDocument(before.data.toString("utf8"), file);
-    const previous = document.frontmatter.branch;
-    if (previous !== null && previous !== branch) {
-      throw new TaskGuardError("branch_mismatch", `任务已绑定 ${previous}，不能用 adopt 改为 ${branch}`);
+    if (branch !== current) {
+      throw new TaskGuardError("branch_mismatch", `adopt 只接管当前分支 ${current}，不能改绑 ${branch}`);
     }
-    if (previous === branch) {
-      const binding = await this.store.bindings.get(input.taskId);
-      if (binding !== null && binding.branch !== branch) {
-        await this.store.bindings.save({ ...binding, branch });
-      }
-      return { taskId: input.taskId, branch, previousBranch: previous, adopted: false };
-    }
-    const updated = withRegions(document, {
-      frontmatter: { ...document.frontmatter, branch },
-    });
     const lock = await this.locks.acquire({
       keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
       action: "task.adopt",
     });
     try {
-      const latest = readWithVersion(file);
-      if (latest === null || latest.sha256 !== before.sha256) {
-        throw new InfrastructureError("version_conflict", "task.md 在占用等待期间变化，重试 task adopt");
+      if (this.currentBranch(root) !== branch) {
+        throw new TaskGuardError("branch_mismatch", "接管等待期间项目分支变化，重试 task adopt");
       }
+      const located = this.locate(root, input.taskId);
+      if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      if (document.frontmatter.status !== "open") {
+        throw new TaskGuardError("task_closed", "任务已关闭；取消／替代只做收尾，不通过 adopt 重开");
+      }
+      if (this.runActivity !== null && !(await this.runActivity.settled(root, input.taskId))) {
+        throw new TaskGuardError("runs_unsettled", "接管前须先收敛活动／未知运行与待接收结果");
+      }
+      const operations = await this.store.operations.list();
+      const unverified = operations.find(
+        (operation) =>
+          operation.kind.startsWith("delivery.") &&
+          (operation as { taskId?: string }).taskId === input.taskId &&
+          ["planned", "running", "needs_attention"].includes(operation.state),
+      );
+      if (unverified !== undefined) {
+        throw new TaskGuardError("git_effect_unverified", `存在未核实 Git 效果: ${unverified.operationId}`);
+      }
+      const previous = document.frontmatter.branch;
+      const binding = await this.store.bindings.get(input.taskId);
+      if (previous === branch) {
+        if (binding !== null && binding.branch !== branch) {
+          await this.store.bindings.save({ ...binding, branch });
+        }
+        return {
+          taskId: input.taskId,
+          branch,
+          previousBranch: previous,
+          adopted: false,
+          checkInvalidated: false,
+          phase: document.frontmatter.phase,
+        };
+      }
+      // 纯分支变化只使检查失效；deliver 不再可交付时回 check，discuss/implement/check 保持。
+      const nextPhase = document.frontmatter.phase === "deliver" ? "check" : document.frontmatter.phase;
+      const updated = withRegions(document, {
+        frontmatter: {
+          ...document.frontmatter,
+          branch,
+          phase: nextPhase,
+          status: "open",
+          outcome: null,
+        },
+      });
       atomicWrite({
         path: file,
         data: Buffer.from(renderTaskDocument(updated), "utf8"),
-        expectedSha256: latest.sha256,
+        expectedSha256: before.sha256,
         mode: 0o644,
       });
-      const binding = await this.store.bindings.get(input.taskId);
-      if (binding !== null) await this.store.bindings.save({ ...binding, branch });
+      if (binding !== null) {
+        await this.store.bindings.save({ ...binding, branch, lastCheckRunId: null });
+      }
+      return {
+        taskId: input.taskId,
+        branch,
+        previousBranch: previous,
+        adopted: true,
+        checkInvalidated: true,
+        phase: nextPhase,
+      };
     } finally {
       this.locks.release(lock);
     }
-    return { taskId: input.taskId, branch, previousBranch: previous, adopted: true };
   }
 
   private currentBranch(root: string): string {
