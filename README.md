@@ -23,8 +23,8 @@ validation/      可追溯研究与实验材料
 ```text
 npm pack
 npm install ./knit-0.1.0.tgz
-knit init --client pi --dir <项目>
-knit start --dir <项目>
+./node_modules/.bin/knit init --client pi --dir <项目>
+./node_modules/.bin/knit start --dir <项目>
 ```
 
 首版不实现 Worktree、REX、其它 Agent 客户端、并行调度或对外插件平台。不依赖 Pi SDK，阶段执行直接复用本机 Pi CLI。Linux + Node 24 + Pi 1.4.0 已完成本地 `npm pack` 安装／init／start 冒烟；macOS 未实测，不作为已支持平台声明。

@@ -44,7 +44,7 @@
 - 问题与证据：Linux + Node v24.21.0 已完成 `npm pack`、本地安装、`init`、`start -- --version`（`validation/release-candidate-linux/`）；当前没有 macOS 机器或可实际运行的 macOS runner，未执行构建、安装、init、start、桥接加载。
 - 已尝试：检查现有工作区和 CI 资源；没有可用的 macOS 执行环境，未创建只声明不运行的 CI 兼容矩阵。
 - 尚不能完成：macOS 平台实测、跨平台安装路径／进程／锁／原生 Session 行为验证、首版跨平台发布声明。
-- 仍可继续：Linux 候选包与文档已验证；可继续不影响平台的代码审查、文档整理和后续独立部分；026 需等待平台事实。
+- 仍可继续：Linux 候选包与文档已验证；026 可按 Linux 候选审查，不等待 macOS 事实。
 - 伪代码／暂定接口：任务025文件记录当前只能声明 Linux 候选，不新增平台代码分支。
 - 待用户决定：无当前阻塞；macOS 执行环境后续提供时补测并更新平台声明。
 - 参考选项与影响：提供 macOS 机器／runner 可补齐实测；仅 Linux 候选可先形成单平台预览，但不能宣称 macOS 兼容；延期不阻塞 Linux 证据保留。

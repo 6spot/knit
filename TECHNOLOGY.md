@@ -14,7 +14,7 @@
 | CLI | Commander 15.0.0 | 子命令、参数、help 和错误输出复用成熟实现；不自行写整套参数解析器 |
 | 协议／schema | typebox 1.3.27 | 同源类型、JSON schema 和运行时校验，已有内存往返实验；选择独立于 Pi 的依赖，不混入 0.34.x 旧 API |
 | Markdown 数据 | YAML 2.9.0 Document + 受管区解析 | 保留未知业务字段与注释；只编辑明确区域，不引整套 Markdown 渲染框架 |
-| 本机存储 | M0 对比文件仓储与 SQLite 后选一种 | 重点比较 Session/binding/operation 的事务与恢复成本；Markdown、原生历史与大产物仍按各自边界保存 |
+| 本机存储 | M0 选定 SQLite（WAL + 短事务）；文件仓储仅作比较实验 | 重点比较 Session/binding/operation 的事务与恢复成本；Markdown、原生历史与大产物仍按各自边界保存 |
 | 状态实现 | 判别联合、纯决定函数、显式效果执行器 | 以持久事实为准；文档状态表与转移测试逐项对应 |
 | Git | 原生 Git CLI，argv，不经 shell 拼接路径 | 保留 index、hook、过滤器和真实树语义；不使用 JS 重实现 Git |
 | Pi 阶段执行 | 本机已安装 Pi CLI；当前验证版本 1.4.0 | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
@@ -28,7 +28,7 @@ schema 采用上述精确版本，其他直接依赖在 M0 建立 lockfile 时�
 
 | 备选 | 取舍 |
 | --- | --- |
-| SQLite／文件仓储 | 不提前排除 SQLite；内部关联数据可用短事务减少恢复分支，Git／Markdown 外部效果仍需日志。M0 以真实写路径比较，ORM 不在首版 |
+| SQLite／文件仓储 | M0 已选 SQLite：内部关联数据用短事务减少恢复分支，Git／Markdown 外部效果仍需日志；文件仓储保留为比较实验，ORM 不在首版 |
 | XState 等状态机运行时 | 能表达状态图，但本版用持久文件、纯规则和效果日志即可满足；避免同时维护解释器实例和磁盘状态。不是否定该工具能力 |
 | Bun/Deno | 首版沿 Node 标准库与 npm 分发，不增加另一套构建和平台验证；Pi CLI 独立进程不构成 Knit 必须同运行时的理由 |
 | bundler／单文件二进制 | 首版采用普通 npm 分发和模板资源；Pi CLI 独立安装，不为单文件产物增加打包复杂度 |
@@ -49,7 +49,7 @@ JSON 协议区分 invalid_request、incompatible_version、busy、needs_context�
 
 ## 4. 文件、占用与日志
 
-以下原子写规则用于项目文件、运行产物和文件仓储候选；SQLite 若入选由数据库事务提交内部元数据，不额外伪装成分文件写入。
+以下原子写规则用于项目文件、运行产物和外部效果；SQLite 由数据库事务提交内部元数据，不额外伪装成分文件写入。
 
 受控写入采用锁内读取预期版本、准备新内容、写临时文件、同步文件、原子 rename、同步目录，再记录核验结果。临时内容在本机私有 runtime 中，同文件系统才发布；跨文件系统不降级为无保护 copy。源码工具的普通写入不因此获得原子保证，由快照和阶段核实覆盖。
 
@@ -87,13 +87,13 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 
 ### 6.1 M0 前置验证
 
-以下是产品主体验的放行条件，使用临时项目、本机 Pi CLI 和宿主公开扩展 API，不以 mock sendMessage、读取类型或接口存在替代。本机能力实验已覆盖其中的 CLI／宿主基础行为；init 产物和 Knit 实际桥接／核心仍在实现后按同表验收。
+以下是产品主体验的放行条件，使用临时项目、本机 Pi CLI 和宿主公开扩展 API，不以 mock sendMessage、读取类型或接口存在替代。CLI／宿主基础行为、init 产物、实际桥接与核心链路已由 005／008／015 及后续任务按同表验收。
 
 | 验证 | 必须观察到的结果 |
 | --- | --- |
 | 项目扩展加载／reload | init 产物能加载与重载，工具及真实 Session／有效路径可读，旧监听不重复、未 ready 不处理操作；宿主准入已验证（受信自动加载、reload 不重复、发现只认 .ts/.js），见 [host-admission](validation/host-admission/README.md) |
 | 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；TypeBox 自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](validation/host-admission/README.md) |
-| 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品命令实现后按同一链路验收，见 [host-admission](validation/host-admission/README.md) |
+| 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品桥接链路已在 015 验收，见 [host-admission](validation/host-admission/README.md) |
 | 当前模型与子 worker | 获取原生实际模型，受控子资源配置仍能解析所选模型／鉴权；不可用显式阻塞，不静默换模型 |
 | 回合之外投递 | 完成回调发生在原调用回合之外，消息真正到达匹配的原 Session／路径，不能投给后来切换的上下文 |
 | 投递是否触发回合 | 分别测不触发／触发模式并计数实际模型回合，确认不是仅 UI 文本；进度不自动触发轮次 |
