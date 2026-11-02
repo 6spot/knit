@@ -2,19 +2,13 @@
  * 文件身份与指纹（TECHNOLOGY.md 第4节）。
  * 文件字节 SHA-256 用于冲突／快照对照；摘要区分业务输入与记录由调用方决定，
  * 本模块只提供字节与结构化清单的确定性指纹。
+ * 纯摘要函数在 contracts/digest.ts（无 IO）；这里复用并保持原导出面。
  */
-import { createHash } from "node:crypto";
 import { statSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { sha256Bytes, sha256Text } from "../contracts/digest.js";
 
-/** 字节指纹：sha256 hex；用于原子写预期版本与快照对照。 */
-export function sha256Bytes(data: Uint8Array): string {
-  return createHash("sha256").update(data).digest("hex");
-}
-
-export function sha256Text(text: string): string {
-  return sha256Bytes(Buffer.from(text, "utf8"));
-}
+export { sha256Bytes, sha256Text } from "../contracts/digest.js";
 
 export interface FileFacts {
   /** 常量 "file"；不存在时整条记为 absent。 */

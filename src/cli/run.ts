@@ -217,6 +217,7 @@ export function registerRunCommands(program: Command): void {
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
     .option("--wait", "只观察直到终态（不接收结果）")
+    .option("--pi-bin <path>", "非正式检查的 Pi 可执行文件（默认 KNIT_PI_BIN 或 PATH）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
@@ -239,6 +240,7 @@ export function registerRunCommands(program: Command): void {
             scope: options.scope,
             model,
             locksRoot: options.locks,
+            piExecutable: options.piBin ?? process.env.KNIT_PI_BIN ?? "pi",
           });
           if (jsonMode()) emit(jsonResponse("run-check", result.state === "completed" ? "completed" : "needs_attention", result));
           else {

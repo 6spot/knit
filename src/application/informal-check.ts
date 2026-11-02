@@ -1,6 +1,8 @@
 /**
  * 非正式只读检查（DESIGN.md 第4.1节）：显式 --scope，不建 Task 绑定、不赋交付资格。
  * 直接启动一次只读 Pi 检查会话；不经过 worker、不写 Task／binding／scope／check 凭据。
+ * 与 StageRunner 同为固定装配＋显式注入点：runtimeFactory 默认 PiAgentRuntime，
+ * piExecutable 由调用方（组合根）传入，本用例层不读环境变量。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -147,6 +149,10 @@ export async function runInformalCheck(input: {
   scope: string[];
   model: PhaseModel;
   locksRoot?: string;
+  /** 本机 Pi 可执行文件；由调用方传入（CLI 默认 KNIT_PI_BIN 或 PATH 中的 pi）。 */
+  piExecutable?: string;
+  /** 测试可注入 fake；默认装配 PiAgentRuntime，与 StageRunner.runtimeFactory 同约定。 */
+  runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
 }): Promise<InformalCheckResult> {
   const root = normalizeRoot(input.dir);
   if (input.model.runtime !== "pi") throw new GuardError("runtime_unsupported", `非正式检查只支持 pi，收到 ${input.model.runtime}`);
@@ -159,8 +165,10 @@ export async function runInformalCheck(input: {
   const recordedAt = new Date().toISOString();
   const sessionDir = join(root, ".knit", ".runtime", "sessions");
   mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-  const runtime = new PiAgentRuntime({
-    executablePath: process.env.KNIT_PI_BIN ?? "pi",
+  const runtimeFactory: NonNullable<typeof input.runtimeFactory> =
+    input.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
+  const runtime = runtimeFactory({
+    executablePath: input.piExecutable ?? "pi",
     provider: input.model.provider,
     modelId: input.model.model,
     tools: ["read", "grep", "find", "ls", "bash"],

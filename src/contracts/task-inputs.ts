@@ -4,7 +4,7 @@
  * 域转移裁决在 domain/task.ts，本模块不裁决业务允许性。
  */
 import { Type, type Static } from "typebox";
-import { sha256Text } from "../infrastructure/fingerprint.js";
+import { sha256Text } from "./digest.js";
 
 export const UpdateKindSchema = Type.Union([Type.Literal("clarify"), Type.Literal("change")]);
 export type UpdateKind = Static<typeof UpdateKindSchema>;

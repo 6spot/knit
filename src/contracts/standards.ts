@@ -4,7 +4,7 @@
  * 程序只机械核对候选摘要、分支与决定，不判断规则语义。
  */
 import { Type, type Static } from "typebox";
-import { sha256Text } from "../infrastructure/fingerprint.js";
+import { sha256Text } from "./digest.js";
 
 export const CANDIDATE_START_PREFIX = "<!-- knit:candidate:start id=";
 export const CANDIDATE_END = "<!-- knit:candidate:end -->";

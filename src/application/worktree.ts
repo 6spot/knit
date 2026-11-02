@@ -6,6 +6,7 @@ import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { gitSync } from "../infrastructure/process.js";
+import { porcelainStatusPaths } from "./git-status.js";
 
 export interface WorktreeSignature {
   entries: Record<string, string>;
@@ -34,19 +35,5 @@ function signatureOf(root: string, paths: string[]): WorktreeSignature {
 export function worktreeSignature(root: string, git = gitSync): WorktreeSignature | null {
   const result = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"], root);
   if (result.code !== 0) return null;
-  const parts = result.stdout.split("\0");
-  const paths: string[] = [];
-  for (let index = 0; index < parts.length; index += 1) {
-    const record = parts[index];
-    if (record === undefined || record.length < 4) continue;
-    const status = record.slice(0, 2);
-    const path = record.slice(3);
-    paths.push(path);
-    if (status.includes("R") || status.includes("C")) {
-      const original = parts[index + 1];
-      if (original !== undefined && original !== "") paths.push(original);
-      index += 1;
-    }
-  }
-  return signatureOf(root, paths);
+  return signatureOf(root, porcelainStatusPaths(result.stdout));
 }

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { gitSync } from "../infrastructure/process.js";
 import { GuardError } from "./guard-error.js";
+import { porcelainStatusPaths } from "./git-status.js";
 import type { AuthorizationSource, DefaultBranch } from "../contracts/delivery.js";
 import type { ProjectConfig } from "./config.js";
 
@@ -169,20 +170,7 @@ export function dirtyPaths(
   if (paths.length === 0) return [];
   const result = runGit(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...paths], git);
   if (result.code !== 0) throw new GuardError("git_failed", `读取工作区状态失败: ${result.stderr.trim()}`);
-  const parts = result.stdout.split("\0");
-  const out: string[] = [];
-  for (let index = 0; index < parts.length; index += 1) {
-    const record = parts[index];
-    if (record === undefined || record.length < 4) continue;
-    const status = record.slice(0, 2);
-    out.push(record.slice(3));
-    if (status.includes("R") || status.includes("C")) {
-      const original = parts[index + 1];
-      if (original !== undefined && original !== "") out.push(original);
-      index += 1;
-    }
-  }
-  return [...new Set(out)].sort();
+  return [...new Set(porcelainStatusPaths(result.stdout))].sort();
 }
 
 /** 提交实际范围（name-status -z；rename 保留两端）。 */

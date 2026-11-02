@@ -656,7 +656,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 
 1. 按授权创建任务，维护单主文档、稳定身份、当前状态与结束结果。
 2. init 建立项目入口、资料与规范索引；从最小闭环开始包含候选扫描、主 Agent 核对和正式规范更新，是首版核心能力。
-3. 内部 ClientAdapter、AgentRuntime、ExecutionHost 从第一条闭环走正式装配路径，不留到后期再抽取。
+3. 内部 Pi runtime 与 local 适配器从第一条闭环走正式装配路径：application 层首版为固定装配（直接组合内部适配器），保留显式注入点（StageRunner／非正式检查的 runtimeFactory 与 piExecutable、SessionService 的 checkFile）；通用接口抽象待第二实现出现时再提升为端口，不在首版预建。
 4. 通过 CLI 协调讨论、实施、独立检查和提交归档；按既定优先级选模型，修复次数有界。
 5. 通过内部 Pi runtime 记录阶段、主／子 Session、检查与快照；支持取消和恢复，实际消耗只观测，不以累计 token 中止任务。
 6. 在当前绑定分支做限定路径工作提交与归档提交，保护既有改动与 index，写断点记录并扫描本次入库内容。
