@@ -20,7 +20,7 @@
 | Pi 阶段执行 | 本机已安装 Pi CLI；当前验证版本 1.4.0 | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
 | 进程／文件 | Node child_process、fs、crypto、os | 集中封装、可替换；原子写、进程身份与锁规则见下文 |
 | 测试 | node:test、node:assert/strict、fake runtime、临时仓库 | 通过端口注入时钟／进程／故障，不依赖真实模型或全局模块 mock |
-| 支持目标 | 首版完整写入验收为 macOS 与 Linux | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
+| 支持目标 | 首版 Linux + Node24 已通过本地候选验证；macOS 后续验证（B001） | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
 
 schema 采用上述精确版本，其他直接依赖在 M0 建立 lockfile 时固定补丁；Pi CLI 独立安装，不进入 Knit 的依赖。启动时探测客户端版本和必要能力，升级按协议、取消、原生恢复与新会话续做验证，不盲随 latest，也不只凭主版本判兼容。
 
@@ -83,7 +83,7 @@ Pi RPC 的 prompt 响应仅表示接受／排队／命令处理，不是阶段�
 - M3A 完善 adopt、树、提醒边界、升级与查询，并加入私有诊断 JSONL 和 Pi 会话开关；M3B 做安装平台矩阵。取消／恢复／数据关键故障仍归 M2。
 - npm pack 检查包含编译入口、模板和协议资源，排除测试私有资料、原生历史与运行目录；在临时项目执行 init/start/CLI 的安装冒烟。
 
-CI 规划 macOS/Linux、Node24 同补丁组合，M1 要求完成基本打包安装，M3B 完成发布矩阵。Node26 为后续兼容验证，本机 Node25 不能替代 LTS 验收。
+CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安装与候选验证，macOS 后续验证（B001）。Node26 为后续兼容验证，本机 Node25 不能替代 LTS 验收。
 
 ### 6.1 M0 前置验证
 
@@ -108,7 +108,7 @@ CI 规划 macOS/Linux、Node24 同补丁组合，M1 要求完成基本打包安�
 
 本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](validation/host-admission/README.md)。TypeBox1.3.27 的 JSON 往返内存实验仍只证明 schema 校验，不决定 Pi 的接入方式。
 
-本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](tasks/001-engineering-baseline.md)）；上述 Pi CLI 1.4.0 实验仍不证明 Knit init 产物和完整业务链路通过；存储对比已完成（[任务004](tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
+本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](tasks/001-engineering-baseline.md)）；后续 006–025 已补齐 init、Task、阶段、数据保护、交付与查询并通过 Linux 候选验收。上述 Pi CLI 1.4.0 实验本身不替代完整业务链路验收；存储对比已完成（[任务004](tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
 
 ## 8. M0 存储对比与开发诊断
 

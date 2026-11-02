@@ -114,7 +114,7 @@ Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路
 
 可变关联元数据由仓储封装，实现为 SQLite 短事务（M0 实证选定）。事务同时提交 Session、binding、operation 的内部更新；Task Markdown、Git 与原生历史仍是外部效果，不能假定同一事务覆盖。任务文件受稳定 Task 短锁保护，指纹与已发布证据只按引用连接。
 
-关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数的 nextState 是待实现目标，只有效果核验和回执完成后才能对外当成事实；不能先改 phase 再尝试执行。
+关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数给出的 nextState 是候选目标，只有效果核验和回执完成后才能对外当成事实；不能先改 phase 再尝试执行。
 
 概念契约为 decide(current, event, facts) → rejected(reason) 或 accepted(expectedVersion, nextState, effects)。状态不保存在某个常驻解释器实例里，每次命令从权威资料重建。每个外部动作之前，必须能从操作记录定位其目标、已知起点和幂等键。
 
