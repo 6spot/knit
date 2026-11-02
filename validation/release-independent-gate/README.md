@@ -15,6 +15,7 @@
   - `MERGE_HEAD` → `git_operation_in_progress`
   - 未解决 index 冲突 → `git_conflict`
   - `.knit/.runtime` 被跟踪 → `runtime_tracked`
+  - 以上为整理后的错误码记录：原始 CLI 输出产生于 `/tmp` 一次性独立审查环境（HEAD `1427615`，审查结束即清理），未保存 `.txt` 原始文件，故未随目录归档（见 report.json `gitGuards.recordNote`）。
 - `doctor` 新增 `filesystem` 与 `cloud-sync` 检查。
 - 远程 FS 只做静态核对：NFS/SMB/SMB2/SMB3/FUSE magic 在 task guard 与 doctor 一致；未挂载真实 NFS/SMB。
 - 首版范围：无 Worktree、REX、其它客户端、Pi SDK/RpcClient。

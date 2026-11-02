@@ -25,6 +25,23 @@ let parentId = null;
 let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 let lastText = "";
 let settled = false;
+let pendingSpec = null;
+let abortCompleted = false;
+let completed = false;
+function completeNow(spec) {
+  if (completed) return;
+  completed = true;
+  for (const write of spec.writes ?? []) {
+    const target = join(cwd, write.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, write.content ?? "");
+  }
+  lastText = spec.text ?? "```json\n" + JSON.stringify(spec.report ?? { summary: "fake report" }) + "\n```";
+  usage = { input: usage.input + 100, output: usage.output + 20, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, total: usage.total + 120 };
+  event("agent_start");
+  entry("message", { role: "assistant", content: lastText });
+  event("agent_end");
+}
 function settle(aborted) {
   if (settled) return;
   settled = true;
@@ -93,12 +110,24 @@ rl.on("line", async (line) => {
       // 模拟工具/宿主暂不响应 abort；测试取消宽限与进程组清理。
       return;
     }
+    if (type === "abort" && process.env.KNIT_FAKE_COMPLETE_ON_ABORT === "1") {
+      // 确定性竞争注入：收到取消请求的同一 tick 发布 completed 结果，
+      // 不靠真实时序偶然命中；终态由阶段执行器收敛为唯一。
+      if (!abortCompleted && !settled && pendingSpec !== null) {
+        abortCompleted = true;
+        completeNow(pendingSpec);
+        settle(false);
+      }
+      return;
+    }
     if (type === "abort") settle(true);
     return;
   }
   if (type === "prompt") {
     respond(id, {});
     const spec = action();
+    if (abortCompleted) return;
+    pendingSpec = spec;
     if (spec.waitFile) {
       // 测试钩子：等待信号文件出现后再动作，模拟进行中的阶段执行；
       // 被中止（settle）后直接返回，不执行任何写入或报告。
@@ -109,16 +138,7 @@ rl.on("line", async (line) => {
       }
       if (settled) return;
     }
-    for (const write of spec.writes ?? []) {
-      const target = join(cwd, write.path);
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, write.content ?? "");
-    }
-    lastText = spec.text ?? "```json\n" + JSON.stringify(spec.report ?? { summary: "fake report" }) + "\n```";
-    usage = { input: usage.input + 100, output: usage.output + 20, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, total: usage.total + 120 };
-    event("agent_start");
-    entry("message", { role: "assistant", content: lastText });
-    event("agent_end");
+    completeNow(spec);
     setTimeout(() => settle(false), spec.delayMs ?? 5);
     return;
   }

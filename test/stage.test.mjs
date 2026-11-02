@@ -686,6 +686,53 @@ test("取消在安全点收敛为 cancelled，不推进 Task；旧 run 取消不
   }
 });
 
+test("取消与完成竞争：fake-pi 收到取消的同一 tick 发布完成结果，终态唯一", async () => {
+  const dir = project("cancel-race");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "implement"));
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_COMPLETE_ON_ABORT = "1";
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      waitFile: ".race-wait",
+      writes: [{ path: "race.txt", content: "race\n" }],
+      report: { summary: "取消竞争中的完成结果", changedPaths: ["race.txt"] },
+    });
+    await s.coordinator.start({ dir, runId: prepared.request.runId });
+    // 等 worker 进入 running 后取消；fake-pi 在收到 abort 的同一 tick 完成并发布结果，
+    // 不依赖真实时序偶然命中（对照上一用例的「取消可能发生在模型前或模型后」）。
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const status = await s.coordinator.status({ dir, runId: prepared.request.runId });
+      if (status.state === "running") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const cancel = await s.coordinator.cancel({ dir, runId: prepared.request.runId, reason: "取消竞争" });
+    assert.equal(cancel.requested, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    // 终态唯一：取消已记录，模型迟到完成不重开取消任务，也不产生第二个 result。
+    assert.equal(status.state, "cancelled");
+    assert.equal(status.result.state, "cancelled");
+    assert.equal(status.result.session === null, false);
+    assert.equal(status.acceptance.state, "completed");
+    const events = readFileSync(join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "events.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(events.filter((entry) => entry.event === "cancel_requested").length, 1);
+    const published = events.filter((entry) => entry.event === "result_published");
+    assert.equal(published.length, 1);
+    assert.equal(published[0].state, "cancelled");
+    // Task 不被迟到完成推进。
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+  } finally {
+    delete process.env.KNIT_FAKE_COMPLETE_ON_ABORT;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("resume --run：已完成结果待同步时只接收，不新建 run、不重跑模型", async () => {
   const dir = project("pending-sync");
   const s = services(dir);

@@ -21,7 +21,8 @@
     "detachedHead": "detached_head",
     "mergeInProgress": "git_operation_in_progress",
     "unresolvedConflict": "git_conflict",
-    "runtimeTracked": "runtime_tracked"
+    "runtimeTracked": "runtime_tracked",
+    "recordNote": "以上为整理后的错误码记录；原始 CLI 输出产生于 /tmp 一次性独立审查环境（HEAD 1427615，审查结束即清理），未保存 .txt 原始文件，故未随目录归档。"
   },
   "doctor": {
     "filesystem": "pass on local root; fails known remote filesystem magic",
