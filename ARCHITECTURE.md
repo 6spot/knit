@@ -47,7 +47,7 @@ flowchart TD
 | SessionService | 原生身份索引、关系、选择事件投影，恢复归属和路径核实 |
 | ContextPlanner | 确定输入、规范／角色、来源指纹和工具策略；生成冻结 inputs 与注入计划 |
 | RunCoordinator | 校验、占用、快照、启动、取消、等待与接收结果；不代替主 Agent 做语义判断 |
-| CheckService | 生成成果范围和检查凭据，计算针对当前目标版本的资格 |
+| RunAcceptanceService | 结果接收：复核输入／scope／分支后写成果范围与检查凭据并推进 Task；资格由 domain 规则（`src/domain/check.ts`）按当前目标版本推导 |
 | StandardsService | 候选、审阅回执、正式规则与索引更新，向收尾提供机械提醒 |
 | FinalizationService | 唯一 deliver 处理器、记录封存、限定提交、移动归档、收尾事实 |
 | OperationService | 意图、步骤、效果核验、幂等接收、重试及显式放弃 |
@@ -98,7 +98,7 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | run launch | RunCoordinator | 启动意图、实例句柄与确认 |
 | run state/result | worker | 真实准备、执行、取消与终态；result 不证明 Git 交付 |
 | instructions、events | worker | 指令落实与脱敏进度，事件不代替结果 |
-| scope/check | CheckService | 不可变范围和检查证据，当前适用性另行推导 |
+| scope/check | RunAcceptanceService（结果接收时） | 不可变范围（`.runtime/tasks/<task-id>/scope.json`）与检查凭据（`.runtime/checks/<run-id>.json`），当前适用性另行推导 |
 | snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready；index 内容独立保存，逐路径恢复记录独立 |
 | cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
 | 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |

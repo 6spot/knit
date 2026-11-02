@@ -34,7 +34,7 @@ export interface CheckCredential {
   /** 检查核对过的成果版本；按 Task 累积的 scope 由调用方核对当前版本。 */
   scopeDigest: string;
   verdict: CheckVerdict;
-  /** 结论证据是否齐备：报告、范围与检查前后输入摘要（DESIGN.md 第5.3节 check.json）。 */
+  /** 结论证据是否齐备：报告、范围与检查前后输入摘要（DESIGN.md 第5.3节 检查凭据）。 */
   evidenceComplete: boolean;
 }
 

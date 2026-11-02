@@ -65,7 +65,9 @@ AGENTS.md                         # 保留原规则，添加 Knit 受管入口
     installation.json              # 本机 Knit 安装位置与版本
     init-manifest.json             # 初始化模板与受管文件指纹
     metadata.db                    # Session/binding/operation 元数据（SQLite，WAL）
-    runs/<run-id>/                 # 请求、检查凭据、快照与回执
+    runs/<run-id>/                 # 请求、状态、快照与回执
+    tasks/<task-id>/scope.json     # 按 Task 累积的成果范围，接收时写入
+    checks/<run-id>.json           # 检查凭据，结果接收时写入
     pi-sessions/                  # Pi 自己保存的阶段原生记录，跨 run 保留
 ```
 
@@ -252,7 +254,7 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 检查角色结论为 pass、changes_requested 或 blocked，附覆盖、证据与未执行项。用户明确要求的人工验收由主 Agent 核对并记录实际确认，首版不设专用门槛命令／字段；技术 pass 不能冒充人工完成。
 
-检查记录由核心写入本 run 的 `check.json`：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。正式任务以 `lastCheckRunId` 为唯一候选，在检查获占用且正式接纳时更新；未获准的忙请求不算开始，已接纳后的失败不能回退更早 pass。输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
+检查记录由核心在结果接收时写入 `.knit/.runtime/checks/<run-id>.json`（不在 run 目录内）：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。正式任务以 `lastCheckRunId` 为唯一候选，在检查获占用且正式接纳时更新；未获准的忙请求不算开始，已接纳后的失败不能回退更早 pass。输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
 
 任务主文档与辅助资料按稳定任务 ID、任务内相对路径识别；已登记改名／归档操作可更新物理定位并核对相同内容，不因单纯搬动任务目录反复失效。其他路径变化、引用内容改写或业务输入变化仍需核对；不改写旧 run 凭据，以操作记录关联新位置。
 
@@ -309,10 +311,12 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | `instructions.json` | worker | 已落实的注入清单：来源 ID、作用域、指纹、注入途径、版本和原生产物位置 |
 | `state.json` | worker | 实例身份、运行状态、Knit／原生 Session 引用和已知子进程定位 |
 | `result.json` | worker | 不可变终态、结构化报告、原生引用与本 run 增量用量，不证明 Git 收尾 |
-| `scope.json`／`check.json` | CheckService | 发布后不改的成果范围／检查凭据，资格由当前目标版本推导 |
+| `acceptance.json` | RunAcceptanceService | 接收检查点：来源目标、binding before／after、scope 与 check 凭据、输入／规范摘要 |
 | `snapshot/` | 核心 | preparing/ready/failed 恢复对照及覆盖说明 |
 | `events.jsonl` | worker | 只作脱敏进度观察，半行／重复不作为完成证据 |
-| `cancel.request` | 核心 | 取消请求，按需建立 |
+| `cancel.json` | 核心 | 取消意图：目标 run、operation 与 owner token，按需建立 |
+
+成果 scope 与检查凭据不在 run 目录：接收时由核心分别写 `.knit/.runtime/tasks/<task-id>/scope.json` 与 `.knit/.runtime/checks/<run-id>.json`，发布后不改，资格由当前目标版本推导。
 
 未建正式任务的执行使用空任务 ID。临时启动／指令资源放在本 run 的 `native/` 下，原始对话与工具记录引用客户端自己的原生 Session，不另存完整转录。取得原生引用时只在本次 state 登记 opening 候选；模型可在参数与指令就绪后启动，无需先让空会话落盘。核实原生 ID、归属和持久化后才置 available、更新可恢复阶段引用；失败候选不覆盖旧引用，父会话失联时可从原 run 补确认。 执行与报告均有效时，原生引用暂不可恢复只记引用原因，不单独触发模型重跑；本 run 的结果证据仍须持久化，后续必要续做按第9.4节处理。
 

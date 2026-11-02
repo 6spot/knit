@@ -76,18 +76,15 @@ stateDiagram-v2
     [*] --> claimed
     claimed --> preparing
     preparing --> running: 占用 输入 快照 会话参数与指令就绪
-    running --> finalizing: 模型与工具稳定结束
-    finalizing --> completed: 合法报告和本 run 证据持久化
-    claimed --> cancelling: 取消
-    preparing --> cancelling: 取消
-    running --> cancelling: 取消
-    finalizing --> cancelling: 终态发布前取消
-    cancelling --> cancelled: 工具终态确认
+    running --> completed: 合法报告和本 run 证据持久化并接收
+    running --> cancelled: 取消已登记，执行中观察后按工具终态收敛
     claimed --> failed: 可确认失败
     preparing --> failed: 可确认失败
     running --> failed: 可确认失败
-    finalizing --> failed: 可确认失败
+    failed --> completed: 结果已完成而仅因接收失败置 failed，接收成功后收敛
 ```
+
+实现不设独立的 finalizing/cancelling 中间状态：取消意图落盘 run 目录的 `cancel.json`，由阶段执行观察并按工具终态直接收敛为 cancelled；结果已完成而此前仅因接收失败（`acceptance_` 前缀）置 failed 的，接收成功后收敛为 completed，真实执行失败不被覆盖。
 
 Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开 prompt 完成／agent_settled 及真实工具终态为边界。result 先持久化，state 再收敛，均由 worker 写，终态不覆写。check 的 changes_requested 可是执行 completed；advisory 完成不推进 Task。
 

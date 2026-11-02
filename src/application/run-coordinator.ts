@@ -518,7 +518,7 @@ export class RunCoordinator {
     const state = runs.readState(input.oldRunId);
     const launch = runs.readLaunch(input.oldRunId);
     const result = runs.readResult(input.oldRunId);
-    if (result === null && state !== null && ["claimed", "preparing", "running", "finalizing"].includes(state.state)) {
+    if (result === null && state !== null && ["claimed", "preparing", "running"].includes(state.state)) {
       const alive = this.handleVerdict(launch?.handle ?? null);
       // 只有明确证明原句柄已死才允许续做；句柄缺失同样视为未确认结束。
       if (alive !== "not_alive") {
@@ -527,7 +527,7 @@ export class RunCoordinator {
       const stage = runs.readStageProcess(input.oldRunId);
       const stageVerdict = this.stageProcessVerdict(stage);
       // worker 退出后其启动的 Pi／工具可能仍在运行；未确认结束不换新会话兜底。
-      if (stageVerdict === "alive" || stageVerdict === "unknown" || (stage === null && ["running", "finalizing", "preparing"].includes(state.state))) {
+      if (stageVerdict === "alive" || stageVerdict === "unknown" || (stage === null && ["running", "preparing"].includes(state.state))) {
         throw new GuardError("run_active", `旧阶段的 Pi／工具尚未确认结束: ${input.oldRunId}`);
       }
       // 旧项目锁仍是现场事实；即使句柄已死，未显式清理前不得由新会话抢先续做。

@@ -28,7 +28,7 @@
 | 封存 seal | 收尾短锁内固定的任务记录及目录版本；之后补记另行处理，不伪称已入本次提交 |
 | 收尾辅助 | advisory worker 提供建议；只有主 Agent 与确定性工具的实际结果能证明提交和归档 |
 | 用量 | 本 run 新模型调用的 token／费用／耗时统计，缓存是输入子集；首版不作为自动停止阈值 |
-| 检查凭据 | 核心发布后不改的 check.json，只取最新候选并核对当前目标；stale 不删除旧事实 |
+| 检查凭据 | 核心在结果接收时写入 `.runtime/checks/<run-id>.json`，发布后不改；只取最新候选并核对当前目标；stale 不删除旧事实 |
 | clarify / change | 澄清保持早期 phase；摘要变化令检查 stale，deliver 因此回 open/check；实变回 discuss |
 | 自动修复计数 | binding 中的 repairCycleId、repairRounds、stopReason；恢复与 clarify 不重置，不做独立链状态机 |
 | 开发者模式 | M1 仅 --dev 的脱敏结构化 stderr；M3A 加私有日志和 Pi 会话开关，不改规则或自动多调模型 |

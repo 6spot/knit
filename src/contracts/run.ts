@@ -14,8 +14,6 @@ export const RunStateSchema = Type.Union([
   Type.Literal("claimed"),
   Type.Literal("preparing"),
   Type.Literal("running"),
-  Type.Literal("finalizing"),
-  Type.Literal("cancelling"),
   Type.Literal("completed"),
   Type.Literal("cancelled"),
   Type.Literal("failed"),
