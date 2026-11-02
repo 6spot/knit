@@ -5,6 +5,8 @@
  * 动作／run、机器／启动标识、PID 与进程开始时间；心跳原子更新；释放核对 token。
  * 只读查询（status/doctor/init --check）不建目录——检查入口是 inspect。
  * 不跨机、不对心跳超时强解；强解是显式风险操作（unlock 命令层处理）。
+ * acquire 任一键失败按本次 token 回滚，含本次建立而 owner 未落盘的目录（不留无 owner 残留）；
+ * unlock --force 可清除「目录在而 owner 不可核实」的残留，正常 token 校验路径不变。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statfsSync, statSync } from "node:fs";
 import { homedir, hostname } from "node:os";
@@ -165,6 +167,8 @@ export class LockManager {
     const startedAt = this.now().toISOString();
     const ownerPaths: string[] = [];
     const ownerVersions: string[] = [];
+    /** 本次 acquire 中由本 token mkdir 成功的目录；回滚时可整体删除。 */
+    const createdDirs: string[] = [];
     try {
       this.ensureRoot();
       for (const key of request.keys) {
@@ -173,6 +177,7 @@ export class LockManager {
         for (;;) {
           try {
             mkdirSync(dir, { recursive: false, mode: 0o700 });
+            createdDirs.push(dir);
             break;
           } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
@@ -203,15 +208,45 @@ export class LockManager {
           heartbeatAt: startedAt,
         };
         const ownerPath = join(dir, "owner.json");
-        const written = atomicWrite({ path: ownerPath, data: Buffer.from(JSON.stringify(owner, null, 2), "utf8"), expectedSha256: null, mode: 0o600 });
+        const written = this.writeOwner(ownerPath, owner);
         ownerPaths.push(ownerPath);
         ownerVersions.push(written.sha256);
       }
     } catch (error) {
-      this.release({ token, keys: request.keys, ownerPaths });
+      this.rollbackAcquire({ token, keys: request.keys, createdDirs });
       throw error;
     }
     return { token, keys: request.keys, ownerPaths, ownerVersions };
+  }
+
+  /** owner 文件写入；单一入口，测试可注入 owner.json 写入失败。 */
+  protected writeOwner(ownerPath: string, owner: LockOwner): { sha256: string } {
+    return atomicWrite({ path: ownerPath, data: Buffer.from(JSON.stringify(owner, null, 2), "utf8"), expectedSha256: null, mode: 0o600 });
+  }
+
+  /**
+   * acquire 失败回滚：本次 token 已写 owner 的键照常删除；本次建立而 owner
+   * 未落盘的目录（写入失败或进程两步间死亡）直接删除，不留无 owner 残留。
+   * 非本次建立的目录（含预先存在的残留）不动，不冒认他者占用。
+   */
+  private rollbackAcquire(lock: { token: string; keys: LockKey[]; createdDirs: string[] }): void {
+    const created = new Set(lock.createdDirs);
+    for (const key of lock.keys) {
+      const dir = this.lockDir(key);
+      let owner: LockOwner | null = null;
+      try {
+        owner = JSON.parse(readFileSync(join(dir, "owner.json"), "utf8")) as LockOwner;
+      } catch {
+        owner = null;
+      }
+      if (owner !== null && owner.token !== lock.token) continue; // 他者占用，不释放
+      if (owner === null && !created.has(dir)) continue; // 非本次建立的目录，不动
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // 删除失败保留现场；不影响已抛出的原始错误
+      }
+    }
   }
 
   /** 只读检查：不建目录、不写文件。返回 owner 与进程核实结论。 */
@@ -272,7 +307,22 @@ export class LockManager {
     const base: LockEntry = { ...status, scope: input.key.scope, id: `${input.key.scope}/${hash}`, hash, path: dir, key: status.owner?.rawKey ?? input.key.rawKey };
     if (!status.exists) return { ...base, removed: false };
     if (status.owner === null) {
-      throw new InfrastructureError("lock_owner_unknown", `锁 owner 不可核实，拒绝删除: ${dir}`, { path: dir });
+      if (input.force !== true) {
+        throw new InfrastructureError("lock_owner_unknown", `锁 owner 不可核实，拒绝删除: ${dir}`, { path: dir });
+      }
+      // force 清除无 owner 残留（如进程在 mkdir 与 owner 写入之间死亡）；
+      // 删除前再核实仍无 owner，避免清掉并发新建的占用。token 校验路径不受影响。
+      const fresh = this.inspectDir(dir);
+      if (fresh.owner !== null) {
+        throw new InfrastructureError("lock_owner_unknown", `锁 owner 在清除前出现，重试: ${dir}`, { path: dir });
+      }
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        throw new InfrastructureError("io_error", `解除锁失败: ${dir}`, { cause: code ?? String(error), permission: code === "EACCES" || code === "EPERM" });
+      }
+      return { ...base, removed: true };
     }
     if (status.owner.token !== input.expectToken) {
       throw new InfrastructureError("lock_token_mismatch", `owner token 不匹配，拒绝解除: ${dir}`, { path: dir });

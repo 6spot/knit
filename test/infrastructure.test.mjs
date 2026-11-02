@@ -251,6 +251,54 @@ test("锁：同 Session 跨项目是同一把 session 锁", async () => {
   }
 });
 
+test("锁：owner 写入失败回滚不留残留；unlock --force 可清除无 owner 残留", async () => {
+  const root = freshDir("locks-residue");
+  try {
+    const key = { scope: "project", rawKey: "/tmp/residue" };
+
+    // 注入 owner.json 写入失败：acquire 失败且回滚不残留
+    class OwnerWriteFails extends LockManager {
+      writeOwner() {
+        throw new InfrastructureError("io_error", "injected owner write failure");
+      }
+    }
+    const failing = new OwnerWriteFails({ root, now: () => new Date() });
+    await assert.rejects(
+      () => failing.acquire({ keys: [key], action: "crash" }),
+      (error) => error.code === "io_error",
+    );
+    assert.equal(existsSync(join(root, "projects", hashKey(key.rawKey))), false, "回滚不留无 owner 残留");
+
+    // 回滚后下一次 acquire 可成功
+    const manager = lockManagerFor(root);
+    const acquired = await manager.acquire({ keys: [key], action: "normal" });
+    assert.equal(manager.inspect(key).owner.token, acquired.token);
+    manager.release(acquired);
+
+    // 模拟进程在 mkdir 后、owner 写入前死亡：目录在而 owner 缺失
+    mkdirSync(join(root, "projects", hashKey(key.rawKey)), { recursive: true, mode: 0o700 });
+    await assert.rejects(
+      () => manager.acquire({ keys: [key], action: "blocked" }),
+      (error) => error.code === "lock_busy",
+    );
+    await assert.rejects(
+      async () => manager.unlock({ key, expectToken: "any" }),
+      (error) => error.code === "lock_owner_unknown",
+    );
+    const removed = manager.unlock({ key, expectToken: "any", force: true });
+    assert.equal(removed.removed, true);
+    assert.equal(existsSync(join(root, "projects", hashKey(key.rawKey))), false);
+
+    // 清除后可重新占用并正常释放
+    const again = await manager.acquire({ keys: [key], action: "after" });
+    assert.equal(manager.inspect(key).owner.token, again.token);
+    manager.release(again);
+    assert.equal(manager.inspect(key).exists, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("锁：固定顺序排序，同类键按 rawKey", () => {
   const ordered = orderKeys([
     { scope: "session", rawKey: "pi/b" },
