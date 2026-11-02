@@ -1,0 +1,25 @@
+AUDIT_RESULT {"case":"scope-current-content-validation","acceptedAfterExternalEdit":true,"reason":null}
+AUDIT_RESULT {"case":"synthetic-credential-boundaries","taskWritten":true,"deliveryState":"completed","workCommitCreated":true}
+✔ AUDIT external change after formal pass (178.69359ms)
+✔ AUDIT synthetic credential write and commit (561.968641ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1315.680188
+AUDIT_RESULT {"case":"standards-parent-symlink","applied":true,"outsideChanged":true,"reason":null}
+AUDIT_RESULT {"case":"adoption-index-recovery","alreadyApplied":true,"indexRepaired":false}
+AUDIT_RESULT {"case":"adoption-candidate-version","alreadyApplied":true,"containsV2":false}
+✔ AUDIT adoption parent symlink (185.281427ms)
+✔ AUDIT adoption version and index recovery (188.949787ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 903.261225

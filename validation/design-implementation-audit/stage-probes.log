@@ -1,0 +1,12 @@
+AUDIT_RESULT {"case":"task-run-branch","started":true,"taskBranch":"main","head":"unrelated"}
+✔ AUDIT branch mismatch and checkpoint branch facts (993.333079ms)
+AUDIT_RESULT {"case":"active-run-input-draft","saved":false,"reason":"lock_busy","message":"lock already held: project/f8197882d02fbfd9195186e99713380f"}
+✔ AUDIT pending input while worker owns lock (1564.563637ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2997.928712

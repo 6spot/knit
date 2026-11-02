@@ -1,0 +1,39 @@
+[
+  {
+    "case": "role-instructions-digest",
+    "roleDigestChanged": true,
+    "effectiveDigestChanged": false,
+    "standardsDigestChanged": false
+  },
+  {
+    "case": "scope-mode-change",
+    "fingerprintChanged": false,
+    "mode": "755"
+  },
+  {
+    "case": "preexisting-runtime-permissions",
+    "runtimeMode": "755",
+    "databaseMode": "644",
+    "walMode": "644"
+  },
+  {
+    "case": "pending-phase-persistence",
+    "responsePhase": "discuss",
+    "diskPhase": "implement",
+    "pendingCleared": true
+  },
+  {
+    "case": "completed-input-update-domain",
+    "decision": {
+      "allowed": false,
+      "reason": "outcome_completed"
+    }
+  },
+  {
+    "case": "archived-task-status",
+    "taskId": "k-0098ee53e114",
+    "listedByTasks": true,
+    "listedByStatus": false,
+    "taskStatus": "k-0098ee53e114"
+  }
+]

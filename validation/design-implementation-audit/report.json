@@ -1,0 +1,193 @@
+{
+  "date": "2026-11-02",
+  "baseline": "50936d71a6fb414dec7edfb793e4510f81889ac4",
+  "environment": {
+    "os": "Linux aarch64",
+    "node": "24.21.0",
+    "npm": "11.19.0"
+  },
+  "scope": "Linux first release; explicit deferrals excluded",
+  "counts": {
+    "findings": 16,
+    "P1": 8,
+    "P2": 7,
+    "P3": 1,
+    "followUpTasks": 17
+  },
+  "checks": {
+    "typecheck": 0,
+    "build": 0,
+    "pack": 0,
+    "tests": {
+      "total": 202,
+      "passed": 201,
+      "failed": 0,
+      "skipped": 1,
+      "realPiSkipped": true
+    }
+  },
+  "findings": [
+    {
+      "id": "F027",
+      "priority": "P1",
+      "title": "按当前成果指纹核实检查与交付资格",
+      "task": "../../tasks/027-revalidate-check-artifacts.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "data-probes.log：scope-current-content-validation.acceptedAfterExternalEdit=true；probes.json：scope-mode-change.fingerprintChanged=false。",
+      "design": "DESIGN §5.3、§5.6、§11；STATES §8（成果变化使检查过期）",
+      "code": "src/application/run-acceptance.ts:191、src/application/delivery-service.ts:911–936、src/application/scope.ts:24–65、src/infrastructure/fingerprint.ts"
+    },
+    {
+      "id": "F028",
+      "priority": "P1",
+      "title": "在运行边界核对实际 Git 分支",
+      "task": "../../tasks/028-verify-live-run-branch.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "stage-probes.log：task-run-branch.started=true、taskBranch=main、head=unrelated。",
+      "design": "DESIGN §3.5、§14.1；STATES 的分支接管与运行身份约束",
+      "code": "src/application/run-coordinator.ts:204、src/worker/knit-worker.ts:199、src/application/run-acceptance.ts:187"
+    },
+    {
+      "id": "F029",
+      "priority": "P1",
+      "title": "允许真实活动运行期间保存与撤回输入草案",
+      "task": "../../tasks/029-allow-active-input-drafts.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "stage-probes.log：active-run-input-draft.saved=false、reason=lock_busy。",
+      "design": "DESIGN §3.6；STATES §3 InputsUpdateProposed；项目长占用与任务短锁约定",
+      "code": "src/application/task-service.ts:685–688、838–843；src/worker/knit-worker.ts:172"
+    },
+    {
+      "id": "F030",
+      "priority": "P1",
+      "title": "持久化应用草案后的业务状态转移",
+      "task": "../../tasks/030-persist-pending-transitions.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "probes.json：pending-phase-persistence.responsePhase=discuss、diskPhase=implement、pendingCleared=true。",
+      "design": "DESIGN §3.6；STATES §3 输入应用后的 phase／status 转移",
+      "code": "src/application/task-service.ts:814–815；src/domain/task.ts:onPendingResolved"
+    },
+    {
+      "id": "F031",
+      "priority": "P1",
+      "title": "将全部生效指令版本纳入检查身份",
+      "task": "../../tasks/031-include-effective-instructions.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "probes.json：role-instructions-digest.roleDigestChanged=true、effectiveDigestChanged=false。",
+      "design": "DESIGN §5.3、§8.1；ARCHITECTURE 上下文计划与恢复指令生效清单",
+      "code": "src/application/context-planner.ts:140–190、306；src/application/delivery-service.ts:923"
+    },
+    {
+      "id": "F032",
+      "priority": "P1",
+      "title": "落实规定的写入与限定提交凭据扫描",
+      "task": "../../tasks/032-scan-credential-boundaries.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "data-probes.log：synthetic-credential-boundaries.taskWritten=true、deliveryState=completed、workCommitCreated=true；内容全部为审计合成标记。",
+      "design": "DESIGN §5.6（约346行）及 §15.1 第6项；规定的 token／私钥模式扫描",
+      "code": "src/application/task-service.ts:402、src/application/standards-service.ts:337、src/application/delivery-service.ts:655；相关配置写入入口"
+    },
+    {
+      "id": "F033",
+      "priority": "P1",
+      "title": "阻止规范采纳沿符号链接越出项目",
+      "task": "../../tasks/033-contain-standards-writes.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "data-probes.log：standards-parent-symlink.applied=true、outsideChanged=true。",
+      "design": "DESIGN §14.1；ARCHITECTURE §6；规范目标必须位于项目内",
+      "code": "src/application/standards-service.ts:318、337；src/application/standards.ts:110；src/infrastructure/atomic.ts"
+    },
+    {
+      "id": "F034",
+      "priority": "P1",
+      "title": "取消违背首版规则的固定阶段总时限",
+      "task": "../../tasks/034-remove-fixed-stage-deadline.md",
+      "evidenceLevel": "源码核实，未动态复现",
+      "evidence": "源码调用链核实；本轮未等待15分钟，未将缩短时限的建议场景当作已运行证据。",
+      "design": "DESIGN §5.9；OPERATIONS §4（约91行）：只观测，不按固定运行总时长自动取消",
+      "code": "src/application/stage-runner.ts:147、238、314；src/adapters/pi/runtime.ts:223、237；dispose 路径"
+    },
+    {
+      "id": "F035",
+      "priority": "P2",
+      "title": "补齐 prefer 恢复的身份核对与新会话切换",
+      "task": "../../tasks/035-repair-prefer-session-fallback.md",
+      "evidenceLevel": "源码核实，未动态复现",
+      "evidence": "源码调用链核实；本轮未动态执行身份不符、启动失败和文件缺失三种 RPC stub 场景。",
+      "design": "DESIGN §9.4 第3–5项；STATES §7 的原生恢复／fallback",
+      "code": "src/adapters/pi/runtime.ts:156；src/application/stage-runner.ts:178、225、452、464；src/infrastructure/sqlite-metadata-store.ts:138"
+    },
+    {
+      "id": "F036",
+      "priority": "P2",
+      "title": "允许更新尚未完整归档的 completed 任务",
+      "task": "../../tasks/036-reopen-unarchived-completed.md",
+      "evidenceLevel": "领域动态复现 + 应用层源码核实",
+      "evidence": "probes.json：completed-input-update-domain.decision.allowed=false、reason=outcome_completed；应用层归档条件由源码核实。",
+      "design": "DESIGN §3.6（约164行）；STATES §3：未完整归档且非 cancelled/superseded 的输入更新",
+      "code": "src/domain/task.ts:68–71、103；src/application/task-service.ts:736"
+    },
+    {
+      "id": "F037",
+      "priority": "P2",
+      "title": "实现正式规范作为明确授权成果的路径",
+      "task": "../../tasks/037-authorize-standard-artifacts.md",
+      "evidenceLevel": "源码核实，未动态复现",
+      "evidence": "源码及原任务范围交叉核实；本轮未执行授权规范输出 fake runtime 场景。",
+      "design": "DESIGN §5.3；STATES §8（约133行）；ARCHITECTURE §8（约140行）：旧规范作输入、新规范作授权成果",
+      "code": "src/application/stage-runner.ts:331–333；src/application/run-acceptance.ts:174 附近；src/contracts/context-plan.ts"
+    },
+    {
+      "id": "F038",
+      "priority": "P2",
+      "title": "按候选版本与实际效果恢复规范采纳",
+      "task": "../../tasks/038-verify-standard-adoption-effects.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "data-probes.log：adoption-index-recovery.alreadyApplied=true、indexRepaired=false；adoption-candidate-version.alreadyApplied=true、containsV2=false。",
+      "design": "DESIGN §8.2；STATES §9–10；OPERATIONS 规范正文／索引更新与幂等要求",
+      "code": "src/application/standards-service.ts:321–349；src/application/delivery-service.ts:951–955"
+    },
+    {
+      "id": "F039",
+      "priority": "P2",
+      "title": "保留初始化升级中断时的旧受管基线",
+      "task": "../../tasks/039-retain-init-upgrade-baselines.md",
+      "evidenceLevel": "源码核实，未动态复现",
+      "evidence": "初始化清单发布顺序的源码核实；本轮未注入中断或构造 preparing 清单重试。",
+      "design": "DESIGN §14.1（约640行）：按旧基线升级，中断按逐项清单继续",
+      "code": "src/application/initialization.ts:240、289、350"
+    },
+    {
+      "id": "F040",
+      "priority": "P2",
+      "title": "收紧既有运行目录及 SQLite 文件权限",
+      "task": "../../tasks/040-enforce-runtime-private-modes.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "probes.json：preexisting-runtime-permissions.runtimeMode=755、databaseMode=644、walMode=644。",
+      "design": "OPERATIONS §3（约75行）：目录0700／文件0600；ARCHITECTURE 私有本机索引与运行资料",
+      "code": "src/infrastructure/sqlite-metadata-store.ts:47；src/application/initialization.ts:263；WAL／SHM 创建与现有目录路径"
+    },
+    {
+      "id": "F041",
+      "priority": "P2",
+      "title": "在项目状态概览中列出按月归档任务",
+      "task": "../../tasks/041-include-archive-status.md",
+      "evidenceLevel": "动态复现 + 源码核实",
+      "evidence": "probes.json：archived-task-status.listedByTasks=true、listedByStatus=false、taskStatus 可返回同一ID。",
+      "design": "DESIGN §12 的项目／任务状态查询与归档可追溯要求；CLI status 既有 tasks 概览契约",
+      "code": "src/application/status-service.ts:174 附近 listTasks；对照 src/application/task-service.ts:taskDirectories"
+    },
+    {
+      "id": "F042",
+      "priority": "P3",
+      "title": "在 Pi 命令中展示结构化查询结果",
+      "task": "../../tasks/042-show-bridge-query-results.md",
+      "evidenceLevel": "源码核实，需修复时宿主验证",
+      "evidence": "桥接 handler、core JSON返回与通知分支源码核实；本轮未执行真实宿主显示验证。",
+      "design": "DESIGN §3 的当前任务选择与 §12 的查询入口；首版 Pi 桥接使用约定；具体显示按现有CLI数据契约",
+      "code": "assets/templates/pi/extensions/knit.ts:290–346；src/cli/status.ts、src/cli/output.ts"
+    }
+  ],
+  "independentGate": "../../tasks/043-audit-independent-regression.md",
+  "implementationChangedByAudit": false
+}

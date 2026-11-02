@@ -4,6 +4,10 @@
 
 目录骨架已建立；本次创建时26项统一设为pending，后续执行进度只以本表为准。本文件是唯一任务状态表；各任务文件只存范围、验收和执行事实，不重复维护status。
 
+## 当前一致性复核
+
+2026-11-02 对已提交基线 `50936d71a6fb414dec7edfb793e4510f81889ac4` 完成任务、设计与实现交叉核对，发现16项偏差（8 P1／7 P2／1 P3）。[审计报告与证据](validation/design-implementation-audit/README.md)记录原001–026逐项映射；027–042承接修复，043独立复验。原任务历史completed保留；当前不能据此前结论宣称无未处理数据保护／实现缺口。修复尚未实施，下一开发入口为027；check-report-fence产品任务的并发改动不在本轮改写范围。
+
 ## Agent 执行方式
 
 1. 阅读根 [AGENTS.md](AGENTS.md)、本文件、[BLOCKERS.md](BLOCKERS.md) 和候选任务。按编号从小到大优先推进，编号是开发顺序，不是“上一项未完成就不能看下一项”的硬链。
@@ -64,6 +68,23 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 024 | M3A | completed | [完成私有诊断并验收日常使用](tasks/024-developer-mode-m3a-gate.md) |
 | 025 | M3B | completed | [完成平台、打包和使用文档](tasks/025-packaging-and-platform-ci.md) |
 | 026 | M3B | completed | [独立完成首版发布就绪审查](tasks/026-release-independent-gate.md) |
+| 027 | 审计修复 P1 | pending | [按当前成果指纹核实检查与交付资格](tasks/027-revalidate-check-artifacts.md) |
+| 028 | 审计修复 P1 | pending | [在运行边界核对实际 Git 分支](tasks/028-verify-live-run-branch.md) |
+| 029 | 审计修复 P1 | pending | [允许真实活动运行期间保存与撤回输入草案](tasks/029-allow-active-input-drafts.md) |
+| 030 | 审计修复 P1 | pending | [持久化应用草案后的业务状态转移](tasks/030-persist-pending-transitions.md) |
+| 031 | 审计修复 P1 | pending | [将全部生效指令版本纳入检查身份](tasks/031-include-effective-instructions.md) |
+| 032 | 审计修复 P1 | pending | [落实规定的写入与限定提交凭据扫描](tasks/032-scan-credential-boundaries.md) |
+| 033 | 审计修复 P1 | pending | [阻止规范采纳沿符号链接越出项目](tasks/033-contain-standards-writes.md) |
+| 034 | 审计修复 P1 | pending | [取消违背首版规则的固定阶段总时限](tasks/034-remove-fixed-stage-deadline.md) |
+| 035 | 审计修复 P2 | pending | [补齐 prefer 恢复的身份核对与新会话切换](tasks/035-repair-prefer-session-fallback.md) |
+| 036 | 审计修复 P2 | pending | [允许更新尚未完整归档的 completed 任务](tasks/036-reopen-unarchived-completed.md) |
+| 037 | 审计修复 P2 | pending | [实现正式规范作为明确授权成果的路径](tasks/037-authorize-standard-artifacts.md) |
+| 038 | 审计修复 P2 | pending | [按候选版本与实际效果恢复规范采纳](tasks/038-verify-standard-adoption-effects.md) |
+| 039 | 审计修复 P2 | pending | [保留初始化升级中断时的旧受管基线](tasks/039-retain-init-upgrade-baselines.md) |
+| 040 | 审计修复 P2 | pending | [收紧既有运行目录及 SQLite 文件权限](tasks/040-enforce-runtime-private-modes.md) |
+| 041 | 审计修复 P2 | pending | [在项目状态概览中列出按月归档任务](tasks/041-include-archive-status.md) |
+| 042 | 审计修复 P3 | pending | [在 Pi 命令中展示结构化查询结果](tasks/042-show-bridge-query-results.md) |
+| 043 | 审计复验 | pending | [独立复验一致性审计修复与当前就绪结论](tasks/043-audit-independent-regression.md) |
 
 ## 阶段验收门槛
 
@@ -73,9 +94,9 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | --- | --- | --- |
 | M0 | 001–005 | Node24工程基线、CLI真实能力、唯一存储决定、宿主schema／信任与结果连接准入 |
 | M1 | 006–015 | 临时项目可安装闭环：Task／规范／Session／worker／独立检查／限定交付，生成桥接实际验收 |
-| M2 | 016–020 | **已通过独立检查（2026-11-02）**：快照、锁／取消、接收／草案竞争、Git／seal 保护；真实项目使用仍受任务020列出的未验证边界限制 |
+| M2 | 016–020 | 历史独立检查通过；本轮新增检查资格、草案、路径等缺口，当前结论须按027–040修复后由043独立复验；真实项目使用仍受020原有限制约束 |
 | M3A | 021–024 | 分支／树／多会话、升级与规则、完整查询用量、私有诊断及日常接续 |
-| M3B | 025–026 | 目标平台安装矩阵与独立首版就绪结论；停在可审阅本地成果，不自动发布 |
+| M3B | 025–026、043 | 保留历史安装／审查证据；027–042修复后由043重新核对Linux首版就绪结论；macOS仍按B001延期，不自动发布 |
 
 ## 覆盖与依据
 
