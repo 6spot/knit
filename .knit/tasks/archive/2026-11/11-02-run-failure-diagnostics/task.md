@@ -44,4 +44,15 @@ title: 改进 run 失败诊断：保留 pi 侧 set_model/启动错误细节
 
 验收标准：构造 provider 错误的 run 后，run 目录可直接读到 pi 侧错误文本；status 可见；npm test 全绿；开发者模式关闭时行为不回归。
 
+### 交付记录
+
+<!-- knit:delivery:op-f34ebdff8234 -->
+- 操作: op-f34ebdff8234
+- 时间: 2026-11-02T11:59:15.893Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权完成剩余任务
+- 工作提交: 216699c1f0691c627b30032bfd8dc28a77618680
+- 结果: 正常交付；检查 run-0b6dddab129b 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-run-failure-diagnostics
+
 <!-- knit:progress:end -->
