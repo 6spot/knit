@@ -1,0 +1,44 @@
+{
+  "task": "026",
+  "milestone": "M3B",
+  "result": "pass",
+  "scope": "Linux + Node 24 + Pi 1.4.0 release candidate; not npm publish and not macOS compatibility",
+  "head": "1427615",
+  "environment": {
+    "node": "v24.21.0",
+    "npm": "11.19.0",
+    "git": "2.52.0",
+    "pi": "1.4.0"
+  },
+  "commands": {
+    "cleanClonePack": "162 files; includes dist/bin and bridge assets",
+    "localInstall": "knit 0.1.0; init ready; start transmits Pi 1.4.0",
+    "checks": "typecheck, build, pack:check pass",
+    "tests": "201/201 twice"
+  },
+  "gitGuards": {
+    "nonGit": "git_required",
+    "detachedHead": "detached_head",
+    "mergeInProgress": "git_operation_in_progress",
+    "unresolvedConflict": "git_conflict",
+    "runtimeTracked": "runtime_tracked"
+  },
+  "doctor": {
+    "filesystem": "pass on local root; fails known remote filesystem magic",
+    "cloudSync": "warns for known Dropbox/iCloud/OneDrive/Google Drive roots"
+  },
+  "coverage": {
+    "m0": "pass",
+    "m1": "pass",
+    "m2": "pass",
+    "m3a": "pass",
+    "m3b": "pass (Linux candidate; macOS deferred)"
+  },
+  "limitations": [
+    "macOS not tested; see B001",
+    "remote filesystem checks are static because NFS/SMB cannot be mounted here",
+    "SQLite power-loss, real NFS/SMB, external concurrency not covered",
+    "no npm publish; package name conflict and missing LICENSE are future release prerequisites",
+    "package remains private"
+  ]
+}

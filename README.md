@@ -2,7 +2,7 @@
 
 轻量项目辅助 CLI。日常由主 Agent 在 Pi 对话中调用，负责项目资料、任务、规范演进、实施／检查、提交归档与恢复。
 
-当前已完成 001–025（Linux 候选）：M1 临时闭环、M2 真实项目保护（快照／恢复、锁／取消、接收竞争、Git／归档断点）和 M3A 日常接续（分支接管、树选择、初始化升级、私有诊断、用量／查询）。真实桥接、M2 与 M3A 证据分别在 [validation/m1-bridge](https://github.com/6spot/knit/tree/main/validation/m1-bridge)、[validation/m2-independent-gate](https://github.com/6spot/knit/tree/main/validation/m2-independent-gate)、[validation/m3a-developer](https://github.com/6spot/knit/tree/main/validation/m3a-developer)。首版候选已完成 Linux + Node 24 + Pi 1.4.0 本地安装验证；macOS 后续补测（B001），当前不声明 macOS 兼容。任务026 将做独立发布就绪审查；Linux 候选通过后才进入可审阅交付，不自动 npm publish。
+当前已完成 001–026（Linux 候选发布就绪审查）：M1 临时闭环、M2 真实项目保护（快照／恢复、锁／取消、接收竞争、Git／归档断点）和 M3A 日常接续（分支接管、树选择、初始化升级、私有诊断、用量／查询）。真实桥接、M2 与 M3A 证据分别在 [validation/m1-bridge](https://github.com/6spot/knit/tree/main/validation/m1-bridge)、[validation/m2-independent-gate](https://github.com/6spot/knit/tree/main/validation/m2-independent-gate)、[validation/m3a-developer](https://github.com/6spot/knit/tree/main/validation/m3a-developer)。首版候选已完成 Linux + Node 24 + Pi 1.4.0 本地安装验证；macOS 后续补测（B001），当前不声明 macOS 兼容。任务026 独立审查通过（Linux 候选）；不自动 npm publish。
 
 开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md)、[TASKS.md](https://github.com/6spot/knit/blob/main/TASKS.md) 和 [BLOCKERS.md](https://github.com/6spot/knit/blob/main/BLOCKERS.md) 开始，按编号优先推进。阻塞处记录伪代码／暂定接口和待决定问题后继续其它可做任务；真实交付／验证完成才标completed。具体范围写在各任务文件中。
 

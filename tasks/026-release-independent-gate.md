@@ -60,12 +60,23 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
-
+- 执行者／Session：独立检查 Agent（独立上下文／Session，最终复核）；主 Agent 依据其 PASS 报告整理证据并提交。
+- 开始／结束时间：2026-11-02。
+- 实际修改：
+  - 补齐 026 发现的实现缺口：`src/application/task-service.ts` `assertFormalTaskEnvironment`（task new/ready 核对 Git 工作区、HEAD、本地分支、未完成 merge/rebase/cherry-pick/revert/bisect、index 冲突、runtime tracked、项目根远程 FS）；`src/application/diagnostics.ts` doctor 增 `filesystem`／`cloud-sync`；`package.json` `prepack`；`scripts/build-bridge-schema.mjs` 不再向 stdout 打诊断；`src/application/templates.ts` 生成 `task list` 指令；README 自包含安装说明。
+  - 新增 `validation/release-independent-gate/`；更新 README 状态与任务记录；B001 记录用户 Linux-only 决定和 macOS 后续补测。
+- 实际验证命令与结果：
+  - `/tmp` 全新 clone + `npm ci` + `npm pack`：**162 文件**，含 dist/bin、worker、bridge schema、桥接模板；无 src/test/tasks/validation/研究/私有资料。
+  - 本地安装：`knit --version` 0.1.0；`knit init` ready；`knit start -- --version` Pi 1.4.0。
+  - `typecheck`、`build`、`pack:check` 通过；`npm test` 两轮 **201/201**。
+  - Git 前置真实 CLI：非 Git `git_required`；detached HEAD `detached_head`；`MERGE_HEAD` `git_operation_in_progress`；index 冲突 `git_conflict`；runtime tracked `runtime_tracked`。
+  - doctor：`filesystem`、`cloud-sync` 检查存在；远程 FS 魔数静态核对一致。
+- 任务书必需验证逐项：
+  - 前置成果可复现且非自述/TODO：独立 Agent 实际执行 clean clone、pack、install、tests 和 Git guard 用例。
+  - 无未处理数据保护/授权阻塞：M2/M3A 审计与发布复核通过。
+  - Worktree/REX/其它客户端未混入首版：独立审查确认；`application/worktree.ts` 是运行前后工作区签名，不是 Worktree 功能。
+  - 任务全部完成不等于已发布/已提交：候选通过，未 npm publish/部署。
+- 证据位置：`validation/release-independent-gate/README.md`、`report.json`；`validation/release-candidate-linux/`；`validation/m2-independent-gate/`；`validation/m3a-developer/`。
+- 未解决问题／决定：macOS 后续验证（B001）；未来 npm 发布需改名/scope、LICENSE、版本策略；远程 FS/SQLite 断电/外部并发未覆盖。
+- 对下一项的交接：队列结束。当前可审阅交付为 Linux + Node24 + Pi1.4.0 候选；不自动发布，不扩展平台声明。
 优先扫描下一编号（阻塞时可继续跳过）：队列结束；交付本地就绪结论，不自动发布或提交。

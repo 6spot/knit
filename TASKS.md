@@ -63,7 +63,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 023 | M3A | completed | [完善用量、历史和只读诊断查询](tasks/023-usage-history-and-diagnostics.md) |
 | 024 | M3A | completed | [完成私有诊断并验收日常使用](tasks/024-developer-mode-m3a-gate.md) |
 | 025 | M3B | completed | [完成平台、打包和使用文档](tasks/025-packaging-and-platform-ci.md) |
-| 026 | M3B | pending | [独立完成首版发布就绪审查](tasks/026-release-independent-gate.md) |
+| 026 | M3B | completed | [独立完成首版发布就绪审查](tasks/026-release-independent-gate.md) |
 
 ## 阶段验收门槛
 
