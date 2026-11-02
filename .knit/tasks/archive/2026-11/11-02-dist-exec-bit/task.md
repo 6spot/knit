@@ -41,4 +41,15 @@ title: 构建后保留 dist/cli/knit.js 执行位
 
 验收标准：npm run build 后 dist/cli/knit.js 可直接执行（无需手工 chmod）；有自动化断言防回归。
 
+### 交付记录
+
+<!-- knit:delivery:op-dee12c1887ba -->
+- 操作: op-dee12c1887ba
+- 时间: 2026-11-02T11:45:12.049Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权完成剩余任务
+- 工作提交: 8422a59167fc16635f99ef5c63510ecbe4fc4248
+- 结果: 正常交付；检查 run-4125bedfa89b 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-dist-exec-bit
+
 <!-- knit:progress:end -->
