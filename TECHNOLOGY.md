@@ -1,6 +1,6 @@
 # Knit 技术选型
 
-本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。工程目录骨架与[开发任务队列](TASKS.md)已建立；package.json、锁文件、工具链与业务命令已实现至 Linux 候选（001–025）。版本事实与来源见 [技术核查](RESEARCH.md#1712-技术约束核查)。
+本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。工程目录骨架与[开发任务队列](TASKS.md)已建立；package.json、锁文件、工具链与业务命令已实现至 Linux 候选（001–026）。版本事实与来源见 [技术核查](RESEARCH.md#1712-技术约束核查)。
 
 ## 1. 选择结果
 
