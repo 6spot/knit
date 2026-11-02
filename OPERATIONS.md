@@ -70,13 +70,13 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 每次正式 implement 的可信 worker 程序取得执行占用后，在 `.knit/.runtime/runs/<run-id>/snapshot/` 建立 preparing 对照，ready 后才调用阶段模型／写代码，失败保留 failed。占用由该执行者一直持有，不从 CLI 交接。保存仓库／分支、HEAD、index、脏路径、类型／模式、工作和暂存内容、未忽略的未跟踪内容及指纹；新增路径起点为不存在。前后核对源码、有效输入、HEAD 与 index，变化即重核。Task 记录在短锁内捕捉版本，后来的合法纯记录不会使快照准备反复失败。
 
-未变动的已跟踪文件从原 HEAD 读取，`refs/knit/bases/<run-id>` 只保留该已有提交的可达性；修改过的工作内容和暂存内容存为本机私有快照，不通过自动 stash 写入新的 Git 快照对象。快照默认上限 64 MiB，超出或保存失败时阻塞实施并列出路径与处理选择；不悄悄降级为不完整快照。
+快照按文件完整拷贝：tracked 工作区内容、与工作区版本不同的 index blob 和未忽略的未跟踪内容都复制到 run 私有目录，不从 HEAD 去重，也不创建 `refs/knit/bases` 基线引用；与 HEAD 相同的内容引用基线、只存差异的 HEAD 策略是后续能力，尚未实现。快照不通过自动 stash 写入新的 Git 快照对象。快照默认上限 64 MiB 按快照内容总量计（tracked 工作区文件＋与工作区不同的 index blob＋未忽略 untracked 文件的字节数总和），不是单文件上限；超出或保存失败时阻塞实施并列出路径与处理选择，不悄悄降级为不完整快照。大仓库在缩减内容或调高 `limits.snapshotsMaxBytes` 前无法开始正式实施。快照先写入 `snapshot.tmp-*` 临时目录，完成后原子改名；重建（failed 或半成品重试）时先回收同 run 中断残留的临时目录。
 
 任务源文件的直接修改默认排除 ignored 路径和嵌套仓库；确需修改的 ignored 文件先明确路径并纳入快照。已授权命令生成的缓存、依赖和构建输出记录为副作用，不承诺文件快照覆盖。子模块按独立项目处理，数据库和网络服务同样不在文件回退范围。运行目录使用本用户私有权限（目录 0700、文件 0600，或平台等价 ACL），快照、请求和原生记录不入 Git。
 
 取消或失败后保留现场与快照，先展示实际差异、可恢复路径和未覆盖副作用。首版不自动 reset、stash apply 或整仓还原。`knit snapshot show <run-id> [--path <path>]` 只读查看，不直接输出疑似凭据。
 
-恢复路径必须位于当前项目，拒绝越界和通过父级符号链接写入其他位置。恢复使用 `knit snapshot restore <run-id> --path <path>` 或对应工具，默认给出预览；用户明确执行时附 `--expect <path=当前指纹>`（单路径可省略路径前缀），在取得项目执行占用并核对当前分支、仓库和工具终态后逐路径处理。当前工作区指纹或 index 状态变化即停止；同一文件的恢复单位是整个文件，不支持分块或自动三路合并。默认只恢复工作文件；恢复暂存内容须另外指定 `--index`，只写选中路径的 index 条目并核对快照 index 摘要。删除本次新建文件须指定 `--remove-created`，目录不递归删除，其他路径与后续修改保留。
+恢复路径必须位于当前项目，拒绝越界和通过父级符号链接写入其他位置。恢复使用 `knit snapshot restore <run-id> --path <path>` 或对应工具，默认给出预览；用户明确执行时附 `--expect <path=当前指纹>`（单路径可省略路径前缀），在取得项目执行占用并核对当前分支、仓库和工具终态后逐路径处理。当前工作区指纹或 index 状态变化即停止；同一文件的恢复单位是整个文件，不支持分块或自动三路合并。默认只恢复工作文件；恢复暂存内容须另外指定 `--index`，只写选中路径的 index 条目并核对快照 index 摘要。删除本次新建文件须指定 `--remove-created`，目录不递归删除，其他路径与后续修改保留。恢复记录在取得项目执行占用前先行写入（锁外失败也留诊断），run cancel 也不持有该锁；并发恢复或取消交错时可能返回 version_conflict／stale_input，重试即可收敛。
 
 实现（任务016）：新建快照在 `snapshot/index/` 保存与工作区版本不同的 index blob，并在 manifest 的每条 entry 记录 `indexDigest`；没有该字段的旧快照仍可 `snapshot show`，但 `--index` 明确拒绝，不猜旧 index 字节。`snapshot show` 只输出 base、counts、路径、模式、摘要与 index OID，不输出文件正文。恢复指纹为 `file:<sha256>:<Git mode>`、`symlink:<sha256(目标)>` 或 `absent`，模式变化也算当前版本变化。文件按快照模式新建或原子替换；符号链接先写临时链接再 rename，不跟随目标；二进制按原始字节复制。`--index` 用保存的 blob 计算并 `git update-index --cacheinfo`，只改选中路径，保留无关 index／暂存内容。Task 的 `task.md` 不按普通文件覆盖：选中路径识别为 Task 文档时，读取快照输入区并经 `task update` 合并，保留 frontmatter、记录区与后来记录；任务移动、关闭或归档则拒绝。源码恢复成功后清空绑定 `lastCheckRunId`；任务原为 deliver 时按检查规则回到 check。每次执行在 `.knit/.runtime/restores/<operation-id>.json` 留下 running／completed／needs_attention 记录和逐路径结果，异常不自动回滚已写路径，按记录与现场继续核实。`.knit/.runtime/` 与 `.git/` 不进入普通源码恢复，子模块和目录覆盖不支持。
 
@@ -96,7 +96,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 用户取消、真实错误／阻塞、修复轮次上限和原生工具自身明确条件仍生效。锁心跳每 5 秒更新；心跳超过 30 秒只进入 doctor／locks 调查，不自动停止或强解。阶段取消先发 clear_queue／abort；实现（任务017）在 5 秒宽限后仍无稳定终态时终止本次 Pi 及完整后代进程树（工具可能另建进程组），以 `agent_aborted` 收敛并保留 `stage-process` 记录。`run cancel --terminate` 对已核实且 worker 已退出、阶段 Pi 仍存活的旧执行显式终止同一进程树；不把 RPC ack 当作已结束。
 
-knit storage 统计 runtime、run（含快照）、原生会话、diagnostics 的字节，默认 512 MiB 提示；另列 refs/knit/bases/* 数量、关联 run 是否存在。引用可能共享 Git 对象，首版不把每个引用的可达大小相加冒充额外占用；创建时间无依据则 unknown，不用 commit 日期代替。Git 对象整体大小可单列，不能全归给 Knit。实现（任务023）：`session history` 的用量按唯一助手条目 ID 去重，input 含 cacheRead／cacheWrite，未知 token／费用返回 null；status / doctor / storage 仍只读，不自动 gc。
+knit storage 统计 runtime、run（含快照）、原生会话、diagnostics 的字节，默认 512 MiB 提示；另列 refs/knit/bases/* 数量（HEAD 策略未实现，当前不创建基线引用，通常为 0）、关联 run 是否存在。引用可能共享 Git 对象，首版不把每个引用的可达大小相加冒充额外占用；创建时间无依据则 unknown，不用 commit 日期代替。Git 对象整体大小可单列，不能全归给 Knit。实现（任务023）：`session history` 的用量按唯一助手条目 ID 去重，input 含 cacheRead／cacheWrite，未知 token／费用返回 null；status / doctor / storage 仍只读，不自动 gc。
 
 doctor --json 只读检查 schema、状态契约、文件／Git 回执、候选与检查、绑定、锁、快照、内部模块、初始化和容量。离线不能证明活跃原生分支时标未知，不把索引快照当当前选择。禁用外部 diff/textconv、pager 和 fsmonitor hook，不跑项目验证、桥接或自动修复；不输出环境值、原始提示词、工具输出和凭据。
 

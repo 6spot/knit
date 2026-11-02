@@ -592,7 +592,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `workflow.maxRepairRounds` | `2` |
 | `limits.heartbeatIntervalMs`／`limits.heartbeatStaleMs` | `5000`／`30000`，后者只触发调查 |
 | `limits.cancelGraceMs` | `5000`，取消后等待工具自行退出的宽限；超时才终止完整进程树 |
-| `limits.snapshotsMaxBytes` | `67108864`，64 MiB，保存失败或超限阻塞实施 |
+| `limits.snapshotsMaxBytes` | `67108864`，64 MiB，按快照内容总量计（非单文件上限），保存失败或超限阻塞实施 |
 | `limits.storageWarnBytes` | `536870912`，512 MiB，只告警不自动清理 |
 
 ```json

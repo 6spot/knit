@@ -12,6 +12,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -255,6 +256,28 @@ test("快照超限或 Git 覆盖未知时 failed，不产生 ready", async () =>
     assert.equal(unknown.state, "failed");
     assert.equal(unknown.manifest.reason, "snapshot_unknown");
     assert.equal(unknown.manifest.coverage.tracked, false);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  }
+});
+
+test("中断残留的 snapshot.tmp-* 在重建时回收，不留临时目录", async () => {
+  const dir = project("snapshot-tmp");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s, "tmp residue task");
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId));
+    const runDir = new RunStore(dir).runDir(prepared.request.runId);
+    // 模拟上次进程中断：残留临时目录与半成品内容。
+    const stale = join(runDir, "snapshot.tmp-deadbeefcafe");
+    mkdirSync(join(stale, "files"), { recursive: true });
+    writeFileSync(join(stale, "files", "partial.txt"), "x".repeat(1024));
+    const result = new SnapshotService().create({ root: dir, runId: prepared.request.runId });
+    assert.equal(result.state, "ready");
+    assert.equal(existsSync(stale), false);
+    const left = readdirSync(runDir).filter((name) => name.startsWith("snapshot.tmp-"));
+    assert.deepEqual(left, []);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });

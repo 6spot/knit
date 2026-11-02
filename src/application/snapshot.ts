@@ -9,6 +9,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   writeFileSync,
@@ -24,6 +25,10 @@ import { gitBufferSync, gitSync } from "../infrastructure/process.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 
+/**
+ * 快照内容总量上限（tracked 工作区文件＋与工作区不同的 index blob＋未忽略 untracked 文件），
+ * 不是单文件上限；超出即 snapshot_too_large，不悄悄降级。
+ */
 export const DEFAULT_MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 const RUNTIME_PREFIX = ".knit/.runtime/";
 
@@ -98,6 +103,16 @@ export class SnapshotService {
       return { state: "ready", reason: null, manifest: existing, directory: target };
     }
     rmSync(target, { recursive: true, force: true });
+    // 回收上次中断残留的临时目录：快照创建持有项目执行占用，同 run 不会有并发构建。
+    try {
+      for (const stale of readdirSync(runDir)) {
+        if (stale.startsWith("snapshot.tmp-")) {
+          rmSync(join(runDir, stale), { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // run 目录尚未创建时无残留可清。
+    }
     const tmp = join(runDir, `snapshot.tmp-${this.randomHex(6)}`);
     mkdirSync(join(tmp, "files"), { recursive: true, mode: 0o700 });
     chmodSync(tmp, 0o700);
