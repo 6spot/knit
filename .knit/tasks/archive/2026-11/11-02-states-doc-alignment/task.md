@@ -45,4 +45,15 @@ title: 状态机文档与实现对齐
 - DESIGN/GLOSSARY/ARCHITECTURE 中检查凭据位置、写入方、cancel 文件名与实现一致。
 - 搜索旧名（cancel.request、CheckService 写 check.json 等）确认每处命中归属。
 
+### 交付记录
+
+<!-- knit:delivery:op-d46b136626ec -->
+- 操作: op-d46b136626ec
+- 时间: 2026-11-02T10:45:32.619Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: ce9d16297d2005e10e546d2611517e055a41563e
+- 结果: 正常交付；检查 run-63be33c66664 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-states-doc-alignment
+
 <!-- knit:progress:end -->
