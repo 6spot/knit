@@ -59,12 +59,22 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
-
+- 执行者／Session：ZCode / Pi session `01a1981c-6f75-749d-b9c2-7e5c897950a6`（用户已授权本仓库提交／推送）。
+- 开始／结束时间：2026-11-02。
+- 实际修改：更新 `README.md` 当前 M2／M3A 状态与本地安装方式；新增 `validation/release-candidate-linux/` 证据；未新增 CI 配置文件（没有可实际运行的 macOS runner，不以配置冒充兼容）。
+- 实际验证命令与结果：
+  - `npm pack --pack-destination /tmp/knit-025`：162 文件、214.5 kB，仅 README/package/assets/dist。
+  - `/tmp/knit-025/app` 本地 `npm install knit-0.1.0.tgz`：成功。
+  - `knit --version`：0.1.0。
+  - `knit init --client pi`：ready。
+  - `knit start --dir ... -- --version`：Pi 1.4.0。
+  - `npm run -s pack:check`：通过。
+- 任务书必需验证逐项：
+  - Linux + Node24 + Pi1.4.0：PASS（实际安装、init、start）。
+  - macOS：**未执行**，没有真实 macOS 环境；不标通过。
+  - 包排除 validation／任务／私有历史／日志／凭据：PASS（162 文件清单）。
+  - 不 npm publish／部署／push／外部发布：保持。
+- 证据位置：`validation/release-candidate-linux/README.md`、`version.txt`、`init.txt`、`start.txt`、`start.err`。
+- 未解决问题／决定：macOS 构建／安装矩阵未执行，任务保持 blocked；不创建无法验证的 CI 兼容声明。任务026依赖完整平台矩阵，不能通过发布闸门。
+- 对下一项的交接：026 只能在补齐 macOS 实测或用户明确接受仅 Linux 候选后复审；当前不宣称首版跨平台可发布。
 优先扫描下一编号（阻塞时可继续跳过）：[026 独立完成首版发布就绪审查](026-release-independent-gate.md)。
