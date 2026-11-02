@@ -43,4 +43,15 @@ title: worker 心跳丢失后停止新动作
 - 丢失占用后 worker 不再执行任何新的工具调用或写回（隔离夹具可复现）。
 - 新增测试：模拟心跳失败后，fake-pi 的下一次调用被拒绝且 run 以 lock_ownership_lost 终止。
 
+### 交付记录
+
+<!-- knit:delivery:op-2049a87113bb -->
+- 操作: op-2049a87113bb
+- 时间: 2026-11-02T10:30:43.722Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: b9a9ca3fa64dd36c226a5ba3666875bb1913ceb2
+- 结果: 正常交付；检查 run-d535af08039b 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-worker-heartbeat-guard
+
 <!-- knit:progress:end -->
