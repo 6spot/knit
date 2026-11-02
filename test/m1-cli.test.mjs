@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -111,9 +111,12 @@ test("status/doctor/storage：只读查询不接收结果、不写数据库", ()
     assert.equal(overview.parsed.data.tasks.length, 1);
     const doctor = jsonCli(dir, ["doctor", "--pi-bin", process.execPath]);
     assert.equal(doctor.parsed.outcome, "completed", JSON.stringify(doctor.parsed.data?.checks));
+    mkdirSync(join(dir, ".knit", ".runtime", "sessions"), { recursive: true });
+    writeFileSync(join(dir, ".knit", ".runtime", "sessions", "native.jsonl"), '{"type":"session"}\n');
     const storage = jsonCli(dir, ["storage"]);
     assert.equal(storage.parsed.outcome, "completed");
     assert.ok(storage.parsed.data.database.counts.bindings >= 1);
+    assert.ok(storage.parsed.data.nativeSessions.bytes > 0, "storage 统计原生资料但单列，不重复相加");
     const after = statSync(db);
     assert.equal(after.size, before.size, "只读查询不改变数据库大小");
   } finally {

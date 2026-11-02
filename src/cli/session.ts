@@ -214,6 +214,14 @@ export function registerSessionCommands(program: Command): void {
           for (const entry of result.entries) {
             console.log(`  ${entry.id}  ${entry.type}  ${entry.timestamp ?? ""}`);
           }
+          if (result.usage !== null) {
+            const input = result.usage.inputTokens === null ? "未知" : String(result.usage.inputTokens);
+            const output = result.usage.outputTokens === null ? "未知" : String(result.usage.outputTokens);
+            const cost = result.usage.estimatedCostUsd === null ? "未知" : result.usage.estimatedCostUsd.toFixed(8);
+            console.log(`用量（去重助手条目 ${result.usage.assistantEntries}）: input ${input}（含缓存 ${result.usage.cacheReadTokens ?? "未知"}／写入 ${result.usage.cacheWriteTokens ?? "未知"}），output ${output}，估算费用 ${cost}`);
+          } else {
+            console.log("用量: 未知（原生记录没有助手用量）");
+          }
         },
       );
     });

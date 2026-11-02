@@ -1,0 +1,50 @@
+{
+  "protocolVersion": 1,
+  "requestId": "storage-1793600859078",
+  "outcome": "completed",
+  "data": {
+    "projectRoot": "/tmp/knit-022-reload/project",
+    "database": {
+      "path": "/tmp/knit-022-reload/project/.knit/.runtime/metadata.db",
+      "exists": true,
+      "bytes": 49152,
+      "walBytes": 32768,
+      "counts": {
+        "sessions": 2,
+        "bindings": 0,
+        "operations": 0,
+        "standards_reviews": 0
+      }
+    },
+    "tasks": {
+      "active": 0,
+      "archived": 0
+    },
+    "runs": {
+      "count": 0,
+      "bytes": 0
+    },
+    "snapshots": {
+      "count": 0,
+      "bytes": 0
+    },
+    "nativeSessions": {
+      "count": 1,
+      "bytes": 28623
+    },
+    "diagnostics": {
+      "bytes": 0
+    },
+    "baselines": {
+      "count": 0
+    },
+    "locks": {
+      "entries": 2,
+      "bytes": 731
+    },
+    "limits": {
+      "storageWarnBytes": 536870912
+    },
+    "warnings": []
+  }
+}

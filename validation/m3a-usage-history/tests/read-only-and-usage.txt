@@ -1,0 +1,10 @@
+✔ status/doctor/storage：只读查询不接收结果、不写数据库 (2948.612505ms)
+✔ history：只读摘要，不复制正文、不修改原生文件 (71.82798ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3215.723672

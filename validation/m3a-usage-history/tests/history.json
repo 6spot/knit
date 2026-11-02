@@ -1,0 +1,83 @@
+{
+  "protocolVersion": 1,
+  "requestId": "session-history-1793600758868-l10wcz",
+  "outcome": "completed",
+  "data": {
+    "knitSessionId": "s-279e6b4ff2d8",
+    "sessionFile": "/tmp/knit-022-reload/project/.knit/.runtime/sessions/2026-11-02T06-23-04-414Z_871a2cd2-33bc-4531-a8d2-e3cd0f95261a.jsonl",
+    "problem": null,
+    "entries": [
+      {
+        "id": "a21e176d",
+        "parentId": null,
+        "type": "session_info",
+        "timestamp": "2026-11-02T06:23:04.415Z"
+      },
+      {
+        "id": "7e8691a4",
+        "parentId": "a21e176d",
+        "type": "model_change",
+        "timestamp": "2026-11-02T06:23:04.661Z"
+      },
+      {
+        "id": "fa1cf20a",
+        "parentId": "7e8691a4",
+        "type": "thinking_level_change",
+        "timestamp": "2026-11-02T06:23:04.661Z"
+      },
+      {
+        "id": "53a45e34",
+        "parentId": "fa1cf20a",
+        "type": "message",
+        "timestamp": "2026-11-02T06:23:10.439Z"
+      },
+      {
+        "id": "fd275364",
+        "parentId": "53a45e34",
+        "type": "message",
+        "timestamp": "2026-11-02T06:23:10.440Z"
+      },
+      {
+        "id": "891adb58",
+        "parentId": "fd275364",
+        "type": "custom",
+        "timestamp": "2026-11-02T06:23:10.472Z"
+      },
+      {
+        "id": "c0a6e973",
+        "parentId": "891adb58",
+        "type": "message",
+        "timestamp": "2026-11-02T06:23:12.053Z"
+      },
+      {
+        "id": "5e3201b2",
+        "parentId": "c0a6e973",
+        "type": "message",
+        "timestamp": "2026-11-02T06:23:12.526Z"
+      },
+      {
+        "id": "45a4717a",
+        "parentId": "5e3201b2",
+        "type": "custom",
+        "timestamp": "2026-11-02T06:23:12.534Z"
+      },
+      {
+        "id": "384b0b3d",
+        "parentId": "45a4717a",
+        "type": "message",
+        "timestamp": "2026-11-02T06:23:13.783Z"
+      }
+    ],
+    "usage": {
+      "assistantEntries": 2,
+      "usageEntries": 2,
+      "inputTokens": 13740,
+      "outputTokens": 38,
+      "cacheReadTokens": 7296,
+      "cacheWriteTokens": 0,
+      "estimatedCostUsd": 0.00103677322,
+      "unknownUsageEntries": 0,
+      "unknownCostEntries": 0
+    }
+  }
+}

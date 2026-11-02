@@ -187,9 +187,24 @@ export interface NativeEntrySummary {
   timestamp: string | null;
 }
 
+/** 原生助手条目用量摘要：按唯一条目 ID 计，不把累计 stats 重复相加。 */
+export interface NativeUsageSummary {
+  assistantEntries: number;
+  usageEntries: number;
+  /** input 含 cacheRead/cacheWrite；output 单列。 */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  estimatedCostUsd: number | null;
+  unknownUsageEntries: number;
+  unknownCostEntries: number;
+}
+
 export interface NativeHistoryScan {
   problem: null | "unreadable" | "no_session_header";
   entries: NativeEntrySummary[];
+  usage: NativeUsageSummary | null;
 }
 
 export async function readEntrySummaries(
@@ -200,13 +215,14 @@ export async function readEntrySummaries(
   try {
     content = await readFile(filePath, "utf-8");
   } catch {
-    return { problem: "unreadable", entries: [] };
+    return { problem: "unreadable", entries: [], usage: null };
   }
   const decoder = new LfFrameDecoder();
   const frames = decoder.push(new TextEncoder().encode(content));
   const tail = decoder.end();
   const all = tail !== null ? [...frames, tail] : frames;
   const entries: NativeEntrySummary[] = [];
+  const assistantUsage = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null }>();
   let sawSession = false;
   for (const frame of all) {
     let record: unknown;
@@ -216,7 +232,7 @@ export async function readEntrySummaries(
       continue;
     }
     if (typeof record !== "object" || record === null) continue;
-    const typed = record as { type?: unknown; id?: unknown; parentId?: unknown; timestamp?: unknown };
+    const typed = record as { type?: unknown; id?: unknown; parentId?: unknown; timestamp?: unknown; message?: unknown };
     if (typed.type === "session") {
       sawSession = true;
       continue;
@@ -228,8 +244,43 @@ export async function readEntrySummaries(
       type: typeof typed.type === "string" ? typed.type : "unknown",
       timestamp: typeof typed.timestamp === "string" ? typed.timestamp : null,
     });
+    const message = typed.message;
+    if (typed.type !== "message" || typeof message !== "object" || message === null) continue;
+    const m = message as { role?: unknown; usage?: unknown };
+    if (m.role !== "assistant") continue;
+    const usage = m.usage;
+    if (typeof usage !== "object" || usage === null) {
+      assistantUsage.set(typed.id, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null });
+      continue;
+    }
+    const u = usage as Record<string, unknown>;
+    const num = (key: string): number => (typeof u[key] === "number" ? (u[key] as number) : 0);
+    const cost = typeof u.cost === "object" && u.cost !== null && typeof (u.cost as { total?: unknown }).total === "number"
+      ? (u.cost as { total: number }).total
+      : null;
+    assistantUsage.set(typed.id, {
+      input: num("input") + num("cacheRead") + num("cacheWrite"),
+      output: num("output"),
+      cacheRead: num("cacheRead"),
+      cacheWrite: num("cacheWrite"),
+      cost,
+    });
   }
-  if (!sawSession) return { problem: "no_session_header", entries: [] };
+  if (!sawSession) return { problem: "no_session_header", entries: [], usage: null };
   const limited = limit === null ? entries : entries.slice(-Math.max(limit, 0));
-  return { problem: null, entries: limited };
+  const values = [...assistantUsage.values()];
+  const usage: NativeUsageSummary | null = values.length === 0
+    ? null
+    : {
+        assistantEntries: values.length,
+        usageEntries: values.filter((value) => value.cost !== null || value.input + value.output + value.cacheRead + value.cacheWrite > 0).length,
+        inputTokens: values.reduce((sum, value) => sum + value.input, 0),
+        outputTokens: values.reduce((sum, value) => sum + value.output, 0),
+        cacheReadTokens: values.reduce((sum, value) => sum + value.cacheRead, 0),
+        cacheWriteTokens: values.reduce((sum, value) => sum + value.cacheWrite, 0),
+        estimatedCostUsd: values.every((value) => value.cost !== null) ? values.reduce((sum, value) => sum + (value.cost ?? 0), 0) : null,
+        unknownUsageEntries: values.filter((value) => value.cost === null && value.input + value.output + value.cacheRead + value.cacheWrite === 0).length,
+        unknownCostEntries: values.filter((value) => value.cost === null).length,
+      };
+  return { problem: null, entries: limited, usage };
 }

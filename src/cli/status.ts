@@ -101,6 +101,8 @@ export function registerStatusCommands(program: Command): void {
           if (result.reason !== null) console.log(`原因: ${result.reason}`);
           if (result.result !== null) {
             console.log(`结果: ${result.result.state}${result.result.report?.verdict ? ` / ${result.result.report.verdict}` : ""}`);
+            const usage = result.result.usage;
+            console.log(`用量: input ${usage.inputTokens ?? "未知"}（含缓存），output ${usage.outputTokens ?? "未知"}；未知值不填零`);
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);
           }
         } else {

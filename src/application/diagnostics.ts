@@ -40,6 +40,11 @@ export interface StorageResult {
   tasks: { active: number; archived: number };
   runs: { count: number; bytes: number };
   snapshots: { count: number; bytes: number };
+  /** 原生会话目录；不复制正文，只统计占用。 */
+  nativeSessions: { count: number; bytes: number };
+  diagnostics: { bytes: number };
+  /** Git 基线引用只报数量，不与共享对象字节相加。 */
+  baselines: { count: number };
   locks: { entries: number; bytes: number };
   limits: { storageWarnBytes: number };
   warnings: string[];
@@ -242,9 +247,23 @@ export function storage(input: { dir: string; locksRoot?: string }): StorageResu
   } catch {
     // 无 run 目录。
   }
+  let nativeCount = 0;
+  let nativeBytes = 0;
+  for (const dir of ["sessions", "pi-sessions", "native-sessions"]) {
+    const path = join(root, RUNTIME, dir);
+    if (!existsSync(path)) continue;
+    const stats = treeStats(path).files;
+    if (stats > 0) {
+      nativeCount += stats;
+      nativeBytes += treeStats(path).bytes;
+    }
+  }
+  const diagnosticsBytes = treeStats(join(root, RUNTIME, "diagnostics")).bytes;
+  const refs = spawnSync("git", ["for-each-ref", "--format=%(refname)", "refs/knit/bases"], { cwd: root, encoding: "utf8" });
+  const baselines = refs.status === 0 ? refs.stdout.split("\n").filter(Boolean).length : 0;
   const locksRoot = input.locksRoot ?? process.env.KNIT_LOCKS_ROOT ?? join(process.env.HOME ?? "", ".knit", "locks");
   const lockStats = treeStats(locksRoot);
-  const total = dbBytes + walBytes + runBytes;
+  const total = dbBytes + walBytes + runBytes + nativeBytes + diagnosticsBytes;
   const warnings: string[] = [];
   if (total > config.limits.storageWarnBytes) {
     warnings.push(`Knit 运行资料约 ${total} 字节，超过 storageWarnBytes=${config.limits.storageWarnBytes}`);
@@ -256,6 +275,9 @@ export function storage(input: { dir: string; locksRoot?: string }): StorageResu
     tasks: { active: activeTasks, archived: archivedTasks },
     runs: { count: runCount, bytes: runBytes },
     snapshots: { count: snapshotCount, bytes: snapshotBytes },
+    nativeSessions: { count: nativeCount, bytes: nativeBytes },
+    diagnostics: { bytes: diagnosticsBytes },
+    baselines: { count: baselines },
     locks: { entries: lockStats.files, bytes: lockStats.bytes },
     limits: { storageWarnBytes: config.limits.storageWarnBytes },
     warnings,

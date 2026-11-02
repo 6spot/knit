@@ -1,0 +1,29 @@
+{
+  "task": "023",
+  "result": "pass",
+  "environment": { "node": "v24.21.0", "pi": "1.4.0" },
+  "commands": {
+    "historyAndReadOnly": "2/2 pass",
+    "fullSuite": "199/199 pass"
+  },
+  "realHistoryUsage": {
+    "assistantEntries": 2,
+    "inputTokens": 13740,
+    "outputTokens": 38,
+    "cacheReadTokens": 7296,
+    "cacheWriteTokens": 0,
+    "estimatedCostUsd": 0.00103677322
+  },
+  "verified": [
+    "native assistant usage is deduplicated by entry id and not summed from cumulative session stats",
+    "input tokens include cache read/write; missing usage or cost is null, not zero",
+    "history and status/doctor/storage are read-only and do not modify database or native files",
+    "storage reports run bytes once (including snapshots) and native session bytes separately",
+    "history summaries omit message content"
+  ],
+  "limitations": [
+    "unknown native entry formats are not parsed into usage",
+    "no real model call in this task; uses an existing real native session from task 022",
+    "no automatic gc"
+  ]
+}

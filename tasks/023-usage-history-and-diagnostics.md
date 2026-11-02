@@ -60,12 +60,33 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
-
+- 执行者／Session：ZCode / Pi session `01a1981c-6f75-749d-b9c2-7e5c897950a6`（用户已授权本仓库提交／推送）。
+- 开始／结束时间：2026-11-02。
+- 实际修改：
+  - `src/adapters/pi/native-entries.ts`：历史扫描新增 `NativeUsageSummary`，按唯一助手条目 `id` 去重汇总 input（含 cacheRead／cacheWrite）、output、缓存、费用；未知用量／费用为 null。
+  - `src/application/session-service.ts`、`src/cli/session.ts`：history 返回并显示用量；仍只读原生文件、不复制正文。
+  - `src/cli/status.ts`：`status --run` 人类输出用量，未知值显示“未知”，不填零。
+  - `src/application/diagnostics.ts`：storage 单列原生会话与诊断字节，并统计 `refs/knit/bases/*` 数量；run 字节含快照，Git 共享对象不重复相加。
+  - `test/session.test.mjs`、`test/m1-cli.test.mjs`：真实原生 JSONL 用量断言、只读与数据库大小不变、原生资料统计。
+  - `validation/m3a-usage-history/`：真实原生 history／storage 输出。
+  - `DESIGN.md`、`OPERATIONS.md`：回写用量与统计口径。
+- 实际验证命令与结果：
+  - `npm run -s typecheck`：通过。
+  - `npm run -s build`：通过。
+  - `npm test`：**199/199**。
+  - `node --test --test-name-pattern "history|status/doctor/storage" test/session.test.mjs test/m1-cli.test.mjs`：2/2。
+  - 真实 Pi 原生历史：2 个助手条目，input 13740（含 cacheRead 7296），output 38，费用 0.00103677322；storage 原生会话 28623 字节、基线 0。
+- 任务书必需验证逐项：
+  - 恢复累计量不重复相加：按助手条目 ID 去重，不累加会话 stats；测试与真实历史输出。
+  - 主会话用量与 worker 范围区分：worker run 结果仍记录本 run 用量；history 统计原生会话自身条目，不混入 run 结果。
+  - 模型切换本身不使业务检查失效：沿用检查摘要只含输入／规范／范围，不含模型；本项不修改该规则。
+  - status/doctor/storage 只读：测试断言数据库字节不变；不建目录、不接收结果、不跑模型、不自动修复。
+  - 私密正文／凭据不输出：history 只输出条目类型／时间／引用与聚合用量，测试断言不含原生正文。
+- 证据位置：`validation/m3a-usage-history/README.md`、`report.json`、`tests/`（history/attach/storage/read-only）。
+- 未解决问题／决定：
+  1. 未知原生格式不解析为用量，返回 null 并保留 problem。
+  2. 费用为配置模型估算，不是账单；未知价格不填零。
+  3. storage 只单列 Git 基线引用数量，不计算共享对象可达大小；不自动 gc。
+  4. 真实用量证据来自任务022 的 Pi 会话，本项未额外调用模型。
+- 对下一项的交接：024 可复用 history 用量、storage 原生／基线统计和只读断言；开发者模式不得把这些查询变成写路径或模型轮次。
 优先扫描下一编号（阻塞时可继续跳过）：[024 完成私有诊断并验收日常使用](024-developer-mode-m3a-gate.md)。

@@ -1,0 +1,34 @@
+{
+  "protocolVersion": 1,
+  "requestId": "session-attach-1793600758380-p9eo7v",
+  "outcome": "completed",
+  "data": {
+    "record": {
+      "knitSessionId": "s-279e6b4ff2d8",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "871a2cd2-33bc-4531-a8d2-e3cd0f95261a",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "available",
+      "sessionFile": "/tmp/knit-022-reload/project/.knit/.runtime/sessions/2026-11-02T06-23-04-414Z_871a2cd2-33bc-4531-a8d2-e3cd0f95261a.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": null,
+      "runId": null,
+      "cwd": "/tmp/knit-022-reload/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T06:25:58.391Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T06:25:58.391Z"
+    },
+    "created": false,
+    "problem": null
+  }
+}

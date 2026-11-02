@@ -96,7 +96,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 用户取消、真实错误／阻塞、修复轮次上限和原生工具自身明确条件仍生效。锁心跳每 5 秒更新；心跳超过 30 秒只进入 doctor／locks 调查，不自动停止或强解。阶段取消先发 clear_queue／abort；实现（任务017）在 5 秒宽限后仍无稳定终态时终止本次 Pi 及完整后代进程树（工具可能另建进程组），以 `agent_aborted` 收敛并保留 `stage-process` 记录。`run cancel --terminate` 对已核实且 worker 已退出、阶段 Pi 仍存活的旧执行显式终止同一进程树；不把 RPC ack 当作已结束。
 
-knit storage 统计 runtime、快照、run、diagnostics 的字节，默认 512 MiB 提示；另列 refs/knit/bases/* 数量、关联 run 是否存在。引用可能共享 Git 对象，首版不把每个引用的可达大小相加冒充额外占用；创建时间无依据则 unknown，不用 commit 日期代替。Git 对象整体大小可单列，不能全归给 Knit。首版不自动 gc。
+knit storage 统计 runtime、run（含快照）、原生会话、diagnostics 的字节，默认 512 MiB 提示；另列 refs/knit/bases/* 数量、关联 run 是否存在。引用可能共享 Git 对象，首版不把每个引用的可达大小相加冒充额外占用；创建时间无依据则 unknown，不用 commit 日期代替。Git 对象整体大小可单列，不能全归给 Knit。实现（任务023）：`session history` 的用量按唯一助手条目 ID 去重，input 含 cacheRead／cacheWrite，未知 token／费用返回 null；status / doctor / storage 仍只读，不自动 gc。
 
 doctor --json 只读检查 schema、状态契约、文件／Git 回执、候选与检查、绑定、锁、快照、内部模块、初始化和容量。离线不能证明活跃原生分支时标未知，不把索引快照当当前选择。禁用外部 diff/textconv、pager 和 fsmonitor hook，不跑项目验证、桥接或自动修复；不输出环境值、原始提示词、工具输出和凭据。
 

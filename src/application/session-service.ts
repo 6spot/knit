@@ -28,6 +28,7 @@ import {
   readCustomEntries,
   readEntrySummaries,
   type NativeEntrySummary,
+  type NativeUsageSummary,
 } from "../adapters/pi/native-entries.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
@@ -128,6 +129,8 @@ export interface SessionHistoryResult {
   sessionFile: string | null;
   problem: string | null;
   entries: NativeEntrySummary[];
+  /** 原生助手条目用量；未知格式为 null，不填零或当账单。 */
+  usage: NativeUsageSummary | null;
 }
 
 export class SessionService {
@@ -591,9 +594,9 @@ export class SessionService {
     const sessionFile =
       record.sessionFile ?? findStoredSessionFile(record.cwd, record.ref.nativeSessionId, this.agentDir);
     if (sessionFile === null) {
-      return { knitSessionId, sessionFile: null, problem: "native_file_not_persisted", entries: [] };
+      return { knitSessionId, sessionFile: null, problem: "native_file_not_persisted", entries: [], usage: null };
     }
     const scan = await this.readHistory(sessionFile, limit);
-    return { knitSessionId, sessionFile, problem: scan.problem, entries: scan.entries };
+    return { knitSessionId, sessionFile, problem: scan.problem, entries: scan.entries, usage: scan.usage };
   }
 }

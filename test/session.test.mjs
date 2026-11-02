@@ -401,7 +401,7 @@ test("history：只读摘要，不复制正文、不修改原生文件", async (
   try {
     const file = writeNativeSession(agentDir, dir, "main-hist", [
       { type: "message", id: "e1", parentId: null, content: "机密正文" },
-      { type: "message", id: "e2", parentId: "e1", content: "更多正文" },
+      { type: "message", id: "e2", parentId: "e1", content: "更多正文", message: { role: "assistant", usage: { input: 10, output: 2, cacheRead: 5, cacheWrite: 1, cost: { total: 0.1 } } } },
       { type: "custom", customType: "other", id: "e3", parentId: "e2" },
     ]);
     const attached = await session.attach({ dir, nativeSessionId: "main-hist", kind: "main", role: "implement" });
@@ -411,6 +411,11 @@ test("history：只读摘要，不复制正文、不修改原生文件", async (
     assert.equal(history.entries.length, 2);
     assert.deepEqual(history.entries.map((entry) => entry.id), ["e2", "e3"]);
     assert.equal(JSON.stringify(history).includes("机密正文"), false, "历史摘要不得复制聊天正文");
+    assert.equal(history.usage.inputTokens, 16, "input 含 cacheRead/cacheWrite");
+    assert.equal(history.usage.outputTokens, 2);
+    assert.equal(history.usage.cacheReadTokens, 5);
+    assert.equal(history.usage.cacheWriteTokens, 1);
+    assert.equal(history.usage.estimatedCostUsd, 0.1);
     assert.equal(readFileSync(file).toString("hex"), before, "只读历史不得修改原生文件");
 
     const badFile = join(agentDir, "bad.jsonl");
