@@ -172,6 +172,67 @@ test("init：子目录归一到仓库根；非 Git 目录可准备资料并提�
   }
 });
 
+test("init：上次受管基线可升级，人工改动仍冲突；更新版本不降级", async () => {
+  const dir = freshProject("baseline-upgrade");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const bridge = join(dir, ".pi", "extensions", "knit.ts");
+    const oldBody = "// 上一版受管桥接基线\n";
+    writeFileSync(bridge, oldBody);
+    const manifestPath = join(dir, ".knit", ".runtime", "init-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const item = manifest.items.find((entry) => entry.path === ".pi/extensions/knit.ts");
+    item.baselineSha256 = sha256Text(oldBody);
+    item.currentSha256 = sha256Text(oldBody);
+    item.state = "kept";
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    const upgraded = await init(service, dir);
+    assert.equal(upgraded.ready, true, upgraded.conflicts.join(","));
+    assert.ok(readFileSync(bridge, "utf8").includes("Knit 项目薄桥接"));
+    const plan = service.check(dir);
+    assert.equal(plan.items.find((entry) => entry.path === ".pi/extensions/knit.ts").action, "keep");
+    // 人工改写后不再按旧基线覆盖
+    writeFileSync(bridge, "// 用户自定义\n");
+    const conflict = await init(service, dir);
+    assert.equal(conflict.ready, false);
+    assert.deepEqual(conflict.conflicts, [".pi/extensions/knit.ts"]);
+    // 更新版本清单不能由旧安装包降级
+    const newer = JSON.parse(readFileSync(manifestPath, "utf8"));
+    newer.templateVersion = "999.0.0";
+    writeFileSync(manifestPath, JSON.stringify(newer, null, 2) + "\n");
+    await assert.rejects(
+      () => init(service, dir),
+      (error) => error.code === "version_conflict",
+    );
+    assert.equal(readFileSync(bridge, "utf8"), "// 用户自定义\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：安装映射移动／换机器后由 init 重写，不把本机绝对路径写进桥接", async () => {
+  const dir = freshProject("installation-move");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const installationPath = join(dir, ".knit", ".runtime", "installation.json");
+    const installation = JSON.parse(readFileSync(installationPath, "utf8"));
+    installation.cliEntry = "/nonexistent/old-machine/knit.js";
+    writeFileSync(installationPath, JSON.stringify(installation, null, 2) + "\n");
+    const result = await init(service, dir);
+    assert.equal(result.ready, true);
+    const repaired = JSON.parse(readFileSync(installationPath, "utf8"));
+    assert.notEqual(repaired.cliEntry, "/nonexistent/old-machine/knit.js");
+    assert.ok(existsSync(repaired.cliEntry));
+    const bridge = readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8");
+    assert.equal(bridge.includes(dir), false, "桥接不嵌项目或安装机绝对路径");
+    assert.equal(bridge.includes("/nonexistent/old-machine"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("init：缺映射／未 ready 不能声称可调用（bridgeReady 为 false）", async () => {
   const dir = freshProject("notready");
   try {

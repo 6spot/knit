@@ -168,6 +168,7 @@ export class InitializationService {
    */
   plan(root: string): InitPlan {
     const { root: resolved, isGitRepo, resolvedFrom } = resolveProjectRoot(root);
+    const previous = this.readManifestIfExists(resolved);
     const items: InitPlanItem[] = [];
     let agentsHasManagedBlock = false;
     for (const spec of TEMPLATE_SPECS) {
@@ -181,10 +182,14 @@ export class InitializationService {
         continue;
       }
       const current = sha256Text(readFileSync(target, "utf8"));
-      if (current === templateDigest(spec.path)) {
-        items.push({ path: spec.path, ownership: spec.ownership, action: "update", reason: "与旧基线一致，按新模板更新" });
+      const next = templateDigest(spec.path);
+      const recordedBaseline = previous?.items.find((item) => item.path === spec.path)?.baselineSha256 ?? null;
+      if (current === next) {
+        items.push({ path: spec.path, ownership: spec.ownership, action: "keep", reason: "已与当前模板一致" });
+      } else if (recordedBaseline !== null && current === recordedBaseline) {
+        items.push({ path: spec.path, ownership: spec.ownership, action: "update", reason: "与上次受管基线一致，按新模板更新" });
       } else {
-        items.push({ path: spec.path, ownership: spec.ownership, action: "conflict", reason: "与模板基线不一致（人工改动或旧版本），需先报告差异" });
+        items.push({ path: spec.path, ownership: spec.ownership, action: "conflict", reason: "与受管基线不一致（人工改动或未知来源），需先报告差异" });
       }
     }
     const agentsPath = join(resolved, "AGENTS.md");
@@ -224,7 +229,15 @@ export class InitializationService {
 
   private executeLocked(input: { root: string; isGitRepo: boolean; client: string; force: boolean }): InitResult {
     const { root } = input;
-    const manifest = newManifest({ client: input.client, templateVersion: templateVersion(), now: this.now().toISOString() });
+    const previous = this.readManifestIfExists(root);
+    const currentVersion = templateVersion();
+    if (previous !== null && compareVersions(previous.templateVersion, currentVersion) > 0) {
+      throw new InfrastructureError(
+        "version_conflict",
+        `项目由更新版本 ${previous.templateVersion} 初始化，当前安装包 ${currentVersion} 不能降级覆盖；请安装匹配版本`,
+      );
+    }
+    const manifest = newManifest({ client: input.client, templateVersion: currentVersion, now: this.now().toISOString() });
     const items: ManifestItem[] = [];
     const created: string[] = [];
     const kept: string[] = [];
@@ -333,19 +346,21 @@ export class InitializationService {
     const bridgeTarget = join(root, bridgeSpec.path);
     try {
       const content = readTemplate(bridgeSpec.path);
+      const nextDigest = templateDigest(bridgeSpec.path);
+      const recordedBaseline = previous?.items.find((item) => item.path === bridgeSpec.path)?.baselineSha256 ?? null;
       if (!existsSync(bridgeTarget)) {
         atomicWrite({ path: bridgeTarget, data: Buffer.from(content, "utf8"), expectedSha256: null, mode: 0o644 });
-        record(bridgeSpec.path, "managed", "created", { baselineSha256: templateDigest(bridgeSpec.path) });
+        record(bridgeSpec.path, "managed", "created", { baselineSha256: nextDigest });
       } else {
         const current = sha256Text(readFileSync(bridgeTarget, "utf8"));
         if (current === sha256Text(content)) {
           // 内容已与新模板一致：不重写，幂等
-          record(bridgeSpec.path, "managed", "kept", { currentSha256: current, baselineSha256: templateDigest(bridgeSpec.path) });
-        } else if (current === templateDigest(bridgeSpec.path) || input.force) {
+          record(bridgeSpec.path, "managed", "kept", { currentSha256: current, baselineSha256: nextDigest });
+        } else if (current === recordedBaseline || input.force) {
           atomicWrite({ path: bridgeTarget, data: Buffer.from(content, "utf8"), expectedSha256: current, mode: 0o644 });
-          record(bridgeSpec.path, "managed", "updated", { baselineSha256: sha256Text(content) });
+          record(bridgeSpec.path, "managed", "updated", { baselineSha256: nextDigest });
         } else {
-          record(bridgeSpec.path, "managed", "conflict", { error: "桥接与模板基线不一致（人工改动），未覆盖；确认后用 --force 更新" });
+          record(bridgeSpec.path, "managed", "conflict", { error: "桥接与受管基线不一致（人工改动或未知来源），未覆盖；确认后用 --force 更新" });
         }
       }
     } catch (error) {
@@ -371,4 +386,15 @@ export class InitializationService {
       gitWarning,
     };
   }
+}
+
+/** 简单数字段比较，仅用于拒绝降级；非数字段按 0 处理。 */
+function compareVersions(left: string, right: string): number {
+  const a = left.split(/[.+-]/).map((part) => Number.parseInt(part, 10) || 0);
+  const b = right.split(/[.+-]/).map((part) => Number.parseInt(part, 10) || 0);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const delta = (a[index] ?? 0) - (b[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
 }

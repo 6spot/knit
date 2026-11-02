@@ -1,0 +1,4 @@
+native 871a2cd2-33bc-4531-a8d2-e3cd0f95261a /tmp/knit-022-reload/project/.knit/.runtime/sessions/2026-11-02T06-23-04-414Z_871a2cd2-33bc-4531-a8d2-e3cd0f95261a.jsonl
+reload-response {"command":"prompt","success":true,"data":{"disposition":"handled"}}
+session-state 871a2cd2-33bc-4531-a8d2-e3cd0f95261a /tmp/knit-022-reload/project/.knit/.runtime/sessions/2026-11-02T06-23-04-414Z_871a2cd2-33bc-4531-a8d2-e3cd0f95261a.jsonl
+status-ok: last assistant text "completed"

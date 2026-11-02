@@ -1,0 +1,30 @@
+{
+  "task": "022",
+  "result": "pass",
+  "environment": {
+    "node": "v24.21.0",
+    "pi": "1.4.0",
+    "provider": "magpie",
+    "model": "auto/glm-5.3-flash"
+  },
+  "commands": {
+    "initUpgradeTests": "2/2 pass",
+    "bridgeObserverTest": "1/1 pass",
+    "fullSuite": "199/199 pass",
+    "realCliUpgrade": "init --check identifies old baseline; init restores current bridge",
+    "realPiReload": "/knit-reload handled; native session unchanged; knit_status completed"
+  },
+  "verified": [
+    "previous manifest baseline upgrades managed bridge without overwriting human edits",
+    "unknown/newer manifest template version cannot be downgraded by older package",
+    "installation.json is rewritten by init after path becomes stale",
+    "bridge does not embed project or machine absolute paths",
+    "observer guard stops previous timer before a reloaded extension starts another",
+    "ready and Pi project trust remain separate"
+  ],
+  "limitations": [
+    "no cross-version package installation matrix; old baseline simulated in manifest",
+    "no direct in-process timer count; guard is asserted statically and reload lifecycle exercised",
+    "project-maintained content is still gap-fill only, not merged"
+  ]
+}

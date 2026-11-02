@@ -1,0 +1,30 @@
+{
+  "protocolVersion": 1,
+  "requestId": "init-1793600484756-inzxbs",
+  "outcome": "completed",
+  "data": {
+    "root": "/tmp/knit-022-e2e",
+    "manifestState": "ready",
+    "created": [],
+    "kept": [
+      ".knit/.gitignore",
+      ".knit/config.json",
+      ".knit/workflow.md",
+      ".knit/agents/implement.md",
+      ".knit/agents/check.md",
+      ".knit/agents/deliver.md",
+      ".knit/agents/runtimes/pi.md",
+      ".knit/standards/index.md",
+      "AGENTS.md"
+    ],
+    "updated": [
+      ".knit/.runtime/installation.json",
+      ".pi/extensions/knit.ts"
+    ],
+    "conflicts": [],
+    "failed": [],
+    "ready": true,
+    "bridgeReady": true,
+    "gitWarning": null
+  }
+}

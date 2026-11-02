@@ -267,6 +267,7 @@ test("桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JS
   assert.match(template, /knit_snapshot/);
   assert.match(template, /knit\.selection/);
   assert.match(template, /notice_skipped_branch/);
+  assert.match(template, /knit\.bridge\.observer/);
   assert.match(template, /followUp/);
 });
 

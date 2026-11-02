@@ -1,0 +1,10 @@
+✔ init：上次受管基线可升级，人工改动仍冲突；更新版本不降级 (158.206274ms)
+✔ init：安装映射移动／换机器后由 init 重写，不把本机绝对路径写进桥接 (96.910092ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 648.344975

@@ -15,6 +15,7 @@ const MANAGED_BASELINE = "__BRIDGE_BASELINE__";
 const SELECTION_ENTRY = "knit.selection";
 const NOTICE_ENTRY = "knit.notice";
 const POLL_MS = 5000;
+const OBSERVER_GUARD = Symbol.for("knit.bridge.observer");
 
 function readJson(path: string): any {
   try {
@@ -35,6 +36,16 @@ function projectRootFromExtension(): string {
 export default function (pi: any) {
   const root = projectRootFromExtension();
   const state: any = { ctx: null, knitSessionId: null, nativeSessionId: null, branch: null, timer: null, started: false, verified: false };
+  // reload／重复加载时先停掉上一个模块实例的轮询和旧上下文，避免多个观察器并发通知。
+  const previousObserver = (globalThis as any)[OBSERVER_GUARD];
+  if (typeof previousObserver === "function") {
+    try { previousObserver(); } catch {}
+  }
+  const releaseObserver = () => {
+    stopObserver();
+    if ((globalThis as any)[OBSERVER_GUARD] === releaseObserver) delete (globalThis as any)[OBSERVER_GUARD];
+  };
+  (globalThis as any)[OBSERVER_GUARD] = releaseObserver;
   function loadSchemas(): any {
     const installation = readJson(join(root, ".knit", ".runtime", "installation.json"));
     if (typeof installation?.cliEntry !== "string") return null;
@@ -273,7 +284,7 @@ export default function (pi: any) {
   });
 
   pi.on("session_shutdown", () => {
-    stopObserver();
+    releaseObserver();
   });
 
   pi.registerCommand("knit-status", {
@@ -288,6 +299,7 @@ export default function (pi: any) {
   pi.registerCommand("knit-reload", {
     description: "Knit：重新加载项目配置、安装映射与桥接",
     handler: async (_args: string, ctx: any) => {
+      releaseObserver();
       const result = core(["doctor", "--dir", root]);
       ctx.ui.notify(result.code === 0 ? "Knit 已重新核对安装与配置" : "Knit 诊断发现需处理项", result.code === 0 ? "info" : "warning");
       try {

@@ -1,0 +1,68 @@
+{
+  "protocolVersion": 1,
+  "requestId": "init-1793600484286-yy37sa",
+  "outcome": "completed",
+  "data": {
+    "root": "/tmp/knit-022-e2e",
+    "isGitRepo": true,
+    "resolvedFrom": null,
+    "gitWarning": null,
+    "items": [
+      {
+        "path": ".knit/config.json",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/workflow.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/agents/implement.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/agents/check.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/agents/deliver.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/agents/runtimes/pi.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".knit/standards/index.md",
+        "ownership": "project",
+        "action": "keep",
+        "reason": "项目资料只补缺，已存在则沿用"
+      },
+      {
+        "path": ".pi/extensions/knit.ts",
+        "ownership": "managed",
+        "action": "update",
+        "reason": "与上次受管基线一致，按新模板更新"
+      },
+      {
+        "path": "AGENTS.md",
+        "ownership": "managed",
+        "action": "keep",
+        "reason": "受管标记块已存在（执行时按块内容逐字核对）"
+      }
+    ],
+    "agentsHasManagedBlock": true
+  }
+}

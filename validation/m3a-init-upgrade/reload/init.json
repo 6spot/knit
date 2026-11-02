@@ -1,0 +1,4 @@
+项目根: /tmp/knit-022-reload/project
+清单状态: ready
+创建: .knit/.gitignore, .knit/.runtime/installation.json, .knit/config.json, .knit/workflow.md, .knit/agents/implement.md, .knit/agents/check.md, .knit/agents/deliver.md, .knit/agents/runtimes/pi.md, .knit/standards/index.md, AGENTS.md, .pi/extensions/knit.ts
+初始化完成：桥接按宿主项目信任规则加载（新会话自动加载；已有会话 /reload 或重启）。

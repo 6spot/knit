@@ -1,0 +1,9 @@
+✔ 桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JSON (3.032919ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 260.445766
