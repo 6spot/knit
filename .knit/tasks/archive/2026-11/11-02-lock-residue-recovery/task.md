@@ -43,4 +43,15 @@ title: 修复锁残留与 unlock 清除路径
 - unlock --force 允许清除「目录存在但 owner 不可核实」的残留（保留正常 token 校验路径不变）。
 - 隔离夹具新增回归测试：模拟 owner.json 写入失败后，下一次 acquire 可成功、unlock --force 可清除。
 
+### 交付记录
+
+<!-- knit:delivery:op-10763ecb58df -->
+- 操作: op-10763ecb58df
+- 时间: 2026-11-02T10:06:34.058Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: 6296d294cfbed959daf23e55541f9ebc37b7f3e2
+- 结果: 正常交付；检查 run-061355624b5d 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-lock-residue-recovery
+
 <!-- knit:progress:end -->
