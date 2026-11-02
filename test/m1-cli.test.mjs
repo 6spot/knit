@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -92,6 +92,40 @@ test("start：在项目 cwd 启动 Pi，保留 -- 后的参数，不自动批准
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).outcome, "completed");
     assert.equal(readFileSync(join(dir, "start-args.txt"), "utf8"), `${dir}|--foo bar`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("status：按月归档任务进入项目概览，与 task list／按 ID status 一致（任务041）", () => {
+  const dir = project("status-archive");
+  try {
+    const task = newTask(dir);
+    const closed = jsonCli(dir, ["task", "close", task.taskId, "--outcome", "cancelled", "--runs-settled"]);
+    assert.equal(closed.parsed.outcome, "completed", closed.stderr);
+    // 模拟按月归档：移动任务目录到 archive/YYYY-MM/。
+    const month = "2026-11";
+    const taskDirName = task.relativePath.split("/").slice(1, -1).join("/");
+    mkdirSync(join(dir, ".knit", "tasks", "archive", month), { recursive: true });
+    renameSync(join(dir, ".knit", "tasks", taskDirName), join(dir, ".knit", "tasks", "archive", month, taskDirName));
+    // 项目概览列出归档任务。
+    const overview = jsonCli(dir, ["status"]);
+    const listed = overview.parsed.data.tasks.find((entry) => entry.taskId === task.taskId);
+    assert.notEqual(listed, undefined, "归档任务出现在项目状态概览");
+    assert.equal(listed.archived, true);
+    assert.match(listed.relativePath, /^tasks\/archive\/2026-11\//);
+    // 与 task list、按 ID status 一致。
+    const list = jsonCli(dir, ["task", "list"]);
+    assert.ok(list.parsed.data.archived.some((entry) => entry.taskId === task.taskId));
+    const byId = jsonCli(dir, ["status", task.taskId]);
+    assert.equal(byId.parsed.data.taskId, task.taskId);
+    assert.equal(byId.parsed.data.archived, true);
+    // 非任务目录（无 task.md）与损坏文件不阻塞概览。
+    mkdirSync(join(dir, ".knit", "tasks", "archive", "2026-10", "broken-task"), { recursive: true });
+    writeFileSync(join(dir, ".knit", "tasks", "archive", "2026-10", "broken-task", "task.md"), "broken-not-yaml\n");
+    const robust = jsonCli(dir, ["status"]);
+    assert.equal(robust.parsed.outcome, "completed");
+    assert.equal(robust.parsed.data.tasks.filter((entry) => entry.archived).length, 1, "损坏任务不计入概览");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

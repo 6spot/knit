@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -20,6 +20,7 @@ import { StatusService } from "../dist/application/status-service.js";
 import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/application/task-document.js";
 import { parseStageReport } from "../dist/application/stage.js";
+import { PiAgentRuntime } from "../dist/adapters/pi/runtime.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
@@ -42,7 +43,7 @@ function project(prefix) {
   git(dir, ["config", "user.email", "t@example.com"]);
   git(dir, ["config", "user.name", "t"]);
   cpSync(TEMPLATES, join(dir, ".knit"), { recursive: true });
-  writeFileSync(join(dir, ".gitignore"), ".knit/.runtime/\nignored.txt\n");
+  writeFileSync(join(dir, ".gitignore"), ".knit/.runtime/\nignored.txt\n.locks/\n");
   writeFileSync(join(dir, "README.md"), "# demo\n");
   git(dir, ["add", "."]);
   git(dir, ["commit", "-q", "-m", "init"]);
@@ -90,8 +91,8 @@ function actionFile(dir, action) {
   return path;
 }
 
-async function startRun(s, dir, taskId, phase, action, extra = {}) {
-  const prepared = await s.coordinator.prepare(prepareInput(dir, taskId, phase, extra));
+async function startRun(s, dir, taskId, phase, action, extra = {}, prepareExtra = {}) {
+  const prepared = await s.coordinator.prepare(prepareInput(dir, taskId, phase, { ...extra, ...prepareExtra }));
   process.env.KNIT_PI_BIN = FAKE_PI;
   process.env.KNIT_FAKE_ACTION = actionFile(dir, action);
   const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
@@ -508,6 +509,40 @@ test("scope 跨 run 累积、换会话不重置修复计数与检查事实", asy
   }
 });
 
+test("检查接收窗口外部改动成果：重核不符转 scope_changed，不发布检查凭据", async () => {
+  const dir = project("check-window-drift");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "check"));
+    await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
+    const runs = new RunStore(dir);
+    runs.writeResult(prepared.request.runId, resultFixture(prepared.request, "completed", {
+      summary: "检查", verdict: "pass", coverage: ["README.md"],
+    }));
+    // 检查结果发布后、接收前，外部改写成果文件：旧指纹不再匹配当前事实。
+    writeFileSync(join(dir, "README.md"), "# edited after check\n");
+    const accepted = await s.acceptance.accept({ dir, runId: prepared.request.runId });
+    assert.equal(accepted.accepted, false);
+    assert.equal(accepted.reason, "scope_changed");
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), false);
+    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.phase, "check");
+    // 恢复检查时内容后重接可收敛。
+    writeFileSync(join(dir, "README.md"), "# impl\n");
+    const recovered = await s.acceptance.accept({ dir, runId: prepared.request.runId });
+    assert.equal(recovered.accepted, true, recovered.reason ?? "");
+    assert.equal(recovered.phase, "deliver");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("输入在结果发布后变化时接收 stale，不写 Task／scope", async () => {
   const dir = project("stale");
   const s = services(dir);
@@ -541,6 +576,81 @@ test("输入在结果发布后变化时接收 stale，不写 Task／scope", asyn
     assert.equal(accepted.reason, "stale_input");
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), false);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("运行边界核对实际分支：prepare、启动、接收三处拒绝，detach 拒绝，adopt 后可继续", async () => {
+  const dir = project("branch-boundary");
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "分支边界", slug: "branch-boundary", branch: "refs/heads/main" });
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+
+    // 1. prepare 前换分支：拒绝启动，不改绑。
+    git(dir, ["checkout", "-q", "-b", "unrelated"]);
+    await assert.rejects(
+      () => s.coordinator.prepare(prepareInput(dir, task.taskId, "implement")),
+      (error) => error.guardReason === "branch_mismatch",
+    );
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.branch, "refs/heads/main");
+
+    // detached HEAD 同样拒绝。
+    git(dir, ["checkout", "-q", "--detach"]);
+    await assert.rejects(
+      () => s.coordinator.prepare(prepareInput(dir, task.taskId, "implement")),
+      (error) => error.guardReason === "branch_mismatch",
+    );
+    git(dir, ["checkout", "-q", "main"]);
+
+    // 2. prepare 后启动前换分支：worker 认领后拒绝执行，阶段失败。
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "implement"));
+    git(dir, ["checkout", "-q", "-b", "side"]);
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, { report: { summary: "不应执行" } });
+    await s.coordinator.start({ dir, runId: prepared.request.runId });
+    const failed = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.result.failureReason, "branch_mismatch");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+
+    // 在绑定分支上完成一次实施，推进到 check；再验证接收窗口的分支核对。
+    git(dir, ["checkout", "-q", "main"]);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+
+    // 3. 结果待接收时换分支：接收拒绝 branch_changed；切回后可接收。
+    git(dir, ["checkout", "-q", "main"]);
+    const checkPrepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "check"));
+    await s.coordinator.start({ dir, runId: checkPrepared.request.runId, prepareOnly: true });
+    const runs = new RunStore(dir);
+    runs.writeResult(checkPrepared.request.runId, resultFixture(checkPrepared.request, "completed", {
+      summary: "检查", verdict: "pass", coverage: ["README.md"],
+    }));
+    git(dir, ["checkout", "-q", "side"]);
+    const rejected = await s.acceptance.accept({ dir, runId: checkPrepared.request.runId });
+    assert.equal(rejected.accepted, false);
+    assert.equal(rejected.reason, "branch_changed");
+    git(dir, ["checkout", "-q", "main"]);
+    const accepted = await s.acceptance.accept({ dir, runId: checkPrepared.request.runId });
+    assert.equal(accepted.accepted, true, accepted.reason ?? "");
+
+    // 4. adopt 使 deliver 回 check；显式接管 side 后新运行在 side 正常准备，绑定不被悄悄改回。
+    git(dir, ["checkout", "-q", "side"]);
+    const adopted = await s.tasks.adopt({ dir, taskId: task.taskId, branch: "current" });
+    assert.equal(adopted.adopted, true);
+    assert.equal(adopted.branch, "refs/heads/side");
+    git(dir, ["checkout", "-q", "side"]);
+    const onSide = await s.coordinator.prepare(prepareInput(dir, task.taskId, "check"));
+    assert.equal(onSide.request.expected.branch, "refs/heads/side");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.branch, "refs/heads/side");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -681,6 +791,57 @@ test("连接中断启动失败同样落盘诊断尾部", async () => {
   } finally {
     if (previousFailure === undefined) delete process.env.KNIT_FAKE_START_FAILURE;
     else process.env.KNIT_FAKE_START_FAILURE = previousFailure;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结输入；接收不丢草案", async () => {
+  const dir = project("active-draft");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      delayMs: 2500,
+      writes: [{ path: "README.md", content: "# slow impl\n" }],
+      report: { summary: "慢实现", changedPaths: ["README.md"] },
+    });
+    // worker 真实持项目锁期间：保存与按摘要撤回不报 lock_busy。
+    const saved = await s.tasks.update({ dir, taskId: task.taskId, kind: "clarify", reason: "运行中新增约束", content: "## 目标与边界\n\n新增约束\n", runActive: true });
+    assert.equal(saved.applied, "pending_saved");
+    assert.ok(saved.pendingDraftDigest);
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.notEqual(binding.pendingDraft, null);
+    assert.equal(binding.pendingDraft.kind, "clarify");
+
+    const withdrawn = await s.tasks.update({ dir, taskId: task.taskId, withdrawReason: "测试撤回", expectPending: saved.pendingDraftDigest });
+    assert.equal(withdrawn.applied, "pending_withdrawn");
+    assert.equal((await s.store.bindings.get(task.taskId)).pendingDraft, null);
+
+    // 运行期间再次保存草案；旧 run 接收被 pending_inputs 暂停（待应用输入阻后续接收），
+    // 撤回后重新接收正常收敛，草案生命周期不被 worker 拥挤丢内。
+    const saved2 = await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "运行中新增目标", content: "## 目标与边界\n\n新增目标\n", runActive: true });
+    assert.equal(saved2.applied, "pending_saved");
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "failed");
+    assert.equal(status.reason, "acceptance_pending_inputs");
+    assert.equal((await s.store.bindings.get(task.taskId)).pendingDraft?.digest, saved2.pendingDraftDigest);
+    const withdrawn2 = await s.tasks.update({ dir, taskId: task.taskId, withdrawReason: "改口", expectPending: saved2.pendingDraftDigest });
+    assert.equal(withdrawn2.applied, "pending_withdrawn");
+    const recovered = await s.acceptance.accept({ dir, runId: impl.runId });
+    assert.equal(recovered.accepted, true, recovered.reason ?? "");
+    assert.equal(recovered.reason, "implementation_accepted");
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    const document = parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile);
+    assert.equal(document.frontmatter.phase, "check");
+    assert.ok(!document.inputsBody.includes("新增目标"), "冻结输入不被草案覆盖");
+
+    // 撤回后无草案；旧摘要再撤回拒绝且确定。
+    await assert.rejects(
+      s.tasks.update({ dir, taskId: task.taskId, withdrawReason: "旧摘要", expectPending: "deadbeefdead" }),
+      (error) => error.guardReason === "no_pending_draft" || error.code === "version_conflict",
+    );
+  } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1046,6 +1207,162 @@ test("心跳丢失后 worker 停止新动作：fake-pi 下一次调用被拒绝�
     assert.equal(resultFile.state, "failed");
     assert.ok(resultFile.failureReason.startsWith("lock_ownership_lost"));
     assert.equal(new RunStore(dir).readState(runId)?.reason.startsWith("lock_ownership_lost"), true);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("无固定阶段总时限：长阶段跨原 15 分钟截止仍完成；显式取消仍收敛（任务034）", async () => {
+  const dir = project("no-stage-deadline");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const runId = (await s.coordinator.prepare(prepareInput(dir, task.taskId, "implement"))).request.runId;
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    // waitFile 信号在 waitTerminal 之后才发出：阶段等待远超旧 900s 截止时间概念上的窗口；
+    // 用可控信号而非真等 15 分钟证明语义：只有取消／信号推进终态，无自动超时停止。
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      waitFile: ".knit/.runtime/.no-deadline-signal",
+      writes: [{ path: "README.md", content: "# long stage\n" }],
+      report: { summary: "长阶段完成", changedPaths: ["README.md"] },
+      waitTimeoutMs: 60_000,
+    });
+    const started = await s.coordinator.start({ dir, runId });
+    assert.equal(started.confirmed, true);
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const status = await s.coordinator.status({ dir, runId });
+      if (status.state === "running") break;
+      if (["completed", "failed", "cancelled"].includes(status.state)) throw new Error(`阶段提前终止: ${status.state}`);
+      if (Date.now() > deadline) throw new Error(`未进入 running: ${status.state}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    // 阶段在 running 中逗留明显超过 fake-pi 的旧式默认响应窗口，无任何自动停止。
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const midRun = await s.coordinator.status({ dir, runId });
+    assert.equal(midRun.state, "running", "无取消意图时不自动终止");
+    // 发出信号：阶段继续并正常完成。
+    mkdirSync(join(dir, ".knit", ".runtime"), { recursive: true }); writeFileSync(join(dir, ".knit", ".runtime", ".no-deadline-signal"), "go\n");
+    const status = await waitTerminal(s, dir, runId);
+    assert.equal(status.state, "completed", status.reason ?? "");
+    assert.equal(status.acceptance.reason, "implementation_accepted");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("授权规范成果：明确授权后实施可改正式规范并进 scope；未授权仍拒绝（任务037）", async () => {
+  const dir = project("authorized-standard");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const standardPath = ".knit/standards/release.md";
+    writeFileSync(join(dir, standardPath), "# 发布规则 v1\n");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-q", "-m", "standards"]);
+
+    // 未授权：实施改动正式规范 → protected_path_modified。
+    const denied = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: standardPath, content: "# 发布规则 v2\n" }],
+      report: { summary: "未授权改规范", changedPaths: [standardPath] },
+    });
+    const deniedStatus = await waitTerminal(s, dir, denied.runId);
+    assert.equal(deniedStatus.state, "failed");
+    assert.match(deniedStatus.result.failureReason, /^protected_path_modified:/);
+    // 恢复被拒现场：文件回到已提交版本，取消意图不参与。
+    writeFileSync(join(dir, standardPath), "# 发布规则 v1\n");
+
+    // 明确授权同一文件为成果：冻结旧版本作输入，改动可完成并进入 scope。
+    const authorized = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: standardPath, content: "# 发布规则 v2\n" }],
+      report: { summary: "更新发布规则", changedPaths: [standardPath] },
+    }, { authorizedStandardPaths: [standardPath] });
+    const authorizedStatus = await waitTerminal(s, dir, authorized.runId);
+    assert.equal(authorizedStatus.state, "completed", authorizedStatus.reason ?? "");
+    assert.equal(authorizedStatus.acceptance.reason, "implementation_accepted");
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.ok(binding.scope.map((entry) => entry.path).includes(standardPath), "授权规范成果进入 scope");
+    const requestOutputs = authorized.request.expected.authorizedStandardOutputs ?? [];
+    assert.deepEqual(requestOutputs.map((output) => output.path), [standardPath]);
+    assert.equal(requestOutputs[0].frozenContent, "# 发布规则 v1\n", "冻结旧版本内容入请求");
+    assert.ok(authorizedStatus.acceptance.reason === "implementation_accepted");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("prefer 恢复身份核对与回退：实际 ID 不符新建续做，旧查询不歧义；恢复失败不静默重跑（任务035）", async () => {
+  const dir = project("resume-fallback");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# first\n" }],
+      report: { summary: "首轮", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+
+    // check 阶段默认 prefer 恢复上一子会话；注入 runtime 模拟实际 ID 与预期不符触发回退。
+    const implStatus = await s.coordinator.status({ dir, runId: impl.runId });
+    const expectedNative = implStatus.result.session.nativeSessionId;
+    let sawResumeOptions = false;
+    const factory = (runtimeOptions) => {
+      const real = new PiAgentRuntime(runtimeOptions);
+      if (runtimeOptions.sessionFile !== undefined) {
+        sawResumeOptions = true;
+        // 包一层 start：首次 get_state 返回意外 sessionId，触发身份核对失败并回退新建。
+        const originalStart = real.start.bind(real);
+        real.start = async (timeout) => {
+          const check = await originalStart(timeout);
+          if (!check.ok) return check;
+          return { ...check, ok: false, failure: "session_identity_mismatch", detail: "stub mismatch" };
+        };
+      }
+      return real;
+    };
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "check", {
+      recovery: { nativeSessionId: expectedNative, resume: "prefer" },
+    }));
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      report: { summary: "检查", verdict: "pass", coverage: ["README.md"] },
+    });
+    // RunCoordinator 用 workerCommand 起子进程，runtimeFactory 只在本进程生效；
+    // 改为直接驱动 StageRunner 验证回退语义。先经 worker prepareOnly 冻结 inputs。
+    await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
+    const plan = await new (await import("../dist/application/context-planner.js")).ContextPlanner({ store: s.store, randomHex }).plan({
+      dir, taskId: task.taskId, role: "check",
+    });
+    const runs = new RunStore(dir);
+    const inputs = runs.readInputs(prepared.request.runId);
+    const runner = new (await import("../dist/application/stage-runner.js")).StageRunner({
+      root: dir,
+      request: prepared.request,
+      plan,
+      inputs: inputs ?? (() => { throw new Error("inputs missing"); })(),
+      store: s.store,
+      runs,
+      locks: s.locks,
+      cancelGraceMs: 5000,
+      runtimeFactory: factory,
+    });
+    const execution = await runner.execute();
+    assert.equal(execution.result.state, "completed", execution.result.failureReason ?? "");
+    assert.equal(sawResumeOptions, true, "应先尝试恢复旧会话");
+    const resumeRecord = await s.store.sessions.get({ client: "pi", nativeSessionId: expectedNative, role: "check" });
+    assert.equal(resumeRecord?.status, "incompatible", "旧会话标记 incompatible，保留引用");
+    const fallbackRecord = await s.store.sessions.get({ client: "pi", nativeSessionId: execution.result.session.nativeSessionId, role: "check" });
+    assert.equal(fallbackRecord?.source.kind, "resume_fallback");
+    assert.notEqual(fallbackRecord?.knitSessionId, resumeRecord?.knitSessionId, "新旧会话独立稳定身份");
+    assert.equal(fallbackRecord?.source.fromSessionId, resumeRecord?.knitSessionId, "来源可追溯");
+    // 旧 run 的冻结 scope 不被重置；直接驱动的 StageRunner 不含接收，检查凭据需另行接收验证。
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.ok(binding.scope.map((entry) => entry.path).includes("README.md"));
+    assert.ok(binding.scopeRunIds.includes(impl.runId));
+    assert.equal(binding.lastCheckRunId, null, "StageRunner 只执行阶段，接收属 worker 边界");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

@@ -1,0 +1,195 @@
+{
+ "case": "044-lock-reentry",
+ "total": 47,
+ "failed": 10,
+ "results": [
+  {
+   "name": "重入返回同一 token",
+   "ok": true
+  },
+  {
+   "name": "重入 owner 版本一致",
+   "ok": true
+  },
+  {
+   "name": "新键与返回 token 一致",
+   "ok": true
+  },
+  {
+   "name": "同键不同动作 busy",
+   "ok": true
+  },
+  {
+   "name": "跨实例仍互斥",
+   "ok": true
+  },
+  {
+   "name": "内层释放后 owner 未变",
+   "ok": true
+  },
+  {
+   "name": "混合新键已释放",
+   "ok": true
+  },
+  {
+   "name": "全部释放后 owner 为 null",
+   "ok": true
+  },
+  {
+   "name": "混合请求因新键 busy 失败",
+   "ok": true
+  },
+  {
+   "name": "外层 owner/token 不变",
+   "ok": false
+  },
+  {
+   "name": "他者 owner 不变",
+   "ok": true
+  },
+  {
+   "name": "失败后 rival 仍 busy",
+   "ok": false
+  },
+  {
+   "name": "释放外层后 rival: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "释放外层后 rival: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "原实例重新获取: 真实 owner",
+   "ok": false
+  },
+  {
+   "name": "原实例重新获取: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "实际排序先 busy 键",
+   "ok": true
+  },
+  {
+   "name": "首键失败为 busy",
+   "ok": true
+  },
+  {
+   "name": "尚未触达外层不变",
+   "ok": true
+  },
+  {
+   "name": "未触达外层释放后: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "未触达外层释放后: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "故障在 mkdir 后真实命中一次",
+   "ok": true
+  },
+  {
+   "name": "保留原 owner 写失败错误对象",
+   "ok": true
+  },
+  {
+   "name": "本次无 owner 目录已清理",
+   "ok": true
+  },
+  {
+   "name": "owner 写失败保留外层 token",
+   "ok": false
+  },
+  {
+   "name": "owner 写失败后 rival 仍 busy",
+   "ok": false
+  },
+  {
+   "name": "写失败后外层释放: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "写失败后外层释放: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "写失败后原实例: 真实 owner",
+   "ok": false
+  },
+  {
+   "name": "写失败后原实例: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "写失败键重新获取: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "写失败键重新获取: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "多次重入混合失败为 busy",
+   "ok": true
+  },
+  {
+   "name": "多层外层 owner 保留",
+   "ok": false
+  },
+  {
+   "name": "本次新建目录清理",
+   "ok": true
+  },
+  {
+   "name": "新建键内存回滚: 真实 owner",
+   "ok": false
+  },
+  {
+   "name": "新建键内存回滚: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "新建键跨实例再用: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "新建键跨实例再用: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "释放内层后 rival 仍 busy",
+   "ok": false
+  },
+  {
+   "name": "所有真实外层释放: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "所有真实外层释放: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "多层后原实例: 真实 owner",
+   "ok": false
+  },
+  {
+   "name": "多层后原实例: 释放无残留",
+   "ok": true
+  },
+  {
+   "name": "release 保留其它 token 的 owner",
+   "ok": true
+  },
+  {
+   "name": "替换 token 后原实例: 真实 owner",
+   "ok": true
+  },
+  {
+   "name": "替换 token 后原实例: 释放无残留",
+   "ok": true
+  }
+ ]
+}

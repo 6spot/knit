@@ -7,8 +7,8 @@
  * 文件版实现保留在 validation/metadata-storage/fixture/ 作为比较夹具，不参与产品。
  */
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { enforcePrivateDatabase, ensurePrivateDir } from "./private-mode.js";
 import type {
   DeterministicOperation,
   OperationState,
@@ -44,8 +44,10 @@ export class SqliteMetadataStore implements MetadataStore {
       this.db = new DatabaseSync(databasePath, { readOnly: true, timeout: options.timeoutMs ?? 2_000 });
       return;
     }
-    mkdirSync(dirname(databasePath), { recursive: true });
+    // 运行目录与数据库及其 sidecar 保持本用户私有：目录 0700、文件 0600（任务040）。
+    ensurePrivateDir(dirname(databasePath));
     this.db = new DatabaseSync(databasePath, { timeout: options.timeoutMs ?? 2_000 });
+    enforcePrivateDatabase(databasePath);
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA synchronous=NORMAL");
     this.db.exec(`

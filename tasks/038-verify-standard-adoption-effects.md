@@ -44,4 +44,10 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/application/standards-service.ts`：`alreadyApplied` 判定改为实际效果——正文含完整当前版本规则块且索引已链接目标才幂等返回；只有来源行不算回执。正文已含当前版本而索引缺失时只补索引不重复正文（不重写同内容正文）；候选同 ID 更新后旧规则块不匹配新版本 → 真正追加新规则。
+  - `src/application/delivery-service.ts`：`standardsGate` 改为按候选当前内容核对采纳效果（新增 `StandardsService.candidateRuleText`），只有来源行的正文不再通过收尾门。
+  - 测试：`test/standards.test.mjs` 新增恢复用例：索引回滚后重试补齐且正文不重复；完整成功重试幂等；候选同 ID v2 不假成功且正文／索引都体现新版本。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续两轮 224 项全过（Linux + Node v24.21.0）；审计探针 `adoption-index-recovery` 由 `alreadyApplied=true, indexRepaired=false` 变为 `alreadyApplied=false, indexRepaired=true`；`adoption-candidate-version` 由 `alreadyApplied=true, containsV2=false` 变为 `alreadyApplied=false, containsV2=true`。
+  - 设计同步：DESIGN §8.2、STATES §9–10、OPERATIONS 规范正文／索引更新的幂等与实际效果要求现与实现一致；保留人工改动的冲突处理（targetContainsRule 判定不破坏非本流程写入的正文）。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

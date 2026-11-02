@@ -44,4 +44,10 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/application/standards-service.ts`：apply 的目标解析由裸 `join(root, target)` 改为 `safeJoin(root, target)`——复用 paths.ts 已验证的边界策略：拒绝绝对路径／NUL／`..` 越界，用 realpath 核实目标与最近存在祖先未经符号链接逃出项目；临时文件与原子版本核实不变（同一 targetPath）。
+  - review 阶段沿用 `normalizeTargetPath` 的前置拒绝（非 standards/、候选目录、非 .md、段级 `..`）；本次修复补上的是“表面合法但父目录／目标本身是符号链接”的逃逸。
+  - 测试：`test/standards.test.mjs` 新增参数化边界用例：父目录链接、目标替换为链接、`..`、绝对路径四场景拒绝且项目外文件无变化；项目内正常采纳与重复采纳通过。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续两轮 219 项全过（Linux + Node v24.21.0；中间一次单例偶发见 B002）；审计探针 `standards-parent-symlink` 由 `applied=true, outsideChanged=true` 变为 `applied=false, outsideChanged=false, reason=symlink escapes project root`。
+  - 设计同步：DESIGN §14.1 与 ARCHITECTURE §6“规范目标必须位于项目内”现与实现一致。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

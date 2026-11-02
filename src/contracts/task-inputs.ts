@@ -54,6 +54,11 @@ export function inputsDigestOf(taskMarkdown: string): string {
   return sha256Text(withoutStatusFields(inputsRegionOf(taskMarkdown)));
 }
 
+/** 输入区去掉执行状态字段后的正文；有效身份与注入分节共用（任务031）。 */
+export function stripStatusFields(region: string): string {
+  return withoutStatusFields(region);
+}
+
 /**
  * 需求摘要不含 status／phase／outcome／branch：这些是执行状态与身份，
  * 阶段转移不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.6节）。

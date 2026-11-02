@@ -1,0 +1,23 @@
+{
+ "case": "F028-stage-boundary",
+ "total": 4,
+ "failed": 0,
+ "results": [
+  {
+   "name": "同分支匹配",
+   "ok": true
+  },
+  {
+   "name": "换分支后不匹配",
+   "ok": true
+  },
+  {
+   "name": "预期 null（advisory）不核对",
+   "ok": true
+  },
+  {
+   "name": "detached HEAD 不匹配任何分支",
+   "ok": true
+  }
+ ]
+}

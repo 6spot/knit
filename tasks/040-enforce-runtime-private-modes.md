@@ -44,4 +44,12 @@ mkdir(mode) 不会修正既有目录；SQLite 仓储未指定／修正数据库�
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - 新增 `src/infrastructure/private-mode.ts`：`ensurePrivateDir`（新建或收紧到 0700，失败报准确 io_error）、`enforcePrivateFile`（已有文件收紧 0600）、`ensurePrivateRuntimeRoot`（.knit/.runtime 及 .knit 逐级私有）、`enforcePrivateDatabase`（db＋-wal＋-shm 全部 0600）。
+  - `src/infrastructure/sqlite-metadata-store.ts`：可写打开时目录用 ensurePrivateDir（含已存在收紧），数据库创建后立即收紧 db／WAL／SHM；readOnly 打开不动文件权限。
+  - `src/application/initialization.ts`：运行目录用 ensurePrivateRuntimeRoot（修正既有 0755），并收紧 metadata.db（含 sidecar）、installation.json、init-manifest.json。
+  - 覆盖入口：仓储打开、初始化、重开（每次构造都核实）；权限失败抛 io_error 并保留资料，不宣称已落实私有模式。
+  - 测试：`test/infrastructure.test.mjs` 新增权限用例（umask 022 下）：新建目录／数据库、既有 0755 目录＋0644 数据库均收紧到 0700／0600，WAL 存在时同样 0600，重开不受影响。init 既有权限断言继续通过。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续多轮 227 项全过（Linux + Node v24.21.0；B002 偶发口径不变）；审计探针 `preexisting-runtime-permissions` 由 `runtimeMode=755, databaseMode=644, walMode=644` 变为 `700/600/600`。
+  - 设计同步：OPERATIONS §3“运行目录使用本用户私有权限（目录 0700、文件 0600）…快照、请求和原生记录不入 Git”现与实现一致。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

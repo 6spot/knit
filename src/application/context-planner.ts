@@ -8,20 +8,21 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
   newContextPlanId,
+  type AuthorizedStandardOutput,
   type ContextExclusion,
   type ContextPlan,
   type ContextSection,
   type ToolPolicy,
 } from "../contracts/context-plan.js";
 import type { SessionRole } from "../contracts/session.js";
-import { inputsDigestOf, inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
+import { inputsDigestOf, inputsRegionOf, progressRegionOf, stripStatusFields } from "../contracts/task-inputs.js";
 import { parseCandidates } from "../contracts/standards.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
-import { effectiveInputsDigest, formalStandardsDigest } from "./standards.js";
+import { effectiveIdentityDigest, formalStandardFiles, formalStandardsDigest } from "./standards.js";
 
 const TASK_FILE = "task.md";
 
@@ -37,6 +38,10 @@ export interface ContextPlanInput {
   dir: string;
   taskId: string;
   role: SessionRole;
+  /** 明确授权为成果的正式规范路径（.knit/standards/ 下，任务037）；空表示无授权。 */
+  authorizedStandardPaths?: string[];
+  /** 已冻结的授权成果（来自 run 请求）；给定时优先于磁盘当前内容（任务037）。 */
+  authorizedStandardContents?: AuthorizedStandardOutput[];
 }
 
 interface SectionInput {
@@ -49,6 +54,8 @@ interface SectionInput {
   countsTowardInputs: boolean;
   priority: number;
   mode: ContextSection["mode"];
+  /** 参与有效身份的正文；缺省用 content（任务031）。 */
+  identityContent?: string | null;
 }
 
 function toolPolicyFor(role: SessionRole): ToolPolicy {
@@ -119,8 +126,39 @@ export class ContextPlanner {
     const document = located.document;
     const taskRelative = projectPath(root, join(located.dir, TASK_FILE));
     const rawText = located.raw.toString("utf8");
+    // 明确授权的规范成果：只接受 .knit/standards/ 下的正式规范文件；
+    // 旧内容冻结为输入分节，新内容作为成果核查（任务037）。
+    // 接收／恢复传入已冻结 outputs 时按请求快照重建，不读磁盘当前内容。
+    const authorizedStandardPaths = [...new Set(input.authorizedStandardPaths ?? [])].sort();
+    const preFrozen = new Map((input.authorizedStandardContents ?? []).map((output) => [output.path, output]));
+    const authorizedOutputs: AuthorizedStandardOutput[] = [];
+    for (const relativePath of authorizedStandardPaths) {
+      if (!relativePath.startsWith(".knit/standards/") || relativePath.endsWith("/")) {
+        throw new GuardError("invalid_request", `授权规范成果必须位于 .knit/standards/: ${relativePath}`);
+      }
+      const relativeInStandards = relativePath.slice(".knit/standards/".length);
+      if (relativeInStandards === "" || relativeInStandards.startsWith("candidates/") || relativeInStandards.includes("..")) {
+        throw new GuardError("invalid_request", `授权规范成果不能指向候选或越界路径: ${relativePath}`);
+      }
+      const preFrozenOutput = preFrozen.get(relativePath);
+      if (preFrozenOutput !== undefined) {
+        authorizedOutputs.push(preFrozenOutput);
+        continue;
+      }
+      const oldContent = readText(join(root, relativePath));
+      if (oldContent === null) {
+        throw new GuardError("unknown_target", `授权规范成果不存在: ${relativePath}`);
+      }
+      authorizedOutputs.push({ path: relativePath, frozenDigest: sha256Text(oldContent), frozenContent: oldContent });
+    }
     const inputsDigest = inputsDigestOf(rawText);
-    const standardsDigest = formalStandardsDigest(root);
+    // 授权成果的正式规范按冻结旧版本参与摘要：新内容是成果，不使需求身份变化（任务037）。
+    const frozenOverrides = new Map(authorizedOutputs.map((output) => [output.path, output.frozenDigest]));
+    const standardsDigest = sha256Text(
+      formalStandardFiles(root)
+        .map((file) => `${file.path}\u0000${frozenOverrides.get(file.path) ?? file.digest}`)
+        .join("\n"),
+    );
     const sections: SectionInput[] = [];
     const excluded: ContextExclusion[] = [];
 
@@ -135,6 +173,8 @@ export class ContextPlanner {
       countsTowardInputs: true,
       priority: 10,
       mode: "system",
+      /** 有效身份不含执行状态字段：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.6，任务031）。 */
+      identityContent: stripStatusFields(inputsBody),
     });
 
     const workflow = readText(join(root, ".knit", "workflow.md"));
@@ -194,15 +234,33 @@ export class ContextPlanner {
     }
 
     // 正式规范：.knit/standards 下（排除 candidates/）全部 .md，按路径排序。
+    // 授权成果的规范以冻结旧内容作输入分节，并从当前规范读取中排除（任务037）。
     const standardsRoot = safeJoin(join(root, ".knit"), "standards");
     for (const [index, relativePath] of markdownFiles(standardsRoot).entries()) {
       if (relativePath === "candidates" || relativePath.startsWith("candidates/")) continue;
+      const sectionPath = `.knit/standards/${relativePath}`;
+      const authorized = authorizedOutputs.find((output) => output.path === sectionPath);
+      if (authorized !== undefined) {
+        sections.push({
+          sourceId: `standard-frozen:${relativePath}`,
+          kind: "standard",
+          path: sectionPath,
+          content: authorized.frozenContent,
+          required: true,
+          background: false,
+          countsTowardInputs: true,
+          priority: 50 + index,
+          mode: "resource",
+          identityContent: authorized.frozenContent,
+        });
+        continue;
+      }
       const content = readText(join(root, ".knit", "standards", relativePath));
       if (content === null) continue;
       sections.push({
         sourceId: `standard:${relativePath}`,
         kind: "standard",
-        path: `.knit/standards/${relativePath}`,
+        path: sectionPath,
         content,
         required: true,
         background: false,
@@ -303,7 +361,16 @@ export class ContextPlanner {
       role: input.role,
       inputsDigest,
       standardsDigest,
-      effectiveInputsDigest: effectiveInputsDigest(inputsDigest, standardsDigest),
+      // 整体身份覆盖全部 countsTowardInputs 分节：工作流、角色、运行指令变化同样使旧凭据过期（任务031）。
+      // task-inputs 分节用去状态正文参与身份：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.6）。
+      effectiveInputsDigest: effectiveIdentityDigest(
+        inputsDigest,
+        standardsDigest,
+        resolved.filter((section) => section.countsTowardInputs).map((section) => ({
+          sourceId: section.sourceId,
+          digest: section.kind === "task-inputs" ? sha256Text(stripStatusFields(inputsBody)) : section.digest,
+        })),
+      ),
       taskDocumentDigest: sha256Bytes(located.raw),
       sections: resolved,
       excluded,
@@ -311,6 +378,7 @@ export class ContextPlanner {
       ready: blockers.length === 0,
       blockers,
       toolPolicy: toolPolicyFor(input.role),
+      authorizedStandardOutputs: authorizedOutputs,
     };
   }
 }

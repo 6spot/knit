@@ -1,0 +1,51 @@
+{
+ "case": "F027-fingerprint",
+ "total": 11,
+ "failed": 0,
+ "results": [
+  {
+   "name": "mergeScope 采样带 factsKind=file",
+   "ok": true
+  },
+  {
+   "name": "mergeScope 采样带 mode",
+   "ok": true
+  },
+  {
+   "name": "外部编辑后检测到漂移",
+   "ok": true
+  },
+  {
+   "name": "还原字节后恢复一致",
+   "ok": true
+  },
+  {
+   "name": "chmod 后检测到模式漂移",
+   "ok": true
+  },
+  {
+   "name": "还原模式后恢复一致",
+   "ok": true
+  },
+  {
+   "name": "符号链接条目 kind=link 且 digest 为目标字符串",
+   "ok": true
+  },
+  {
+   "name": "符号链接目标变化检测到漂移",
+   "ok": true
+  },
+  {
+   "name": "旧条目内容一致时仍通过",
+   "ok": true
+  },
+  {
+   "name": "旧条目 chmod 不追溯失效（兼容语义）",
+   "ok": true
+  },
+  {
+   "name": "路径删除检测到漂移",
+   "ok": true
+  }
+ ]
+}

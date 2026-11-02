@@ -7,13 +7,15 @@ import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CheckFile, RunRequestFile, RunResultFile, ScopeFile } from "../contracts/run.js";
+import type { CheckFile, RunRequestFile, RunResultFile, ScopeFile, StageReport } from "../contracts/run.js";
+import type { ContextPlan } from "../contracts/context-plan.js";
 import type { AcceptanceJournal, AcceptanceState } from "../contracts/acceptance.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import { parseTaskDocument, renderTaskDocument } from "./task-document.js";
 import { inputsDigestOf } from "../contracts/task-inputs.js";
 import { locateTaskDocument } from "./task-service.js";
-import { currentEntry, loadScope, mergeScope, scopeDigest } from "./scope.js";
+import { entryDrifts, loadScope, mergeScope, scopeDigest, scopeEntriesCurrent } from "./scope.js";
+import { currentBranch } from "./delivery.js";
 import { ContextPlanner } from "./context-planner.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { onCheckAccepted, onImplementationAccepted, type TaskFacts } from "../domain/task.js";
@@ -176,6 +178,9 @@ export class RunAcceptanceService {
       dir: root,
       taskId: request.taskId,
       role,
+      // 授权规范成果以冻结旧版本参与输入身份；新内容按成果核查（任务037）。
+      authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
+      authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
     });
     if (
       plan.inputsDigest !== inputs.inputsDigest ||
@@ -186,6 +191,13 @@ export class RunAcceptanceService {
     }
     if (document.frontmatter.branch !== request.expected.branch) {
       return this.attention(operationId, request, "branch_changed", result);
+    }
+    // 结果接收前核对实际检出分支；结果待接收期间换分支不接收（任务028）。
+    if (request.phase !== "advisory" && request.expected.branch !== null) {
+      const liveBranch = currentBranch(root);
+      if (liveBranch !== request.expected.branch) {
+        return this.attention(operationId, request, "branch_changed", result);
+      }
     }
 
     const scope = loadScope(runs, request.taskId, this.now().toISOString());
@@ -203,7 +215,33 @@ export class RunAcceptanceService {
       pendingKind: binding.pendingDraft === null ? null : binding.pendingDraft.kind,
     };
     if (facts.pendingKind !== null) return this.attention(operationId, request, "pending_inputs", result);
+    // 草案在运行期间保存或撤回后，任务锁定由本接收持有；接收继续按冻结输入收敛（任务029）。
+    const acceptTaskLock = await this.locks.acquire({
+      keys: [{ scope: "task", rawKey: `${root}::${request.taskId}` }],
+      action: "run.accept.stage",
+    });
+    try {
+    return await this.acceptStageLocked(root, runs, request, result, operationId, located, document, binding, inputs, plan, facts, scope, report);
+    } finally {
+      this.locks.release(acceptTaskLock);
+    }
+  }
 
+  private async acceptStageLocked(
+    root: string,
+    runs: RunStore,
+    request: RunRequestFile,
+    result: RunResultFile,
+    operationId: string,
+    located: ReturnType<typeof locateTaskDocument>,
+    document: ReturnType<typeof parseTaskDocument>,
+    binding: TaskBinding,
+    inputs: { inputsDigest: string; standardsDigest: string; effectiveInputsDigest: string },
+    plan: ContextPlan,
+    facts: TaskFacts,
+    scope: ScopeFile,
+    report: StageReport,
+  ): Promise<AcceptanceResult> {
     // 已有检查点时先重核输入与规范，再按记录收敛；不重新执行阶段。
     const existingJournal = runs.readAcceptanceJournal(request.runId);
     if (existingJournal !== null) {
@@ -232,11 +270,9 @@ export class RunAcceptanceService {
         return this.attention(operationId, request, "changed_paths_mismatch", result);
       }
       if (result.actualEntries !== undefined) {
+        // 接收前按当前事实重核发布时指纹：路径、类型、模式和内容，检查窗口的改动不接收（STATES.md 第8节，任务027）。
         for (const entry of result.actualEntries) {
-          const current = currentEntry(root, entry.path);
-          if (current.absent !== entry.absent || current.digest !== entry.digest) {
-            return this.attention(operationId, request, "scope_changed", result);
-          }
+          if (entryDrifts(root, entry)) return this.attention(operationId, request, "scope_changed", result);
         }
       }
       const nextScope = mergeScope(scope, {
@@ -306,6 +342,10 @@ export class RunAcceptanceService {
     }
     if (!("phase" in transition)) return this.attention(operationId, request, "transition_invalid", result);
 
+    // 检查接收前按当前事实重核 scope 路径；检查者改动成果文件时结果不接收（STATES.md 第8节）。
+    if (!scopeEntriesCurrent(root, scope.entries)) {
+      return this.attention(operationId, request, "scope_changed", result);
+    }
     const check: CheckFile = {
       schemaVersion: 1,
       taskId: request.taskId,
@@ -394,6 +434,25 @@ export class RunAcceptanceService {
    * 不覆盖后来 Task 变更，不把部分写入当成功。
    */
   private async applyJournal(
+    root: string,
+    runs: RunStore,
+    request: RunRequestFile,
+    result: RunResultFile,
+    journal: AcceptanceJournal,
+  ): Promise<AcceptanceResult> {
+    // 接收写 Task／binding 前加任务短锁：与草案保存／撤回互斥，不丢失草案、不覆盖 task.md（任务029）。
+    const taskLock = await this.locks.acquire({
+      keys: [{ scope: "task", rawKey: `${root}::${request.taskId}` }],
+      action: "run.accept.stage",
+    });
+    try {
+    return await this.applyJournalLocked(root, runs, request, result, journal);
+    } finally {
+      this.locks.release(taskLock);
+    }
+  }
+
+  private async applyJournalLocked(
     root: string,
     runs: RunStore,
     request: RunRequestFile,

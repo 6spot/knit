@@ -44,4 +44,13 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - 新增 `src/contracts/credentials.ts`：共用凭据扫描——常见 token／私钥模式（PEM 私钥头尾、AWS/GitHub/GitLab/Slack/OpenAI/Anthropic/Google key、JWT、通用 secret 赋值）；命中只报告类型、行号与模式摘录（≤16 字符），不返回完整敏感值。
+  - `src/application/task-service.ts`：任务创建（标题进正文）、记录追加、输入直接更新、草案应用四处写前扫描；命中抛 `credential_scan_hit`（TaskGuardError），副作用不发发布。
+  - `src/application/standards-service.ts`：候选写入（candidates 文件）与采纳写入（正式规范目标文件）写前扫描。
+  - `src/application/delivery-service.ts`：prepare 中先于检查资格重核对拟提交路径（任务目录＋scope＋规范目标）的当前内容扫描，命中即拒绝交付，不创建操作与提交；错误消息只含路径与类型＠行号。
+  - 配置写入入口：当前 Knit 自身不写用户 config.json（只读解析）；init 模板为固定内容不含用户输入，无需扫描点；待写内容扫描覆盖任务、规范与提交边界，与 DESIGN §5.6 列举一致。
+  - 测试：`test/task.test.mjs` 新增记录／输入更新命中拒绝、不回显完整值、无命中正常写入；`test/delivery.test.mjs` 新增限定提交命中拒绝、无交付提交、恢复后可交付。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 218 项全过（Linux + Node v24.21.0，另见 B002 偶发口径）；审计探针 `synthetic-credential-boundaries` 更新为双向断言：taskWritten=false/taskRejected=credential_scan_hit、deliveryState=null/deliveryRejected=credential_scan_hit（原探针脚本只断言旧行为，随审计工具同步更新）。
+  - 设计同步：DESIGN §5.6“Knit 写入任务、规范或配置前，以及限定路径提交前，扫描待写内容……命中时暂停并只报告类型和位置”现与实现一致；扫描不构成无泄露证明的定位保留。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

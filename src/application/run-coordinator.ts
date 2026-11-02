@@ -26,6 +26,7 @@ import { ContextPlanner } from "./context-planner.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
 import { loadScope, scopeDigest } from "./scope.js";
+import { currentBranch } from "./delivery.js";
 import { parseConfig, defaultConfig } from "./config.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -60,6 +61,8 @@ export interface PrepareInput {
   diagnostics?: boolean;
   /** 实施阶段显式开启新修复周期（用户授权）；仅 implement 可用。 */
   newRepairCycle?: boolean;
+  /** 明确授权为成果的正式规范路径（.knit/standards/ 下，任务037）。 */
+  authorizedStandardPaths?: string[];
 }
 
 export interface RunStatusProjection {
@@ -158,6 +161,19 @@ export class RunCoordinator {
     }
     const binding = await this.store.bindings.get(input.taskId);
     if (binding === null) throw new GuardError("unknown_binding", `任务缺少绑定: ${input.taskId}`);
+    // 运行边界核对实际检出分支：与任务绑定和 request 三方一致才准启动（任务028）。
+    if (input.phase !== "advisory" && located.document.frontmatter.branch !== null) {
+      const liveBranch = currentBranch(root);
+      if (liveBranch === null) {
+        throw new GuardError("branch_mismatch", "当前处于 detached HEAD，不能启动绑定分支的阶段");
+      }
+      if (liveBranch !== located.document.frontmatter.branch || liveBranch !== binding.branch) {
+        throw new GuardError(
+          "branch_mismatch",
+          `当前检出分支 ${liveBranch} 与任务绑定不一致；按 task adopt 接管或切回 ${located.document.frontmatter.branch}`,
+        );
+      }
+    }
     if (binding.pendingDraft !== null) {
       throw new GuardError("pending_inputs", "存在待应用输入，先应用或撤回再启动代码阶段");
     }
@@ -179,7 +195,7 @@ export class RunCoordinator {
       throw new GuardError("invalid_request", "只有实施阶段可以开启修复周期");
     }
     const role = input.phase === "advisory" ? "advisory" : input.phase;
-    const plan = await this.planner.plan({ dir: root, taskId: input.taskId, role });
+    const plan = await this.planner.plan({ dir: root, taskId: input.taskId, role, authorizedStandardPaths: input.authorizedStandardPaths });
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
@@ -207,6 +223,7 @@ export class RunCoordinator {
         effectiveInputsDigest: plan.effectiveInputsDigest,
         planId: plan.planId,
         scopeDigest: input.phase === "check" ? scopeDigest(loadScope(runs, input.taskId, createdAt).entries) : null,
+        authorizedStandardOutputs: plan.authorizedStandardOutputs,
       },
       model: input.model,
       toolPolicy: plan.toolPolicy,

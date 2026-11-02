@@ -71,6 +71,18 @@ export const ToolPolicySchema = Type.Object(
 );
 export type ToolPolicy = Static<typeof ToolPolicySchema>;
 
+/** 明确授权为成果的正式规范：路径与冻结旧版本摘要（任务037）。 */
+export const AuthorizedStandardOutputSchema = Type.Object(
+  {
+    path: Type.String({ minLength: 1 }),
+    frozenDigest: Type.String({ minLength: 1 }),
+    /** 冻结的旧版本内容；计划内复核与接收按此重建授权分节（任务037）。 */
+    frozenContent: Type.String(),
+  },
+  { additionalProperties: false },
+);
+export type AuthorizedStandardOutput = Static<typeof AuthorizedStandardOutputSchema>;
+
 export const ContextPlanSchema = Type.Object(
   {
     planId: Type.String({ minLength: 1, pattern: "^ctx-[0-9a-f]{12}$" }),
@@ -91,6 +103,8 @@ export const ContextPlanSchema = Type.Object(
     ready: Type.Boolean(),
     blockers: Type.Array(Type.String({ minLength: 1 })),
     toolPolicy: ToolPolicySchema,
+    /** 本任务明确授权为成果的正式规范及冻结旧版本；空表示无授权（任务037）。 */
+    authorizedStandardOutputs: Type.Array(AuthorizedStandardOutputSchema),
   },
   { additionalProperties: false },
 );

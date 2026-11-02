@@ -50,3 +50,36 @@
 - 参考选项与影响：提供 macOS 机器／runner 可补齐实测；仅 Linux 候选可先形成单平台预览，但不能宣称 macOS 兼容；延期不阻塞 Linux 证据保留。
 - 用户决定及来源：用户于 2026-11-02 明确“目前就以 Linux 通过为准，记录 macOS 后续验证”；接受首版候选仅声明 Linux，macOS 后续补测，不阻塞 025／026 的 Linux 发布就绪结论。
 - 恢复与验证：macOS 后续实测后回填任务025矩阵和证据，再更新跨平台声明；当前 Linux 候选按用户范围通过。
+
+## B002 全量并行测试偶发单例失败（负载型，非功能回归）
+
+- 关联任务：027（实施中发现）、029、031；下游影响 043 复验的判定口径。
+- 问题与证据：`node --test test/*.test.mjs` 多进程并行全量时，个别真实 worker 子进程用例（implement→check 独立会话、心跳丢失、运行边界等）偶发超时或断言失败，失败项每轮不同；同一提交单跑该文件或连续多轮全量大多 100% 通过。2026-11-02 在基线（未含 027–031 修复，git stash 对照）同样复现 `test/stage.test.mjs` 单例失败 1 次，证明与本次改动无关。
+- 已尝试：单跑失败用例均通过；连续 4 轮全量全过；基线对照仍偶发。未修改测试超时或并行度，保持既有口径。
+- 尚不能完成：将"全量并行零偶发"作为每轮验收的确定性标准；需定位是并行负载（fake-pi 子进程延迟 × 多用例同时启动）导致 waitTerminal 15s 边界偶发超时，还是用例间隔离问题。
+- 仍可继续：027–031 修复由单文件复跑、连续多轮全量与审计探针验证；各任务验收以"连续两轮全量通过 + 单跑失败用例通过 + 探针复核"为准。
+- 伪代码／暂定接口：无需代码占位。若 043 复验再命中，可考虑放大 `waitTerminal` 超时或显式降低 `node --test` 并行度；属测试基础设施调整，不改业务语义。
+- 待用户决定：是否接受"偶发单例失败不阻塞修复验收，由 043 汇总观察"的口径；或要求先做测试并行度调整。
+- 参考选项与影响：接受口径——修复推进不被测试基础设施波动阻塞；调整并行度——增加独立改动并需单独验证；串行全量——时间成本高。
+- 用户决定及来源：尚未决定；按 AGENTS.md 既有授权默认采用"接受口径、043 汇总观察"。
+- 恢复与验证：043 独立复验时统计全量通过率与失败项分布；若同一用例反复失败则升级为确定缺陷另行登记。
+
+## B003（已修复，053待主 Agent 复核）029 锁混合重入失败回滚误删外层占用
+
+- 关联任务：029（修复引入的实现缺口）、043（复验发现）、[053](tasks/053-lock-reentry-rollback.md)（授权修复）；下游影响：任何未来在同实例内混合重入键与新建键的 acquire 调用。
+- 发现时问题与历史证据：修复前 `src/infrastructure/locks.ts` 的 `rollbackAcquire` 只按 owner 文件 token 匹配删除，不查 `heldBySelf` 重入计数。同一实例已持键 K（外层）时，`acquire({ keys: [K, 其他键], action 与外层相同 })` 中 K 计数 +1，其他键失败触发回滚会把 K 的锁目录整个删除。隔离探针实测（`validation/audit-fix-verification/lock-reentry.mjs`，委派053前重跑为14断言中2失败；后果探针 `lock-reentry-consequence.mjs`）：回滚后 `inspect(K).owner === null`，rival 实例可立即抢占该键，本实例重入仍自认持有（计数残留）。旧记录声称后续 release 链会误删 rival owner，未复现，已撤回该已确认后果表述；053已通过 token 保护回归。旧主探针场景间残留已由053修正隔离，并真实命中 owner 写失败。
+- 现实触发面：当前产品代码中重入 acquire 均为单键调用（run-acceptance.ts 的 `run.accept.stage`、task-service 草案锁）；`orderKeys` 混合 [project, task] 的调用彼此 action 不同，不构成同键重入。因此当前主流程不可达，不推翻 029 修复与 043 复验结论，但破坏"跨实例仍互斥"承诺。
+- 已尝试与结果（053，2026-11-02）：按本次实际完成步骤记录 `reentered`／`created`；mkdir 成功立即登记；失败逆序撤销重入引用、清理本次匹配内存持有记录与 token 允许删除的目录。新建 count=1 不会被当作既有重入跳过。
+- 修复状态：053实施及规定验证已完成，B003已修复并经主 Agent 代码与证据复核通过；不扩大公共 API、owner 协议或成功路径 token 契约。M2中针对B003的临时混合重入限制已移除。
+- 验证证据：新增核心回归修复前7项中4失败，修复后 typecheck/build通过、基础设施31/31、全量236/236（0跳过，本轮未出现B002）、`git diff --check`通过；隔离主探针47/47、后果探针8/8通过。mkdir 后 owner 写失败真实命中且原错误透传；外层 owner 不变、rival busy、真实外层释放后可重获，以及其它 token owner 不被 release 删除均已核验。原始日志保存在 `validation/audit-fix-verification/053/`；历史043验收报告不改写。
+- 用户决定及来源：2026-11-02 本会话用户明确“重新创建一个新的任务，也就是44号……写清楚要怎么做……让其他的agent去改”；由独立 worker Agent 实施，主 Agent 复核。
+- 后续独立缺口：成功混合申请时的新键先行多 token 问题另记 B004；它不属于本次失败回滚修复。
+
+## B004 成功混合申请中新键先行导致单 token 句柄无法释放所有重入引用
+
+- 来源与关联：053实施期间隔离复现；涉及 `src/infrastructure/locks.ts` 的 `acquire` 返回单 `token` 与 `release` 按该 token 撤引用。按053“另一个公共契约缺陷先记录、不扩大范围”的边界交接，未改成功路径策略或公共 API，未自行创建后续开发任务。
+- 根因与证据：同实例先持 `project:/tmp/z-held`（action=`same`），再成功调用 `acquire({keys: orderKeys([heldKey, project:/tmp/a-new]), action: 'same'})`。新键先创建并决定返回 token，后续重入的既有键保留原 token。隔离实测 `returnedTokenMatchesOuter=false`、`ownerTokensDiffer=true`；依次 `release(mixed)` 和 `release(outer)` 后 `newKeyRemains=false`、`heldKeyRemainsAfterAllRealReleases=true`。两键同为 project scope，不依赖跨 scope 逆序获取。完整最小复现见053实施记录。
+- 影响：该成功调用的混合句柄不能代表所有键的 token，真实句柄全部释放后仍留原键引用。失败调用回滚由053逐步骤记录正确撤销；B003闭合不等同解决此成功路径问题。当前产品同动作重入仍为单键路径，未证实主流程可触达。
+- 尚待处理：选定同一次成功申请的 token 归并／拒绝策略，或调整每键持有凭据契约；需补新键先行、多个既有不同 token 与正常 heartbeat/release 的验收。本轮仅保留证据，不自行选方案。
+- 伪代码／暂定接口：`held A(token1); acquire([new B, A]) -> {token2, keys:[B,A]}; release(handle) -> releases B but not A reference; release(outer) -> A count remains 1`。后续实现须令成功句柄能对称撤销每个实际获取步骤，并同步 heartbeat／release，不可只改失败回滚。
+- 待决定：安排独立修复范围；其它开发与053验收可继续。修复前不新增同动作混合键重入业务路径，避免引入已确认的成功释放缺口。

@@ -44,4 +44,11 @@ runtime 仅要求 sessionId 非空，未与恢复目标／预分配身份比较�
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/adapters/pi/runtime.ts`：start 在 get_state 后核对实际 sessionId 与预期（--session 恢复与 --session-id 预分配同要求）；不符返回新增的 `session_identity_mismatch`，不发 prompt。
+  - `src/application/stage-runner.ts`：prefer 恢复在 `session_identity_mismatch`／`connection_closed`／`no_session_state` 时沿原客户端新建：保持项目占用，释放旧会话锁并按新原生 ID 重新取得；新增 `rebuildSessionRecord`——新会话独立 knitSessionId、`source.kind=resume_fallback` 指向旧 knitSessionId，旧记录标 incompatible 保留引用；阶段／修复计数／scope 不重置（binding 不动）。模型配置错误不重试。
+  - 回退后取不到新会话锁则按 `session_lock_unavailable` 失败终止，不与其它 run 共用原生对象。
+  - 测试：`test/stage.test.mjs` 新增 prefer 回退用例：注入 runtimeFactory 模拟实际 ID 不符，断言先尝试恢复、旧记录 incompatible、新记录独立身份且来源可追溯、scope／scopeRunIds 保留、StageRunner 边界不代替接收。pi-runtime 既有恢复用例继续覆盖预分配 ID 一致路径。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 多轮 221 项（偶发单例失败为 B002 负载现象，单跑全过；基线对照已证与本次改动无关）。
+  - 设计同步：DESIGN §9.4 第3–5项与 STATES §7（恢复失败保持占用沿原客户端新建、来源记录、不重置阶段／修复／scope）现与实现一致；`getByKnitId` 查询不再有多原生对象共用稳定身份。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

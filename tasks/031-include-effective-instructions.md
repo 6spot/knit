@@ -44,4 +44,12 @@ workflow、role、runtime 分节带摘要并标 countsTowardInputs，但 effecti
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/application/standards.ts`：新增 `effectiveIdentityDigest`——任务输入、正式规范与全部 countsTowardInputs 生效分节按 sourceId+digest 排序后取整体 SHA-256；原 `effectiveInputsDigest` 保留供外部两参调用。
+  - `src/application/context-planner.ts`：plan 返回的 `effectiveInputsDigest` 改用 `effectiveIdentityDigest`，覆盖工作流、所用角色、运行指令、正式规范与任务输入；task-inputs 分节用去状态正文（`stripStatusFields`）参与身份，阶段转移／交付收尾的 frontmatter 状态变化不使刚通过的检查立即 stale（DESIGN §3.6）；progress／候选／草案仍为 background 不参与。
+  - `src/contracts/task-inputs.ts`：导出 `stripStatusFields`（withoutStatusFields 的公共别名）。
+  - 交付与接收边界的核对点（`validCheck`、worker 冻结、run 接收）已用同一摘要比较，无需额外改动：指令变化自动使旧凭据过期；`taskDocumentDigest` 与分节 digest 继续支撑恢复时的指令更新核对。
+  - 测试：`test/standards.test.mjs` 新增“生效指令变化纳入检查身份”：check 角色变更使整体身份变而需求摘要不变；改回恢复；工作流变更同样纳入；纯进展记录不影响。既有“候选／记录不变”断言继续成立。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续多轮 216 项全过（中间偶发单例失败为既有负载型现象，见 BLOCKERS.md B002，基线对照复现）；审计探针 `role-instructions-digest.effectiveDigestChanged` 由 false 变 true。
+  - 设计同步：DESIGN §5.3/§8.1 与 ARCHITECTURE 上下文计划的“生效清单”身份现与实现一致。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

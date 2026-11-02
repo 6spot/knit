@@ -62,7 +62,11 @@ export type TaskTransitionResult = TaskTransition | ({ allowed: false; reason: T
 
 const OPEN = (phase: TaskPhase): TaskTransition => ({ status: "open", phase, outcome: null });
 
-/** 拒绝已结束任务再走常规业务转移；取消／替代保留停止位置，completed 归档不自动重开。 */
+/**
+ * 已结束任务的常规业务转移守卫。
+ * 取消／替代不可隐式重开；completed 按 DESIGN §3.6 允许输入更新重新打开（是否完整归档由调用方核实），
+ * 其余事件（ready、实施、检查、交付、关闭）不作用于已结束任务。
+ */
 function closedGuard(task: TaskFacts): Decision<TaskGuardReason> {
   if (task.status === "open") return { allowed: true };
   switch (task.outcome) {
@@ -78,17 +82,36 @@ function closedGuard(task: TaskFacts): Decision<TaskGuardReason> {
   }
 }
 
+/** 输入更新专用的已结束守卫：未归档 completed 可重新打开；已归档与 cancelled/superseded 拒绝（任务036）。 */
+function inputsClosedGuard(task: TaskFacts, archived: boolean): Decision<TaskGuardReason> {
+  if (task.status === "open") return { allowed: true };
+  if (task.outcome === "completed" && archived === false) return { allowed: true };
+  const closed = closedGuard(task);
+  return closed.allowed ? { allowed: false, reason: "task_not_open" } : closed;
+}
+
 /** 待应用草案守卫：未应用或未明确撤回时阻止后续代码阶段与交付（DESIGN.md 第3.6节）。 */
 function pendingGuard(task: TaskFacts): Decision<TaskGuardReason> {
   return task.pendingKind === null ? { allowed: true } : { allowed: false, reason: "pending_draft_exists" };
 }
 
-/** 依次执行守卫，返回首个拒绝；全部通过返回 null。 */
+/** 依次执行守卫，返回首个拒绝；全部通过返回 null。仅用于 completed 一律拒绝的事件。 */
 function firstRefusal(task: TaskFacts): { allowed: false; reason: TaskGuardReason } | null {
   const closed = closedGuard(task);
   if (!closed.allowed) return closed;
   const pending = pendingGuard(task);
   if (!pending.allowed) return pending;
+  return null;
+}
+
+/** 输入更新守卫：未归档 completed 放宽为可重开；pending 由 onInputsUpdated 内部按上下文裁决（任务036）。 */
+function inputsUpdateRefusal(task: TaskFacts, archived: boolean, applyPending = false): { allowed: false; reason: TaskGuardReason } | null {
+  const closed = inputsClosedGuard(task, archived);
+  if (!closed.allowed) return closed;
+  if (!applyPending) {
+    const pending = pendingGuard(task);
+    if (!pending.allowed) return pending;
+  }
   return null;
 }
 
@@ -99,8 +122,8 @@ function firstRefusal(task: TaskFacts): { allowed: false; reason: TaskGuardReaso
  * 摘要未变不迁移；deliver 的检查 stale 确定性回 open/check 并清 completed。
  * change：新增、删除或改变目标、条件、范围、业务约束——回 open/discuss。
  */
-export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged: boolean): TaskTransitionResult {
-  const refusal = firstRefusal(task);
+export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived = false): TaskTransitionResult {
+  const refusal = inputsUpdateRefusal(task, archived);
   if (refusal) return refusal;
   if (kind === "change") return OPEN("discuss");
   if (!digestChanged) return OPEN(task.phase);
@@ -111,10 +134,10 @@ export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged
  * PendingApplied／PendingWithdrawn：按草案保存的 kind 应用（STATES.md 第3节）。
  * 应用是待应用草案的解决路径，不受草案守卫拦截；摘要与基线匹配由调用方核对。
  */
-export function onPendingResolved(task: TaskFacts, kind: UpdateKind, digestChanged: boolean): TaskTransitionResult {
-  const closed = closedGuard(task);
-  if (!closed.allowed) return closed;
-  return onInputsUpdated({ ...task, pendingKind: null }, kind, digestChanged);
+export function onPendingResolved(task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived = false): TaskTransitionResult {
+  const refusal = inputsUpdateRefusal(task, archived, true);
+  if (refusal) return refusal;
+  return onInputsUpdated({ ...task, pendingKind: null }, kind, digestChanged, archived);
 }
 
 /** DiscussionConfirmed（task ready）：discuss → implement，保存确认输入引用由调用方负责。 */

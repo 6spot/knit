@@ -5,7 +5,7 @@
  * 动作／run、机器／启动标识、PID 与进程开始时间；心跳原子更新；释放核对 token。
  * 只读查询（status/doctor/init --check）不建目录——检查入口是 inspect。
  * 不跨机、不对心跳超时强解；强解是显式风险操作（unlock 命令层处理）。
- * acquire 任一键失败按本次 token 回滚，含本次建立而 owner 未落盘的目录（不留无 owner 残留）；
+ * acquire 任一键失败逆序撤销本次重入引用和新建资源，含 owner 未落盘的目录；
  * unlock --force 可清除「目录在而 owner 不可核实」的残留，正常 token 校验路径不变。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statfsSync, statSync } from "node:fs";
@@ -115,10 +115,27 @@ export interface LockManagerOptions {
   now?: () => Date;
 }
 
+interface HeldLock {
+  token: string;
+  ownerVersion: string;
+  action: string;
+  count: number;
+}
+
+type AcquireUndo =
+  | { kind: "reentered"; heldKey: string; held: HeldLock }
+  | { kind: "created"; heldKey: string; dir: string; token: string; held?: HeldLock };
+
 export class LockManager {
   private readonly root: string;
   private readonly identity: ProcessIdentity;
   private readonly now: () => Date;
+  /** 本实例已持键的引用计数重入记录（任务029）：同实例串行栈可重入，跨实例仍互斥。 */
+  private readonly heldBySelf = new Map<string, HeldLock>();
+
+  private heldKey(key: LockKey): string {
+    return `${key.scope}\u0000${hashKey(key.rawKey)}`;
+  }
 
   constructor(options: LockManagerOptions = {}) {
     this.root = options.root ?? join(homedir(), ".knit", "locks");
@@ -136,7 +153,7 @@ export class LockManager {
 
   /**
    * 依次取得全部键：目录 0700，owner.json 0600 原子写。
-   * 任一键失败时按本次 token 释放已取得的锁（OPERATIONS：多锁失败按 token 释放）。
+   * 任一键失败逆序撤销本次新增引用与资源；删除目录时核对对应 token。
    * 固定顺序由调用方给定数组顺序决定；同类多键先排序再传入由调用方负责（本模块按给定顺序）。
    */
   /** acquire 前建立私有锁根并拒绝已知远程文件系统；只读 inspect 不调用。 */
@@ -163,21 +180,37 @@ export class LockManager {
     if (request.keys.length === 0) {
       throw new InfrastructureError("lock_busy", "no lock keys requested");
     }
-    const token = randomUUID();
+    let token: string | null = null;
     const startedAt = this.now().toISOString();
     const ownerPaths: string[] = [];
     const ownerVersions: string[] = [];
-    /** 本次 acquire 中由本 token mkdir 成功的目录；回滚时可整体删除。 */
-    const createdDirs: string[] = [];
+    /** 只记录本次实际完成的步骤；mkdir 后立即登记，覆盖 owner 写失败。 */
+    const undo: AcquireUndo[] = [];
     try {
       this.ensureRoot();
       for (const key of request.keys) {
         const dir = this.lockDir(key);
+        // 同实例已持同键且同一动作：串行栈重入（接收→检查点收敛），计数 +1；
+        // 不同动作视为竞争，仍 busy（任务029）。
+        const heldKey = this.heldKey(key);
+        const held = this.heldBySelf.get(heldKey);
+        if (held !== undefined && held.action === request.action) {
+          held.count += 1;
+          undo.push({ kind: "reentered", heldKey, held });
+          ownerPaths.push(join(dir, "owner.json"));
+          ownerVersions.push(held.ownerVersion);
+          if (token === null) token = held.token;
+          continue;
+        }
+        const created: Extract<AcquireUndo, { kind: "created" }> = {
+          kind: "created", heldKey, dir, token: token ?? randomUUID(),
+        };
         // mkdir 是占用原语：已存在即 busy；不在进程中等待旧工具。
         for (;;) {
           try {
             mkdirSync(dir, { recursive: false, mode: 0o700 });
-            createdDirs.push(dir);
+            token = created.token;
+            undo.push(created);
             break;
           } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
@@ -197,7 +230,7 @@ export class LockManager {
         }
         const owner: LockOwner = {
           protocol: OWNER_PROTOCOL,
-          token,
+          token: created.token,
           action: request.action,
           scope: key.scope,
           rawKey: key.rawKey,
@@ -211,12 +244,14 @@ export class LockManager {
         const written = this.writeOwner(ownerPath, owner);
         ownerPaths.push(ownerPath);
         ownerVersions.push(written.sha256);
+        created.held = { token: owner.token, ownerVersion: written.sha256, action: request.action, count: 1 };
+        this.heldBySelf.set(heldKey, created.held);
       }
     } catch (error) {
-      this.rollbackAcquire({ token, keys: request.keys, createdDirs });
+      this.rollbackAcquire(undo);
       throw error;
     }
-    return { token, keys: request.keys, ownerPaths, ownerVersions };
+    return { token: token as string, keys: request.keys, ownerPaths, ownerVersions };
   }
 
   /** owner 文件写入；单一入口，测试可注入 owner.json 写入失败。 */
@@ -225,24 +260,28 @@ export class LockManager {
   }
 
   /**
-   * acquire 失败回滚：本次 token 已写 owner 的键照常删除；本次建立而 owner
-   * 未落盘的目录（写入失败或进程两步间死亡）直接删除，不留无 owner 残留。
-   * 非本次建立的目录（含预先存在的残留）不动，不冒认他者占用。
+   * acquire 失败逆序撤销已完成步骤。既有锁只撤销本次重入的一份引用；
+   * 本次新建键清理匹配的内存记录与目录，owner 未落盘也覆盖；他者 token 不动。
    */
-  private rollbackAcquire(lock: { token: string; keys: LockKey[]; createdDirs: string[] }): void {
-    const created = new Set(lock.createdDirs);
-    for (const key of lock.keys) {
-      const dir = this.lockDir(key);
+  private rollbackAcquire(undo: AcquireUndo[]): void {
+    for (const entry of [...undo].reverse()) {
+      const held = this.heldBySelf.get(entry.heldKey);
+      if (entry.kind === "reentered") {
+        if (held === entry.held) held.count -= 1;
+        continue;
+      }
+      if (entry.held !== undefined && held === entry.held) {
+        this.heldBySelf.delete(entry.heldKey);
+      }
       let owner: LockOwner | null = null;
       try {
-        owner = JSON.parse(readFileSync(join(dir, "owner.json"), "utf8")) as LockOwner;
+        owner = JSON.parse(readFileSync(join(entry.dir, "owner.json"), "utf8")) as LockOwner;
       } catch {
         owner = null;
       }
-      if (owner !== null && owner.token !== lock.token) continue; // 他者占用，不释放
-      if (owner === null && !created.has(dir)) continue; // 非本次建立的目录，不动
+      if (owner !== null && owner.token !== entry.token) continue; // 他者占用，不释放
       try {
-        rmSync(dir, { recursive: true, force: true });
+        rmSync(entry.dir, { recursive: true, force: true });
       } catch {
         // 删除失败保留现场；不影响已抛出的原始错误
       }
@@ -389,6 +428,13 @@ export class LockManager {
   /** 释放：核对每个 owner 的 token；仅删除本次 token 写下的 owner 与目录。 */
   release(lock: { token: string; keys: LockKey[]; ownerPaths?: string[] }): void {
     for (const key of lock.keys) {
+      const heldKey = this.heldKey(key);
+      const held = this.heldBySelf.get(heldKey);
+      if (held !== undefined && held.token === lock.token) {
+        held.count -= 1;
+        if (held.count > 0) continue; // 嵌套占用仍有效，不删目录
+        this.heldBySelf.delete(heldKey);
+      }
       const dir = this.lockDir(key);
       const ownerPath = join(dir, "owner.json");
       if (!existsSync(ownerPath)) continue;

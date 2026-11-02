@@ -44,4 +44,16 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/infrastructure/fingerprint.ts`：`fileFacts` 改用 lstat，符号链接记 `link`（`mode` 存目标字符串，不追踪内容）；`listFiles` 同步；导出面不变。
+  - `src/application/scope.ts`：`currentEntry` 增加 `factsKind` 选项，新条目带类型与模式（目录按子项数、链接按目标、文件按字节+八进制模式）；新增 `entryDrifts`／`scopeEntriesCurrent` 按当前事实重核；无 `factsKind` 的旧记录按原语义仅核内容（stat 沿链接），升级不追溯失效。`mergeScope` 新条目均带事实字段。
+  - `src/contracts/run.ts`：`ScopeFileSchema.entries` 与 `RunResultFileSchema.actualEntries` 增加可选 `factsKind`／`mode`。
+  - `src/contracts/metadata.ts`：binding.scope 条目同步可选字段。
+  - `src/application/run-acceptance.ts`：检查接收前 `scopeEntriesCurrent` 重核，不符转 `scope_changed`；实施接收逐路径 `entryDrifts` 复核 `actualEntries`（类型、模式、内容、缺失）。
+  - `src/application/delivery-service.ts`：`validCheck` 在 scope 摘要一致后追加现场重核，不符拒绝 `check_stale`（“检查后成果路径现状与记录不符”）。
+  - `src/application/stage-runner.ts`：结果发布 `actualEntries` 带事实字段。
+  - 测试：`test/delivery.test.mjs` 夹具改用事实条目；新增“scope 现状重核”参数化测试（改字节／换链接／chmod／删除均拒，恢复后旧 pass 可用）；hook 改内容场景预期改为拒绝（旧 pass 不复用，与 027 语义一致）；`test/stage.test.mjs` 新增接收窗口外部改动转 `scope_changed` 且可恢复；`test/infrastructure.test.mjs` 补 fileFacts 链接／模式事实。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 全部通过（212 项，0 失败，Linux + Node v24.21.0）。交付守卫与接收窗口拒绝均由真实夹具验证；未涉及真实宿主条目。
+  - 设计同步：DESIGN §5.3 “指纹按版本化 SHA-256 规则保存路径、类型、模式和内容” 现与实现一致；scopeDigest 本身仍只冻结路径与内容摘要（检查凭据身份不变），模式／类型过期由逐路径重核拦截，不属本次偏差范围。
+  - 未竟事项：审计探针 `scope-mode-change.fingerprintChanged=false` 按上述分工保留（由重核拒绝而非摘要变化体现）；已由 delivery/stage 测试覆盖等价不变量。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

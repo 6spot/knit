@@ -21,6 +21,7 @@ import { RunAcceptanceService } from "../application/run-acceptance.js";
 import { StageRunner, type StageExecution } from "../application/stage-runner.js";
 import { SnapshotService } from "../application/snapshot.js";
 import { parseConfig } from "../application/config.js";
+import { currentBranch } from "../application/delivery.js";
 import { locateTaskDocument } from "../application/task-service.js";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 
@@ -197,13 +198,24 @@ async function main(): Promise<number> {
       return fail("phase_mismatch");
     }
     if (located.document.frontmatter.branch !== request.expected.branch) return fail("branch_mismatch");
+    // 执行副作用前核对实际检出分支；detached HEAD 同样拒绝（任务028）。
+    if (request.phase !== "advisory" && request.expected.branch !== null) {
+      const liveBranch = currentBranch(root);
+      if (liveBranch !== request.expected.branch) return fail("branch_mismatch");
+    }
     const binding = await metadata.bindings.get(request.taskId);
     if (binding === null) return fail("binding_missing");
     if (binding.pendingDraft !== null) return fail("pending_inputs");
 
     const planner = new ContextPlanner({ store: metadata });
     const role = request.phase === "advisory" ? "advisory" : request.phase;
-    const plan = await planner.plan({ dir: root, taskId: request.taskId, role });
+    const plan = await planner.plan({
+      dir: root,
+      taskId: request.taskId,
+      role,
+      authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
+      authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
+    });
     if (!plan.ready) return fail(`plan_not_ready:${plan.blockers.join(",")}`);
     if (
       plan.inputsDigest !== request.expected.inputsDigest ||

@@ -144,6 +144,10 @@ export const RunResultFileSchema = Type.Object(
             path: Type.String({ minLength: 1 }),
             digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             absent: Type.Boolean(),
+            /** 指纹种类；旧结果缺省视为 file，只核内容（任务027）。 */
+            factsKind: Type.Optional(Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("absent")])),
+            /** 八进制模式；目录／缺失为 null。 */
+            mode: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
           },
           { additionalProperties: false },
         ),
@@ -249,6 +253,19 @@ export const RunExpectationSchema = Type.Object(
     planId: Type.String({ minLength: 1 }),
     /** 检查启动时绑定的成果范围摘要；旧任务可为 null。 */
     scopeDigest: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+    /** 本任务明确授权为成果的正式规范及冻结旧版本；空表示无授权（任务037）。 */
+    authorizedStandardOutputs: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            path: Type.String({ minLength: 1 }),
+            frozenDigest: Type.String({ minLength: 1 }),
+            frozenContent: Type.String(),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -266,6 +283,10 @@ export const ScopeFileSchema = Type.Object(
           path: Type.String({ minLength: 1 }),
           digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
           absent: Type.Boolean(),
+          /** 指纹种类；旧记录缺省视为 file（DESIGN §5.3 类型核 smoked，任务027）。 */
+          factsKind: Type.Optional(Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("absent")])),
+          /** 八进制模式；目录／缺失为 null。 */
+          mode: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
         },
         { additionalProperties: false },
       ),

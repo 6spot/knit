@@ -44,4 +44,9 @@ status 枚举 archive 后不会继续递归年月目录下的任务，只检查�
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/application/status-service.ts`：`listTasks` 弃用自实现的逐层遍历（只展开一层 archive，不递归年月），改用统一的 `listTaskDirectories` 发现（活动 tasks/<name> 与归档 archive/<YYYY-MM>/<name>）；损坏任务不阻塞概览、重复 ID 如实按路径列出、不跟随符号链接（只认目录与 task.md）。
+  - 测试：`test/m1-cli.test.mjs` 新增按月归档用例：归档后项目概览列出且 archived=true、路径 tasks/archive/YYYY-MM/…；与 task list 归档列表、按 ID status（archived 字段）一致；非任务目录与损坏 task.md 不阻塞、不计入概览。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续两轮 228 项全过（Linux + Node v24.21.0）；审计探针 `archived-task-status` 由 `listedByStatus=false` 变为 `true`（与 listedByTasks 一致）。
+  - 设计同步：DESIGN §12 项目／任务状态查询与归档可追溯现与实现一致；概览路径契约 `tasks/archive/YYYY-MM/<name>` 与 task list 相同。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

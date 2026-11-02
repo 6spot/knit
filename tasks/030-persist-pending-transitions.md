@@ -44,4 +44,9 @@ applyPending 计算了 transition，却渲染仅合并正文的 merged，未把 
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/application/task-service.ts`：`applyPending` 把 `onPendingResolved` 允许的转移（status/phase/outcome）与合并后的输入正文一起渲染并原子写回 task.md（此前只写正文，frontmatter 转移丢失）；响应仅在写盘后返回，与磁盘一致；确认摘要、草案清除与断点重试语义不变。
+  - 测试：`test/task.test.mjs` 新增“应用草案持久化转移”：implement 后 change 实际回 open/discuss；deliver 上摘要变化的 clarify 实际回 open/check；均重读磁盘断言 frontmatter、outcome、草案清除与响应一致。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 215 项全部通过（Linux + Node v24.21.0）；审计探针 `pending-phase-persistence` 由 `responsePhase=discuss, diskPhase=implement` 变为 `responsePhase=discuss, diskPhase=discuss, pendingCleared=true`。
+  - 设计同步：DESIGN §3.6 / STATES §3（PendingApplied 按 kind 应用 InputsUpdated 转移）现与实现一致；与 036 的衔接点（completed 上的输入更新）由 036 单独处理。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

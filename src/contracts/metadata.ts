@@ -20,7 +20,7 @@ export const TaskBindingSchema = Type.Object(
     confirmedInputsDigest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     /** 讨论确认时冻结的正式规范摘要；正式规则变化据此提示检查失效（STATES.md 第8节）。 */
     confirmedStandardsDigest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    /** 按 Task 累积的成果范围；旧记录缺省视为空。 */
+    /** 按 Task 累积的成果范围；旧记录缺省视为空。条目类型／模式见 ScopeFileSchema（任务027）。 */
     scope: Type.Optional(
       Type.Array(
         Type.Object(
@@ -28,6 +28,8 @@ export const TaskBindingSchema = Type.Object(
             path: Type.String({ minLength: 1 }),
             digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             absent: Type.Boolean(),
+            factsKind: Type.Optional(Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("absent")])),
+            mode: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
           },
           { additionalProperties: false },
         ),

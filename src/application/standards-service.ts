@@ -22,10 +22,11 @@ import {
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
-import { normalizeRoot } from "../infrastructure/paths.js";
+import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
+import { scanCredentials, type CredentialHit } from "../contracts/credentials.js";
 import { locateTaskDocument } from "./task-service.js";
 import {
   STANDARDS_DIR,
@@ -315,12 +316,19 @@ export class StandardsService {
       if (!matched) {
         throw new GuardError("review_required", "没有匹配当前候选摘要、分支与目标的采纳回执");
       }
-      const targetPath = join(context.root, target);
+      // 目标及其父目录逐段核实未越出项目：拒绝父级／目标符号链接、绝对路径与 .. 逃逸（任务033）。
+      const targetPath = safeJoin(context.root, target);
       const targetVersion = readWithVersion(targetPath);
       if (targetVersion === null) throw new GuardError("unknown_target", `目标规范不存在: ${target}`);
       const targetText = targetVersion.data.toString("utf8");
-      const sourceLine = `来源：任务 ${input.taskId}／候选 ${candidate.candidateId}。`;
-      if (targetText.includes(sourceLine)) {
+      const rule = renderCandidateRule(candidate, input.taskId);
+      // 已采纳判定按实际效果：正文含完整规则块（候选版本内容）且索引已链接，才幂等返回；
+      // 只有来源行不算完整回执（旧候选同 ID 新版本、正文成功索引失败都可恢复）（任务038）。
+      const targetContainsRule = targetText.includes(rule.trimEnd());
+      const relativePath = target.slice(STANDARDS_DIR.length + 1);
+      const indexedPaths = new Set(indexedStandardPaths(context.root));
+      const indexLinked = indexedPaths.has(relativePath);
+      if (targetContainsRule && indexLinked) {
         return {
           taskId: input.taskId,
           candidateId: candidate.candidateId,
@@ -332,17 +340,24 @@ export class StandardsService {
           affectedTasks: await this.affectedTasks(context.root),
         };
       }
-      const separator = targetText.endsWith("\n") ? "\n" : "\n\n";
-      const nextTarget = `${targetText}${separator}${renderCandidateRule(candidate, input.taskId)}`;
-      atomicWrite({
-        path: targetPath,
-        data: Buffer.from(nextTarget, "utf8"),
-        expectedSha256: targetVersion.sha256,
-        mode: 0o644,
-      });
+      const targetHits = scanCredentials(rule);
+      if (targetHits.length > 0) {
+        throw new GuardError("credential_scan_hit", `正式规范命中常见凭据模式，已暂停写入: ${targetHits.map((hit) => `${hit.type}@行${hit.line}`).join(", ")}`);
+      }
+      const nextTarget = targetContainsRule
+        ? targetText // 正文已有当前版本规则：只补索引，不重复正文。
+        : `${targetText}${targetText.endsWith("\n") ? "\n" : "\n\n"}${rule}`;
+      // 正文无变化时不原子重写同内容，避免无意义的版本推进。
+      if (!targetContainsRule) {
+        atomicWrite({
+          path: targetPath,
+          data: Buffer.from(nextTarget, "utf8"),
+          expectedSha256: targetVersion.sha256,
+          mode: 0o644,
+        });
+      }
 
-      const relativePath = target.slice(STANDARDS_DIR.length + 1);
-      const indexed = new Set(indexedStandardPaths(context.root));
+      const indexed = indexedPaths;
       let indexUpdated = false;
       if (!indexed.has(relativePath)) {
         const indexPath = join(context.root, STANDARDS_DIR, STANDARDS_INDEX);
@@ -381,6 +396,14 @@ export class StandardsService {
     } finally {
       this.locks.release(lock);
     }
+  }
+
+  /** 指定候选的完整规则块；gate 按实际效果核对采纳（任务038）。候选不存在返回 null。 */
+  async candidateRuleText(input: { dir: string; taskId: string; candidateId: string }): Promise<string | null> {
+    const context = taskContext(input.dir, input.taskId);
+    const { candidates } = readCandidatesFile(context.candidatesPath);
+    const candidate = candidates.find((item) => item.candidateId === input.candidateId);
+    return candidate === undefined ? null : renderCandidateRule(candidate, input.taskId).trimEnd();
   }
 
   /** 收尾／检查前的机械提示：有候选且无匹配回执则要求处理。 */

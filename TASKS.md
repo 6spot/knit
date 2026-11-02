@@ -6,7 +6,7 @@
 
 ## 当前一致性复核
 
-2026-11-02 对已提交基线 `50936d71a6fb414dec7edfb793e4510f81889ac4` 完成任务、设计与实现交叉核对，发现16项偏差（8 P1／7 P2／1 P3）。[审计报告与证据](validation/design-implementation-audit/README.md)记录原001–026逐项映射；027–042承接修复，043独立复验。原任务历史completed保留；当前不能据此前结论宣称无未处理数据保护／实现缺口。修复尚未实施，下一开发入口为027；check-report-fence产品任务的并发改动不在本轮改写范围。
+2026-11-02 对已提交基线 `50936d71a6fb414dec7edfb793e4510f81889ac4` 完成任务、设计与实现交叉核对，发现16项偏差（8 P1／7 P2／1 P3）。[审计报告与证据](validation/design-implementation-audit/README.md)记录原001–026逐项映射；027–042承接修复，043独立复验。原任务历史completed保留；当前不能据此前结论宣称无未处理数据保护／实现缺口。027–042修复已由043独立复验通过（[复验报告](validation/audit-fix-verification/report.md)：typecheck/build/pack:check通过、全量229项×3轮全过、16项发现逐项验收），Linux首版就绪结论恢复；复验发现的029锁重入回滚缺口[B003](BLOCKERS.md)已由[053](tasks/053-lock-reentry-rollback.md)实施修复并完成规定验证（全量236/236），主 Agent 已复核代码与验证证据。053另发现的成功混合申请单token缺口单列B004，当前未证实主流程可触达，修复前不新增同动作混合键重入业务路径。远端新增044–052主会话工作流任务；提交／发布仍需用户授权。
 
 ## 本轮首版交付补齐
 
@@ -74,23 +74,23 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 024 | M3A | completed | [完成私有诊断并验收日常使用](tasks/024-developer-mode-m3a-gate.md) |
 | 025 | M3B | completed | [完成平台、打包和使用文档](tasks/025-packaging-and-platform-ci.md) |
 | 026 | M3B | completed | [独立完成首版发布就绪审查](tasks/026-release-independent-gate.md) |
-| 027 | 审计修复 P1 | pending | [按当前成果指纹核实检查与交付资格](tasks/027-revalidate-check-artifacts.md) |
-| 028 | 审计修复 P1 | pending | [在运行边界核对实际 Git 分支](tasks/028-verify-live-run-branch.md) |
-| 029 | 审计修复 P1 | pending | [允许真实活动运行期间保存与撤回输入草案](tasks/029-allow-active-input-drafts.md) |
-| 030 | 审计修复 P1 | pending | [持久化应用草案后的业务状态转移](tasks/030-persist-pending-transitions.md) |
-| 031 | 审计修复 P1 | pending | [将全部生效指令版本纳入检查身份](tasks/031-include-effective-instructions.md) |
-| 032 | 审计修复 P1 | pending | [落实规定的写入与限定提交凭据扫描](tasks/032-scan-credential-boundaries.md) |
-| 033 | 审计修复 P1 | pending | [阻止规范采纳沿符号链接越出项目](tasks/033-contain-standards-writes.md) |
-| 034 | 审计修复 P1 | pending | [取消违背首版规则的固定阶段总时限](tasks/034-remove-fixed-stage-deadline.md) |
-| 035 | 审计修复 P2 | pending | [补齐 prefer 恢复的身份核对与新会话切换](tasks/035-repair-prefer-session-fallback.md) |
-| 036 | 审计修复 P2 | pending | [允许更新尚未完整归档的 completed 任务](tasks/036-reopen-unarchived-completed.md) |
-| 037 | 审计修复 P2 | pending | [实现正式规范作为明确授权成果的路径](tasks/037-authorize-standard-artifacts.md) |
-| 038 | 审计修复 P2 | pending | [按候选版本与实际效果恢复规范采纳](tasks/038-verify-standard-adoption-effects.md) |
-| 039 | 审计修复 P2 | pending | [保留初始化升级中断时的旧受管基线](tasks/039-retain-init-upgrade-baselines.md) |
-| 040 | 审计修复 P2 | pending | [收紧既有运行目录及 SQLite 文件权限](tasks/040-enforce-runtime-private-modes.md) |
-| 041 | 审计修复 P2 | pending | [在项目状态概览中列出按月归档任务](tasks/041-include-archive-status.md) |
-| 042 | 审计修复 P3 | pending | [在 Pi 命令中展示结构化查询结果](tasks/042-show-bridge-query-results.md) |
-| 043 | 审计复验 | pending | [独立复验一致性审计修复与当前就绪结论](tasks/043-audit-independent-regression.md) |
+| 027 | 审计修复 P1 | completed | [按当前成果指纹核实检查与交付资格](tasks/027-revalidate-check-artifacts.md) |
+| 028 | 审计修复 P1 | completed | [在运行边界核对实际 Git 分支](tasks/028-verify-live-run-branch.md) |
+| 029 | 审计修复 P1 | completed | [允许真实活动运行期间保存与撤回输入草案](tasks/029-allow-active-input-drafts.md) |
+| 030 | 审计修复 P1 | completed | [持久化应用草案后的业务状态转移](tasks/030-persist-pending-transitions.md) |
+| 031 | 审计修复 P1 | completed | [将全部生效指令版本纳入检查身份](tasks/031-include-effective-instructions.md) |
+| 032 | 审计修复 P1 | completed | [落实规定的写入与限定提交凭据扫描](tasks/032-scan-credential-boundaries.md) |
+| 033 | 审计修复 P1 | completed | [阻止规范采纳沿符号链接越出项目](tasks/033-contain-standards-writes.md) |
+| 034 | 审计修复 P1 | completed | [取消违背首版规则的固定阶段总时限](tasks/034-remove-fixed-stage-deadline.md) |
+| 035 | 审计修复 P2 | completed | [补齐 prefer 恢复的身份核对与新会话切换](tasks/035-repair-prefer-session-fallback.md) |
+| 036 | 审计修复 P2 | completed | [允许更新尚未完整归档的 completed 任务](tasks/036-reopen-unarchived-completed.md) |
+| 037 | 审计修复 P2 | completed | [实现正式规范作为明确授权成果的路径](tasks/037-authorize-standard-artifacts.md) |
+| 038 | 审计修复 P2 | completed | [按候选版本与实际效果恢复规范采纳](tasks/038-verify-standard-adoption-effects.md) |
+| 039 | 审计修复 P2 | completed | [保留初始化升级中断时的旧受管基线](tasks/039-retain-init-upgrade-baselines.md) |
+| 040 | 审计修复 P2 | completed | [收紧既有运行目录及 SQLite 文件权限](tasks/040-enforce-runtime-private-modes.md) |
+| 041 | 审计修复 P2 | completed | [在项目状态概览中列出按月归档任务](tasks/041-include-archive-status.md) |
+| 042 | 审计修复 P3 | completed | [在 Pi 命令中展示结构化查询结果](tasks/042-show-bridge-query-results.md) |
+| 043 | 审计复验 | completed | [独立复验一致性审计修复与当前就绪结论](tasks/043-audit-independent-regression.md)；复验发现029锁重入回滚缺口已登记 B003，不推翻修复结论 |
 | 044 | 首版工作流 | pending | [明确主会话工作流与任务规划资料契约](tasks/044-main-agent-workflow-contract.md) |
 | 045 | 首版工作流 | pending | [实现任务规划资料与多文件输入生命周期](tasks/045-task-planning-materials.md) |
 | 046 | 首版工作流 | pending | [按角色加载任务需求设计与实施计划](tasks/046-role-aware-task-context.md) |
@@ -100,6 +100,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 050 | 首版工作流 | pending | [集成首版工作流模板安装与升级](tasks/050-workflow-template-upgrade-integration.md) |
 | 051 | 首版工作流验收 | pending | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md) |
 | 052 | 首版运行时兼容 | pending | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md) |
+| 053 | 复验缺陷修复 | completed | [修复锁混合重入失败的对称回滚](tasks/053-lock-reentry-rollback.md)；独立 worker 实施及规定验证完成（基础设施31、主探针47、后果探针8、全量236项全过），主 Agent 已复核代码与验证证据，B003已修复；另记范围外B004 |
 
 ## 阶段验收门槛
 
@@ -109,7 +110,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | --- | --- | --- |
 | M0 | 001–005 | Node24工程基线、CLI真实能力、唯一存储决定、宿主schema／信任与结果连接准入 |
 | M1 | 006–015 | 临时项目可安装闭环：Task／规范／Session／worker／独立检查／限定交付，生成桥接实际验收 |
-| M2 | 016–020 | 历史独立检查通过；本轮新增检查资格、草案、路径等缺口，当前结论须按027–040修复后由043独立复验；真实项目使用仍受020原有限制约束 |
+| M2 | 016–020 | 历史独立检查通过；027–042修复已由043独立复验通过（2026-11-02，[复验报告](validation/audit-fix-verification/report.md)）；029锁重入失败回滚缺陷B003已由053修复并通过规定验证与主 Agent 代码／证据复核；成功混合申请单token缺口另列B004，未证实主流程可触达，修复前不新增同动作混合键重入业务路径；真实项目使用仍受020原有限制约束 |
 | M3A | 021–024 | 分支／树／多会话、升级与规则、完整查询用量、私有诊断及日常接续 |
 | 首版主会话与规划 | 044–051 | 从自然语言需求进入任务创建／拒绝、澄清、轻重任务规划、实施交接和跨Session接续；实际包内初始化／升级可用，由051独立核实 |
 | Pi版本兼容 | 052 | 对比已验证基线与Pi 1.5.0公开变化，完成必要适配及CLI／宿主实际验证，给出新能力采用决定；为047–050交接版本化接口约束 |

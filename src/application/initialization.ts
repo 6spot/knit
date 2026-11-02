@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { atomicWrite } from "../infrastructure/atomic.js";
+import { enforcePrivateDatabase, enforcePrivateFile, ensurePrivateRuntimeRoot } from "../infrastructure/private-mode.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { fileFacts, sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
@@ -258,9 +259,9 @@ export class InitializationService {
       else if (state === "failed") failed.push({ path, error: extra.error ?? "unknown" });
     };
 
-    // 1. 运行目录私有权限、忽略规则与本机安装映射
+    // 1. 运行目录私有权限、忽略规则与本机安装映射（目录 0700、文件 0600；已有目录也收紧，任务040）
     try {
-      mkdirSync(this.runtimeDir(root), { recursive: true, mode: 0o700 });
+      ensurePrivateRuntimeRoot(this.runtimeDir(root));
       const gitignorePath = join(root, ".knit", ".gitignore");
       if (!existsSync(gitignorePath)) {
         const rule = ".runtime/\n";
@@ -280,13 +281,19 @@ export class InitializationService {
       const installBody = JSON.stringify(installRecord, null, 2) + "\n";
       const installExpected = installExisted ? sha256Bytes(readFileSync(installPath)) : null;
       atomicWrite({ path: installPath, data: Buffer.from(installBody, "utf8"), expectedSha256: installExpected, mode: 0o600 });
+      enforcePrivateDatabase(join(root, ".knit", ".runtime", "metadata.db"));
+      enforcePrivateFile(installPath);
+      enforcePrivateFile(join(root, ".knit", ".runtime", "init-manifest.json"));
       record(".knit/.runtime/installation.json", "managed", installExisted ? "updated" : "created");
     } catch (error) {
       failed.push({ path: ".knit/.runtime", error: String(error) });
     }
 
-    // 2. preparing 清单先行落盘（中断按逐项结果续做）
-    manifest.items = [...items];
+    // 2. preparing 清单先行落盘（中断按逐项结果续做）。
+    // 旧清单逐项结果与当前项合并持久保留：尚未处理的路径保留旧基线，
+    // 桥接发布前中断的重试仍能按旧基线核实升级，不把旧桥接判为未知来源（任务039）。
+    const previousItemsByPath = new Map(previous?.items.map((item) => [item.path, item]) ?? []);
+    manifest.items = [...items, ...previous?.items.filter((item) => !items.some((current) => current.path === item.path)) ?? []];
     this.writeManifest(root, manifest);
 
     // 3. 项目资料补缺（配置、工作流、角色、规范索引；存在即沿用）
@@ -337,8 +344,10 @@ export class InitializationService {
       record("AGENTS.md", "managed", "failed", { error: String(error) });
     }
 
-    // 5. 逐项结果落盘（桥接发布前）
-    manifest.items = [...items];
+    // 5. 逐项结果落盘（桥接发布前）；旧清单项按路径合并保留（任务039）。
+    manifest.items = [...items, ...previousItemsByPath.size > 0
+      ? (previous?.items ?? []).filter((item) => !items.some((current) => current.path === item.path))
+      : []];
     this.writeManifest(root, manifest);
 
     // 6. 桥接最后发布：不存在或与基线一致才写；人工改动冲突不覆盖
@@ -367,8 +376,9 @@ export class InitializationService {
       record(bridgeSpec.path, "managed", "failed", { error: String(error) });
     }
 
-    // 7. 收束：全部项成功 → ready；否则 failed（保留逐项结果，中断续做不冒充成功）
-    manifest.items = [...items];
+    // 7. 收束：全部项成功 → ready；否则 failed（保留逐项结果，中断续做不冒充成功）。
+    // 最终清单仍合并旧项：已消失的旧受管路径留作历史基线证据，不丢失（任务039）。
+    manifest.items = [...items, ...(previous?.items ?? []).filter((item) => !items.some((current) => current.path === item.path))];
     manifest.state = isReady(manifest, bridgeSpec.path) ? "ready" : "failed";
     this.writeManifest(root, manifest);
 

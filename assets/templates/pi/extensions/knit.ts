@@ -287,10 +287,60 @@ export default function (pi: any) {
     releaseObserver();
   });
 
+  /** 查询命令的成功 data 转可读文本；失败返回 null 由调用方走错误分支（任务042）。 */
+  const describeQuery = (tokens: string[], data: any): string | null => {
+    if (data === null || typeof data !== "object") return null;
+    const joinOutcome = (entry: any): string =>
+      `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}`;
+    // task list：{ active: [...], archived: [...] }
+    if (Array.isArray(data.active) && Array.isArray(data.archived)) {
+      const lines: string[] = [];
+      lines.push(`活跃任务（${data.active.length}）：`);
+      lines.push(...(data.active.length > 0 ? data.active.map(joinOutcome) : ["  - （无）"]));
+      lines.push(`已归档（${data.archived.length}）：`);
+      lines.push(...(data.archived.length > 0 ? data.archived.slice(0, 20).map(joinOutcome) : ["  - （无）"]));
+      if (data.archived.length > 20) lines.push(`  - …共 ${data.archived.length} 条`);
+      return lines.join("\n");
+    }
+    // 项目概览：{ tasks: [...], activeRuns: [...] }
+    if (Array.isArray(data.tasks)) {
+      const runs = Array.isArray(data.activeRuns) ? data.activeRuns : [];
+      const lines = [`任务（${data.tasks.length}）：`];
+      lines.push(...(data.tasks.length > 0 ? data.tasks.map((entry: any) => joinOutcome({ ...entry, archived: entry.archived === true })) : ["  - （无）"]));
+      lines.push(`活跃运行（${runs.length}）：`);
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}`) : ["  - （无）"]));
+      return lines.join("\n");
+    }
+    // 按任务查询（仅 status <taskId>）：{ taskId, title, phase, status, runs, ... }（任务042）。
+    if (tokens[0] === "status" && tokens.length >= 2 && typeof data.taskId === "string") {
+      const runs = Array.isArray(data.runs) ? data.runs : [];
+      const lines = [
+        `${data.taskId}「${data.title ?? "无标题"}」`,
+        `  状态: ${data.status ?? "?"} · 阶段: ${data.phase ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
+      ];
+      if (data.pendingDraft) lines.push(`  待应用草案: ${data.pendingDraft.kind ?? "?"}`);
+      lines.push(`  运行（${runs.length}）：`);
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
+      return lines.join("\n");
+    }
+    // 其它对象：键值摘要，不混入诊断。
+    if (tokens[0] !== undefined) {
+      const entries = Object.entries(data).slice(0, 12);
+      if (entries.length > 0) return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join("\n");
+    }
+    return null;
+  };
+
   pi.registerCommand("knit-status", {
     description: "Knit：查看任务与运行状态",
     handler: async (args: string, ctx: any) => {
       const result = core(["status", ...(args.trim() === "" ? [] : args.trim().split(/\s+/)), "--dir", root]);
+      const data = result.response?.data;
+      const readable = result.code === 0 && result.response?.outcome === "completed" ? describeQuery(["status"], data) : null;
+      if (readable !== null) {
+        ctx.ui.notify(readable, "info");
+        return;
+      }
       const text = result.error ?? result.response?.data?.error ?? result.response?.reasonCode ?? result.stderr;
       ctx.ui.notify(text ? String(text) : "knit status 无输出", result.code === 0 ? "info" : "warning");
     },
@@ -342,6 +392,12 @@ export default function (pi: any) {
         return;
       }
       const result = core([...tokens, "--dir", root]);
+      const data = result.response?.data;
+      const readable = result.code === 0 && result.response?.outcome === "completed" ? describeQuery(tokens, data) : null;
+      if (readable !== null) {
+        ctx.ui.notify(readable, "info");
+        return;
+      }
       const text = result.error ?? result.response?.data?.error ?? result.response?.reasonCode ?? result.stderr;
       ctx.ui.notify(text ? String(text) : "Knit 命令已完成", result.code === 0 ? "info" : "warning");
     },

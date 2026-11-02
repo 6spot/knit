@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -64,6 +64,109 @@ function candidateInput(dir, taskId, overrides = {}) {
     ...overrides,
   };
 }
+
+test("生效指令变化纳入检查身份：角色／工作流变更使旧凭据过期，纯记录与候选不影响（任务031）", async () => {
+  const dir = gitProject("effective-identity");
+  installTemplates(dir);
+  const { store, tasks, planner } = makeServices(dir);
+  try {
+    const task = await tasks.newTask({ dir, title: "生效指令", slug: "effective" });
+    await tasks.ready({ dir, taskId: task.taskId });
+    const before = await planner.plan({ dir, taskId: task.taskId, role: "check" });
+
+    // 仅改 check 角色：分节指纹与整体有效身份都变。
+    const rolePath = join(dir, ".knit", "agents", "check.md");
+    writeFileSync(rolePath, readFileSync(rolePath, "utf8") + "\n新增检查要求。\n");
+    const afterRole = await planner.plan({ dir, taskId: task.taskId, role: "check" });
+    const roleSection = afterRole.sections.find((section) => section.kind === "role");
+    assert.notEqual(roleSection.digest, before.sections.find((section) => section.kind === "role").digest);
+    assert.notEqual(afterRole.effectiveInputsDigest, before.effectiveInputsDigest);
+    assert.equal(afterRole.inputsDigest, before.inputsDigest, "需求摘要不含角色指令");
+
+    // 改回后恢复：其他 implement 角色变化不影响 check 计划。
+    writeFileSync(rolePath, readFileSync(rolePath, "utf8").replace("\n新增检查要求。\n", ""));
+    const restored = await planner.plan({ dir, taskId: task.taskId, role: "check" });
+    assert.equal(restored.effectiveInputsDigest, before.effectiveInputsDigest);
+
+    // 工作流变化同样纳入。
+    const workflowPath = join(dir, ".knit", "workflow.md");
+    writeFileSync(workflowPath, readFileSync(workflowPath, "utf8") + "\n新增交付约束。\n");
+    const afterWorkflow = await planner.plan({ dir, taskId: task.taskId, role: "check" });
+    assert.notEqual(afterWorkflow.effectiveInputsDigest, before.effectiveInputsDigest);
+
+    // 纯记录与未采纳候选不改变有效身份。
+    writeFileSync(workflowPath, readFileSync(workflowPath, "utf8").replace("\n新增交付约束。\n", ""));
+    await tasks.record({ dir, taskId: task.taskId, body: "纯进展记录\n" });
+    const afterRecord = await planner.plan({ dir, taskId: task.taskId, role: "check" });
+    assert.equal(afterRecord.effectiveInputsDigest, before.effectiveInputsDigest);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("采纳目标边界：父链接、目标链接、.. 与绝对路径拒绝，项目外无变化；项目内采纳正常（任务033）", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "knit-033-outside-"));
+  writeFileSync(join(outside, "rules.md"), "# Outside\n");
+  const scenarios = [
+    { name: "parent-symlink", setup: (dir) => { symlinkSync(outside, join(dir, ".knit", "standards", "ext"), "dir"); return ".knit/standards/ext/rules.md"; }, outsidePath: () => join(outside, "rules.md") },
+    { name: "target-symlink", setup: (dir) => { mkdirSync(join(dir, ".knit", "standards", "ext")); writeFileSync(join(dir, ".knit", "standards", "ext", "rules.md"), "# Local\n"); rmSync(join(dir, ".knit", "standards", "ext", "rules.md")); symlinkSync(join(outside, "rules.md"), join(dir, ".knit", "standards", "ext", "rules.md")); return ".knit/standards/ext/rules.md"; }, outsidePath: () => join(outside, "rules.md") },
+    { name: "dotdot", setup: () => ".knit/standards/../outside.md", outsidePath: null },
+    { name: "absolute", setup: () => join(outside, "rules.md"), outsidePath: () => join(outside, "rules.md") },
+  ];
+  for (const scenario of scenarios) {
+    const dir = gitProject(`contain-${scenario.name}`);
+    installTemplates(dir);
+    const s = makeServices(dir);
+    try {
+      const target = scenario.setup(dir);
+      const task = await s.tasks.newTask({ dir, title: "边界", slug: "boundary" });
+      const proposed = await s.standards.propose(candidateInput(dir, task.taskId));
+      // 审阅阶段同样校验目标路径；拒绝发生在任何写入之前也符合边界要求。
+      let reviewOk = true;
+      try {
+        await s.standards.review({ dir, taskId: task.taskId, decision: "applied", reason: "合成审阅", targets: [target] });
+      } catch {
+        reviewOk = false;
+      }
+      if (reviewOk) {
+        await assert.rejects(
+          () => s.standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target }),
+          (error) =>
+            ["path_escape", "unknown_target", "review_required"].includes(error.guardReason) ||
+            /目标规范|越界|symlink|escape|必须位于/.test(String(error.message ?? error)),
+          `场景 ${scenario.name} 应拒绝`,
+        );
+      }
+      if (scenario.outsidePath !== null) {
+        assert.equal(readFileSync(scenario.outsidePath(), "utf8"), "# Outside\n", `场景 ${scenario.name} 项目外无变化`);
+      }
+    } finally {
+      s.store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  rmSync(outside, { recursive: true, force: true });
+
+  // 项目内正常采纳与重复采纳不受影响。
+  const dir = gitProject("contain-normal");
+  installTemplates(dir);
+  const s = makeServices(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "正常", slug: "normal" });
+    const proposed = await s.standards.propose(candidateInput(dir, task.taskId));
+    const target = ".knit/standards/normal.md";
+    writeFileSync(join(dir, target), "# Normal\n");
+    await s.standards.review({ dir, taskId: task.taskId, decision: "applied", reason: "正常审阅", targets: [target] });
+    const applied = await s.standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(applied.applied, true);
+    const again = await s.standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(again.alreadyApplied, true);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("propose：候选只写任务资料，正式摘要与输入摘要不变", async () => {
   const dir = gitProject("propose");
@@ -276,6 +379,52 @@ test("apply：按回执写入正文与索引，正式摘要变化并列出受影
     const list = await standards.list({ dir, taskId: task.taskId });
     assert.equal(list.standardsDigest, applied.standardsDigest);
     assert.equal(list.task.pending.needsReview, false);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("采纳按实际效果恢复：正文成功索引失败可补齐；候选同 ID 新版本不假成功（任务038）", async () => {
+  const dir = gitProject("recover");
+  installTemplates(dir);
+  mkdirSync(join(dir, ".knit", "standards"), { recursive: true });
+  writeFileSync(join(dir, ".knit", "standards", "errors.md"), "# 错误处理\n\n现有约定。\n");
+  const { store, tasks, standards } = makeServices(dir);
+  try {
+    const task = await tasks.newTask({ dir, title: "采纳恢复", slug: "recover" });
+    await tasks.ready({ dir, taskId: task.taskId });
+    const proposed = await standards.propose(candidateInput(dir, task.taskId));
+    const target = ".knit/standards/errors.md";
+    await standards.review({ dir, taskId: task.taskId, decision: "applied", reason: "采纳。", targets: [target] });
+    const first = await standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(first.applied, true);
+
+    // 中断恢复：回滚索引（保留正文），重试补齐索引而不重复正文。
+    const indexPath = join(dir, ".knit", "standards", "index.md");
+    const textBefore = readFileSync(join(dir, target), "utf8");
+    writeFileSync(indexPath, "# 规范索引\n\n- 暂无\n");
+    const recovered = await standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(recovered.alreadyApplied, false);
+    assert.equal(recovered.indexUpdated, true);
+    assert.equal(readFileSync(join(dir, target), "utf8"), textBefore, "正文不重复追加");
+    assert.ok(readFileSync(indexPath, "utf8").includes("errors.md"));
+
+    // 完整成功后重试幂等。
+    const again = await standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(again.alreadyApplied, true);
+    assert.equal(readFileSync(join(dir, target), "utf8"), textBefore);
+
+    // 候选同 ID 新版本（v2）：直接改候选文件内容模拟候选更新；旧 v1 已在正文，新版本仍需真正写入。
+    const candidatesFile = join(dir, proposed.file);
+    writeFileSync(candidatesFile, readFileSync(candidatesFile, "utf8").replace(proposed.candidate.rule, "运行错误必须同时包含项目相对路径与行号（v2）。"));
+    await standards.review({ dir, taskId: task.taskId, decision: "applied", reason: "采纳 v2。", targets: [target] });
+    const applyV2 = await standards.apply({ dir, taskId: task.taskId, candidateId: proposed.candidate.candidateId, target });
+    assert.equal(applyV2.alreadyApplied, false, "新版本不冒充已采纳");
+    assert.equal(applyV2.applied, true);
+    const finalText = readFileSync(join(dir, target), "utf8");
+    assert.ok(finalText.includes("（v2）。"), "正式正文含 v2 规则");
+    assert.ok(readFileSync(indexPath, "utf8").includes("errors.md"), "索引仍链接目标");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

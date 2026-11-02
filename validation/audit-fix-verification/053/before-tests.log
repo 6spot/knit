@@ -1,0 +1,90 @@
+✖ 锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变 (14.608916ms)
+✔ 锁044：排序后 busy 先于重入键，未触达外层不变 (12.833596ms)
+✖ 锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录 (4.896758ms)
+✖ 锁044：新建键后遇 busy，同实例与 rival 可重新获取释放 (7.643078ms)
+✖ 锁044：新建与多次重入逆序撤销，不泄漏真实外层引用 (10.798997ms)
+✔ 锁044：正常重入与混合新建成功后逐层释放，不同动作仍 busy (19.291914ms)
+✔ 锁044：release 不删除已被其它 token 替换的 owner (11.462197ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 3
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 197.677861
+
+✖ failing tests:
+
+test at test/infrastructure.test.mjs:280:1
+✖ 锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变 (14.608916ms)
+  Error: ENOENT: no such file or directory, open '/tmp/knit-infra-locks-reentry-busy-94lYgC/projects/cf4bc5eb2dd21053cd91fc6a07c6bcc3/owner.json'
+      at readFileSync (node:fs:483:20)
+      at file:///home/opc/work/knit/test/infrastructure.test.mjs:287:18
+      at async isolatedLocks (file:///home/opc/work/knit/test/infrastructure.test.mjs:263:5)
+      at async TestContext.<anonymous> (file:///home/opc/work/knit/test/infrastructure.test.mjs:281:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '/tmp/knit-infra-locks-reentry-busy-94lYgC/projects/cf4bc5eb2dd21053cd91fc6a07c6bcc3/owner.json'
+  }
+
+test at test/infrastructure.test.mjs:313:1
+✖ 锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录 (4.896758ms)
+  Error: ENOENT: no such file or directory, open '/tmp/knit-infra-locks-reentry-write-fail-75QGUY/projects/cf4bc5eb2dd21053cd91fc6a07c6bcc3/owner.json'
+      at readFileSync (node:fs:483:20)
+      at file:///home/opc/work/knit/test/infrastructure.test.mjs:333:18
+      at async isolatedLocks (file:///home/opc/work/knit/test/infrastructure.test.mjs:263:5)
+      at async TestContext.<anonymous> (file:///home/opc/work/knit/test/infrastructure.test.mjs:314:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '/tmp/knit-infra-locks-reentry-write-fail-75QGUY/projects/cf4bc5eb2dd21053cd91fc6a07c6bcc3/owner.json'
+  }
+
+test at test/infrastructure.test.mjs:342:1
+✖ 锁044：新建键后遇 busy，同实例与 rival 可重新获取释放 (7.643078ms)
+  AssertionError [ERR_ASSERTION]: 重新获取必须真实写 owner，不能沿用内存残留
+  + actual - expected
+
+  + undefined
+  - 'a12dfa01-b964-48ac-b6f2-b838feebadb6'
+
+      at acquireAndRelease (file:///home/opc/work/knit/test/infrastructure.test.mjs:275:10)
+      at async file:///home/opc/work/knit/test/infrastructure.test.mjs:348:5
+      at async isolatedLocks (file:///home/opc/work/knit/test/infrastructure.test.mjs:263:5)
+      at async TestContext.<anonymous> (file:///home/opc/work/knit/test/infrastructure.test.mjs:343:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'a12dfa01-b964-48ac-b6f2-b838feebadb6',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/infrastructure.test.mjs:354:1
+✖ 锁044：新建与多次重入逆序撤销，不泄漏真实外层引用 (10.798997ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + undefined
+  - '4ebbdf29-72bf-414f-9deb-11e883a56f92'
+
+      at file:///home/opc/work/knit/test/infrastructure.test.mjs:361:12
+      at async isolatedLocks (file:///home/opc/work/knit/test/infrastructure.test.mjs:263:5)
+      at async TestContext.<anonymous> (file:///home/opc/work/knit/test/infrastructure.test.mjs:355:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: '4ebbdf29-72bf-414f-9deb-11e883a56f92',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

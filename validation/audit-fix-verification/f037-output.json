@@ -1,0 +1,4 @@
+PREPARE_OK 1
+runIds [ 'run-306c9fcd7619' ]
+run run-306c9fcd7619 taskId k-d3f7d78dcdbb state completed result true
+DELIVER completed 

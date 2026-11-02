@@ -18,15 +18,17 @@ test('AUDIT external change after formal pass',async()=>{
 test('AUDIT synthetic credential write and commit',async()=>{
  const dir=project('audit-secret');const s=services(dir);
  try{
-  let taskWritten=false;
-  try{await s.tasks.newTask({dir,title:'-----BEGIN PRIVATE KEY----- audit placeholder',slug:'audit-marker',branch:BRANCH});taskWritten=true;}catch{}
+  // 任务032：写入与限定提交前凭据扫描生效，命中即拒绝。
+  let taskWritten=false,taskRejected=null;
+  try{await s.tasks.newTask({dir,title:'-----BEGIN PRIVATE KEY----- audit placeholder',slug:'audit-marker',branch:BRANCH});taskWritten=true;}catch(e){taskRejected=e.guardReason??e.code??String(e);}
   const task=await makeDeliverable(dir,s);
   writeFileSync(join(dir,'app.txt'),'-----BEGIN PRIVATE KEY-----\nAUDIT_SYNTHETIC_PLACEHOLDER_NOT_A_KEY\n-----END PRIVATE KEY-----\n');
   const scope={...task.scope,entries:[currentEntry(dir,'app.txt')]};scope.digest=scopeDigest(scope.entries);
   const runs=new RunStore(dir);runs.writeScope(task.taskId,scope);const auditCheck={...task.check,runId:'run-abcdefabcdef',scopeDigest:scope.digest};runs.writeCheck(auditCheck.runId,auditCheck);
   const binding=await s.store.bindings.get(task.taskId);await s.store.bindings.save({...binding,lastCheckRunId:auditCheck.runId,scope:scope.entries});
-  const r=await s.delivery.deliver({dir,taskId:task.taskId,branch:BRANCH,authorizationRef:'workflow:.knit/workflow.md#交付授权'});
-  console.log('AUDIT_RESULT',JSON.stringify({case:'synthetic-credential-boundaries',taskWritten,deliveryState:r.state,workCommitCreated:!!r.workCommit}));
+  let deliveryState=null,workCommitCreated=false,deliveryRejected=null;
+  try{const r=await s.delivery.deliver({dir,taskId:task.taskId,branch:BRANCH,authorizationRef:'workflow:.knit/workflow.md#交付授权'});deliveryState=r.state;workCommitCreated=!!r.workCommit;}catch(e){deliveryRejected=e.guardReason??e.code??String(e);}
+  console.log('AUDIT_RESULT',JSON.stringify({case:'synthetic-credential-boundaries',taskWritten,taskRejected,deliveryState,workCommitCreated,deliveryRejected}));
  }finally{s.store.close();rmSync(dir,{recursive:true,force:true});}
 });
 `],

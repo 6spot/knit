@@ -42,4 +42,9 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建独立复验任务，依赖修复尚未实施；本项尚未执行。
-- 本轮：新增044–051后明确本项仍只承接原16项审计复验，整体首版结论还需051；未开展复验。
+- 2026-11-02：独立复验 Agent 执行复验并完成（与修复执行者不同上下文）；本项只承接原16项审计复验，整体首版结论还需051。
+  - 完整验证（Linux aarch64／Node v24.21.0）：`npm run typecheck`、`npm run build`、`npm run pack:check` 通过；`node --test test/*.test.mjs` 229/229 连续 3 轮全过（未复现 B002 偶发）。
+  - F027–F042 逐项按原最小复现条件独立验收，全部通过；不以探针框架 pass 为据。逐发现映射、证据命令与输出见 [validation/audit-fix-verification/report.md](../validation/audit-fix-verification/report.md)（含独立探针 f027-fingerprint.mjs、f028-stage-boundary.mjs、f037-delivery.mjs、lock-reentry.mjs 及探针输出）。
+  - 生成模板与源码装配一致：init 生成的桥接与 `assets/templates/pi/extensions/knit.ts` 逐字节一致，其余模板一致，config.json 由 defaultConfig 渲染与模板参照一致；pack:check 通过。
+  - 新发现：029 锁重入回滚（locks.ts rollbackAcquire）不查 heldBySelf 计数，混合键 acquire 失败时误删外层锁目录（隔离探针证实，当前主流程不可达）——登记 [BLOCKERS B003](../BLOCKERS.md)，不推翻修复结论；待用户决定是否开修复任务。另有测试一次性残留 `.bridge-build-tmp/`（已清理，未复现）与 040 收紧范围略宽的观察项，记录在复验报告。
+  - 就绪结论：M2/M3B 行已更新，Linux 首版候选就绪恢复；macOS 仍按 B001 延期。复验发现的B003锁重入缺口已另行授权修复（见任务053）。

@@ -8,7 +8,7 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
-import { locateTaskDocument } from "./task-service.js";
+import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
@@ -172,41 +172,27 @@ export class StatusService {
   }
 
   private async listTasks(root: string): Promise<Array<{ taskId: string; title: string; status: string; phase: string; outcome: string | null; relativePath: string; archived: boolean }>> {
-    const tasksRoot = join(root, ".knit", "tasks");
-    if (!existsSync(tasksRoot)) return [];
+    // 统一任务发现（listTaskDirectories）：活动 tasks/<name> 与归档 archive/<YYYY-MM>/<name>（任务041）。
+    // 损坏任务不阻塞概览；重复 ID 如实列出并按路径区分；不跟随符号链接（只认目录与 task.md）。
     const result: Array<{ taskId: string; title: string; status: string; phase: string; outcome: string | null; relativePath: string; archived: boolean }> = [];
-    const walk = (dir: string, relative: string): void => {
-      let entries;
+    for (const { name, archived } of listTaskDirectories(root)) {
+      const file = join(root, ".knit", "tasks", name, "task.md");
+      if (!existsSync(file)) continue;
       try {
-        entries = readdirSync(dir, { withFileTypes: true });
+        const document = parseTaskDocument(readFileSync(file, "utf8"), file);
+        result.push({
+          taskId: document.frontmatter.id,
+          title: document.frontmatter.title,
+          status: document.frontmatter.status,
+          phase: document.frontmatter.phase,
+          outcome: document.frontmatter.outcome,
+          relativePath: `tasks/${name}`,
+          archived,
+        });
       } catch {
-        return;
+        // 损坏任务不阻塞概览；doctor 另行报告。
       }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (entry.name === "archive") {
-          walk(join(dir, entry.name), `${relative}/archive`);
-          continue;
-        }
-        const file = join(dir, entry.name, "task.md");
-        if (!existsSync(file)) continue;
-        try {
-          const document = parseTaskDocument(readFileSync(file, "utf8"), file);
-          result.push({
-            taskId: document.frontmatter.id,
-            title: document.frontmatter.title,
-            status: document.frontmatter.status,
-            phase: document.frontmatter.phase,
-            outcome: document.frontmatter.outcome,
-            relativePath: `${relative}/${entry.name}`,
-            archived: relative.includes("archive"),
-          });
-        } catch {
-          // 损坏任务不阻塞概览；doctor 另行报告。
-        }
-      }
-    };
-    walk(tasksRoot, "tasks");
+    }
     return result;
   }
 

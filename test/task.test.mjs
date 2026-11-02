@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import {
   TaskService,
@@ -362,9 +362,12 @@ test("task update：活动 run 只保存草案；apply/withdraw 按摘要与基�
     assert.equal(withdrawn.applied, "pending_withdrawn");
     assert.equal(withdrawn.digestChanged, false);
     assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
-    // 撤回留记录且不改输入区
+    // 撤回留操作记录（任务029：不写 task.md，避免活动运行中 .knit 保护误伤）；输入区不变
+    const operations = await store.operations.list();
+    const withdrawRecord = operations.filter((op) => op.kind === "task.withdraw-pending");
+    assert.equal(withdrawRecord.length, 1);
+    assert.ok(withdrawRecord[0].reason.includes("用户确认不需要"));
     const after = parseTaskDocument(readFileSync(file, "utf8"));
-    assert.ok(after.progressBody.includes("撤回输入草案"));
     assert.ok(after.inputsBody.includes("后来补充的输入"));
     // 同内容重建获得新版本：digest 不同（createdAt / 操作 ID 参与摘要）
     const d1 = pendingDraftDigest({ kind: "clarify", reason: "r", content: "c", baselineDigest: "b", updateOperationId: "op-1", createdAt: "2026-01-01T00:00:00Z" });
@@ -487,6 +490,183 @@ test("task rename：等价移动不改变输入摘要；路径线索与绑定更
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 clarify 回 open/check，响应与磁盘一致（任务030）", async () => {
+  const dir = gitProject("pending-phase");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const file = taskFile(dir, relativePath);
+    await service.ready({ dir, taskId });
+    // 模拟实施完成推进到 deliver：直接改权威文件（本测试只关注 apply 转移持久化）。
+    const doc = parseTaskDocument(readFileSync(file, "utf8"));
+    writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, phase: "deliver" } }));
+    const diskAfterBump = parseTaskDocument(readFileSync(file, "utf8"));
+    // change 草案：应用后实际回 open/discuss。
+    const changeDraft = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: true });
+    assert.equal(changeDraft.applied, "pending_saved");
+    const changeApplied = await service.update({ dir, taskId, expectPending: changeDraft.pendingDraftDigest, runsSettled: true });
+    assert.equal(changeApplied.phase, "discuss");
+    assert.equal(changeApplied.status, "open");
+    const diskChange = parseTaskDocument(readFileSync(file, "utf8"));
+    assert.equal(diskChange.frontmatter.phase, "discuss", "change 应用后磁盘 phase 应为 discuss");
+    assert.equal(diskChange.frontmatter.status, "open");
+    assert.equal(diskChange.frontmatter.outcome, null);
+    assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
+
+    // deliver 上摘要变化的 clarify：应用后实际回 open/check。
+    await service.ready({ dir, taskId });
+    const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
+    writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, phase: "deliver" } }));
+    const clarifyDraft = await service.update({ dir, taskId, kind: "clarify", reason: "约束说明", content: "## 目标与边界\n\n澄清目标\n", runActive: true });
+    const clarifyApplied = await service.update({ dir, taskId, expectPending: clarifyDraft.pendingDraftDigest, runsSettled: true });
+    assert.equal(clarifyApplied.phase, "check");
+    const diskClarify = parseTaskDocument(readFileSync(file, "utf8"));
+    assert.equal(diskClarify.frontmatter.phase, "check", "deliver 上 clarify 应用后磁盘 phase 应为 check");
+    assert.equal(diskClarify.frontmatter.status, "open");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("未归档 completed 可按规定重新打开：change 回 discuss、deliver 上 clarify 回 check；已归档与 cancelled/superseded 拒绝（任务036）", async () => {
+  // 未归档 completed：直接更新重新打开。
+  {
+    const dir = gitProject("reopen-completed");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      await service.ready({ dir, taskId });
+      // 构造未归档 completed/deliver（模拟交付完成但尚未 archive）。
+      const doc = parseTaskDocument(readFileSync(file, "utf8"));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      // clarify：deliver 上回 open/check，清 completed。
+      const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "交付后补充说明", content: "## 目标与边界\n\n补充说明\n", runActive: false });
+      assert.equal(clarify.applied, "direct");
+      assert.equal(clarify.status, "open");
+      assert.equal(clarify.phase, "check");
+      assert.equal(clarify.outcome, null);
+      const disk = parseTaskDocument(readFileSync(file, "utf8"));
+      assert.equal(disk.frontmatter.status, "open");
+      assert.equal(disk.frontmatter.outcome, null);
+
+      // 再次回到 completed 后 change：回 open/discuss。
+      const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
+      writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      const change = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: false });
+      assert.equal(change.status, "open");
+      assert.equal(change.phase, "discuss");
+      assert.equal(change.outcome, null);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  // 已完整归档：拒绝输入更新。
+  {
+    const dir = gitProject("reopen-archived");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      const doc = parseTaskDocument(readFileSync(file, "utf8"));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      // 物理移动到 archive 目录模拟完整归档。
+      const archiveDir = join(dir, ".knit", "tasks", "archive", "2026-11");
+      mkdirSync(archiveDir, { recursive: true });
+      renameSync(dirname(file), join(archiveDir, basename(dirname(file))));
+      await assert.rejects(
+        () => service.update({ dir, taskId, kind: "clarify", reason: "归档后补充", content: "## 目标与边界\n\nx\n", runActive: false }),
+        (error) => error.guardReason === "outcome_completed" || error.guardReason === "task_archived" || error.code === "io_error",
+      );
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  // cancelled：拒绝。
+  {
+    const dir = gitProject("reopen-cancelled");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      const doc = parseTaskDocument(readFileSync(file, "utf8"));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "cancelled" } }));
+      await assert.rejects(
+        () => service.update({ dir, taskId, kind: "clarify", reason: "取消后补充", content: "## 目标与边界\n\nx\n", runActive: false }),
+        (error) => error.guardReason === "outcome_cancelled",
+      );
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  // superseded：拒绝。
+  {
+    const dir = gitProject("reopen-superseded");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      const doc = parseTaskDocument(readFileSync(file, "utf8"));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "superseded" } }));
+      await assert.rejects(
+        () => service.update({ dir, taskId, kind: "change", reason: "替代后变更", content: "## 目标与边界\n\nx\n", runActive: false }),
+        (error) => error.guardReason === "outcome_superseded",
+      );
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("凭据扫描：任务记录与输入更新命中即暂停、不回显完整值；无命中正常写入（任务032）", async () => {
+  // 1. 任务记录：合成私钥标记写入被拒。
+  {
+    const dir = gitProject("scan-record");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      const before = readFileSync(file, "utf8");
+      const synthetic = "-----BEGIN RSA PRIVATE KEY-----\n合成占位\n-----END RSA PRIVATE KEY-----\n";
+      await assert.rejects(
+        () => service.record({ dir, taskId, body: `包含私钥标记\n${synthetic}` }),
+        (error) => error.guardReason === "credential_scan_hit",
+      );
+      assert.equal(readFileSync(file, "utf8"), before, "命中后无新正文写入");
+      const ok = await service.record({ dir, taskId, body: "普通记录内容" });
+      assert.equal(ok.saved, true);
+      assert.ok(readFileSync(file, "utf8").includes("普通记录内容"));
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  // 2. 输入更新直接写入：token 形态被拒，且错误消息不含完整 token。
+  {
+    const dir = gitProject("scan-update");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId } = await service.newTask({ dir, title: "T" });
+      const fakeToken = "ghp_" + "a".repeat(36);
+      const error = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: `## 目标与边界\n\n使用 ${fakeToken} 访问\n`, runActive: false }).then(() => null, (e) => e);
+      assert.ok(error, "应拒绝");
+      assert.equal(error.guardReason, "credential_scan_hit");
+      assert.ok(!String(error.message).includes(fakeToken), "错误不回显完整敏感值");
+      // 无命中正常更新与应用草案不受影响。
+      const applied = await service.update({ dir, taskId, kind: "clarify", reason: "正常", content: "## 目标与边界\n\n正常内容\n", runActive: false });
+      assert.equal(applied.applied, "direct");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

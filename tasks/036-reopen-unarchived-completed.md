@@ -44,4 +44,11 @@ closedGuard 对全部 completed 返回 outcome_completed，onInputsUpdated 与�
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `src/domain/task.ts`：新增 `inputsClosedGuard`／`inputsUpdateRefusal`——输入更新（onInputsUpdated／onPendingResolved）对未归档 completed 放宽为可重开；已完整归档与 cancelled/superseded 沿旧拒绝；应用草案路径不再被 pendingGuard 自拦（应用即解决路径）。其余事件（ready、实施、检查、交付、关闭）仍用 closedGuard，completed 一律拒绝。
+  - `src/application/task-service.ts`：update 直接更新与 applyPending 把 `located.archived` 传入领域裁决；归档任务由任务定位层先行拦截（io_error/task_archived）。
+  - 重开效果：change 回 open/discuss、deliver 上摘要变化的 clarify 回 open/check，status 复 open、outcome 清 null，与磁盘写入一致（030 修复的写回路径复用）。
+  - 测试：`test/task.test.mjs` 新增四场景：未归档 completed 的 clarify/change 重开（磁盘断言）、已完整归档拒绝、cancelled 拒绝、superseded 拒绝。既有“待应用草案阻止代码阶段”等领域断言不变。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续全量 222 项全过（Linux + Node v24.21.0；B002 偶发口径不变）；审计探针 `completed-input-update-domain` 更新为双向断言：未归档 change 回 open/discuss、归档拒绝 outcome_completed（原探针只断言旧行为且 TaskFacts 缺字段，随审计工具同步修正）。
+  - 设计同步：DESIGN §3.6“输入变更迁移仅用于未归档且 outcome 不是 cancelled/superseded 的任务”现与实现一致；与 030 的草案返回／磁盘一致性继续成立。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

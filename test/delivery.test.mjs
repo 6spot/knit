@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -79,7 +79,7 @@ async function makeDeliverable(dir, s, { phase = "deliver", status = "open", out
   const planner = new ContextPlanner({ store: s.store, now: () => NOW, randomHex: () => "abcdef123456" });
   const plan = await planner.plan({ dir, taskId: created.taskId, role: "check" });
   const scope = emptyScope(created.taskId, NOW.toISOString());
-  scope.entries.push(currentEntry(dir, "app.txt"));
+  scope.entries.push(currentEntry(dir, "app.txt", { factsKind: true }));
   scope.digest = scopeDigest(scope.entries);
   scope.updatedAt = NOW.toISOString();
   const runs = new RunStore(dir);
@@ -344,7 +344,7 @@ test("hook 改动选中文件：提交保留但 needs_attention，不移动任�
   }
 });
 
-test("hook 改内容后的显式 retry 仍核对提交树，不盲目宣称完成", async () => {
+test("hook 改内容后的显式 retry 不复用旧 pass；scope 现状重核拒绝 check_stale", async () => {
   const dir = project("hook-content-retry");
   const s = services(dir);
   try {
@@ -356,10 +356,11 @@ test("hook 改内容后的显式 retry 仍核对提交树，不盲目宣称完�
     assert.equal(first.state, "needs_attention");
     assert.equal(first.reason, "hook_changed_selected");
     rmSync(hook);
-    const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
-    assert.equal(retry.state, "needs_attention");
-    assert.ok(["hook_changed_selected", "selected_worktree_dirty"].includes(retry.reason), retry.reason ?? "");
-    assert.equal(retry.workCommit, first.workCommit);
+    // 任务027：hook 改写了 scope 文件，旧 pass 不再代表当前成果，重试必须重新检查。
+    await assert.rejects(
+      () => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true }),
+      /check_stale|检查后成果路径现状与记录不符/,
+    );
     assert.ok(existsSync(task.taskFile));
   } finally {
     s.store.close();
@@ -672,6 +673,62 @@ test("显式 retry：hook 失败现场清理后核实原提交并继续，不重
   }
 });
 
+test("凭据扫描：限定提交命中即暂停、无新提交、结果不回显完整值（任务032）", async () => {
+  const dir = project("scan-delivery");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const fakeKey = "AKIAIOSFODNN7EXAMPLE";
+    writeFileSync(join(dir, "app.txt"), `key=${fakeKey}\n`);
+    await assert.rejects(
+      () => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH }),
+      (error) => error.guardReason === "credential_scan_hit" && !String(error.message).includes(fakeKey),
+    );
+    const log = git(dir, ["log", "--oneline"]);
+    assert.equal(log.split("\n").filter((line) => line.includes("knit: deliver")).length, 0, "命中后无交付提交");
+    // 移除命中内容并恢复检查时的同一字节后，重试可继续（scope 现状重核与凭据扫描都通过）。
+    writeFileSync(join(dir, "app.txt"), "new\n");
+    const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
+    assert.equal(retry.state, "completed", retry.reason ?? "");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scope 现状重核：改字节、换类型、改执行位或删除后旧 pass 拒绝交付，恢复后可用", async () => {
+  const cases = [
+    { name: "content", mutate: (dir) => writeFileSync(join(dir, "app.txt"), "tampered\n") },
+    { name: "mode", mutate: (dir) => chmodSync(join(dir, "app.txt"), 0o755) },
+    { name: "type", mutate: (dir) => { rmSync(join(dir, "app.txt")); symlinkSync("other.txt", join(dir, "app.txt")); } },
+    { name: "delete", mutate: (dir) => rmSync(join(dir, "app.txt")) },
+  ];
+  for (const scenario of cases) {
+    const dir = project(`scope-recheck-${scenario.name}`);
+    const s = services(dir);
+    try {
+      const task = await makeDeliverable(dir, s);
+      scenario.mutate(dir);
+      await assert.rejects(
+        () => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH }),
+        (error) => error.guardReason === "check_stale",
+        `场景 ${scenario.name} 应拒绝旧 pass`,
+      );
+      const runs = new RunStore(dir);
+      assert.equal(runs.readCheck(task.check.runId)?.verdict, "pass", "拒绝是重核拒绝，不改凭据记录");
+      if (scenario.name === "mode") {
+        // 恢复同一现状后旧 pass 仍有效，不要求重新检查。
+        chmodSync(join(dir, "app.txt"), 0o644);
+        const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+        assert.equal(result.state, "completed", result.reason ?? "");
+      }
+    } finally {
+      s.store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("最新检查失败时不回退旧 pass 交付", async () => {
   const dir = project("latest-check");
   const s = services(dir);
@@ -719,11 +776,11 @@ test("同任务混改：模式、删除、重命名与内容一起按真实提�
     const scope = {
       ...task.scope,
       entries: [
-        { ...currentEntry(dir, "app.txt"), path: "app.txt" },
-        { ...currentEntry(dir, "mode.sh"), path: "mode.sh" },
-        { ...currentEntry(dir, "renamed.txt"), path: "renamed.txt" },
-        { ...currentEntry(dir, "other.txt"), path: "other.txt" },
-        { ...currentEntry(dir, "staged.txt"), path: "staged.txt" },
+        { ...currentEntry(dir, "app.txt", { factsKind: true }), path: "app.txt" },
+        { ...currentEntry(dir, "mode.sh", { factsKind: true }), path: "mode.sh" },
+        { ...currentEntry(dir, "renamed.txt", { factsKind: true }), path: "renamed.txt" },
+        { ...currentEntry(dir, "other.txt", { factsKind: true }), path: "other.txt" },
+        { ...currentEntry(dir, "staged.txt", { factsKind: true }), path: "staged.txt" },
       ],
     };
     scope.digest = scopeDigest(scope.entries);

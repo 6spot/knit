@@ -48,7 +48,8 @@ export interface RuntimeStartCheck {
     | "connection_closed"
     | "set_model_rejected"
     | "model_mismatch"
-    | "no_session_state";
+    | "no_session_state"
+    | "session_identity_mismatch";
   detail: string;
   nativeSessionId: string | null;
   sessionFile: string | null;
@@ -159,6 +160,14 @@ export class PiAgentRuntime {
       if (sessionId === null) {
         return this.failStart("no_session_state", "get_state 未返回 sessionId");
       }
+      // 启动身份核对：恢复（--session）与预分配（--session-id）都要求实际 ID 与预期一致；
+      // 不一致带错误会话锁继续执行会把成果写进错误对象（任务035）。
+      if (this.options.sessionId !== undefined && sessionId !== this.options.sessionId) {
+        return this.failStart(
+          "session_identity_mismatch",
+          `实际 sessionId ${sessionId} 与预期 ${this.options.sessionId} 不一致`,
+        );
+      }
       this.nativeSessionId = sessionId;
       this.sessionFile = sessionFile;
       const model = (data.model ?? {}) as Record<string, unknown>;
@@ -206,21 +215,25 @@ export class PiAgentRuntime {
     return this.requireConnection().invalidFrames;
   }
 
-  /** 提交 prompt；返回的 promise 在 agent_settled 或连接结束时解决，不接受单个响应作终态。 */
-  async prompt(message: string, timeoutMs = 600_000): Promise<SettledObservation> {
+  /**
+   * 提交 prompt；返回的 promise 在 agent_settled 或连接结束时解决，不接受单个响应作终态。
+   * timeoutMs 仅控制单个 RPC 响应／观察等待，不是阶段总时限（任务034）：传 null 表示无截止，
+   * 终态只由 agent_settled、进程退出、abort 或连接失败决定。
+   */
+  async prompt(message: string, timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
     this.settledSeen = false;
     this.lastSettledAborted = false;
-    void connection.call("prompt", { message }, timeoutMs).catch(() => {
+    void connection.call("prompt", { message }, timeoutMs ?? 600_000).catch(() => {
       // prompt 响应失败或超时不代表模型已停止；终态以 agent_settled / exit 为准。
     });
     return this.waitSettled(timeoutMs);
   }
 
-  /** 等待稳定终态；agent_settled 才算，agent_end 不算。 */
-  async waitSettled(timeoutMs = 600_000): Promise<SettledObservation> {
+  /** 等待稳定终态；agent_settled 才算，agent_end 不算。timeoutMs 为 null 时无截止（任务034）。 */
+  async waitSettled(timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
-    const deadline = Date.now() + timeoutMs;
+    const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
     for (;;) {
       const index = connection.events.findIndex(
         (event) => event.type === "agent_settled",
@@ -234,7 +247,7 @@ export class PiAgentRuntime {
       if (connection.exit !== null) {
         return { settled: false, aborted: false, exit: connection.exit };
       }
-      if (Date.now() > deadline) {
+      if (deadline !== null && Date.now() > deadline) {
         return { settled: false, aborted: false, exit: null };
       }
       await sleep(50);

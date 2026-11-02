@@ -25,6 +25,7 @@ import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { parseTaskDocument, renderTaskDocument, withRegions, type TaskDocument } from "./task-document.js";
+import { scanCredentials } from "../contracts/credentials.js";
 
 const TASKS_DIR = "tasks";
 const ARCHIVE_DIR = "archive";
@@ -244,6 +245,14 @@ function guardRejected(result: TaskTransitionResult, what: string): TaskTransiti
   return result as TaskTransition;
 }
 
+/** 写入前凭据扫描：命中暂停副作用，只报告类型与位置，不回显敏感值（DESIGN §5.6，任务032）。 */
+function assertNoCredentials(content: string, what: string): void {
+  const hits = scanCredentials(content);
+  if (hits.length === 0) return;
+  const summary = hits.map((hit) => `${hit.type}@行${hit.line}`).join(", ");
+  throw new TaskGuardError("credential_scan_hit", `${what}命中常见凭据模式，已暂停写入: ${summary}`);
+}
+
 /** tasks/ 根目录（受管任务资料）。 */
 export function tasksRootOf(root: string): string {
   return safeJoin(join(root, ".knit"), TASKS_DIR);
@@ -390,6 +399,8 @@ export class TaskService {
     const dir = join(tasksRoot, dirName);
     mkdirSync(dir, { recursive: false });
     const { inputsBody, progressBody } = renderInitialTaskBody(input.title);
+    // 创建前凭据扫描：标题进入任务正文（任务032）。
+    assertNoCredentials(renderInitialTaskBody(input.title).inputsBody + input.title, "任务创建");
     const frontmatter = {
       id: taskId,
       status: "open" as const,
@@ -626,8 +637,11 @@ export class TaskService {
         ? document.progressBody
         : `${document.progressBody.trimEnd()}\n\n${addition}\n`;
       const updated = withRegions(document, { progressBody, frontmatter: { ...document.frontmatter } });
+      const rendered = renderTaskDocument(updated);
+      // 记录也可能被复制扩散；写前扫描本次新增正文（任务032）。
+      if (addition !== "") assertNoCredentials(addition, "任务记录");
       // 短锁内核对版本：外部改动（expectedSha256 不符）报 version_conflict，不覆盖。
-      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      atomicWrite({ path: file, data: Buffer.from(rendered, "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       return { taskId: input.taskId, saved: true };
     } finally {
       this.locks.release(lock);
@@ -682,89 +696,132 @@ export class TaskService {
       throw new InfrastructureError("io_error", "task update 需要 --kind clarify/change 或 --apply-pending/--withdraw-pending");
     }
     const root = normalizeRoot(input.dir);
+    const located = this.locate(root, input.taskId);
+    const file = join(located.dir, TASK_FILE);
+    const before = readWithVersion(file);
+    if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+    if (input.expectTaskSha256 !== undefined && input.expectTaskSha256 !== before.sha256) {
+      throw new InfrastructureError("version_conflict", "task.md 当前版本与恢复预览不一致，停止");
+    }
+    const document = parseTaskDocument(before.data.toString("utf8"), file);
+    const binding = await this.store.bindings.get(input.taskId);
+    const kindInput = input as TaskUpdateInput & { kind: UpdateKind };
+    // 活动 run 中只保存草案：仅用任务短锁（稳定 ID），不与 worker 项目执行占用互斥（任务029）。
+    const draftLock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.update.draft" });
+    try {
+      const runActive = input.runActive || (this.runActivity !== null && await this.runActivity.active(root, input.taskId));
+      if (runActive) {
+        return await this.saveDraftLocked(root, input.taskId, kindInput, document, binding);
+      }
+    } finally {
+      this.locks.release(draftLock);
+    }
+    // 非活动 run：直接更新仍需项目执行占用（输入区写回与阶段转移）。
     const lock = await this.locks.acquire({
       keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
       action: "task.update",
     });
     try {
-      const located = this.locate(root, input.taskId);
-      const file = join(located.dir, TASK_FILE);
-      const before = readWithVersion(file);
-      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
-      if (input.expectTaskSha256 !== undefined && input.expectTaskSha256 !== before.sha256) {
-        throw new InfrastructureError("version_conflict", "task.md 当前版本与恢复预览不一致，停止");
-      }
-      const document = parseTaskDocument(before.data.toString("utf8"), file);
-      const binding = await this.store.bindings.get(input.taskId);
-      // 不信任调用方在锁外观察的 runActive：持有项目／任务锁时再核实。
-      const runActive = input.runActive || (this.runActivity !== null && await this.runActivity.active(root, input.taskId));
-      const currentDigest = inputsDigestOf(before.data.toString("utf8"));
-
-      // 活动 run 中只保存草案，不改冻结输入（STATES.md：InputsUpdateProposed）。
-      if (runActive) {
-        if (binding === null) throw new InfrastructureError("io_error", `任务无绑定: ${input.taskId}`);
-        if (binding.pendingDraft !== null) {
-          throw new TaskGuardError("pending_draft_exists", "已有待应用草案；先 apply 或 withdraw");
+      // 项目锁等待期间输入可能变化：锁内重读，防止覆盖后来更新。
+      const latest = readWithVersion(file);
+      if (latest === null || latest.sha256 !== before.sha256) {
+        const latestDocument = latest === null ? null : parseTaskDocument(latest.data.toString("utf8"), file);
+        const latestBinding = await this.store.bindings.get(input.taskId);
+        if (latestDocument !== null) {
+          const latestActive = input.runActive || (this.runActivity !== null && await this.runActivity.active(root, input.taskId));
+          if (latestActive) {
+            return await this.saveDraftLocked(root, input.taskId, kindInput, latestDocument, latestBinding);
+          }
         }
-        const draft = {
-          kind: input.kind,
-          reason: input.reason,
-          content: input.content,
-          baselineDigest: currentDigest,
-          digest: "",
-          createdAt: this.now().toISOString(),
-        };
-        const digest = pendingDraftDigest({ ...draft, updateOperationId: input.updateOperationId ?? null });
-        await this.store.bindings.save({ ...binding, pendingDraft: { ...draft, digest } });
-        return {
-          taskId: input.taskId,
-          applied: "pending_saved",
-          phase: document.frontmatter.phase,
-          status: document.frontmatter.status,
-          outcome: document.frontmatter.outcome,
-          inputsDigest: currentDigest,
-          digestChanged: false,
-          pendingDraftDigest: digest,
-        };
+        const latestVersion = readWithVersion(file);
+        if (latestVersion === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+        return await this.updateDirect(root, kindInput, file, latestVersion, located.archived);
       }
-
-      const prevDigest = binding?.confirmedInputsDigest ?? currentDigest;
-      const merged = this.mergeInputs(document, input.content);
-      const nextDigest = inputsDigestOf(renderTaskDocument(merged));
-      const digestChanged = nextDigest !== prevDigest;
-      const transition = guardRejected(onInputsUpdated({
-        status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        pendingKind: binding?.pendingDraft ? binding.pendingDraft.kind : null,
-      }, input.kind, digestChanged), "task update");
-      const updated = withRegions(document, {
-        inputsBody: merged.inputsBody,
-        frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
-      });
-      // 临界区内已持锁；直接写回并保持版本核对。
-      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
-      if (binding !== null) {
-        await this.store.bindings.save({
-          ...binding,
-          pendingDraft: null,
-          confirmedInputsDigest: nextDigest,
-        });
-      }
-      return {
-        taskId: input.taskId,
-        applied: "direct",
-        phase: transition.phase,
-        status: transition.status,
-        outcome: transition.outcome,
-        inputsDigest: nextDigest,
-        digestChanged,
-        pendingDraftDigest: null,
-      };
+      return await this.updateDirect(root, kindInput, file, before, located.archived);
     } finally {
       this.locks.release(lock);
     }
+  }
+
+  /** 活动 run 中只保存草案，不改冻结输入（STATES.md：InputsUpdateProposed）；调用方持有任务短锁。 */
+  private async saveDraftLocked(
+    root: string,
+    taskId: string,
+    input: TaskUpdateInput & { kind: UpdateKind },
+    document: TaskDocument,
+    binding: TaskBinding | null,
+  ): Promise<TaskUpdateResult> {
+    const currentDigest = inputsDigestOf(renderTaskDocument(document));
+    if (binding === null) throw new InfrastructureError("io_error", `任务无绑定: ${taskId}`);
+    if (binding.pendingDraft !== null) {
+      throw new TaskGuardError("pending_draft_exists", "已有待应用草案；先 apply 或 withdraw");
+    }
+    const draft = {
+      kind: input.kind,
+      reason: input.reason,
+      content: input.content,
+      baselineDigest: currentDigest,
+      digest: "",
+      createdAt: this.now().toISOString(),
+    };
+    const digest = pendingDraftDigest({ ...draft, updateOperationId: input.updateOperationId ?? null });
+    await this.store.bindings.save({ ...binding, pendingDraft: { ...draft, digest } });
+    return {
+      taskId,
+      applied: "pending_saved",
+      phase: document.frontmatter.phase,
+      status: document.frontmatter.status,
+      outcome: document.frontmatter.outcome,
+      inputsDigest: currentDigest,
+      digestChanged: false,
+      pendingDraftDigest: digest,
+    };
+  }
+
+  /** 非活动 run 的直接更新：写输入区并转移 phase；调用方持有项目＋任务锁。 */
+  private async updateDirect(
+    root: string,
+    input: TaskUpdateInput & { kind: UpdateKind },
+    file: string,
+    before: { data: Buffer; sha256: string },
+    archived: boolean,
+  ): Promise<TaskUpdateResult> {
+    const document = parseTaskDocument(before.data.toString("utf8"), file);
+    const binding = await this.store.bindings.get(input.taskId);
+    const prevDigest = binding?.confirmedInputsDigest ?? inputsDigestOf(before.data.toString("utf8"));
+    const merged = this.mergeInputs(document, input.content);
+    const nextDigest = inputsDigestOf(renderTaskDocument(merged));
+    const digestChanged = nextDigest !== prevDigest;
+    const transition = guardRejected(onInputsUpdated({
+      status: document.frontmatter.status,
+      phase: document.frontmatter.phase,
+      outcome: document.frontmatter.outcome,
+      branch: document.frontmatter.branch,
+      pendingKind: binding?.pendingDraft ? binding.pendingDraft.kind : null,
+    }, input.kind, digestChanged, archived), "task update");
+    const updated = withRegions(document, {
+      inputsBody: merged.inputsBody,
+      frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+    });
+    assertNoCredentials(input.content, "任务输入更新");
+    atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+    if (binding !== null) {
+      await this.store.bindings.save({
+        ...binding,
+        pendingDraft: null,
+        confirmedInputsDigest: nextDigest,
+      });
+    }
+    return {
+      taskId: input.taskId,
+      applied: "direct",
+      phase: transition.phase,
+      status: transition.status,
+      outcome: transition.outcome,
+      inputsDigest: nextDigest,
+      digestChanged,
+      pendingDraftDigest: null,
+    };
   }
 
   /** 输入合并策略：替换目标与边界板块之后的正文为更新内容；保留 frontmatter 与记录区。 */
@@ -811,8 +868,13 @@ export class TaskService {
       };
       const merged = this.mergeInputs(document, draft.content);
       const nextDigest = inputsDigestOf(renderTaskDocument(merged));
-      const transition = guardRejected(onPendingResolved(facts, draft.kind, nextDigest !== draft.baselineDigest), "apply pending");
-      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(merged)), expectedSha256: before.sha256, mode: 0o644 });
+      const transition = guardRejected(onPendingResolved(facts, draft.kind, nextDigest !== draft.baselineDigest, located.archived), "apply pending");
+      // 任务030：转移结果与正文一起写入权威任务文件，响应与磁盘一致。
+      const updated = withRegions(merged, {
+        frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+      });
+      assertNoCredentials(draft.content, "应用输入草案");
+      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated)), expectedSha256: before.sha256, mode: 0o644 });
       await this.store.bindings.save({ ...binding, pendingDraft: null, confirmedInputsDigest: nextDigest });
       return {
         taskId: input.taskId,
@@ -829,16 +891,13 @@ export class TaskService {
     }
   }
 
-  /** 撤回草案：版本摘要匹配、留原因；冻结输入与 phase 不变（STATES.md 第3节）。 */
+  /** 撤回草案：版本摘要匹配、留原因；冻结输入与 phase 不变（STATES.md 第3节）。仅用任务短锁，运行中也可撤回（任务029）。 */
   private async withdrawPending(input: TaskUpdateInput): Promise<TaskUpdateResult> {
     if (input.expectPending === undefined || input.withdrawReason === undefined) {
       throw new InfrastructureError("io_error", "withdraw 需要 --expect-pending 与 --reason");
     }
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.withdraw-pending",
-    });
+    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.withdraw-pending" });
     try {
       // 锁内重读草案：后来草案不能被旧摘要撤回。
       const located = this.locate(root, input.taskId);
@@ -853,10 +912,14 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
-      // 撤回留记录：在记录区写一行，冻结输入与 phase 不变。
-      const progressAppend = `\n### 撤回输入草案\n\n- 时间: ${this.now().toISOString()}\n- kind: ${draft.kind}\n- 理由: ${input.withdrawReason}\n`;
-      const updated = withRegions(document, { progressBody: document.progressBody + progressAppend });
-      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      // 撤回留操作记录，不写 task.md：活动运行中任务资料受 .knit 保护，写盘会误伤检查前后比对（任务029）。
+      await this.store.operations.save({
+        operationId: `withdraw-${this.randomHex(6)}`,
+        kind: "task.withdraw-pending",
+        state: "completed",
+        reason: `kind=${draft.kind}; ${input.withdrawReason}`,
+        recordedAt: this.now().toISOString(),
+      });
       await this.store.bindings.save({ ...binding, pendingDraft: null });
       return {
         taskId: input.taskId,

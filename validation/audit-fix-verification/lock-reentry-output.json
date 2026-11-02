@@ -1,0 +1,63 @@
+{
+ "case": "029-lock-reentry",
+ "total": 14,
+ "failed": 2,
+ "results": [
+  {
+   "name": "重入返回同一 token",
+   "ok": true
+  },
+  {
+   "name": "重入 owner 版本一致",
+   "ok": true
+  },
+  {
+   "name": "内层释放后锁目录仍存在",
+   "ok": true
+  },
+  {
+   "name": "内层释放后 owner 未变",
+   "ok": true
+  },
+  {
+   "name": "全部释放后 owner 为 null",
+   "ok": true
+  },
+  {
+   "name": "同键不同动作 busy",
+   "ok": true
+  },
+  {
+   "name": "跨实例仍互斥",
+   "ok": true
+  },
+  {
+   "name": "混合请求因新键 busy 失败",
+   "ok": true
+  },
+  {
+   "name": "外层重入键锁目录仍完好（回滚未误删）",
+   "ok": false
+  },
+  {
+   "name": "他者键不被回滚侵犯",
+   "ok": true
+  },
+  {
+   "name": "新键在前失败仍 busy",
+   "ok": true
+  },
+  {
+   "name": "重入键外层锁仍完好",
+   "ok": true
+  },
+  {
+   "name": "owner 写失败表现为 busy（mkdir 后写 owner 失败目录已存在）",
+   "ok": true
+  },
+  {
+   "name": "owner 写失败回滚后外层重入键锁仍完好",
+   "ok": false
+  }
+ ]
+}

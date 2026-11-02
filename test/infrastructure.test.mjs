@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { sha256Text, sha256Bytes, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fingerprint.js";
 import { normalizeRoot, hashKey, safeJoin } from "../dist/infrastructure/paths.js";
 import { InfrastructureError } from "../dist/infrastructure/errors.js";
 import { LockManager, orderKeys, currentIdentity, procStartTicks } from "../dist/infrastructure/locks.js";
+import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { ArgvGitPort, NodeProcessPort, gitSync, processTreePids, signalProcessTree } from "../dist/infrastructure/process.js";
 import { decideStartStep, decideStepCheckpoint, decideComplete, decideAbandon, findStepByIdempotencyKey, newOperation } from "../dist/infrastructure/operations.js";
 
@@ -116,7 +117,55 @@ test("指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸",
   }
 });
 
-test("文件事实：absent 如实记录，不抛错", () => {
+test("运行目录与数据库权限：新建与既有 0755 目录、0644 数据库在不同 umask 下收紧到 0700／0600（任务040）", () => {
+  const oldUmask = process.umask(0o022);
+  try {
+    // 1. 仓储打开时新建：目录 0700、db 与 sidecar 0600。
+    {
+      const dir = freshDir("perm-fresh");
+      try {
+        const dbPath = join(dir, ".knit", ".runtime", "metadata.db");
+        const store = new SqliteMetadataStore(dbPath);
+        assert.equal(statSync(dirname(dbPath)).mode & 0o777, 0o700, "新建运行目录 0700");
+        assert.equal(statSync(dbPath).mode & 0o777, 0o600, "新建数据库 0600");
+        if (existsSync(`${dbPath}-wal`)) {
+          assert.equal(statSync(`${dbPath}-wal`).mode & 0o777, 0o600, "WAL 0600");
+        }
+        store.close();
+        // 正常重开不受影响。
+        const reopen = new SqliteMetadataStore(dbPath);
+        reopen.close();
+        assert.equal(statSync(dbPath).mode & 0o777, 0o600);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    // 2. 既有 0755 目录与 0644 数据库：打开后收紧。
+    {
+      const dir = freshDir("perm-existing");
+      try {
+        const runtime = join(dir, ".knit", ".runtime");
+        mkdirSync(runtime, { recursive: true, mode: 0o755 });
+        const dbPath = join(runtime, "metadata.db");
+        writeFileSync(dbPath, "");
+        chmodSync(dbPath, 0o644);
+        const store = new SqliteMetadataStore(dbPath);
+        assert.equal(statSync(runtime).mode & 0o777, 0o700, "既有目录收紧 0700");
+        assert.equal(statSync(dbPath).mode & 0o777, 0o600, "既有数据库收紧 0600");
+        if (existsSync(`${dbPath}-wal`)) {
+          assert.equal(statSync(`${dbPath}-wal`).mode & 0o777, 0o600, "WAL 0600");
+        }
+        store.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    process.umask(oldUmask);
+  }
+});
+
+test("文件事实：absent 如实记录，不抛错；链接按目标、文件含模式（任务027）", () => {
   const dir = freshDir("facts");
   try {
     const file = join(dir, "a.txt");
@@ -126,9 +175,21 @@ test("文件事实：absent 如实记录，不抛错", () => {
     assert.equal(facts.kind, "file");
     assert.equal(facts.sha256, sha256Text("hello"));
     assert.equal(facts.childCount, null);
+    assert.equal(facts.mode, statSync(file).mode.toString(8));
+    const target = join(dir, "real.txt");
+    writeFileSync(target, "target\n");
+    symlinkSync("real.txt", join(dir, "link.txt"));
+    const link = fileFacts(join(dir, "link.txt"));
+    assert.equal(link.kind, "link");
+    assert.equal(link.mode, "real.txt");
+    assert.equal(link.sha256, null);
+    const broken = fileFacts(join(dir, "broken.txt"));
+    assert.equal(broken.kind, "absent");
     const listed = listFiles(dir);
-    assert.equal(Object.keys(listed).length, 1);
+    assert.equal(Object.keys(listed).length, 3);
     assert.ok(listed["a.txt"]);
+    assert.equal(listed["link.txt"].kind, "link");
+    assert.equal(listed["link.txt"].mode, "real.txt");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -193,6 +254,152 @@ test("锁：多键失败按 token 释放本次已取得锁", async () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// 044：每例独立锁根，失败后通过 owner、跨实例互斥及真实句柄释放验收。
+async function isolatedLocks(name, run) {
+  const root = freshDir(name);
+  try {
+    await run(root, lockManagerFor(root), lockManagerFor(root));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+const reentryA = { scope: "project", rawKey: "/tmp/reentry-a" };
+const reentryB = { scope: "task", rawKey: "/tmp/reentry-b" };
+const reentryC = { scope: "session", rawKey: "pi/reentry-c" };
+const isBusy = (error) => error.code === "lock_busy";
+
+async function acquireAndRelease(manager, key, action = "same") {
+  const lock = await manager.acquire({ keys: [key], action });
+  assert.equal(manager.inspect(key).owner?.token, lock.token, "重新获取必须真实写 owner，不能沿用内存残留");
+  manager.release(lock);
+  assert.equal(manager.inspect(key).exists, false, "真实句柄释放后无残留引用");
+}
+
+test("锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变", async () => {
+  await isolatedLocks("locks-reentry-busy", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryA], action: "same" });
+    const blocked = await rival.acquire({ keys: [reentryB], action: "other" });
+    const beforeA = readFileSync(outer.ownerPaths[0], "utf8");
+    const beforeB = readFileSync(blocked.ownerPaths[0], "utf8");
+    await assert.rejects(() => manager.acquire({ keys: [reentryA, reentryB], action: "same" }), isBusy);
+    assert.equal(readFileSync(outer.ownerPaths[0], "utf8"), beforeA);
+    assert.equal(readFileSync(blocked.ownerPaths[0], "utf8"), beforeB);
+    await assert.rejects(() => rival.acquire({ keys: [reentryA], action: "same" }), isBusy);
+    manager.release(outer);
+    await acquireAndRelease(rival, reentryA);
+    await acquireAndRelease(manager, reentryA);
+    rival.release(blocked);
+  });
+});
+
+test("锁044：排序后 busy 先于重入键，未触达外层不变", async () => {
+  await isolatedLocks("locks-reentry-busy-first", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryB], action: "same" });
+    const blocked = await rival.acquire({ keys: [reentryA], action: "other" });
+    const before = readFileSync(outer.ownerPaths[0], "utf8");
+    const keys = orderKeys([reentryB, reentryA]);
+    assert.deepEqual(keys, [reentryA, reentryB]);
+    await assert.rejects(() => manager.acquire({ keys, action: "same" }), isBusy);
+    assert.equal(readFileSync(outer.ownerPaths[0], "utf8"), before);
+    await assert.rejects(() => rival.acquire({ keys: [reentryB], action: "same" }), isBusy);
+    manager.release(outer);
+    await acquireAndRelease(rival, reentryB);
+    rival.release(blocked);
+  });
+});
+
+test("锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录", async () => {
+  await isolatedLocks("locks-reentry-write-fail", async (root, unused, rival) => {
+    const injected = Object.assign(new Error("injected owner write failure"), { code: "EIO" });
+    let hits = 0;
+    class OwnerWriteFails extends LockManager {
+      writeOwner(path, owner) {
+        if (owner.rawKey === reentryB.rawKey) {
+          hits += 1;
+          assert.equal(existsSync(join(path, "..")), true, "注入须在 mkdir 成功后命中");
+          throw injected;
+        }
+        return super.writeOwner(path, owner);
+      }
+    }
+    const manager = new OwnerWriteFails({ root });
+    const outer = await manager.acquire({ keys: [reentryA], action: "same" });
+    const before = readFileSync(outer.ownerPaths[0], "utf8");
+    await assert.rejects(() => manager.acquire({ keys: [reentryA, reentryB], action: "same" }), (error) => error === injected);
+    assert.equal(hits, 1, "真实命中 owner 写失败且原错误透传");
+    assert.equal(manager.inspect(reentryB).exists, false);
+    assert.equal(readFileSync(outer.ownerPaths[0], "utf8"), before);
+    await assert.rejects(() => rival.acquire({ keys: [reentryA], action: "same" }), isBusy);
+    manager.release(outer);
+    await acquireAndRelease(rival, reentryA);
+    await acquireAndRelease(manager, reentryA);
+    await acquireAndRelease(rival, reentryB);
+  });
+});
+
+test("锁044：新建键后遇 busy，同实例与 rival 可重新获取释放", async () => {
+  await isolatedLocks("locks-created-busy", async (root, manager, rival) => {
+    const blocked = await rival.acquire({ keys: [reentryB], action: "other" });
+    await assert.rejects(() => manager.acquire({ keys: [reentryA, reentryB], action: "same" }), isBusy);
+    assert.equal(manager.inspect(reentryA).exists, false);
+    assert.equal(manager.inspect(reentryB).owner?.token, blocked.token);
+    await acquireAndRelease(manager, reentryA);
+    await acquireAndRelease(rival, reentryA);
+    rival.release(blocked);
+  });
+});
+
+test("锁044：新建与多次重入逆序撤销，不泄漏真实外层引用", async () => {
+  await isolatedLocks("locks-reentry-layers", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryA], action: "same" });
+    const middle = await manager.acquire({ keys: [reentryA], action: "same" });
+    const inner = await manager.acquire({ keys: [reentryA], action: "same" });
+    const blocked = await rival.acquire({ keys: [reentryC], action: "other" });
+    await assert.rejects(() => manager.acquire({ keys: [reentryA, reentryB, reentryA, reentryC], action: "same" }), isBusy);
+    assert.equal(manager.inspect(reentryA).owner?.token, outer.token);
+    assert.equal(manager.inspect(reentryB).exists, false);
+    await acquireAndRelease(manager, reentryB);
+    for (const lock of [inner, middle]) {
+      manager.release(lock);
+      await assert.rejects(() => rival.acquire({ keys: [reentryA], action: "same" }), isBusy);
+    }
+    manager.release(outer);
+    await acquireAndRelease(rival, reentryA);
+    await acquireAndRelease(manager, reentryA);
+    rival.release(blocked);
+  });
+});
+
+test("锁044：正常重入与混合新建成功后逐层释放，不同动作仍 busy", async () => {
+  await isolatedLocks("locks-reentry-success", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryA], action: "same" });
+    const mixed = await manager.acquire({ keys: [reentryA, reentryB], action: "same" });
+    assert.equal(mixed.token, outer.token);
+    assert.equal(manager.inspect(reentryB).owner?.token, mixed.token);
+    await assert.rejects(() => manager.acquire({ keys: [reentryA], action: "different" }), isBusy);
+    await assert.rejects(() => rival.acquire({ keys: [reentryA], action: "same" }), isBusy);
+    manager.release(mixed);
+    assert.equal(manager.inspect(reentryB).exists, false);
+    assert.equal(manager.inspect(reentryA).owner?.token, outer.token);
+    manager.release(outer);
+    await acquireAndRelease(rival, reentryA);
+    await acquireAndRelease(manager, reentryB);
+  });
+});
+
+test("锁044：release 不删除已被其它 token 替换的 owner", async () => {
+  await isolatedLocks("locks-release-replaced", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryA], action: "same" });
+    rmSync(join(outer.ownerPaths[0], ".."), { recursive: true, force: true });
+    const replacement = await rival.acquire({ keys: [reentryA], action: "other" });
+    const before = readFileSync(replacement.ownerPaths[0], "utf8");
+    manager.release(outer);
+    assert.equal(readFileSync(replacement.ownerPaths[0], "utf8"), before);
+    rival.release(replacement);
+    await acquireAndRelease(manager, reentryA);
+  });
 });
 
 test("锁：只读 inspect 不创建目录", () => {

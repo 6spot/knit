@@ -44,4 +44,9 @@
 ## 执行记录
 
 - 2026-11-02：审计主执行者创建任务，记录上述偏差、证据与验收条件；尚未实施本项修复。
+- 2026-11-02：开发 Agent 实施修复并验证完成。
+  - `assets/templates/pi/extensions/knit.ts`：新增 `describeQuery`——按实际 query data 形状生成可读文本：task list（活跃／归档列表，归档超过 20 条折叠计数）、项目概览（任务与活跃运行）、按任务查询（`/knit status <id>` 与 `/knit-status`：状态／阶段／分支／待应用草案／运行列表）；其它成功对象给出键值摘要。`/knit` 与 `/knit-status` 成功响应优先展示结构化结果，失败 reason 与诊断分开（level warning），不回显诊断细节；写命令（如 task new）不受影响。
+  - 测试：新增 `test/bridge-query.test.mjs`——公开 Extension API 替身（host stub）加载 tsc 编译后的安装版桥接模板（与安装布局同构，root 推导到测试项目），断言 `/knit task list`、`/knit status`、`/knit-status`、`/knit status <id>` 的通知内容确实可见（任务标题、活跃任务计数、运行列表、任务 ID），空归档列表显示（无），失败响应给出 warning 而非通用完成。这是最小宿主验证：真实宿主显示样式由宿主 ui 决定。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 连续两轮 229 项全过（Linux + Node v24.21.0）。
+  - 设计同步：DESIGN §3 当前任务选择与 §12 查询入口、首版 Pi 桥接使用约定不变；桥接只加展示，不新增工具入口或权限。
 - 后续执行者须补充实际修改、验证、未解决事项和交接，不以任务创建视为修复完成。

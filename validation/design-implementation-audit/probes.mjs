@@ -45,7 +45,7 @@ try {
   const applied = await tasks.update({dir,taskId:task.taskId,expectPending:saved.pendingDraftDigest});
   const reread = parseTaskDocument(readFileSync(join(dir,'.knit',task.relativePath),'utf8'));
   results.push({case:'pending-phase-persistence',responsePhase:applied.phase,diskPhase:reread.frontmatter.phase,pendingCleared:(await store.bindings.get(task.taskId)).pendingDraft===null});
-  results.push({case:'completed-input-update-domain',decision:onInputsUpdated({status:'closed',outcome:'completed',phase:'deliver'},'change',true)});
+  results.push({case:'completed-input-update-domain',decisionUnarchived:onInputsUpdated({status:'closed',outcome:'completed',phase:'deliver',branch:null,pendingKind:null},'change',true,false),decisionArchived:onInputsUpdated({status:'closed',outcome:'completed',phase:'deliver',branch:null,pendingKind:null},'change',true,true)});
   await tasks.close({ dir, taskId: task.taskId, outcome: 'cancelled', runsSettled: true });
   const archived = join(dir, '.knit', 'tasks', 'archive', '2026-11', basename(dirname(task.relativePath)));
   mkdirSync(join(dir, '.knit', 'tasks', 'archive', '2026-11'), { recursive: true });

@@ -211,6 +211,86 @@ test("init：上次受管基线可升级，人工改动仍冲突；更新版本�
   }
 });
 
+test("init：升级中断重试保留旧受管基线，桥接不判未知来源（任务039）", async () => {
+  const dir = freshProject("upgrade-interrupted");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    // 模拟旧版本基线：上次清单记录旧桥接基线，桥接文件为旧版。
+    const bridge = join(dir, ".pi", "extensions", "knit.ts");
+    const oldBody = "// 上一版受管桥接基线\n";
+    writeFileSync(bridge, oldBody);
+    const manifestPath = join(dir, ".knit", ".runtime", "init-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const item = manifest.items.find((entry) => entry.path === ".pi/extensions/knit.ts");
+    item.baselineSha256 = sha256Text(oldBody);
+    item.currentSha256 = sha256Text(oldBody);
+    item.state = "kept";
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+    // 中断点：preparing 已发布（修复后 preparing 合并保留旧基线项），桥接候选未发布。
+    const interrupted = JSON.parse(readFileSync(manifestPath, "utf8"));
+    interrupted.state = "preparing";
+    writeFileSync(manifestPath, JSON.stringify(interrupted, null, 2) + "\n");
+    assert.ok(
+      interrupted.items.some((entry) => entry.path === ".pi/extensions/knit.ts" && entry.baselineSha256 === sha256Text(oldBody)),
+      "preparing 中断不丢失旧桥接基线",
+    );
+
+    const retried = await init(service, dir);
+    assert.equal(retried.ready, true, retried.conflicts.join(","));
+    assert.deepEqual(retried.conflicts, []);
+    assert.ok(readFileSync(bridge, "utf8").includes("Knit 项目薄桥接"));
+    const finalManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(finalManifest.state, "ready");
+    assert.ok(finalManifest.items.some((entry) => entry.path === ".pi/extensions/knit.ts"));
+
+    // 对照：人工改过的桥接仍按冲突处理，不隐式覆盖。
+    writeFileSync(bridge, "// 用户自定义\n");
+    const conflict = await init(service, dir);
+    assert.equal(conflict.ready, false);
+    assert.deepEqual(conflict.conflicts, [".pi/extensions/knit.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：清单项被外部清空后（旧缺陷遗留）重试准确报告真实冲突，不冒充升级成功（任务039）", async () => {
+  const dir = freshProject("upgrade-emptied");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const bridge = join(dir, ".pi", "extensions", "knit.ts");
+    const oldBody = "// 上一版受管桥接基线\n";
+    writeFileSync(bridge, oldBody);
+    const manifestPath = join(dir, ".knit", ".runtime", "init-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const item = manifest.items.find((entry) => entry.path === ".pi/extensions/knit.ts");
+    item.baselineSha256 = sha256Text(oldBody);
+    item.currentSha256 = sha256Text(oldBody);
+    item.state = "kept";
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    // 旧缺陷遗留：清单被清空，基线无处恢复。
+    const interrupted = JSON.parse(readFileSync(manifestPath, "utf8"));
+    interrupted.state = "preparing";
+    interrupted.items = [];
+    writeFileSync(manifestPath, JSON.stringify(interrupted, null, 2) + "\n");
+    const retried = await init(service, dir);
+    assert.equal(retried.ready, false, "无基线依据不能宣称升级完成");
+    assert.deepEqual(retried.conflicts, [".pi/extensions/knit.ts"]);
+    // 但本次执行后新基线已建立：再次重试按新基线升级。
+    writeFileSync(bridge, "// 上一版受管桥接基线\n");
+    const after = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const bridgeItem = after.items.find((entry) => entry.path === ".pi/extensions/knit.ts");
+    bridgeItem.baselineSha256 = sha256Text("// 上一版受管桥接基线\n");
+    writeFileSync(manifestPath, JSON.stringify(after, null, 2) + "\n");
+    const upgraded = await init(service, dir);
+    assert.equal(upgraded.ready, true, upgraded.conflicts.join(","));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("init：安装映射移动／换机器后由 init 重写，不把本机绝对路径写进桥接", async () => {
   const dir = freshProject("installation-move");
   try {

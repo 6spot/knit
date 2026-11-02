@@ -70,6 +70,7 @@ export function registerRunCommands(program: Command): void {
         },
         diagnostics: devEnabled(program),
         newRepairCycle: options.newRepairCycle === true,
+        authorizedStandardPaths: (options.authorizeStandard as string[] | undefined) ?? [],
       });
     } finally {
       store.close();
@@ -124,6 +125,7 @@ export function registerRunCommands(program: Command): void {
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session（默认用 --native）")
     .option("--new-repair-cycle", "显式开启新修复周期（仅 implement）")
+    .option("--authorize-standard <path>", "明确授权为成果的正式规范路径（可重复）", (value: string, previous: string[]) => [...previous, value], [])
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {

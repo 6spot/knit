@@ -4,7 +4,7 @@
  * 模型报告与 worker 报告不参与这里的 Git 事实判断。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type {
@@ -28,11 +28,12 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { ContextPlanner } from "./context-planner.js";
 import { runSettled } from "./run-activity.js";
 import { GuardError } from "./guard-error.js";
-import { loadScope } from "./scope.js";
+import { loadScope, scopeEntriesCurrent } from "./scope.js";
 import { StandardsService } from "./standards-service.js";
 import { locateTaskDocument } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
+import { scanCredentials } from "../contracts/credentials.js";
 import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
 import {
   branchExists,
@@ -277,6 +278,29 @@ export class DeliveryService {
     if (binding.pendingDraft !== null) throw new GuardError("pending_inputs", "存在待应用输入草案，先应用或撤回");
 
     const runsSettled = await this.runsSettled(root, input.taskId);
+    // 限定提交前扫描拟提交路径的当前内容：命中即暂停交付，先于检查资格重核报告（任务032）。
+    if (!located.archived && (operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver"))) {
+      const scanPaths = new Set<string>([relative(root, taskDir).split("\\").join("/")]);
+      const preScope = loadScope(new RunStore(root), input.taskId, this.now().toISOString());
+      for (const entry of preScope.entries) scanPaths.add(entry.path);
+      const scanFailures: string[] = [];
+      for (const path of scanPaths) {
+        const full = join(root, path);
+        if (!existsSync(full)) continue;
+        let content: string;
+        try {
+          const stats = lstatSync(full);
+          content = stats.isDirectory() ? "" : readFileSync(full, "utf8");
+        } catch {
+          continue; // 不可读内容交由 Git 处理；扫描不阻塞无法读取的路径
+        }
+        const hits = scanCredentials(content);
+        if (hits.length > 0) scanFailures.push(`${path}: ${hits.map((hit) => `${hit.type}@行${hit.line}`).join(", ")}`);
+      }
+      if (scanFailures.length > 0) {
+        throw new GuardError("credential_scan_hit", `限定提交范围命中常见凭据模式，已暂停交付: ${scanFailures.join("; ")}`);
+      }
+    }
     let check: CheckFile | null = null;
     if (!located.archived && (operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver"))) {
       check = await this.validCheck(root, input.taskId, binding, branch);
@@ -932,6 +956,8 @@ export class DeliveryService {
     }
     const scope = loadScope(new RunStore(root), taskId, this.now().toISOString());
     if (check.scopeDigest !== scope.digest) throw new GuardError("check_stale", "检查后成果范围变化");
+    // scope 摘要只冻结路径列表；交付前按当前事实重核每个路径的类型、模式和内容（任务027）。
+    if (!scopeEntriesCurrent(root, scope.entries)) throw new GuardError("check_stale", "检查后成果路径现状与记录不符");
     return check;
   }
 
@@ -941,14 +967,16 @@ export class DeliveryService {
     if (pending.needsReview) throw new GuardError("standards_review_required", `规范候选待审阅: ${pending.reason}`);
     const review = pending.matchedReview;
     if (review !== null && (review.decision === "applied" || review.decision === "mixed")) {
+      // 按候选当前内容核对实际采纳效果：只有来源行不算完成，同 ID 新版本不能冒充（任务038）。
       const targets = review.targets.map((target) => {
         const path = join(root, target);
         return existsSync(path) ? readFileSync(path, "utf8") : "";
-      }).join("\n");
+      });
       const required = review.decision === "applied" ? review.candidateIds : review.candidateIds.slice(0, 1);
       for (const candidateId of required) {
-        if (!targets.includes(`来源：任务 ${taskId}／候选 ${candidateId}。`)) {
-          throw new GuardError("standards_apply_required", `候选 ${candidateId} 已审阅采纳但尚未写入正式规范`);
+        const expectedRule = await service.candidateRuleText({ dir: root, taskId, candidateId });
+        if (expectedRule === null || !targets.some((text) => text.includes(expectedRule))) {
+          throw new GuardError("standards_apply_required", `候选 ${candidateId} 已审阅采纳但完整规则尚未写入正式规范`);
         }
       }
     }

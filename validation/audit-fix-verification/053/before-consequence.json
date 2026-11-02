@@ -1,0 +1,31 @@
+{
+ "case": "044-lock-reentry-consequence",
+ "total": 6,
+ "failed": 2,
+ "results": [
+  {
+   "name": "混合请求真实遇 busy",
+   "ok": true
+  },
+  {
+   "name": "失败后外层锁保护保留",
+   "ok": false
+  },
+  {
+   "name": "旧外层 release 保留 rival owner",
+   "ok": true
+  },
+  {
+   "name": "外层释放后 rival 有真实 owner",
+   "ok": true
+  },
+  {
+   "name": "原实例可正常重新获取",
+   "ok": false
+  },
+  {
+   "name": "release 不删除已变更 token 的 owner",
+   "ok": true
+  }
+ ]
+}

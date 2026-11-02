@@ -1,0 +1,4 @@
+rival 抢占成功（外层锁保护丢失）: true
+本实例重入仍成功（自认持有）: true
+释放内层后目录 owner（应仍是 rival）: true
+全部释放后目录（rival 的锁被误删?）: {"protocol":1,"token":"3cf9acd5-4f48-4cea-a589-a2d243c2b7d7","action":"steal","scope":"project","rawKey":"/proj-a","machineBootId":"83dc0a85-8d4c-49c1-89a8-e952af13e42f","pid":2274181,"procStartTicks":"127395133","startedAt":"2026-11-02T20:26:53.949Z","heartbeatAt":"2026-11-02T20:26:53.949Z"}

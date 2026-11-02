@@ -30,7 +30,7 @@ import {
   type ResumeDecision,
 } from "../adapters/pi/index.js";
 import { RunStore } from "../infrastructure/run-store.js";
-import { procStartTicks, processTreePids, signalProcessTree } from "../infrastructure/process.js";
+import { procStartTicks, processTreePids, signalProcessTree, gitSync } from "../infrastructure/process.js";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { LockManager, currentIdentity, type AcquiredLock } from "../infrastructure/locks.js";
@@ -58,12 +58,12 @@ export interface StageRunnerOptions {
   piExecutable?: string;
   /** Pi 配置根；默认 ~/.pi/agent。 */
   agentDir?: string;
-  promptTimeoutMs?: number;
+  /** 单个控制／观察请求的超时；不是阶段总时限，缺省无截止（任务034）。 */
+  promptTimeoutMs?: number | null;
   /** 取消后等待 agent 自行结束的宽限；超时则终止本次 Pi 进程组。 */
   cancelGraceMs?: number;
   /** 与项目执行锁同源的锁管理器；传入后阶段独占该 Session 锁。 */
-  locks?: LockManager;
-  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
+  locks?: LockManager;  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
   lostOwnership?: () => string | null;
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
 }
@@ -93,6 +93,13 @@ function toolsFor(request: RunRequestFile, plan: ContextPlan): string[] {
 function diffSignatures(before: WorktreeSignature, after: WorktreeSignature): string[] {
   const paths = new Set([...Object.keys(before.entries), ...Object.keys(after.entries)]);
   return [...paths].filter((path) => before.entries[path] !== after.entries[path]).sort();
+}
+
+/** 运行中分支核对：预期完整 ref 与实际 HEAD 一致；detached／不匹配都算偏离（任务028）。 */
+export function liveBranchMatches(root: string, expected: string | null, git: (args: string[], cwd: string) => { code: number; stdout: string }): boolean {
+  if (expected === null) return true;
+  const result = git(["symbolic-ref", "-q", "HEAD"], root);
+  return result.code === 0 && result.stdout.trim() === expected;
 }
 
 function usageDelta(before: Record<string, unknown> | null, after: Record<string, unknown> | null): RunUsage {
@@ -127,7 +134,7 @@ export class StageRunner {
   private readonly randomHex: (bytes: number) => string;
   private readonly piExecutable: string;
   private readonly agentDir: string;
-  private readonly promptTimeoutMs: number;
+  private readonly promptTimeoutMs: number | null;
   private readonly cancelGraceMs: number;
   private readonly locks: LockManager | null;
   private readonly lostOwnership: (() => string | null) | null;
@@ -144,7 +151,8 @@ export class StageRunner {
     this.randomHex = options.randomHex ?? ((bytes: number) => randomBytes(bytes).toString("hex"));
     this.piExecutable = options.piExecutable ?? process.env.KNIT_PI_BIN ?? "pi";
     this.agentDir = options.agentDir ?? join(homedir(), ".pi", "agent");
-    this.promptTimeoutMs = options.promptTimeoutMs ?? 900_000;
+    // 阶段无固定总时限（OPERATIONS §4、DESIGN §5.9）：只有显式取消、占用丢失、控制请求超时收敛（任务034）。
+    this.promptTimeoutMs = options.promptTimeoutMs ?? null;
     this.cancelGraceMs = options.cancelGraceMs ?? 5_000;
     this.locks = options.locks ?? null;
     this.lostOwnership = options.lostOwnership ?? null;
@@ -167,7 +175,7 @@ export class StageRunner {
       previousImplement,
     });
 
-    const session = await this.prepareSession(role);
+    let session: PreparedSession = await this.prepareSession(role);
     let sessionLock: AcquiredLock | null = null;
     let runtime: PiAgentRuntime | null = null;
     let processStartedAt: string | null = null;
@@ -220,7 +228,55 @@ export class StageRunner {
       await runtime.dispose(2_000).catch(() => null);
       return this.failure(session, `lock_ownership_lost:${lostBeforeStart}`, null, null, null);
     }
-    const start = await runtime.start();
+    // 副作用前最后核对实际检出分支；prepare 后、启动前换分支在此拒绝（任务028）。
+    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+      await this.markSession(session, "opening", "branch_mismatch_at_start", false);
+      await runtime.dispose(2_000).catch(() => null);
+      return this.failure(session, "branch_mismatch_at_start", null, null, null);
+    }
+    let start = await runtime.start();
+    // prefer 恢复失败沿原客户端新建：保持项目占用与会话锁语义不变，切到预分配新原生 ID（任务035）。
+    // 仅身份/恢复类失败可重建；模型配置错误重试无意义，直接失败。
+    if (
+      !start.ok &&
+      session.decision.action === "resume" &&
+      ["session_identity_mismatch", "connection_closed", "no_session_state"].includes(start.failure ?? "")
+    ) {
+      await runtime.dispose(2_000).catch(() => null);
+      const fallbackReason = `resume_fallback:${start.failure}`;
+      const fallbackDecision: ResumeDecision = {
+        action: "create_new",
+        nativeSessionId: randomUUID(),
+        reason: fallbackReason,
+        check: session.decision.action === "resume" ? session.decision.check : null,
+      };
+      const fallbackSession = await this.rebuildSessionRecord(session, fallbackDecision);
+      session = fallbackSession.session;
+      // 旧会话锁先释放再切换；新锁拿不到则按会话占用失败终止，不与其它 run 共用对象。
+      if (sessionLock !== null && this.locks !== null) this.locks.release(sessionLock);
+      sessionLock = fallbackSession.sessionLock;
+      if (this.locks !== null && sessionLock === null) {
+        await runtime.dispose(1_000).catch(() => null);
+        return this.failure(session, "session_lock_unavailable", null, null, null);
+      }
+      runtime = this.runtimeFactory(
+        buildRuntimeOptions(
+          {
+            executablePath: this.piExecutable,
+            provider: this.request.model.provider,
+            modelId: this.request.model.model,
+            tools: toolsFor(this.request, this.plan),
+            cwd: this.root,
+            sessionDir,
+            appendSystemPrompt: systemPrompt,
+            env: isolatedEnv(),
+          },
+          fallbackDecision,
+        ),
+      );
+      this.writeStageProcess(session, "starting", null, processStartedAt ?? this.now().toISOString());
+      start = await runtime.start();
+    }
     if (!start.ok) {
       const failure = start.failure ?? "unknown";
       await this.markSession(session, "incompatible", `runtime_start_failed:${failure}`, false);
@@ -325,10 +381,18 @@ export class StageRunner {
 
     const text = await runtime.getLastAssistantText().catch(() => "");
     await runtime.dispose(3_000);
+    // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
+    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+      return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
+    }
     const afterSignature = worktreeSignature(this.root);
     if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
     const changedPaths = diffSignatures(beforeSignature, afterSignature);
-    const protectedPaths = changedPaths.filter((path) => path.startsWith(".knit/"));
+    // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
+    const authorizedStandardPaths = new Set((this.request.expected.authorizedStandardOutputs ?? []).map((output) => output.path));
+    const protectedPaths = changedPaths.filter(
+      (path) => path.startsWith(".knit/") && !authorizedStandardPaths.has(path),
+    );
     if (protectedPaths.length > 0) {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
@@ -490,6 +554,61 @@ export class StageRunner {
     };
   }
 
+  /**
+   * 恢复失败后按新决策重建会话记录：独立 knitSessionId（不与旧对象共用稳定身份），
+   * 来源关联旧会话，不覆盖旧引用；会话锁切换到新原生 ID（任务035）。
+   */
+  private async rebuildSessionRecord(
+    session: PreparedSession,
+    decision: ResumeDecision & { reason: string },
+  ): Promise<{ session: PreparedSession; sessionLock: AcquiredLock | null }> {
+    const now = this.now().toISOString();
+    const oldRecord = session.record;
+    // 旧会话标记为 incompatible，保留原引用与来源，不删除。
+    await this.markSession(session, "incompatible", `superseded_by_fallback:${decision.reason}`, oldRecord.nativeReadable);
+    const knitSessionId = newKnitSessionId(this.randomHex);
+    const record: SessionRecord = {
+      knitSessionId,
+      protocolVersion: PROTOCOL_VERSION,
+      ref: { client: "pi", nativeSessionId: decision.nativeSessionId, role: session.role },
+      kind: "sub",
+      status: "opening",
+      sessionFile: null,
+      parentSessionId: oldRecord.parentSessionId,
+      source: { kind: "resume_fallback", fromSessionId: oldRecord.knitSessionId, reason: decision.reason },
+      taskId: oldRecord.taskId,
+      branch: oldRecord.branch,
+      runId: this.request.runId,
+      cwd: this.root,
+      checkpoint: null,
+      selection: null,
+      reason: decision.reason,
+      lastVerifiedAt: now,
+      nativeReadable: false,
+      relatedRunState: null,
+      recordedAt: now,
+    };
+    await this.store.sessions.save(record);
+    let newLock: AcquiredLock | null = null;
+    if (this.locks !== null) {
+      newLock = await this.locks.acquire({
+        keys: [{ scope: "session", rawKey: `pi:${decision.nativeSessionId}` }],
+        action: `stage.${session.role}`,
+      });
+    }
+    const next: PreparedSession = {
+      knitSessionId,
+      nativeSessionId: decision.nativeSessionId,
+      sessionFile: null,
+      role: session.role,
+      decision,
+      record,
+      status: "opening",
+      nativeReadable: false,
+    };
+    return { session: next, sessionLock: newLock };
+  }
+
   private async markSession(
     session: PreparedSession,
     status: SessionRecord["status"],
@@ -556,7 +675,7 @@ export class StageRunner {
       usage,
       session: this.sessionRecord(session, session.nativeReadable, session.sessionFile),
       actualChangedPaths,
-      actualEntries: actualChangedPaths.map((path) => currentEntry(this.root, path)),
+      actualEntries: actualChangedPaths.map((path) => currentEntry(this.root, path, { factsKind: true })),
       acceptanceOperationId: this.request.acceptanceOperationId,
       recordedAt: this.now().toISOString(),
       failureReason,
