@@ -98,6 +98,11 @@ export class PiRpcConnection {
     return this.stderrTruncated ? `…(截断)${this.stderrTail}` : this.stderrTail;
   }
 
+  /** stderr 尾部与真实截断标志；结构化诊断用，不作权威回执。 */
+  get stderrDiagnostics(): { tail: string; truncated: boolean } {
+    return { tail: this.stderrTail, truncated: this.stderrTruncated };
+  }
+
   private async pumpStdout(): Promise<void> {
     const stream = this.child.stdout;
     if (stream === null) {

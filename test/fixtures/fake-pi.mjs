@@ -84,6 +84,17 @@ rl.on("line", async (line) => {
     return;
   }
   const { id, type } = request;
+  // 测试钩子：模拟 pi 侧启动失败；stderr 写入 pi 侧错误细节，供启动诊断测试。
+  const startFailure = process.env.KNIT_FAKE_START_FAILURE ?? null;
+  if (startFailure === "exit") {
+    process.stderr.write("Unknown provider: magpie\n");
+    process.exit(3);
+  }
+  if (startFailure === "set_model" && type === "set_model") {
+    process.stderr.write("Error: Model not found: magpie/glm-5.3-flash\n");
+    send({ type: "response", id, success: false, error: "Model not found: magpie/glm-5.3-flash" });
+    return;
+  }
   if (type === "get_state") {
     respond(id, { sessionId, sessionFile, model: { provider, id: model } });
     return;

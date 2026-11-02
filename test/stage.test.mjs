@@ -16,6 +16,7 @@ import { RunCoordinator } from "../dist/application/run-coordinator.js";
 import { RunAcceptanceService } from "../dist/application/run-acceptance.js";
 import { ContextPlanner } from "../dist/application/context-planner.js";
 import { RunStore } from "../dist/infrastructure/run-store.js";
+import { StatusService } from "../dist/application/status-service.js";
 import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/application/task-document.js";
 
@@ -598,6 +599,87 @@ test("原生引用不可恢复时保留执行结果，不把会话失败当代�
   } finally {
     if (previous === undefined) delete process.env.KNIT_FAKE_NO_FILE;
     else process.env.KNIT_FAKE_NO_FILE = previous;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtime 启动失败保留 pi 侧错误细节；run 目录与 status 可读", async () => {
+  const dir = project("start-fail");
+  const s = services(dir);
+  const previousFailure = process.env.KNIT_FAKE_START_FAILURE;
+  try {
+    process.env.KNIT_FAKE_START_FAILURE = "set_model";
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", { report: { summary: "不应到达" } });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "failed");
+    assert.equal(status.result.failureReason, "runtime_start_failed:set_model_rejected");
+
+    const diagnostics = JSON.parse(
+      readFileSync(join(dir, ".knit", ".runtime", "runs", impl.runId, "diagnostics.json"), "utf8"),
+    );
+    assert.equal(diagnostics.kind, "runtime_start_failed");
+    assert.equal(diagnostics.failure, "set_model_rejected");
+    assert.match(diagnostics.detail, /set_model 被拒绝/);
+    assert.match(diagnostics.stderrTail, /Model not found: magpie\/glm-5\.3-flash/);
+    assert.equal(diagnostics.truncated, false);
+
+    const view = await new StatusService({ store: s.store }).runStatus(dir, impl.runId);
+    assert.notEqual(view.startupDiagnostics, null);
+    assert.equal(view.startupDiagnostics.failure, "set_model_rejected");
+    assert.match(view.startupDiagnostics.stderrTail, /Model not found: magpie\/glm-5\.3-flash/);
+
+    const human = spawnSync(process.execPath, [CLI, "run", "status", impl.runId, "--dir", dir], { encoding: "utf8" });
+    assert.equal(human.status, 0);
+    assert.match(human.stdout, /启动诊断: set_model_rejected/);
+    assert.match(human.stdout, /Model not found: magpie\/glm-5\.3-flash/);
+    const json = spawnSync(process.execPath, [CLI, "run", "status", impl.runId, "--dir", dir], {
+      encoding: "utf8",
+      env: { ...process.env, KNIT_JSON: "1" },
+    });
+    const payload = JSON.parse(json.stdout);
+    assert.equal(payload.data.startupDiagnostics.failure, "set_model_rejected");
+    assert.match(payload.data.startupDiagnostics.stderrTail, /Model not found/);
+
+    // 非启动失败（正常完成）不附带启动诊断。
+    delete process.env.KNIT_FAKE_START_FAILURE;
+    const fixed = await startRun(s, dir, task.taskId, "implement", {
+      report: { summary: "修复后实现", changedPaths: ["README.md"] },
+      writes: [{ path: "README.md", content: "# fixed\n" }],
+    });
+    const fixedStatus = await waitTerminal(s, dir, fixed.runId);
+    assert.equal(fixedStatus.state, "completed");
+    const fixedView = await new StatusService({ store: s.store }).runStatus(dir, fixed.runId);
+    assert.equal(fixedView.startupDiagnostics, null);
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs", fixed.runId, "diagnostics.json")), false);
+  } finally {
+    if (previousFailure === undefined) delete process.env.KNIT_FAKE_START_FAILURE;
+    else process.env.KNIT_FAKE_START_FAILURE = previousFailure;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("连接中断启动失败同样落盘诊断尾部", async () => {
+  const dir = project("start-fail-exit");
+  const s = services(dir);
+  const previousFailure = process.env.KNIT_FAKE_START_FAILURE;
+  try {
+    process.env.KNIT_FAKE_START_FAILURE = "exit";
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", { report: { summary: "不应到达" } });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "failed");
+    assert.equal(status.result.failureReason, "runtime_start_failed:connection_closed");
+    const diagnostics = JSON.parse(
+      readFileSync(join(dir, ".knit", ".runtime", "runs", impl.runId, "diagnostics.json"), "utf8"),
+    );
+    assert.equal(diagnostics.failure, "connection_closed");
+    assert.match(diagnostics.stderrTail, /Unknown provider: magpie/);
+  } finally {
+    if (previousFailure === undefined) delete process.env.KNIT_FAKE_START_FAILURE;
+    else process.env.KNIT_FAKE_START_FAILURE = previousFailure;
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
   }

@@ -311,6 +311,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | `instructions.json` | worker | 已落实的注入清单：来源 ID、作用域、指纹、注入途径、版本和原生产物位置 |
 | `state.json` | worker | 实例身份、运行状态、Knit／原生 Session 引用和已知子进程定位 |
 | `result.json` | worker | 不可变终态、结构化报告、原生引用与本 run 增量用量，不证明 Git 收尾 |
+| `diagnostics.json` | worker | runtime 启动失败时的一次性 stderr 尾部与失败码；只作辅助证据，不作权威回执、不参与状态机 |
 | `acceptance.json` | RunAcceptanceService | 接收检查点：来源目标、binding before／after、scope 与 check 凭据、输入／规范摘要 |
 | `snapshot/` | 核心 | preparing/ready/failed 恢复对照及覆盖说明 |
 | `events.jsonl` | worker | 只作脱敏进度观察，半行／重复不作为完成证据 |

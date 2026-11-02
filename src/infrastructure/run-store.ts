@@ -12,6 +12,7 @@ import {
   InstructionsFileSchema,
   LaunchRecordSchema,
   RunCancelSchema,
+  RunDiagnosticsFileSchema,
   RunRequestFileSchema,
   RunResultFileSchema,
   RunStageProcessSchema,
@@ -22,6 +23,7 @@ import {
   type CheckFile,
   type FrozenInputs,
   type RunCancel,
+  type RunDiagnosticsFile,
   type InstructionsFile,
   type LaunchRecord,
   type RunRequestFile,
@@ -185,6 +187,17 @@ export class RunStore {
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });
+  }
+
+  readDiagnostics(runId: string): RunDiagnosticsFile | null {
+    return parseJson<RunDiagnosticsFile>(join(this.runDir(runId), "diagnostics.json"), RunDiagnosticsFileSchema, "diagnostics.json");
+  }
+
+  /** 辅助证据：写入失败由调用方决定是否忽略，不影响终态判定。 */
+  writeDiagnostics(runId: string, diagnostics: RunDiagnosticsFile): void {
+    if (!Value.Check(RunDiagnosticsFileSchema, diagnostics)) throw new InfrastructureError("io_error", "diagnostics 结构不符");
+    const path = join(this.runDir(runId), "diagnostics.json");
+    atomicWrite({ path, data: Buffer.from(JSON.stringify(diagnostics, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
   }
 
   readInputs(runId: string): FrozenInputs | null {
@@ -379,7 +392,7 @@ export class RunStore {
     const dir = this.runDir(runId);
     rmSync(join(dir, "claim"), { recursive: true, force: true });
     rmSync(join(dir, "snapshot"), { recursive: true, force: true });
-    for (const name of ["state.json", "inputs.json", "instructions.json", "result.json", "check.json", "cancel.json"]) {
+    for (const name of ["state.json", "inputs.json", "instructions.json", "result.json", "check.json", "cancel.json", "diagnostics.json"]) {
       rmSync(join(dir, name), { force: true });
     }
   }

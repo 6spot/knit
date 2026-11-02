@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { ContextPlan } from "../contracts/context-plan.js";
 import type {
   FrozenInputs,
+  RunDiagnosticsFile,
   RunRequestFile,
   RunResultFile,
   RunSessionRecord,
@@ -73,6 +74,9 @@ export interface StageExecution {
 }
 
 const PI_TOOL_NAMES = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+
+/** 启动诊断尾部上限；启动发生在任何 prompt 之前，stderr 不含消息正文，只防超长。 */
+const START_DIAGNOSTICS_TAIL_LIMIT = 4_000;
 
 function roleOf(request: RunRequestFile): "implement" | "check" | "advisory" {
   return request.phase === "advisory" ? "advisory" : request.phase;
@@ -218,9 +222,11 @@ export class StageRunner {
     }
     const start = await runtime.start();
     if (!start.ok) {
-      await this.markSession(session, "incompatible", `runtime_start_failed:${start.failure ?? "unknown"}`, false);
+      const failure = start.failure ?? "unknown";
+      await this.markSession(session, "incompatible", `runtime_start_failed:${failure}`, false);
+      this.writeStartDiagnostics(failure, start.detail, runtime);
       await runtime.dispose(2_000);
-      return this.failure(session, `runtime_start_failed:${start.failure ?? "unknown"}`, null, null, null);
+      return this.failure(session, `runtime_start_failed:${failure}`, null, null, null);
     }
     piPid = runtime.processId;
     this.writeStageProcess(session, "running", piPid, processStartedAt);
@@ -376,6 +382,30 @@ export class StageRunner {
     signalProcessTree(piPid, "SIGTERM", tree);
     await new Promise((resolve) => setTimeout(resolve, 500));
     signalProcessTree(piPid, "SIGKILL", tree);
+  }
+
+  /** 启动失败诊断（DESIGN.md 5.6）：只作辅助证据，不作权威回执、不参与状态机。 */
+  private writeStartDiagnostics(failure: string, detail: string, runtime: PiAgentRuntime): void {
+    try {
+      const stderr = runtime.stderrDiagnostics;
+      const tail = stderr.tail.trim();
+      const clipped = tail.length > START_DIAGNOSTICS_TAIL_LIMIT ? tail.slice(-START_DIAGNOSTICS_TAIL_LIMIT) : tail;
+      const diagnostics: RunDiagnosticsFile = {
+        schemaVersion: 1,
+        runId: this.request.runId,
+        taskId: this.request.taskId,
+        phase: this.request.phase,
+        kind: "runtime_start_failed",
+        failure,
+        detail,
+        stderrTail: clipped,
+        truncated: stderr.truncated || tail.length > clipped.length,
+        recordedAt: this.now().toISOString(),
+      };
+      this.runs.writeDiagnostics(this.request.runId, diagnostics);
+    } catch {
+      // 诊断写失败不改变既有失败路径；failureReason 与 result 仍是唯一权威。
+    }
   }
 
   private writeStageProcess(

@@ -11,6 +11,7 @@ import { parseTaskDocument } from "./task-document.js";
 import { locateTaskDocument } from "./task-service.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
+import type { RunDiagnosticsFile } from "../contracts/run.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { readFileSync } from "node:fs";
 
@@ -23,6 +24,8 @@ export interface RunStatusView extends RunStatusProjection {
   elapsedMs: number;
   lastActivityAt: string | null;
   heartbeat: RunHeartbeat | null;
+  /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
+  startupDiagnostics: RunDiagnosticsFile | null;
 }
 
 export interface TaskStatusView {
@@ -97,11 +100,17 @@ export class StatusService {
       .filter((value): value is string => value !== null)
       .sort()
       .at(-1) ?? null;
+    const failureReason = projection.result?.failureReason ?? null;
+    const startupDiagnostics =
+      failureReason !== null && failureReason.startsWith("runtime_start_failed")
+        ? new RunStore(root).readDiagnostics(runId)
+        : null;
     return {
       ...projection,
       elapsedMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
       lastActivityAt,
       heartbeat: this.heartbeat(root, locksRoot ?? this.lockRoot),
+      startupDiagnostics,
     };
   }
 

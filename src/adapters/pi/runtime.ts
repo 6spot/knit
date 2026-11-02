@@ -123,6 +123,11 @@ export class PiAgentRuntime {
     return this.connection;
   }
 
+  /** 本次进程 stderr 尾部与截断标志；启动失败诊断用，不作权威回执。 */
+  get stderrDiagnostics(): { tail: string; truncated: boolean } {
+    return this.connection?.stderrDiagnostics ?? { tail: "", truncated: false };
+  }
+
   /** 已启动 Pi 进程的 PID；用于崩溃后核实并清理本次自有进程。 */
   get processId(): number | null {
     return this.connection?.pid ?? null;

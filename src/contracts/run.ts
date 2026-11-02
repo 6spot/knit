@@ -574,3 +574,25 @@ export const RunStageProcessSchema = Type.Object(
   { additionalProperties: false },
 );
 export type RunStageProcess = Static<typeof RunStageProcessSchema>;
+
+/**
+ * 启动失败诊断（DESIGN.md 5.6）；只作失败原因的辅助证据，不作权威回执、不参与状态机。
+ * stderrTail 是阶段 Pi 自身 stderr 的尾部（启动发生在任何 prompt 之前，不含消息正文）；超长只留尾部并如实标记。
+ */
+export const RunDiagnosticsFileSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    runId: Type.String({ minLength: 1 }),
+    taskId: Type.String({ minLength: 1 }),
+    phase: RunPhaseSchema,
+    kind: Type.Literal("runtime_start_failed"),
+    /** RuntimeStartCheck.failure 代码；语义不变，诊断不参与状态机。 */
+    failure: Type.String({ minLength: 1 }),
+    detail: Type.String(),
+    stderrTail: Type.String(),
+    truncated: Type.Boolean(),
+    recordedAt: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false },
+);
+export type RunDiagnosticsFile = Static<typeof RunDiagnosticsFileSchema>;

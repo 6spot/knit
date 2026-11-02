@@ -281,6 +281,11 @@ export function registerRunCommands(program: Command): void {
               console.log(`输入摘要: ${status.inputsDigest.slice(0, 12)}；整体身份: ${status.effectiveInputsDigest.slice(0, 12)}`);
             }
             if (status.reason !== null) console.log(`原因: ${status.reason}`);
+            if (status.startupDiagnostics !== null) {
+              const diag = status.startupDiagnostics;
+              console.log(`启动诊断: ${diag.failure}；${diag.detail}${diag.truncated ? "（尾部已截断）" : ""}`);
+              if (diag.stderrTail !== "") console.log(diag.stderrTail);
+            }
             if (status.result !== null) {
               console.log(`结果: ${status.result.state}${status.result.report?.verdict ? ` / ${status.result.report.verdict}` : ""}`);
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
