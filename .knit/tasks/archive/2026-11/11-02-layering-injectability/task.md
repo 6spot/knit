@@ -59,4 +59,15 @@ title: 分层与可注入性重构
 - contracts 无 infrastructure import（grep 核实）；domain/check 的 GIT_DIRTY 判定为唯一实现。
 - 文档（ports/README、DESIGN 15.1）与代码一致；npm test 全绿。
 
+### 交付记录
+
+<!-- knit:delivery:op-d487715f278f -->
+- 操作: op-d487715f278f
+- 时间: 2026-11-02T11:15:15.524Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: 6fe783355f66e46d8a07e4c1237e00d992ac9686
+- 结果: 正常交付；检查 run-b738441072e3 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-layering-injectability
+
 <!-- knit:progress:end -->
