@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -217,6 +217,35 @@ test("run check --scope：非正式只读检查不建 Task／binding；副作用
   }
 });
 
+test("--dev：写命令生成私有 JSONL；只读命令不建诊断目录，日志失败不吞业务", () => {
+  const dir = project("dev-log");
+  try {
+    const list = cli(dir, ["--dev", "--json", "task", "list"]);
+    assert.equal(list.code, 0, list.stderr);
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "diagnostics")), false, "只读 --dev 不建日志");
+    const created = jsonCli(dir, ["--dev", "task", "new", "--title", "诊断", "--slug", "diag"]);
+    assert.equal(created.parsed.outcome, "completed", created.stderr);
+    const root = join(dir, ".knit", ".runtime", "diagnostics");
+    assert.ok(existsSync(root));
+    const folders = readdirSync(root);
+    assert.ok(folders.length > 0);
+    const files = readdirSync(join(root, folders[0])).filter((name) => name.endsWith(".jsonl"));
+    assert.ok(files.length > 0);
+    const logPath = join(root, folders[0], files[0]);
+    assert.equal(statSync(logPath).mode & 0o777, 0o600);
+    assert.equal(statSync(join(root, folders[0])).mode & 0o777, 0o700);
+    const lines = readFileSync(logPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(lines[0].event, "command_start");
+    assert.ok(lines.some((line) => line.event === "command_end" && line.exitCode === 0));
+    assert.equal(lines.some((line) => typeof line.content === "string" || typeof line.prompt === "string"), false);
+    const withDev = jsonCli(dir, ["--dev", "task", "list"]);
+    const plain = jsonCli(dir, ["task", "list"]);
+    assert.deepEqual(withDev.parsed.data, plain.parsed.data, "--dev 不改变业务投影");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cancel --operation：只放弃未执行效果的 planned 操作", async () => {
   const dir = project("cancel-op");
   try {
@@ -271,6 +300,7 @@ test("桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JS
   assert.match(template, /knit\.selection/);
   assert.match(template, /notice_skipped_branch/);
   assert.match(template, /knit\.bridge\.observer/);
+  assert.match(template, /knit dev on\|off/);
   assert.match(template, /followUp/);
 });
 

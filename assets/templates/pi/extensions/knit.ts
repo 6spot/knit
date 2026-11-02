@@ -35,7 +35,7 @@ function projectRootFromExtension(): string {
 
 export default function (pi: any) {
   const root = projectRootFromExtension();
-  const state: any = { ctx: null, knitSessionId: null, nativeSessionId: null, branch: null, timer: null, started: false, verified: false };
+  const state: any = { ctx: null, knitSessionId: null, nativeSessionId: null, branch: null, timer: null, started: false, verified: false, dev: false };
   // reload／重复加载时先停掉上一个模块实例的轮询和旧上下文，避免多个观察器并发通知。
   const previousObserver = (globalThis as any)[OBSERVER_GUARD];
   if (typeof previousObserver === "function") {
@@ -74,7 +74,7 @@ export default function (pi: any) {
   function execKnit(args: string[], stdin?: string): { code: number; stdout: string; stderr: string; error?: string } {
     const check = installationReady();
     if (!check.ready) return { code: 1, stdout: "", stderr: "", error: check.reason };
-    const cliArgs = ["--json", ...(process.env.KNIT_DEV === "1" ? ["--dev"] : []), ...args];
+    const cliArgs = ["--json", ...(state.dev || process.env.KNIT_DEV === "1" ? ["--dev"] : []), ...args];
     const result = spawnSync(process.execPath, [check.runtime!.cliEntry, ...cliArgs], {
       cwd: root,
       encoding: "utf8",
@@ -310,12 +310,35 @@ export default function (pi: any) {
     },
   });
 
+  pi.registerCommand("knit-dev", {
+    description: "Knit：当前会话开关开发者诊断（不影响已启动 worker）",
+    handler: async (args: string, ctx: any) => {
+      const action = args.trim().toLowerCase();
+      if (action !== "on" && action !== "off") {
+        ctx.ui.notify("用法: /knit dev on|off", "warning");
+        return;
+      }
+      state.dev = action === "on";
+      ctx.ui.notify(`Knit 开发者诊断: ${state.dev ? "on" : "off"}（当前会话；reload 后关闭）`, "info");
+    },
+  });
+
   pi.registerCommand("knit", {
     description: "Knit：把参数转交本机 CLI（如 /knit task list）",
     handler: async (args: string, ctx: any) => {
       const tokens = args.trim() === "" ? [] : args.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((item) => item.replace(/^["']|["']$/g, "")) ?? [];
       if (tokens.length === 0) {
         ctx.ui.notify("用法：/knit <子命令> [参数]", "warning");
+        return;
+      }
+      if (tokens[0] === "dev") {
+        const action = (tokens[1] ?? "").toLowerCase();
+        if (action !== "on" && action !== "off") {
+          ctx.ui.notify("用法：/knit dev on|off", "warning");
+          return;
+        }
+        state.dev = action === "on";
+        ctx.ui.notify(`Knit 开发者诊断: ${state.dev ? "on" : "off"}（当前会话；reload 后关闭）`, "info");
         return;
       }
       const result = core([...tokens, "--dir", root]);

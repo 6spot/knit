@@ -1,0 +1,10 @@
+✔ --dev：写命令生成私有 JSONL；只读命令不建诊断目录，日志失败不吞业务 (2426.939449ms)
+✔ --dev：stdout 仍是单一协议响应，诊断只写 stderr 且白名单 (1013.30956ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3707.813895

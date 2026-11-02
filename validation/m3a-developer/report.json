@@ -1,0 +1,25 @@
+{
+  "task": "024",
+  "milestone": "M3A",
+  "result": "pass",
+  "environment": { "node": "v24.21.0", "git": "2.52.0", "pi": "1.4.0" },
+  "commands": {
+    "devChannel": "2/2 pass",
+    "fullSuite": "200/200 pass",
+    "typecheck": "pass",
+    "packCheck": "pass"
+  },
+  "verified": [
+    "private JSONL is created only for write commands with 0700 directory and 0600 files",
+    "read-only status/doctor/storage/init/list/history/resolve/show create no diagnostics directory",
+    "dev stderr contains only whitelisted fields and stdout remains one protocol response",
+    "dev on/off is session-scoped in the bridge and resets on reload",
+    "dev projection equals normal projection; no extra model/tool rounds",
+    "M3A adopt/tree/reload/usage evidence passes jointly"
+  ],
+  "limitations": [
+    "no full event matrix or network debug",
+    "bridge /knit dev on/off long model chain not rerun; static command assertion plus task-022 real reload",
+    "no automatic log rotation/gc"
+  ]
+}

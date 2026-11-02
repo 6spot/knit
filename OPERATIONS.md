@@ -130,7 +130,7 @@ operation 保存实际与确认分支、默认分支候选及来源、调用者�
 | --- | --- |
 | M0 实验 | 验证脚本可向 stderr 输出稳定 stepKey、reasonCode、摘要和仓储调用／事务计数，用于候选比较，不先建完整日志设施 |
 | M1 | knit --dev <命令> 与桥接本次调用标志；只做结构化 stderr，不自动保存文件，不提供 Pi 会话开关 |
-| M3A | 私有 JSONL 保存、Pi /knit dev on/off 当前会话开关、完整通道／文件失败验证；不是 M1 前置 |
+| M3A | 私有 JSONL 保存、Pi /knit dev on/off 当前会话开关、完整通道／文件失败验证；不是 M1 前置。实现（任务024）：写命令按 `.runtime/diagnostics/<command>/<pid>-<time>.jsonl` 分片，只读命令不建目录；文件 0600、目录 0700；桥接开关仅当前会话，reload 默认关闭 |
 
 M1 stdout／--json 保持业务协议，stderr 为诊断。白名单只含对象 ID、步骤、模块／存储版本、声明 kind、摘要、reasonCode、状态决定、耗时和可观察仓储／事务计数；不是 OS 物理 I/O 测量。decision.proposed 与 effect.applied/verified 区分计划和事实，不按 token／输出字符记日志。
 
