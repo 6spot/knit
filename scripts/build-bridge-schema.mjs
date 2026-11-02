@@ -12,4 +12,3 @@ for (const [name, schema] of Object.entries(BRIDGE_TOOL_SCHEMAS)) output[name] =
 const target = join(root, "dist", "contracts", "bridge-tools.json");
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, JSON.stringify(output, null, 2) + "\n");
-console.log(`bridge schema: ${target}`);
