@@ -1,0 +1,181 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-check",
+  "outcome": "completed",
+  "data": {
+    "request": {
+      "schemaVersion": 1,
+      "protocolVersion": 1,
+      "runId": "run-6f4be5f4d3e3",
+      "taskId": "k-84e2f8ef2af3",
+      "phase": "check",
+      "purpose": "stage",
+      "initiator": {
+        "client": "cli",
+        "knitSessionId": null,
+        "nativeSessionId": null,
+        "cwd": "."
+      },
+      "createdAt": "2026-11-02T02:45:18.987Z",
+      "expected": {
+        "branch": "refs/heads/main",
+        "inputsDigest": "bac058d404a41ed2e575c5593ca14a03b778ab7a0653ead0a6999589951bac95",
+        "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+        "effectiveInputsDigest": "c7cf7c52b7991d6d3d50dd56a96673532c407e3eeab6447745a67fb4ab8766dc",
+        "planId": "ctx-1bb67653a412",
+        "scopeDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "model": {
+        "runtime": "pi",
+        "provider": "magpie",
+        "model": "auto/glm-5.3-flash"
+      },
+      "toolPolicy": {
+        "mode": "read",
+        "allow": [
+          "read",
+          "bash",
+          "task"
+        ],
+        "deny": [
+          "write",
+          "edit"
+        ]
+      },
+      "recovery": {
+        "nativeSessionId": "dbdb28b7-7c63-4293-b7b2-a3d876fbe606",
+        "resume": "prefer"
+      },
+      "acceptanceOperationId": "accept-febf280bed4b",
+      "diagnostics": {
+        "enabled": false
+      }
+    },
+    "launch": {
+      "schemaVersion": 1,
+      "runId": "run-6f4be5f4d3e3",
+      "state": "confirmed",
+      "attempts": 1,
+      "requestedAt": "2026-11-02T02:45:18.987Z",
+      "updatedAt": "2026-11-02T02:45:19.452Z",
+      "handle": {
+        "pid": 915438,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121025645",
+        "hostname": "instance-20260508-1651",
+        "recordedAt": "2026-11-02T02:45:19.016Z"
+      },
+      "instance": {
+        "workerId": "w-bb750acffa8b",
+        "pid": 915438,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121025645",
+        "claimedAt": "2026-11-02T02:45:19.395Z"
+      },
+      "lastError": null
+    },
+    "reused": false,
+    "state": {
+      "schemaVersion": 1,
+      "runId": "run-6f4be5f4d3e3",
+      "taskId": "k-84e2f8ef2af3",
+      "phase": "check",
+      "state": "running",
+      "worker": {
+        "workerId": "w-bb750acffa8b",
+        "pid": 915438,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121025645",
+        "hostname": "instance-20260508-1651"
+      },
+      "claimedAt": "2026-11-02T02:45:19.395Z",
+      "updatedAt": "2026-11-02T02:45:19.440Z",
+      "prepared": true,
+      "preparedAt": "2026-11-02T02:45:19.436Z",
+      "snapshot": null,
+      "reason": null
+    },
+    "confirmed": true,
+    "status": {
+      "runId": "run-6f4be5f4d3e3",
+      "taskId": "k-84e2f8ef2af3",
+      "phase": "check",
+      "initiator": {
+        "client": "cli",
+        "knitSessionId": null,
+        "nativeSessionId": null,
+        "cwd": "."
+      },
+      "createdAt": "2026-11-02T02:45:18.987Z",
+      "updatedAt": "2026-11-02T02:45:24.319Z",
+      "launchState": "confirmed",
+      "attempts": 1,
+      "state": "completed",
+      "prepared": true,
+      "snapshot": null,
+      "inputsDigest": "bac058d404a41ed2e575c5593ca14a03b778ab7a0653ead0a6999589951bac95",
+      "effectiveInputsDigest": "c7cf7c52b7991d6d3d50dd56a96673532c407e3eeab6447745a67fb4ab8766dc",
+      "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+      "reason": null,
+      "handle": {
+        "pid": 915438,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121025645",
+        "hostname": "instance-20260508-1651",
+        "recordedAt": "2026-11-02T02:45:19.016Z"
+      },
+      "events": 10,
+      "lastEventAt": "2026-11-02T02:45:24.319Z",
+      "lastEvent": "acceptance",
+      "result": {
+        "schemaVersion": 1,
+        "runId": "run-6f4be5f4d3e3",
+        "taskId": "k-84e2f8ef2af3",
+        "phase": "check",
+        "state": "completed",
+        "report": {
+          "summary": "只读检查了 greeting.txt：文件存在，字节内容严格为 'hello knit' 加一个换行（11 字节），cmp 与 od 均一致，未做任何修改。",
+          "verdict": "pass",
+          "coverage": [
+            "greeting.txt"
+          ],
+          "findings": [
+            "greeting.txt 存在，11 字节，内容为 hello knit\\n",
+            "cmp 与 od -c 验证无多余字符或多余行",
+            "git status 显示无已跟踪文件改动，检查为只读"
+          ],
+          "unverified": []
+        },
+        "reportSummary": "只读检查了 greeting.txt：文件存在，字节内容严格为 'hello knit' 加一个换行（11 字节），cmp 与 od 均一致，未做任何修改。",
+        "nativeEntries": {
+          "startEntryId": "b4accfc0",
+          "leafEntryId": "1a49bcd6"
+        },
+        "usage": {
+          "inputTokens": 8061,
+          "outputTokens": 364
+        },
+        "session": {
+          "knitSessionId": "s-f61c35c0c447",
+          "nativeSessionId": "dbdb28b7-7c63-4293-b7b2-a3d876fbe606",
+          "sessionFile": "/tmp/knit-015-install/project/.knit/.runtime/pi-sessions/2026-11-02T02-40-26-603Z_dbdb28b7-7c63-4293-b7b2-a3d876fbe606.jsonl",
+          "role": "check",
+          "status": "available",
+          "resumeAction": "resume",
+          "resumeReason": null,
+          "nativeReadable": true
+        },
+        "actualChangedPaths": [],
+        "actualEntries": [],
+        "acceptanceOperationId": "accept-febf280bed4b",
+        "recordedAt": "2026-11-02T02:45:24.289Z",
+        "failureReason": null
+      },
+      "acceptance": {
+        "operationId": "accept-febf280bed4b",
+        "state": "completed",
+        "reason": "check_pass"
+      }
+    }
+  }
+}

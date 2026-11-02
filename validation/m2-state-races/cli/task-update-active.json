@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "requestId": "task-update-1793592665971-y5g9jj",
+  "outcome": "completed",
+  "data": {
+    "taskId": "k-4acee072e3a0",
+    "applied": "pending_saved",
+    "phase": "implement",
+    "status": "open",
+    "outcome": null,
+    "inputsDigest": "15abcdc859e5cb18ab25789c7db17a1222b3fe219ddbc55ab1435fb43fa0e9f2",
+    "digestChanged": false,
+    "pendingDraftDigest": "d335f081c2f8a30c7df124678b7c3db82092e1f9fac68d29e238fbc9715b6083"
+  }
+}

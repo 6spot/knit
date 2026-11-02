@@ -18,7 +18,7 @@
 
 - [TECHNOLOGY.md](../TECHNOLOGY.md)：第4、8节：原子写与存储比较。
 - [ARCHITECTURE.md](../ARCHITECTURE.md)：第4、6–7节：MetadataStore及单写入方。
-- [RESEARCH.md](../RESEARCH.md)：第17.13节：尚未执行的比较。
+- [RESEARCH.md](../RESEARCH.md)：第17.13节：比较计划（已执行，见任务记录）。
 
 ## 实施范围
 
@@ -60,12 +60,17 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 src/infrastructure/sqlite-metadata-store.ts（生产 SqliteMetadataStore，实现 002 的 MetadataStore 端口：sessions/bindings/operations 三表 JSON 正文、BEGIN IMMEDIATE 短事务 await 语义、WAL、busy timeout 可配、TEXT 列严格读取）；test/metadata.test.mjs（6 项产品级测试）；validation/metadata-storage/（比较夹具 fixture/{file-store,sqlite-store,store-factory,scenarios,run-comparison}.mjs 与 README 报告）；同步更新 DESIGN/ARCHITECTURE/TECHNOLOGY/OPERATIONS/STATES/RESEARCH/WORKTREE 中全部存储决策表述（运行目录布局改为 metadata.db，移除“M0 决定文件或 SQLite”类措辞，验收表标注已选定）。
+- 实际验证命令与结果：
+  - node:sqlite 能力核实：v24.21.0 加载无 ExperimentalWarning；WAL/BEGIN IMMEDIATE/ROLLBACK/busy timeout（等待后报 database is locked）/readOnly 拒写/进程崩溃后库可重开且回滚，全部实测通过。
+  - 同路径比较：`node validation/metadata-storage/fixture/run-comparison.mjs both` 两实现各 8 场景全部 PASS（file 3058ms / sqlite 986ms）。
+  - 产品级：`node --test test/metadata.test.mjs` 6/6 通过（关联事务原子回滚、幂等不重复计、两进程 20+20 并发无丢失、SIGKILL 回滚、busy 如实报错、只读字节不变）。
+  - 全仓回归：`npm test` 35/35；`npm run pack:check` 通过，dist 含编译产物、零新增依赖。
+- 证据位置：validation/metadata-storage/README.md（结论表与夹具说明）、fixture/ 同目录、test/metadata.test.mjs、src/infrastructure/sqlite-metadata-store.ts。
+- 实施中纠正的事实：SQLite 版初版 withTransaction 未 await 回调导致写入落在事务外（同步 API 与 async 工作流错配），已改为 await 语义并在测试覆盖；文件版事务包装曾用开始时旧快照覆写 mutate 结果，已改为 mutate 后重读叠加版本；`-e` 子进程 argv 下标与 import 路径错误各一处，已修。
+- 未解决问题／决定：binding/version 乐观检查列仅存在于比较夹具，产品投影按 DESIGN 6/7 节实现任务再定稿；RunPort/NativeEntryRangePort 的生产实现（runs 目录文件产物）不在本任务范围。
+- 对下一项的交接：005 宿主桥接可与本任务产物并行；元数据读写一律经 MetadataStore 端口（src/infrastructure/sqlite-metadata-store.ts），.runtime/metadata.db 为产品约定路径；.knit/.runtime/ 目录仍不预建。
 
 优先扫描下一编号（阻塞时可继续跳过）：[005 验证宿主桥接准入并收敛M0](005-pi-host-admission.md)。

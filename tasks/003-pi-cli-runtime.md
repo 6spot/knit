@@ -62,12 +62,12 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 src/adapters/pi/connection.ts（PiRpcConnection：spawn pi --mode rpc 独立进程组、LfFrameDecoder 增量分帧、请求 ID 关联、EOF 后未决请求以 PiConnectionClosedError 拒绝并携带真实退出码／信号、stderr 尾部诊断、进程组信号）、native-file.ts（checkNativeSessionFile 只读身份核实：首行 type:session 的 id/cwd，区分缺失／损坏／id 不符，不打开可写会话）、native-entries.ts（scanNativeEntries／readLeafEntryId／readEntryRange 条目起止定位，畸形行不参与定位）、runtime.ts（PiAgentRuntime：启动参数关闭扩展／MCP／技能／上下文文件、get_state 取回实际 sessionId／sessionFile、set_model 受校验核实模型否则报 set_model_rejected／model_mismatch 不静默替换、prompt 等 agent_settled 而非单个响应、clear_queue/abort、get_session_stats、getMessages 只读历史、dispose 优雅到 SIGTERM/SIGKILL 逐级、isolatedEnv 剔除主会话 PI_* 变量）、resume.ts（decideResume prefer 预检：记录存在且身份一致才 --session 恢复，否则预分配新原生 ID 新建并保留原因）、index.ts 统一出口；新增 test/pi-runtime.test.mjs 12 项测试。连接受阻时 stdout 结束先于 exit 事件，已加短暂等待让真实信号先落地。
+- 实际验证命令与结果：`npm test` 通过 29/29（contracts 17、cli 5、pi-runtime 12，本机 Node24.21.0、pi 1.4.0）。真实模型冒烟（使用本机已配置模型 magpie/auto/glm-5.3-flash，经 set_model 核实，未静默替换）：① prompt 稳定结束于 agent_settled、get_last_assistant_text 与 get_session_stats 可读、条目范围可定位；② 受控 bash 子进程打印 nonce+PID 后 abort，agent_settled(aborted=true)，子进程经 ps 核实真实终止；③ 兜底新建（旧记录缺失）预分配新 ID 新建会话，模型实际读取夹具任务文件并返回标记，新原生记录落在稳定 --session-dir 且身份与预分配 ID 一致；④ 旧原生记录按原客户端 --session 恢复（零模型请求），原生 ID 一致且历史非空。零模型请求验证：非法模型启动被 set_model 拒绝（复现既有发现并拦截）、EOF/SIGKILL 后未决请求报连接关闭并携带真实信号、非 JSON／非对象帧归入 invalidFrames 不作响应或事件、缺失记录 decideResume 报 session_file_missing 不冒充可恢复、身份不符报 id_mismatch。测试结束无残留 pi --mode rpc 进程。
+- 证据位置：test/pi-runtime.test.mjs、src/adapters/pi/、本记录；临时夹具在 /tmp/knit-pi-*（私有运行产物，不入库）。
+- 未解决问题／决定：无阻塞。实现备注：原生会话文件名为 {timestamp}_{sessionId}.jsonl，恢复与登记以 get_state 返回的 sessionFile 和身份核实为准，不假设文件名格式；分片 Unicode／U+2028/U+2029 由 contracts 已验证的 LfFrameDecoder 覆盖并在归档实验复验过。历史查询使用 get_messages／get_state，未发现其触发可写会话追加；如后续发现需改走文件只读路径。
+- 对下一项的交接：004 可直接开始；run 增量用量可按 get_session_stats 前后差值计算，原生条目起止由 readEntryRange 提供；MetadataStore 物理后端决定后，SessionRefPort／RunPort 等端口已有明确契约可实现。005 需要的宿主桥接仍属独立工作。
 
 优先扫描下一编号（阻塞时可继续跳过）：[004 实证比较并确定唯一元数据仓储](004-metadata-storage-decision.md)。

@@ -1,0 +1,73 @@
+{
+  "environment": {
+    "node": "v24.21.0",
+    "pi": "1.4.0",
+    "fixture": "/tmp/knit-018-cli",
+    "fakeRuntime": "test/fixtures/fake-pi.mjs (prepare-only)"
+  },
+  "cliActiveRace": {
+    "taskId": "k-4acee072e3a0",
+    "runId": "run-35929a94ec42",
+    "prepared": true,
+    "update": {
+      "applied": "pending_saved",
+      "phase": "implement",
+      "pendingDraftDigest": "d335f081c2f8a30c7df124678b7c3db82092e1f9fac68d29e238fbc9715b6083"
+    },
+    "close": {
+      "outcome": "error",
+      "reasonCode": "needs_review",
+      "message": "关闭时仍有活动／未知运行或待接收结果",
+      "exit": 1
+    },
+    "withdraw": {
+      "applied": "pending_withdrawn",
+      "phase": "implement",
+      "pendingDraftDigest": null
+    }
+  },
+  "acceptanceJournal": {
+    "test": "node --test --test-name-pattern \"接收检查点\" test/stage.test.mjs",
+    "result": "1/1 pass",
+    "childProcess": "test/fixtures/accept-once.mjs 在独立进程写 Task 后令 binding.save 失败",
+    "recovery": "父进程重新 accept 使用 acceptance.json 检查点收敛，binding 只追加一次 lastRunIds/scope；重复 accept 为 duplicate"
+  },
+  "pendingRaces": {
+    "test": "node --test --test-name-pattern \"输入草案竞争\" test/task.test.mjs",
+    "covers": [
+      "存在草案时直接更新拒绝",
+      "同内容新操作产生新版本",
+      "runsSettled=false 拒绝 apply",
+      "基线变化拒绝 apply",
+      "旧摘要不能撤回后来草案"
+    ]
+  },
+  "scopeAndRepair": {
+    "test": "node --test --test-name-pattern \"scope 跨 run\" test/stage.test.mjs",
+    "covers": [
+      "跨 run 路径累积",
+      "scopeRunIds 去重",
+      "换阶段会话保留 repairRounds",
+      "最近检查事实不被旧回执覆盖"
+    ]
+  },
+  "latestCheck": {
+    "test": "node --test --test-name-pattern \"最新检查失败\" test/delivery.test.mjs",
+    "covers": [
+      "旧 pass 文件保留为历史",
+      "binding.lastCheckRunId 指向 blocked 后交付拒绝"
+    ]
+  },
+  "lateResult": {
+    "test": "node --test --test-name-pattern \"任务关闭后迟到\" test/stage.test.mjs",
+    "covers": [
+      "关闭后迟到 completed 结果不重开",
+      "frontmatter status/outcome/phase 保持"
+    ]
+  },
+  "limitations": [
+    "CLI 夹具使用 fake Pi 的 prepare-only，不调用模型；接收检查点用独立 Node 进程注入 binding 失败。",
+    "未构造真实 SQLite 崩溃点（WAL 断电）；以进程退出后的文件检查点重入验证，外部数据库损坏仍由 SQLite 自身错误报告。",
+    "关闭仍接收显式 --runs-settled；服务在注入真实 RunActivityService 时再向仓储核实，直接库调用者可绕过。"
+  ]
+}

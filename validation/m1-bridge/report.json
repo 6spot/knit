@@ -1,0 +1,158 @@
+{
+  "fixture": "/tmp/knit-015-final2（npm pack 本地安装；git init；零推送）",
+  "package": "knit-0.1.0.tgz；files 仅 assets/ 与 dist/（pack:check 通过）",
+  "environment": {
+    "node": "v24.21.0",
+    "pi": "1.4.0",
+    "model": "magpie/auto/glm-5.3-flash"
+  },
+  "taskId": "k-5ce4c47da8a5",
+  "implement": {
+    "runId": "run-0474f5a46603",
+    "state": "completed",
+    "verdict": null,
+    "usage": {
+      "inputTokens": 22807,
+      "outputTokens": 926
+    },
+    "acceptance": {
+      "operationId": "accept-db72b5fa2a43",
+      "state": "completed",
+      "reason": "implementation_accepted"
+    },
+    "changed": [
+      "answer.txt"
+    ]
+  },
+  "check": {
+    "runId": "run-567f4f6f2c65",
+    "state": "completed",
+    "verdict": "pass",
+    "usage": {
+      "inputTokens": 8241,
+      "outputTokens": 678
+    },
+    "acceptance": {
+      "operationId": "accept-b1bc0d4a4ef3",
+      "state": "completed",
+      "reason": "check_pass"
+    }
+  },
+  "deliver": {
+    "operationId": "op-0d0368b2bcb8",
+    "workCommit": "a331f5b",
+    "archiveCommit": "a676614",
+    "branch": "refs/heads/main",
+    "authorization": "workflow:.knit/workflow.md#交付"
+  },
+  "gitLog": "a676614 knit: archive k-5ce4c47da8a5 (op-0d0368b2bcb8)\na331f5b knit: deliver k-5ce4c47da8a5 (op-0d0368b2bcb8)\ne9425c1 init",
+  "workCommitScope": "A\t.knit/tasks/11-02-final-bridge/task.md\nA\tanswer.txt",
+  "archiveCommitScope": "D\t.knit/tasks/11-02-final-bridge/task.md\nA\t.knit/tasks/archive/2026-11/11-02-final-bridge/task.md",
+  "sessions": [
+    {
+      "native": "0102e09d-c3fa-469f-8ff6-a95de1acf16c",
+      "kind": "main",
+      "status": "missing",
+      "selection": null
+    },
+    {
+      "native": "d740cb27-9694-4f88-94c6-bb80d4d547e8",
+      "kind": "sub",
+      "status": "available",
+      "selection": null
+    },
+    {
+      "native": "805b6961-1e04-4098-99b4-b0017af117c9",
+      "kind": "sub",
+      "status": "available",
+      "selection": null
+    },
+    {
+      "native": "3ac5bb0b-d010-4733-922a-bd6f491f8588",
+      "kind": "main",
+      "status": "available",
+      "selection": null
+    },
+    {
+      "native": "b352b096-b933-4f70-8dfa-f9b15eb0c434",
+      "kind": "main",
+      "status": "missing",
+      "selection": null
+    },
+    {
+      "native": "1cd60f2a-4a36-4008-b0aa-f2fe26ec15f2",
+      "kind": "main",
+      "status": "available",
+      "selection": {
+        "taskId": "k-5ce4c47da8a5",
+        "branch": "refs/heads/main",
+        "entryRef": "b301f3cd",
+        "operationId": "sel-mvynwsoa",
+        "recordedAt": "2026-11-02T02:51:14.281Z",
+        "persisted": true,
+        "pendingReason": null
+      }
+    },
+    {
+      "native": "3b4bbc34-11ca-41b9-9db4-164e473cbad5",
+      "kind": "main",
+      "status": "available",
+      "selection": null
+    },
+    {
+      "native": "4bbb1cf9-c30c-4a4b-8ee3-41c5409d58ba",
+      "kind": "main",
+      "status": "available",
+      "selection": null
+    }
+  ],
+  "bridgeNotification": "Knit run run-0474f5a46603 completed；下一步：查看 status 或 resume。（check 同样收到终态通知）",
+  "reload": "/knit-reload handled；会话不变，随后 knit_status 工具调用成功",
+  "standards": {
+    "taskId": "k-968704b3880b",
+    "candidate": "c-c4bf51cc551b",
+    "review": "r-184cf59478c0",
+    "decision": "deferred",
+    "pending": "review_matched"
+  },
+  "nativeResume": {
+    "runId": "run-6f4be5f4d3e3",
+    "resumeAction": "resume",
+    "resumeReason": null,
+    "native": "dbdb28b7-7c63-4293-b7b2-a3d876fbe606",
+    "acceptance": {
+      "operationId": "accept-febf280bed4b",
+      "state": "completed",
+      "reason": "check_pass"
+    }
+  },
+  "nativeFallback": {
+    "runId": "run-b7c04fe92da6",
+    "resumeAction": "create_new",
+    "resumeReason": "session_file_missing",
+    "native": "3002feca-c63e-4185-a97e-b4d2a9268de6",
+    "acceptance": {
+      "operationId": "accept-e2bd72fc5664",
+      "state": "completed",
+      "reason": "check_pass"
+    }
+  },
+  "checks": {
+    "statusReadOnly": "status/doctor/storage 不接收结果；status --events 到终态且不写 lastCheckRunId",
+    "devStderr": "--dev 的 stdout 为单一协议响应；stderr 含 command_start/command_end 与 worker diag 白名单字段",
+    "bridgeSchema": "dist/contracts/bridge-tools.json 由 BRIDGE_TOOL_SCHEMAS 派生；模板读取安装包内 JSON",
+    "package": "pack:check 包含 CLI、worker、bridge schema、模板；无研究／测试／历史／凭据"
+  },
+  "notes": [
+    "真实主会话通过 knit_task use 写入 knit.selection，主会话记录保持 kind=main 且 selection 生效；worker 阶段使用独立 sub 会话。",
+    "真实原生恢复使用旧 check 会话文件，resumeAction=resume；删除该文件后同一请求 create_new / session_file_missing，读取当前任务继续。",
+    "交付后归档，工作提交只含 answer.txt 与任务目录，归档提交只含旧任务路径删除与新归档路径新增；未推送。",
+    "繁忙会话中观察器用 follow-up 投递终态通知，随后实际产生新模型回合；不是仅 UI 文本。"
+  ],
+  "busyFollowup": {
+    "runId": "run-36705cdf3490",
+    "busyPrompt": "sleep 55",
+    "observed": "主会话忙时收到终态通知，sleep 结束后 follow-up 实际触发新回合并回答 run 状态",
+    "settleCount": 1
+  }
+}

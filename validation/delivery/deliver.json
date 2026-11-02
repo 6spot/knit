@@ -1,0 +1,30 @@
+{
+  "protocolVersion": 1,
+  "requestId": "deliver-1793585752907",
+  "outcome": "completed",
+  "data": {
+    "operationId": "op-6ca6e77ca8f5",
+    "taskId": "k-426e7df84cfc",
+    "mode": "deliver",
+    "state": "completed",
+    "reason": null,
+    "branch": "refs/heads/main",
+    "workCommit": "46e405eaa8d949b40c31187a3fdd70066fc6e434",
+    "archiveCommit": "4ad556ce2480abfb76af9de9d50491837948d249",
+    "archivePath": ".knit/tasks/archive/2026-11/11-02-app-new",
+    "defaultBranch": {
+      "ref": null,
+      "source": "unknown",
+      "exists": false
+    },
+    "authorization": {
+      "kind": "workflow",
+      "ref": "workflow:.knit/workflow.md#交付",
+      "path": ".knit/workflow.md",
+      "section": "交付 deliver",
+      "digest": "f07bd36590d2b15218b8703ebceb38c7d21b87c3dc1ac3543697f3f65e0b43e3",
+      "verified": true
+    },
+    "needsAttention": false
+  }
+}

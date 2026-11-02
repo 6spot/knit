@@ -65,7 +65,7 @@ flowchart TD
 | AgentRuntime | probe、指令准备、new/resume、历史、执行、取消、dispose；输出事件和报告 | 本机 Pi CLI／stdin-stdout RPC；实施与检查 Session 分离 |
 | ExecutionHost | probe、launch、inspect；返回实例身份与定位 | local；同一 worker 程序 |
 | GitPort | 状态、路径／index、提交树、提交与引用验证 | 原生 Git，argv 调用 |
-| MetadataStore | Session／binding／operation 及短事务 | M0 在原子文件与 SQLite 中选一个；不双写权威镜像 |
+| MetadataStore | Session／binding／operation 及短事务 | SQLite（Node24 内置 node:sqlite，M0 实证选定）；不双写权威镜像 |
 | FileStore／LockStore | 项目正文、证据文件、执行与短时占用 | 本地文件系统；不把文件端口等同元数据后端已定 |
 | ProcessPort／Clock | 进程身份、进程组、终态、心跳、单调耗时 | POSIX 实现；测试可注入 |
 
@@ -73,11 +73,11 @@ Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CL
 
 ## 5. 进程与运行时序
 
-1. 项目桥接从当前 Pi 调用取得原生 Session、有效分支和实际模型，转给同一 CLI 命令处理器。用户直接 CLI 可没有主 Session；缺少的任务或模型必须显式补足。
+1. 项目桥接从当前 Pi 调用取得原生 Session、有效分支和实际模型，转给同一 CLI 命令处理器。用户直接 CLI 可没有主 Session；缺少的任务或模型必须显式补足。实现（任务015）：桥接登记主会话与有效选择，工具 schema 由构建期派生 JSON 提供；观察器按 run 发起方原生 ID 只读查询并按会话条目去重投递，不接收结果。
 2. CLI 核心做只读预检、选定模型身份，发布不可变 request 与启动意图；request 记录任务／分支、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
-3. local 启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。
+3. local 启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。实现（任务012）：RunCoordinator 发布 request/launch，worker 以 `mkdir claim` 认领并自行取锁；implement 快照 ready 后停于 prepared，阶段执行由 013 在同一 run 内继续。实现（任务016）：快照同时保存工作区与独立 index blob；`snapshot show` 只读对照，restore 默认预览、需显式当前指纹，按路径恢复并留下 `.runtime/restores/` 记录，Task 输入改走 task update。
 4. worker 只装配所选 runtime；默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。
-5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。
+5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。实现（任务013）：StageRunner 执行阶段并保存 result，RunAcceptanceService 复核输入／规范／scope／分支后机械推进；原生引用不可恢复只标 Session opening，结果写失败置 failed 不接收。实现（任务014）：DeliveryService 先落盘交付／归档操作，限定路径提交并核对真实 OID／范围／index 保护，封存后移动与归档提交；hook 越界与回执丢失分别保留现场和核实恢复。实现（任务017）：StageRunner 在项目锁后取得 Session 锁并写 `stage-process`，取消超时终止完整进程树；`locks`／`unlock` 以 owner token 显式核实与强解，resume 在旧阶段进程未确认结束时保持阻塞。
 6. 结果接收可在 worker 内调用同一核心用例；若中断，后续 CLI 按结果与操作意图重入。收到结果不意味着自动发起下一个模型或 Git 操作，主 Agent 根据工作流与当前用户意图继续。
 
 确定性 deliver 在首版由核心 CLI 同步执行，不另建后台任务平台。单独观察断开不等于取消；实际执行进程被终止则按操作中断核实工具／Git 结果并恢复，不承诺界面关闭后自动完成交付。
@@ -86,7 +86,7 @@ Pi run 后台执行，进度不触发模型回合。终态只投给仍匹配的�
 
 ## 6. 数据与唯一写入方
 
-Task、规范和候选在可入库的项目目录；本机索引、运行证据、快照和诊断在 Git 忽略、私有权限的 .knit/.runtime/。原生历史在客户端管理的位置。下表的写入方是逻辑服务，不等于任意进程可绕守卫写入。
+Task、规范和候选在可入库的项目目录；本机索引、运行证据、快照和诊断在 Git 忽略、私有权限的 .knit/.runtime/。原生历史在客户端管理的位置。下表的写入方是逻辑服务，不等于任意进程可绕守卫写入。TaskService 注入真实 run 仓储后，活动／收敛事实不信任命令自报；接收检查点 `runs/<run>/acceptance.json` 是操作恢复证据，不是第二业务权威。
 
 | 数据 | 写入方 | 权威用途 |
 | --- | --- | --- |
@@ -99,20 +99,20 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | run state/result | worker | 真实准备、执行、取消与终态；result 不证明 Git 交付 |
 | instructions、events | worker | 指令落实与脱敏进度，事件不代替结果 |
 | scope/check | CheckService | 不可变范围和检查证据，当前适用性另行推导 |
-| snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready |
+| snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready；index 内容独立保存，逐路径恢复记录独立 |
 | cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
 | 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |
-| standards.md | 主 Agent 经记录工具 | 未生效候选，审阅事实由操作记录证明 |
+| standards.md | 主 Agent 经记录工具 | 未生效候选（`src/application/standards-service.ts`）；审阅回执存 `standards_reviews`，操作记录留痕 |
 | 原生历史 | 运行中主会话的宿主 API／阶段 Pi CLI 自身 | Core 和 worker 不直接追加或并发改写原生文件；阶段记录在独立 native-sessions 位置跨 run 保留 |
 | diagnostics JSONL（M3A） | 启用保存的执行者 | 可丢弃的排查信息，不作业务证据；M1 仅 stderr |
 
-Session、binding、operation 的文件／SQLite 实现由 M0 同路径实验决定；若选数据库就以它为唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
+Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路径实证选定，比较夹具与证据见 [任务004](tasks/004-metadata-storage-decision.md) 与 [验证资料](validation/metadata-storage/README.md)）；数据库是唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
 
 讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason，以及至多一份 pendingInput 草案和基线／草案摘要；该草案不属于当前冻结输入。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
 
 ## 7. 写入与恢复协议
 
-可变关联元数据由仓储封装，M0 比较原子文件与 SQLite 短事务。选择数据库可同时提交 Session、binding、operation 的内部更新；Task Markdown、Git 与原生历史仍是外部效果，不能假定同一事务覆盖。任务文件受稳定 Task 短锁保护，指纹与已发布证据只按引用连接。
+可变关联元数据由仓储封装，实现为 SQLite 短事务（M0 实证选定）。事务同时提交 Session、binding、operation 的内部更新；Task Markdown、Git 与原生历史仍是外部效果，不能假定同一事务覆盖。任务文件受稳定 Task 短锁保护，指纹与已发布证据只按引用连接。
 
 关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数的 nextState 是待实现目标，只有效果核验和回执完成后才能对外当成事实；不能先改 phase 再尝试执行。
 
@@ -120,12 +120,12 @@ Session、binding、operation 的文件／SQLite 实现由 M0 同路径实验决
 
 - 状态决定为纯函数：当前状态、事件和已观测事实，返回允许的转移／效果计划或带原因的拒绝。函数不直接访问文件、模型或 Git。
 - 数据文件原子替换不能代替事务。多文件效果在同一操作中逐步核验；中间状态显示 pending operation，不能当作最终状态继续执行。
-- 已生效但检查点未写的效果，恢复时以当前内容／Git OID 核实并补记，不能再次盲目 commit、move 或 append。
+- 已生效但检查点未写的效果，恢复时以当前内容／Git OID 核实并补记，不能再次盲目 commit、move 或 append。实现（任务019）：提交树模式／blob、路径集合与父节点是交付证据；move 按首次 archivePath 与目标 Task ID 核实；hook 越界只保留现场。
 - 同一 run 按固定 acceptanceOperationId 接收，prepare/start 用既有对象 ID 幂等。requestId 可作日志关联，不成为取消对象或单独工作流。重复调用返回既有结果，不另执行。
 - 已完成的证据不改写。新输入、新检查、恢复后的重跑使用新 run；指针失效不等于删除旧证据。
 - 未完成的输入／Git／归档操作会阻塞相关后续动作；记录或选择冲突只影响相应对象，不用一个异常锁死全部功能。
 
-task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持早期 phase；选定目标的检查 stale 且当前为 deliver 时统一回 open/check 清 completed，change 回 discuss。运行中先存待应用，后续代码／交付先处理；只读发现外部改动只报告待同步。
+task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持早期 phase；选定目标的检查 stale 且当前为 deliver 时统一回 open/check 清 completed，change 回 discuss。运行中先存待应用，后续代码／交付先处理；只读发现外部改动只报告待同步。实现（任务018）：update／apply／close 在项目与任务锁内重读 binding 与 run 收敛事实；接收在改 Task 前写检查点，按来源／目标重入，scope／check／binding 半写入不宣称成功。
 
 ## 8. 并发和版本边界
 
@@ -145,7 +145,7 @@ ContextPlanner 区分需求、所选指令版本、授权输出和纯记录。�
 
 ## 9. 代码组织与协议
 
-已按下列结构建立目录与职责README，尚无业务实现。文件式开发优先顺序及唯一状态表见 [TASKS.md](TASKS.md)；开发阻塞记入 [BLOCKERS.md](BLOCKERS.md)，可用伪代码／暂定接口交接并继续独立任务，完整验收后才标完成：
+已按下列结构建立目录与职责README。核心用例与基础设施已逐任务落地（状态见 [TASKS.md](TASKS.md)）；开发阻塞记入 [BLOCKERS.md](BLOCKERS.md)，完整验收后才标完成：
 
 ```text
 src/
@@ -158,7 +158,7 @@ src/
   adapters/local/      # worker 启动与检查
   infrastructure/      # fs、Git、进程、时钟、指纹
   worker/              # 执行入口与事件记录
-assets/pi/             # 生成到用户项目的薄桥接模板
+assets/templates/      # init 模板：.knit/ 项目资料、pi/extensions/knit.ts 桥接
 test/                  # 根测试目录
 ```
 

@@ -1,0 +1,66 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-prepare",
+  "outcome": "completed",
+  "data": {
+    "request": {
+      "schemaVersion": 1,
+      "protocolVersion": 1,
+      "runId": "run-35929a94ec42",
+      "taskId": "k-4acee072e3a0",
+      "phase": "implement",
+      "purpose": "stage",
+      "initiator": {
+        "client": "cli",
+        "knitSessionId": null,
+        "nativeSessionId": null,
+        "cwd": "/tmp/knit-018-cli"
+      },
+      "createdAt": "2026-11-02T04:11:04.483Z",
+      "expected": {
+        "branch": "refs/heads/main",
+        "inputsDigest": "15abcdc859e5cb18ab25789c7db17a1222b3fe219ddbc55ab1435fb43fa0e9f2",
+        "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+        "effectiveInputsDigest": "c669174f8a7700d6e6bd6cb1a6e96c73ffc5b8f8559940d108a0570fd96db5d4",
+        "planId": "ctx-e32ab89ebbd8",
+        "scopeDigest": null
+      },
+      "model": {
+        "runtime": "pi",
+        "provider": "fake",
+        "model": "fake-model"
+      },
+      "toolPolicy": {
+        "mode": "write",
+        "allow": [
+          "read",
+          "write",
+          "edit",
+          "bash",
+          "task"
+        ],
+        "deny": []
+      },
+      "recovery": {
+        "nativeSessionId": null,
+        "resume": "prefer"
+      },
+      "acceptanceOperationId": "accept-cbc7b8550c7c",
+      "diagnostics": {
+        "enabled": false
+      }
+    },
+    "launch": {
+      "schemaVersion": 1,
+      "runId": "run-35929a94ec42",
+      "state": "planned",
+      "attempts": 0,
+      "requestedAt": "2026-11-02T04:11:04.483Z",
+      "updatedAt": "2026-11-02T04:11:04.483Z",
+      "handle": null,
+      "instance": null,
+      "lastError": null
+    },
+    "reused": false
+  }
+}

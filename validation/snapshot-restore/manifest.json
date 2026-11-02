@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "runId": "run-80d7f011dd4a",
+  "state": "ready",
+  "createdAt": "2026-11-02T03:24:51.575Z",
+  "maxBytes": 67108864,
+  "base": {
+    "head": "671b9ea37afc8b2cfe3155d213c67d224a3d16e7",
+    "branch": "main",
+    "absent": false
+  },
+  "coverage": {
+    "tracked": true,
+    "index": true,
+    "untracked": true,
+    "worktree": true
+  },
+  "entries": [
+    {
+      "path": ".knit/.gitignore",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 10,
+      "digest": "c740db8c5771bc53deca3faf16465ffd78a57c5bc6df70143f0a8f422fb469ab",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/agents/check.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 347,
+      "digest": "d308595a336f3ed53f5deb426f46b521355ee83442de3b8059b5856d95a7708e",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/agents/deliver.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 264,
+      "digest": "79903c138815ef9310f481602344264c0481a55f1e0d3ec242eb5c31aedfd501",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/agents/implement.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 487,
+      "digest": "3d96f5944628aa1562df2a2196b3b1c27f5b92f77504c7b9a6456da8b363c0ca",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/agents/runtimes/pi.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 481,
+      "digest": "3126abfbc470c32b61018aec092d8012fd7590ae534e0549e59f5f42c0cd8f7c",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/config.json",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 435,
+      "digest": "f0fdf3a4f05909c3463224889443412389db8256d38166a0d19683b5b4ba4ce0",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/standards/index.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 402,
+      "digest": "e9f33e9cc22e9a3293b5c7021f9e5f712f7fc77462f48dc50f1207e66e20b277",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/tasks/11-02-restore-e2e/task.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 556,
+      "digest": "99f7aa22f1701cd24385d199b465267ce72cbfc4db0876e4fb04a226f5c0f80b",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".knit/workflow.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 896,
+      "digest": "be0c1525107f1ba97c5326e1c97a5ec81491b20e79c8c967ad9205dcfad47d6e",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": ".pi/extensions/knit.ts",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 25167,
+      "digest": "313c17196c48f016a97b6ba1622bc67dbedadef7e732275904675da8810b5d00",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": "AGENTS.md",
+      "layer": "untracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 600,
+      "digest": "da30222c4ff3ac344d4cd998152fa37dd9bad70779bffc10cffc3e2559552f30",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": null,
+      "indexDigest": null
+    },
+    {
+      "path": "app.txt",
+      "layer": "tracked",
+      "kind": "file",
+      "mode": 33188,
+      "size": 5,
+      "digest": "f34848ca92665c342abd5816c9e3eda0e82180671195362bcd0080544a3bc2ac",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": "df967b96a579e45a18b8251732d16804b2e56a55",
+      "indexDigest": "f34848ca92665c342abd5816c9e3eda0e82180671195362bcd0080544a3bc2ac"
+    },
+    {
+      "path": "tool.sh",
+      "layer": "tracked",
+      "kind": "file",
+      "mode": 33261,
+      "size": 18,
+      "digest": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+      "linkTarget": null,
+      "absent": false,
+      "indexOid": "e37f89b3b76e73e0d000552c897006f0b8ba1b76",
+      "indexDigest": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c"
+    }
+  ],
+  "counts": {
+    "tracked": 2,
+    "untracked": 11,
+    "absent": 0
+  },
+  "bytes": 29668,
+  "digest": "70b877a9d6dcf98bad95b0e3ef38e24003dccd544e988033a53118991bf8e87c",
+  "reason": null
+}

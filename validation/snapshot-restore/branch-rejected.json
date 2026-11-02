@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "requestId": "snapshot-restore-1793589985108-odv622",
+  "outcome": "error",
+  "data": {
+    "error": "快照分支 main 与当前 other2 不一致"
+  },
+  "reasonCode": "stale_input"
+}

@@ -59,12 +59,42 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode / Pi session `01a1981c-6f75-749d-b9c2-7e5c897950a6`。
+- 开始／结束时间：2026-11-02（本会话）。
+- 实际修改：
+  - `src/contracts/run.ts`：SnapshotEntry 增加可选 `indexDigest`；快照 manifest 可兼容旧记录。
+  - `src/application/snapshot.ts`：通过 `git cat-file blob` 保存独立 index blob（`snapshot/index/`），记录 indexDigest、计入覆盖上限；工作区、index、mode、符号链接、二进制和缺失路径保持原始事实。
+  - `src/contracts/restore.ts`（新）：逐路径计划、worktree/index 状态、执行记录 schema。
+  - `src/application/restore.ts`（新）：show／preview／restore；显式 `--expect`、项目占用、仓库／分支／当前指纹重核；`--index` 逐路径 `hash-object -w` + `update-index --cacheinfo`；`--remove-created`；父级符号链接与越界拒绝；Task 文档输入经 `task update`；源码恢复清空检查资格、deliver 回 check；`.knit/.runtime/restores/<id>.json` 记录 running／completed／needs_attention 与逐路径结果。
+  - `src/cli/snapshot.ts`（新）与 `src/cli/knit.ts`：`snapshot show/restore`、`--path/--expect/--index/--remove-created`、JSON 协议与人类可读预览。
+  - `src/contracts/bridge-tools.ts`、`assets/templates/pi/extensions/knit.ts`：新增 `knit_snapshot` 同源工具；桥接只转交 CLI。
+  - `src/application/task-service.ts`：直接 update 支持调用方 `expectTaskSha256`，恢复时防止预览后 task.md 变化。
+  - `src/cli/output.ts`：branch/repo 变化映射 stale_input，快照／删除保护映射 needs_review。
+  - `test/restore.test.mjs`（新 7 项）：show、二进制／模式／删除／未跟踪／符号链接／index、显式删除、Task 输入、检查失效、损坏 index 中断、越界、CLI 协议。
+  - `validation/snapshot-restore/`：真实 Git／CLI 恢复与拒绝证据。
+  - `OPERATIONS.md`、`DESIGN.md`、`STATES.md`、`ARCHITECTURE.md`：补 016 实现事实与边界。
+- 实际验证命令与结果：
+  - `npm run -s build`：通过。
+  - `npm run -s typecheck`：通过。
+  - `npm run -s pack:check`：通过（模板 `knit.ts` 与 bridge schema 在包内）。
+  - `npm test`：**165/165**（原 158 + restore 7）。
+  - `node --test test/restore.test.mjs`：7/7；覆盖真实 Git index、mode、二进制、symlink、删除、未跟踪、Task 输入、检查失效与损坏快照。
+  - 真实 CLI e2e `/tmp/knit-016-e2e`：`snapshot show` 只读；`snapshot restore` 默认预览，带三条 `--expect` 执行 `--index --remove-created` 后 `app.txt` 回到快照字节、`tool.sh` 恢复 0755、`created.txt` 删除；Task 输入经 task update 恢复；切分支后恢复被拒绝。证据见 `validation/snapshot-restore/`。
+- 证据位置：`validation/snapshot-restore/README.md`、`report.json`、`show.json`、`restore.json`、`task-input-preview.json`、`task-input-restore.json`、`branch-rejected.json`、`manifest.json`、`restores/`。临时夹具 `/tmp/knit-016-e2e`。
+- 任务书必需验证逐项：
+  - 任意当前版本变化即停：`--expect` 不匹配、预览后内容／index 变化、mode 变化均拒绝；不自动 stash apply。
+  - 同文件分块／后来修改：以整文件指纹为不变量，不提供分块写入；后来修改使当前指纹不符即停。
+  - 真实恢复使旧检查失效并回适当环节：清空 binding `lastCheckRunId`，deliver → check，测试覆盖。
+  - 中断可核实：损坏 index 快照在 worktree 写后失败，留下 `needs_attention` 记录和逐路径 failed，不承诺回滚；metadata 不冒充 index 字节不变。
+  - 二进制、模式、删除、新增、未跟踪、符号链接／越界与覆盖上限：真实测试／e2e 覆盖；快照默认 64 MiB 上限沿用 012，index blob 计入；目录不递归删除，子模块不支持。
+  - Task 输入恢复经 task update，保留 frontmatter／记录；runtime／原生记录不由源码 restore 覆盖。
+- 未解决问题／决定：
+  1. restore 只接受精确文件／符号链接路径；不实现目录子树或分块恢复。
+  2. `--index` 同时恢复选中 worktree 与 index，未提供 index-only 开关；保留无关 index。
+  3. Task 输入恢复固定使用 `kind=change`，因此任务回到 discuss；只恢复输入区，不恢复旧 frontmatter／记录。
+  4. 旧快照没有 `indexDigest` 时 `--index` 拒绝，不迁移旧 snapshot。
+  5. 分支必须与快照 base 相同，但不要求当前 HEAD 等于 base（允许后续提交后逐路径恢复）；父级符号链接即使指向项目内也保守拒绝。
+  6. 恢复失败不自动回滚已写入的路径，依赖 restore 记录和现场核实。
+- 对下一项的交接：017 可复用 `RestoreService` 的显式 expect、项目占用、路径安全与 `.runtime/restores/` 记录；锁／取消测试可直接构造中断 restore 记录，不把恢复记录误当业务完成回执。
 
 优先扫描下一编号（阻塞时可继续跳过）：[017 强化占用、取消和中断后的执行安全](017-cancellation-and-lock-failures.md)。

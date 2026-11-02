@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "taskId": "k-99e6c4fd3314",
+  "runId": "run-c7319a3be882",
+  "branch": null,
+  "verdict": "pass",
+  "report": {
+    "summary": "只读核对了 app.txt：实际字节为 \"new\\n\"（od 确认无多余字符/CRLF），git diff 显示仅由 old 改为 new；运行任务声明的验证命令 grep -q \"^new$\" app.txt 退出码为 0，两项完成条件均满足。",
+    "verdict": "pass",
+    "coverage": [
+      "app.txt（内容与字节级检查）",
+      "完成条件1：app.txt 内容为 new",
+      "完成条件2：grep -q \"^new$\" app.txt 退出码为 0",
+      "改动范围核对：git diff 仅 app.txt 一处修改"
+    ],
+    "findings": [
+      "app.txt 字节内容为 n e w \\n，精确匹配 new，无 BOM、无 CR 换行、无多余空白。",
+      "git diff 显示 app.txt 由 old 改为 new，除此之外无其他已跟踪文件改动。",
+      "工作区存在未跟踪的 .knit/、.pi/、AGENTS.md，属环境基础设施而非本次实施改动，不构成范围越界。",
+      "未发现阻断性问题或与完成条件不符之处。"
+    ],
+    "unverified": []
+  },
+  "inputsDigest": "ce0ab0d11b38c049b72ada4fbc4f4bab18b5dc37ea1f650e70948476edc52ce5",
+  "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+  "effectiveInputsDigest": "6f0486afbfda8af318162370e45f6686c9205b797496e87f721065c26ade4bba",
+  "scopeDigest": "d9994672780b6bed7670f8081ccc1773a042c71b1df976f3dba6f2476ea7b122",
+  "recordedAt": "2026-11-02T01:44:14.125Z"
+}

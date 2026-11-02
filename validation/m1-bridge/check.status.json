@@ -1,0 +1,87 @@
+{
+  "protocolVersion": 1,
+  "requestId": "status-1793588303594",
+  "outcome": "completed",
+  "data": {
+    "runId": "run-567f4f6f2c65",
+    "taskId": "k-5ce4c47da8a5",
+    "phase": "check",
+    "initiator": {
+      "client": "pi",
+      "knitSessionId": null,
+      "nativeSessionId": "0102e09d-c3fa-469f-8ff6-a95de1acf16c",
+      "cwd": "/tmp/knit-015-final2/project"
+    },
+    "createdAt": "2026-11-02T02:51:49.331Z",
+    "updatedAt": "2026-11-02T02:51:57.035Z",
+    "launchState": "confirmed",
+    "attempts": 1,
+    "state": "completed",
+    "prepared": true,
+    "snapshot": null,
+    "inputsDigest": "db5425cda5feeaa281a176d64a3451a331d416681151563484bf20d0e7957383",
+    "effectiveInputsDigest": "89760b3f4c2369887e74d476f657712264948fd3920bdd406673e315425ae701",
+    "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+    "reason": null,
+    "handle": {
+      "pid": 922198,
+      "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+      "procStartTicks": "121064679",
+      "hostname": "instance-20260508-1651",
+      "recordedAt": "2026-11-02T02:51:49.358Z"
+    },
+    "events": 10,
+    "lastEventAt": "2026-11-02T02:51:57.035Z",
+    "lastEvent": "acceptance",
+    "result": {
+      "schemaVersion": 1,
+      "runId": "run-567f4f6f2c65",
+      "taskId": "k-5ce4c47da8a5",
+      "phase": "check",
+      "state": "completed",
+      "report": {
+        "summary": "只读核对 answer.txt：内容为 forty-two 加单个换行（10 字节，xxd 确认无 BOM/多余空白），任务声明的 node 校验命令退出码 0，git diff 为空且已跟踪文件 app.txt 未变动，改动范围与任务限定一致。",
+        "verdict": "pass",
+        "coverage": [
+          "answer.txt",
+          "node -e 校验命令（退出码 0）",
+          "git status/diff 范围核对（app.txt 未改动）"
+        ],
+        "findings": [],
+        "unverified": []
+      },
+      "reportSummary": "只读核对 answer.txt：内容为 forty-two 加单个换行（10 字节，xxd 确认无 BOM/多余空白），任务声明的 node 校验命令退出码 0，git diff 为空且已跟踪文件 app.txt 未变动，改动范围与任务限定一致。",
+      "nativeEntries": {
+        "startEntryId": "9b2d8527",
+        "leafEntryId": "bb93a667"
+      },
+      "usage": {
+        "inputTokens": 8241,
+        "outputTokens": 678
+      },
+      "session": {
+        "knitSessionId": "s-5131cdcd1c43",
+        "nativeSessionId": "805b6961-1e04-4098-99b4-b0017af117c9",
+        "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/pi-sessions/2026-11-02T02-51-50-223Z_805b6961-1e04-4098-99b4-b0017af117c9.jsonl",
+        "role": "check",
+        "status": "available",
+        "resumeAction": "create_new",
+        "resumeReason": "no_previous_session",
+        "nativeReadable": true
+      },
+      "actualChangedPaths": [],
+      "actualEntries": [],
+      "acceptanceOperationId": "accept-b1bc0d4a4ef3",
+      "recordedAt": "2026-11-02T02:51:57.006Z",
+      "failureReason": null
+    },
+    "acceptance": {
+      "operationId": "accept-b1bc0d4a4ef3",
+      "state": "completed",
+      "reason": "check_pass"
+    },
+    "elapsedMs": 7704,
+    "lastActivityAt": "2026-11-02T02:51:57.035Z",
+    "heartbeat": null
+  }
+}

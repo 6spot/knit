@@ -1,0 +1,9 @@
+✔ 移动成功但 move 检查点丢失：核实目标后继续，不重复移动 (357.223702ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 790.459822

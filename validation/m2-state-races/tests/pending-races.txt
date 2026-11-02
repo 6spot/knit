@@ -1,0 +1,9 @@
+✔ 输入草案竞争：存在草案时直接更新拒绝；同内容新版本、基线冲突与 apply/withdraw 互斥 (137.805762ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 556.237887

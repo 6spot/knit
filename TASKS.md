@@ -38,26 +38,26 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 
 | ID | 里程碑 | 状态 | 任务 |
 | --- | --- | --- | --- |
-| 001 | M0 | pending | [建立工程工具链与包边界](tasks/001-engineering-baseline.md) |
-| 002 | M0 | pending | [建立最小协议、schema与内部端口](tasks/002-contracts-and-ports.md) |
-| 003 | M0 | pending | [实现本机Pi CLI协议适配](tasks/003-pi-cli-runtime.md) |
-| 004 | M0 | pending | [实证比较并确定唯一元数据仓储](tasks/004-metadata-storage-decision.md) |
-| 005 | M0 | pending | [验证宿主桥接准入并收敛M0](tasks/005-pi-host-admission.md) |
-| 006 | M1 | pending | [实现纯领域状态与检查资格](tasks/006-domain-rules.md) |
-| 007 | M1 | pending | [实现文件、占用与操作检查点基础](tasks/007-local-infrastructure.md) |
-| 008 | M1 | pending | [实现init与项目受管资料所有权](tasks/008-project-initialization.md) |
-| 009 | M1 | pending | [实现Task文件与输入草案操作](tasks/009-task-files-and-inputs.md) |
-| 010 | M1 | pending | [实现Session索引、当前选择与上下文计划](tasks/010-session-context.md) |
-| 011 | M1 | pending | [实现规范候选到正式规则的闭环](tasks/011-standards-evolution.md) |
-| 012 | M1 | pending | [实现快照准备、local启动与worker认领](tasks/012-snapshots-and-workers.md) |
-| 013 | M1 | pending | [实现实施、检查、结果接收与恢复续做](tasks/013-stage-execution-and-recovery.md) |
-| 014 | M1 | pending | [实现限定提交、归档与确定性收尾](tasks/014-delivery-and-archive.md) |
-| 015 | M1 | pending | [完成CLI与生产薄桥接并验收M1](tasks/015-cli-bridge-m1-gate.md) |
-| 016 | M2 | pending | [强化快照与逐路径恢复保护](tasks/016-path-restore-and-fingerprints.md) |
-| 017 | M2 | pending | [强化占用、取消和中断后的执行安全](tasks/017-cancellation-and-lock-failures.md) |
-| 018 | M2 | pending | [验证接收、草案和业务状态的竞争恢复](tasks/018-acceptance-and-state-races.md) |
-| 019 | M2 | pending | [验证Git、归档与封存的关键故障](tasks/019-git-and-seal-failures.md) |
-| 020 | M2 | pending | [独立检查真实项目使用门槛](tasks/020-m2-independent-gate.md) |
+| 001 | M0 | completed | [建立工程工具链与包边界](tasks/001-engineering-baseline.md) |
+| 002 | M0 | completed | [建立最小协议、schema与内部端口](tasks/002-contracts-and-ports.md) |
+| 003 | M0 | completed | [实现本机Pi CLI协议适配](tasks/003-pi-cli-runtime.md) |
+| 004 | M0 | completed | [实证比较并确定唯一元数据仓储](tasks/004-metadata-storage-decision.md) |
+| 005 | M0 | completed | [验证宿主桥接准入并收敛M0](tasks/005-pi-host-admission.md) |
+| 006 | M1 | completed | [实现纯领域状态与检查资格](tasks/006-domain-rules.md) |
+| 007 | M1 | completed | [实现文件、占用与操作检查点基础](tasks/007-local-infrastructure.md) |
+| 008 | M1 | completed | [实现init与项目受管资料所有权](tasks/008-project-initialization.md) |
+| 009 | M1 | completed | [实现Task文件与输入草案操作](tasks/009-task-files-and-inputs.md) |
+| 010 | M1 | completed | [实现Session索引、当前选择与上下文计划](tasks/010-session-context.md) |
+| 011 | M1 | completed | [实现规范候选到正式规则的闭环](tasks/011-standards-evolution.md) |
+| 012 | M1 | completed | [实现快照准备、local启动与worker认领](tasks/012-snapshots-and-workers.md) |
+| 013 | M1 | completed | [实现实施、检查、结果接收与恢复续做](tasks/013-stage-execution-and-recovery.md) |
+| 014 | M1 | completed | [实现限定提交、归档与确定性收尾](tasks/014-delivery-and-archive.md) |
+| 015 | M1 | completed | [完成CLI与生产薄桥接并验收M1](tasks/015-cli-bridge-m1-gate.md) |
+| 016 | M2 | completed | [强化快照与逐路径恢复保护](tasks/016-path-restore-and-fingerprints.md) |
+| 017 | M2 | completed | [强化占用、取消和中断后的执行安全](tasks/017-cancellation-and-lock-failures.md) |
+| 018 | M2 | completed | [验证接收、草案和业务状态的竞争恢复](tasks/018-acceptance-and-state-races.md) |
+| 019 | M2 | completed | [验证Git、归档与封存的关键故障](tasks/019-git-and-seal-failures.md) |
+| 020 | M2 | completed | [独立检查真实项目使用门槛](tasks/020-m2-independent-gate.md) |
 | 021 | M3A | pending | [完善分支接管、对话树和多会话关联](tasks/021-adopt-tree-and-sessions.md) |
 | 022 | M3A | pending | [完善初始化升级与指令生效核对](tasks/022-upgrades-and-instructions.md) |
 | 023 | M3A | pending | [完善用量、历史和只读诊断查询](tasks/023-usage-history-and-diagnostics.md) |
@@ -73,7 +73,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | --- | --- | --- |
 | M0 | 001–005 | Node24工程基线、CLI真实能力、唯一存储决定、宿主schema／信任与结果连接准入 |
 | M1 | 006–015 | 临时项目可安装闭环：Task／规范／Session／worker／独立检查／限定交付，生成桥接实际验收 |
-| M2 | 016–020 | 快照、锁／取消、接收／草案竞争、Git／seal保护，经独立检查才具备真实项目使用条件 |
+| M2 | 016–020 | **已通过独立检查（2026-11-02）**：快照、锁／取消、接收／草案竞争、Git／seal 保护；真实项目使用仍受任务020列出的未验证边界限制 |
 | M3A | 021–024 | 分支／树／多会话、升级与规则、完整查询用量、私有诊断及日常接续 |
 | M3B | 025–026 | 目标平台安装矩阵与独立首版就绪结论；停在可审阅本地成果，不自动发布 |
 

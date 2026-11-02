@@ -1,0 +1,9 @@
+✔ 归档目标已存在：不覆盖、不移动，保留现场 (194.432547ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 622.448268

@@ -1,0 +1,5 @@
+$ ps -eo pid,ppid,pgid,stat,etime,args | grep -E 'sleep 120|/bin/bash -c cd /tmp/knit-017-real|pi$' | grep -v grep
+ 805135  730237  805135 Sl+  pi
+ 955649  955636  955649 Ssl  pi
+ 955713  955649  955713 Ss   /bin/bash -c cd /tmp/knit-017-real && echo "SLEEP_START $(date +%s)"; sleep 120; echo "SLEEP_DONE $(date +%s)"
+ 955715  955713  955713 S    sleep 120

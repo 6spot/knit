@@ -61,12 +61,16 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 validation/host-admission/（README 报告、results.json、scripts/{run_admission.py,knit-bridge.js}）；TECHNOLOGY.md 第 6.1/7 节补宿主准入事实；DESIGN.md M0 验收行更新；TASKS.md 005 状态。
+- 实际验证命令与结果：`python3 scripts/run_admission.py` 三用例全部 passed（schema-and-trust 18.2s 含 2 次真实模型轮次、reload-no-duplicate 2.4s 零模型、result-pipeline 34.8s 含 2 次真实模型轮次）：
+  - schema-and-trust：dist/contracts TypeBox→JSON schema 派生并 Value.Check 探针；受信项目扩展自动加载（get_commands 含 knit-bridge-*）；knit_selftest 工具内部用宿主 ctx.executeTool 实测校验语义（对象 runId 与非法联合字面量被拒 isError 不到 execute；兼容原始类型被 Value.Convert 强转放行）；真实模型按 schema 成功调用 knit_status（tool_execution_end 无错误）；未受信不加载；ready 标记不冒充信任。
+  - reload-no-duplicate：ctx.reload() 重载后每命令仍一条事件，旧监听不重复；零模型。
+  - result-pipeline：回执文件→1s 只读轮询→来源核对→终态判定→按会话条目去重→投递→appendEntry 回执。无结果/非终态不投；被动通知零模型轮次；同 run 只投一次；wake 实际启动模型回合（token 0→非零）；忙时 follow-up 当前回答先于排队通知；originSession 不匹配不投；切会话不误投且旧轮询停止。
+- 证据位置：validation/host-admission/results.json、scripts/ 与 .work/（含 stderr、RPC 事件日志）、README.md。
+- 实施中发现并如实记录的宿主约束：项目扩展发现只认 .ts/.js（loader.js:585），不认 .mjs——夹具首版 .mjs 未被加载，已改 .js 并写入报告；校验层对兼容原始类型强转（123→"123"）而非拒绝——桥接强标识字段需 execute 内二次校验；executeTool 校验失败返回 isError result 而非抛错；命令回调 ctx 无 executeTool（仅工具 execute ctx 有）。
+- 未解决问题／决定：产品 `knit status --run --json` 命令与 run 证据真实落盘后，按本 README 同一链路验收；树/分支切换复验留待产品桥接。
+- 对下一项的交接：006 纯领域状态可独立开发，不依赖本夹具；桥接片段可复用 scripts/knit-bridge.js 的轮询/去重/来源守卫模式；M0 五项全部完成，无阻塞。
 
 优先扫描下一编号（阻塞时可继续跳过）：[006 实现纯领域状态与检查资格](006-domain-rules.md)。

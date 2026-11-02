@@ -6,3 +6,4 @@
 /*.tgz
 /npm-debug.log*
 /.knit/.runtime/
+validation/*/.work/

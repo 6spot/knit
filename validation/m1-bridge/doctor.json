@@ -1,0 +1,72 @@
+{
+  "protocolVersion": 1,
+  "requestId": "doctor-1793588301338",
+  "outcome": "completed",
+  "data": {
+    "ok": true,
+    "projectRoot": "/tmp/knit-015-final2/project",
+    "protocolVersion": 1,
+    "checks": [
+      {
+        "name": "config",
+        "status": "ok",
+        "detail": "config.json 可解析"
+      },
+      {
+        "name": "init-manifest",
+        "status": "ok",
+        "detail": "state=ready"
+      },
+      {
+        "name": "installation",
+        "status": "ok",
+        "detail": "/tmp/knit-015-final2/node_modules/knit/dist/cli/knit.js"
+      },
+      {
+        "name": "bridge",
+        "status": "ok",
+        "detail": "/tmp/knit-015-final2/project/.pi/extensions/knit.ts"
+      },
+      {
+        "name": "worker",
+        "status": "ok",
+        "detail": "/tmp/knit-015-final2/node_modules/knit/dist/worker/knit-worker.js"
+      },
+      {
+        "name": "bridge-schema",
+        "status": "ok",
+        "detail": "/tmp/knit-015-final2/node_modules/knit/dist/contracts/bridge-tools.json"
+      },
+      {
+        "name": "metadata",
+        "status": "ok",
+        "detail": "/tmp/knit-015-final2/project/.knit/.runtime/metadata.db"
+      },
+      {
+        "name": "git",
+        "status": "ok",
+        "detail": "a6766142196bb8048666a1a8f8f7c9eb1af68b89"
+      },
+      {
+        "name": "branch",
+        "status": "ok",
+        "detail": "refs/heads/main"
+      },
+      {
+        "name": "pi",
+        "status": "ok",
+        "detail": "1.4.0"
+      },
+      {
+        "name": "protocol",
+        "status": "ok",
+        "detail": "protocol=1；package=0.1.0"
+      },
+      {
+        "name": "locks",
+        "status": "ok",
+        "detail": "/home/opc/.knit/locks"
+      }
+    ]
+  }
+}

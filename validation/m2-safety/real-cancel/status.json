@@ -1,0 +1,101 @@
+{
+  "protocolVersion": 1,
+  "requestId": "status-1793591045082",
+  "outcome": "completed",
+  "data": {
+    "runId": "run-d1d791016993",
+    "taskId": "k-e9f828073a4a",
+    "phase": "implement",
+    "initiator": {
+      "client": "cli",
+      "knitSessionId": null,
+      "nativeSessionId": null,
+      "cwd": "."
+    },
+    "createdAt": "2026-11-02T03:43:51.423Z",
+    "updatedAt": "2026-11-02T03:44:04.587Z",
+    "launchState": "confirmed",
+    "attempts": 1,
+    "state": "cancelled",
+    "prepared": true,
+    "snapshot": {
+      "state": "ready",
+      "digest": "da31adbd9e1585e9d945be3f719ad292f35db7db50db6ffc8c1d2e2bd0f3538e",
+      "entries": 12,
+      "reason": null
+    },
+    "inputsDigest": "7469fd14ca9f6af515184b818e6ae38d812b8cdc2f5366ca4f4c451fce212391",
+    "effectiveInputsDigest": "dad5488dab126959b5225135849b854bd229feeeb1c19aeca6f95ffb66816ec3",
+    "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+    "reason": "agent_aborted",
+    "handle": {
+      "pid": 955636,
+      "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+      "procStartTicks": "121376936",
+      "hostname": "instance-20260508-1651",
+      "recordedAt": "2026-11-02T03:43:51.924Z"
+    },
+    "events": 12,
+    "lastEventAt": "2026-11-02T03:44:04.587Z",
+    "lastEvent": "acceptance",
+    "cancelRequestedAt": "2026-11-02T03:44:04.500Z",
+    "cancelReason": "真实工具取消2",
+    "stageProcess": {
+      "schemaVersion": 1,
+      "runId": "run-d1d791016993",
+      "taskId": "k-e9f828073a4a",
+      "phase": "implement",
+      "state": "exited",
+      "workerPid": 955636,
+      "piPid": 955649,
+      "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+      "procStartTicks": null,
+      "hostname": "instance-20260508-1651",
+      "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+      "knitSessionId": "s-9c2febf8cb46",
+      "startedAt": "2026-11-02T03:43:52.389Z",
+      "recordedAt": "2026-11-02T03:44:04.578Z"
+    },
+    "stageProcessVerdict": "not_alive",
+    "result": {
+      "schemaVersion": 1,
+      "runId": "run-d1d791016993",
+      "taskId": "k-e9f828073a4a",
+      "phase": "implement",
+      "state": "cancelled",
+      "report": null,
+      "reportSummary": null,
+      "nativeEntries": {
+        "startEntryId": null,
+        "leafEntryId": null
+      },
+      "usage": {
+        "inputTokens": null,
+        "outputTokens": null
+      },
+      "session": {
+        "knitSessionId": "s-9c2febf8cb46",
+        "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+        "sessionFile": null,
+        "role": "implement",
+        "status": "available",
+        "resumeAction": "create_new",
+        "resumeReason": "no_previous_session",
+        "nativeReadable": false
+      },
+      "actualChangedPaths": [],
+      "actualEntries": [],
+      "acceptanceOperationId": "accept-1cdee19c594a",
+      "recordedAt": "2026-11-02T03:44:04.578Z",
+      "failureReason": "agent_aborted"
+    },
+    "acceptance": {
+      "operationId": "accept-1cdee19c594a",
+      "state": "completed",
+      "reason": "run_cancelled"
+    },
+    "elapsedMs": 13164,
+    "lastActivityAt": "2026-11-02T03:44:04.587Z",
+    "heartbeat": null
+  }
+}

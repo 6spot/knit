@@ -1,0 +1,77 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-status",
+  "outcome": "completed",
+  "data": {
+    "runId": "run-8a2675075912",
+    "taskId": "k-426e7df84cfc",
+    "phase": "check",
+    "launchState": "confirmed",
+    "attempts": 1,
+    "state": "completed",
+    "prepared": true,
+    "snapshot": null,
+    "inputsDigest": "69761e2eab8c40d2b5ce0db9624f4d0e60499cf680bafaa7d0f8dfcac04042fc",
+    "effectiveInputsDigest": "eee607927671cb68628307b6619335680080ad429bc7b21130d01e02fa0f0506",
+    "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+    "reason": null,
+    "handle": {
+      "pid": 894173,
+      "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+      "procStartTicks": "120847762",
+      "hostname": "instance-20260508-1651",
+      "recordedAt": "2026-11-02T02:15:40.188Z"
+    },
+    "events": 10,
+    "result": {
+      "schemaVersion": 1,
+      "runId": "run-8a2675075912",
+      "taskId": "k-426e7df84cfc",
+      "phase": "check",
+      "state": "completed",
+      "report": {
+        "summary": "独立只读核对 app.txt：内容字节为 6e65770a（精确等于 new\\n），grep -q \"^new$\" app.txt 实际退出码 0，git diff 仅 app.txt 由 old 改为 new，HEAD 未变动（未提交），未新增依赖。两项完成条件均满足。",
+        "verdict": "pass",
+        "coverage": [
+          "app.txt 内容与字节级精确性（4 字节 new\\n，cmp 与期望值一致）",
+          "验证命令 grep -q \"^new$\" app.txt 实跑退出码 0",
+          "git status/git diff 确认改动范围仅 app.txt",
+          "git log 与 HEAD:app.txt 确认未提交 Git",
+          "依赖文件无变动（无新增依赖）",
+          "未跟踪文件 AGENTS.md/.knit/.pi 时间戳早于实施，判定为既有脚手架"
+        ],
+        "findings": [],
+        "unverified": []
+      },
+      "reportSummary": "独立只读核对 app.txt：内容字节为 6e65770a（精确等于 new\\n），grep -q \"^new$\" app.txt 实际退出码 0，git diff 仅 app.txt 由 old 改为 new，HEAD 未变动（未提交），未新增依赖。两项完成条件均满足。",
+      "nativeEntries": {
+        "startEntryId": "48ca83cb",
+        "leafEntryId": "557382cc"
+      },
+      "usage": {
+        "inputTokens": 11655,
+        "outputTokens": 1313
+      },
+      "session": {
+        "knitSessionId": "s-91261ce9588c",
+        "nativeSessionId": "f9b4db76-d7bd-43cd-826e-88a311703a28",
+        "sessionFile": "/tmp/knit-014-e2e2/.knit/.runtime/pi-sessions/2026-11-02T02-15-41-064Z_f9b4db76-d7bd-43cd-826e-88a311703a28.jsonl",
+        "role": "check",
+        "status": "available",
+        "resumeAction": "create_new",
+        "resumeReason": "no_previous_session",
+        "nativeReadable": true
+      },
+      "actualChangedPaths": [],
+      "actualEntries": [],
+      "acceptanceOperationId": "accept-a470f8da6bdd",
+      "recordedAt": "2026-11-02T02:15:51.938Z",
+      "failureReason": null
+    },
+    "acceptance": {
+      "operationId": "accept-a470f8da6bdd",
+      "state": "completed",
+      "reason": "check_pass"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-start",
+  "outcome": "completed",
+  "data": {
+    "launch": {
+      "schemaVersion": 1,
+      "runId": "run-35929a94ec42",
+      "state": "confirmed",
+      "attempts": 1,
+      "requestedAt": "2026-11-02T04:11:04.483Z",
+      "updatedAt": "2026-11-02T04:11:05.510Z",
+      "handle": {
+        "pid": 986786,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121540243",
+        "hostname": "instance-20260508-1651",
+        "recordedAt": "2026-11-02T04:11:04.996Z"
+      },
+      "instance": {
+        "workerId": "w-362a96294338",
+        "pid": 986786,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121540243",
+        "claimedAt": "2026-11-02T04:11:05.386Z"
+      },
+      "lastError": null
+    },
+    "state": {
+      "schemaVersion": 1,
+      "runId": "run-35929a94ec42",
+      "taskId": "k-4acee072e3a0",
+      "phase": "implement",
+      "state": "preparing",
+      "worker": {
+        "workerId": "w-362a96294338",
+        "pid": 986786,
+        "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+        "procStartTicks": "121540243",
+        "hostname": "instance-20260508-1651"
+      },
+      "claimedAt": "2026-11-02T04:11:05.386Z",
+      "updatedAt": "2026-11-02T04:11:05.505Z",
+      "prepared": true,
+      "preparedAt": "2026-11-02T04:11:05.505Z",
+      "snapshot": {
+        "state": "ready",
+        "digest": "89ee600664637ebede95157affa6bf3f9c9fe63e77f0bffcd8f3403817a4ca2a",
+        "entries": 14,
+        "reason": null
+      },
+      "reason": null
+    },
+    "confirmed": true,
+    "reused": false
+  }
+}

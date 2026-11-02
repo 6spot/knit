@@ -1,0 +1,12 @@
+{
+  "protocolVersion": 1,
+  "requestId": "task-new-1793592663464-8wgkev",
+  "outcome": "completed",
+  "data": {
+    "taskId": "k-4acee072e3a0",
+    "root": "/tmp/knit-018-cli",
+    "relativePath": "tasks/11-02-cli-race/task.md",
+    "title": "CLI race",
+    "branch": "refs/heads/main"
+  }
+}

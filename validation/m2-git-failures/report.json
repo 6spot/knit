@@ -1,0 +1,44 @@
+{
+  "environment": {
+    "node": "v24.21.0",
+    "git": "git version 2.52.0",
+    "fixture": "test/delivery.test.mjs（每项真实临时 Git 仓库）",
+    "date": "2026-11-02"
+  },
+  "results": {
+    "deliverySuite": "27/27 pass",
+    "fullSuite": "194/194 pass",
+    "tests": {
+      "mixedPaths": "app 内容 + 新可执行文件 100755 + rename old→new + delete + index 范围",
+      "hookReject": "pre-commit exit 1：workCommit null、无归档、任务原位",
+      "hookIndex": "hook 加入无关文件：index/commit 范围异常保留提交事实并 needs_attention",
+      "moveRecovery": "move 物理完成但检查点丢失：按目标与 Task ID 核实，不重复 move，归档提交只一次",
+      "crossMonth": "hook 失败后跨月 retry，沿用操作首次 archivePath 2026-11",
+      "targetConflict": "目标目录已存在：不覆盖 foreign 文件、不移动、无归档提交",
+      "hookContentRetry": "hook 改选中文件后 retry 仍 needs_attention，不把提交存在当完成",
+      "workHeadAdvanced": "work 提交后外部提交：work_commit_head_advanced，不归档",
+      "archiveRejectRetry": "归档 pre-commit 拒绝后 retry：旧任务路径删除与新归档路径新增均提交，无重复 archive commit",
+      "archiveExtraCleanup": "归档提交后同 message 额外提交：不落盘错误 archiveCommit，清理额外历史后同一操作恢复真实提交",
+      "messageRewrite": "操作提交 message 被改写：HEAD 已前进则 commit_unverified，不误判无改动"
+    }
+  },
+  "commitTreeEvidence": {
+    "mixed": {
+      "app": "mixed\\n",
+      "mode": "100755",
+      "renamed": "other\\n",
+      "deleted": [
+        "staged.txt",
+        "other.txt"
+      ]
+    },
+    "archiveCommitCount": "每场景最多一次本操作归档提交"
+  },
+  "limitations": [
+    "未在真实提交过程中强制 SIGKILL Git 子进程；以操作检查点丢失与 hook 失败重入模拟。",
+    "外部进程并发修改 Git／工作区不受锁保护；检测到范围或 index 变化只保留现场。",
+    "未执行 fetch／push／merge／冲突或历史改写；首版 local 模式范围不变。",
+    "hook 内容验证覆盖提交树模式与 blob；不验证提交签名字段。",
+    "特殊 Git hook 追加提交用等价历史/操作重放模拟；已覆盖真实 pre-commit 拒绝与真实 Git 树/父子核验。"
+  ]
+}

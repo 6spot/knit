@@ -1,0 +1,69 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-resume",
+  "outcome": "completed",
+  "data": {
+    "oldRunId": "run-d1d791016993",
+    "accepted": true,
+    "resumed": true,
+    "request": {
+      "schemaVersion": 1,
+      "protocolVersion": 1,
+      "runId": "run-9834a51dbd67",
+      "taskId": "k-e9f828073a4a",
+      "phase": "implement",
+      "purpose": "stage",
+      "initiator": {
+        "client": "cli",
+        "knitSessionId": null,
+        "nativeSessionId": null,
+        "cwd": "."
+      },
+      "createdAt": "2026-11-02T03:45:02.085Z",
+      "expected": {
+        "branch": "refs/heads/main",
+        "inputsDigest": "a50d27e2ad89cfd3bdfad0db8e507fc636946c36753b3c50d548623e01ecbd61",
+        "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+        "effectiveInputsDigest": "1ddd8b5b880f56bc7061102df12c0356d58099197f41e790b41f736d7be5bb71",
+        "planId": "ctx-30a7ba1b26b5",
+        "scopeDigest": null
+      },
+      "model": {
+        "runtime": "pi",
+        "provider": "magpie",
+        "model": "auto/glm-5.3-flash"
+      },
+      "toolPolicy": {
+        "mode": "write",
+        "allow": [
+          "read",
+          "write",
+          "edit",
+          "bash",
+          "task"
+        ],
+        "deny": []
+      },
+      "recovery": {
+        "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+        "resume": "prefer"
+      },
+      "acceptanceOperationId": "accept-e351216705fc",
+      "diagnostics": {
+        "enabled": false
+      }
+    },
+    "launch": {
+      "schemaVersion": 1,
+      "runId": "run-9834a51dbd67",
+      "state": "planned",
+      "attempts": 0,
+      "requestedAt": "2026-11-02T03:45:02.085Z",
+      "updatedAt": "2026-11-02T03:45:02.085Z",
+      "handle": null,
+      "instance": null,
+      "lastError": null
+    },
+    "reason": "resumed"
+  }
+}

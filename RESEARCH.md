@@ -153,7 +153,7 @@ Pi 接入以[第 17.14 节的本机 CLI 实测](#1714-m0-主体验验证边界)�
 
 ## 17.13 存储与诊断验证计划
 
-首版不再预先排除 SQLite。内部 Session、binding、operation 更新可纳同一短事务，是否减少复杂度须按 TECHNOLOGY 第 8 节的真实写路径与文件方案对比；外部 Markdown、Git、原生历史仍分别核验。当前尚未执行此对比，也未选定 SQLite 驱动或宣称 Node24 组合已通过。
+首版不再预先排除 SQLite。内部 Session、binding、operation 更新可纳同一短事务；该对比已在 Node24.21.0 实际执行并选定 SQLite（见 [TECHNOLOGY](TECHNOLOGY.md) 第 8 节与任务004）；外部 Markdown、Git、原生历史仍分别核验。内置 node:sqlite 已实测满足事务、锁与只读要求，未引入外部驱动。
 
 M0 驱动核查入口：[Node24 SQLite API](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)。需实际确认支持状态、事务／busy 行为、只读副作用与打包成本，不用本机 Node25 实验代替。开发者模式的脱敏 stepKey、摘要、I/O／事务计数可用于比较，不记录 SQL 参数、正文或凭据；它不是新状态库或模型调试调用。
 
@@ -183,6 +183,6 @@ M1 开发诊断只做结构化 stderr、白名单及最小等价冒烟；私有�
 
 ## 17.17 整体设计一致性审查
 
-九份系统文档已按本机 CLI、单一候选仓储及 prefer 新会话续做统一核对。跨 run 原生文件与 run 证据分开，opening／available 与模型首轮启动分开，项目安装 ready 与 Pi 项目信任分开；草案应用／撤回、关闭与迟到结果、共享锁根、只读历史和完成结果连接均补齐对应规则。技术版本仍是产品设计选择，文件／SQLite 与 Node24 组合验收未被写成已通过。
+九份系统文档已按本机 CLI、单一候选仓储及 prefer 新会话续做统一核对。跨 run 原生文件与 run 证据分开，opening／available 与模型首轮启动分开，项目安装 ready 与 Pi 项目信任分开；草案应用／撤回、关闭与迟到结果、共享锁根、只读历史和完成结果连接均补齐对应规则。技术版本仍是产品设计选择，文件／SQLite 与 Node24 组合验收在该轮未被写成已通过（后续任务004已实际执行存储对比并选定 SQLite，见 17.13 与 TECHNOLOGY 第 8 节）。
 
 问题和修正记录、当前决定与尚待实现的验收见[整体审查资料](validation/design-audit/README.md)。本轮仅修订设计与做文档／旧证据完整性校验，未安装依赖、发模型请求或实现产品。

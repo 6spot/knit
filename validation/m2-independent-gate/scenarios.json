@@ -1,0 +1,240 @@
+[
+  {
+    "name": "normal delivery + completed retry idempotent",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-normal-oLPRM8",
+      "work": "bc594ce9a11c71f5ae5106bb4ae29cb66b20eb75",
+      "archive": "b4d260c09b1d670aa67cb5aa8b5dcf4c194f5008",
+      "archivePath": ".knit/tasks/archive/2026-11/11-02-audit",
+      "retryState": "completed",
+      "retrySameArchive": true,
+      "head": "b4d260c09b1d670aa67cb5aa8b5dcf4c194f5008",
+      "deliverCommits": 1,
+      "archiveCommits": 1,
+      "taskMoved": true,
+      "sealRemoved": true,
+      "clean": true
+    }
+  },
+  {
+    "name": "archive extra same-message commit: no bad receipt, cleanup recovers real archive commit",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-archive-extra-6AexDJ",
+      "firstFacts": {
+        "state": "needs_attention",
+        "reason": "archive_parent_mismatch",
+        "archiveCommit": null,
+        "workCommit": "bc7a1862466d884e53b81d57a269b288b2f69a1d",
+        "persistedArchiveCommit": null,
+        "stepState": "needs_attention",
+        "stepEvidence": {
+          "before": "bc7a1862466d884e53b81d57a269b288b2f69a1d",
+          "expectedPaths": ".knit/tasks/11-02-audit/task.md\n.knit/tasks/archive/2026-11/11-02-audit/task.md",
+          "expectedTree": "{\".knit/tasks/archive/2026-11/11-02-audit/task.md\":\"100644 blob ca909a210aab48ee336aea16468421e58236eeb4\"}",
+          "reason": "archive_parent_mismatch",
+          "commit": "d84521ff53799d0d167a7f8c1dfeb6dbc3d3baf6"
+        },
+        "head": "d84521ff53799d0d167a7f8c1dfeb6dbc3d3baf6",
+        "base": "06e4352ecbc34c885d5606c150ef593792f2f9ee"
+      },
+      "retryFacts": {
+        "state": "needs_attention",
+        "reason": "archive_parent_mismatch",
+        "archiveCommit": null,
+        "persistedArchiveCommit": null,
+        "headUnchanged": true
+      },
+      "afterCleanup": {
+        "head": "06e4352ecbc34c885d5606c150ef593792f2f9ee",
+        "extraReachable": false,
+        "baseReachable": true
+      },
+      "retry3State": "completed",
+      "retry3SameArchive": true,
+      "retry3HeadUnchanged": true,
+      "retry2State": "completed",
+      "retry2Reason": null,
+      "retry2ArchiveCommit": "06e4352ecbc34c885d5606c150ef593792f2f9ee",
+      "retry2RestoredBase": true,
+      "retry2Persisted": "06e4352ecbc34c885d5606c150ef593792f2f9ee",
+      "retry2Head": "06e4352ecbc34c885d5606c150ef593792f2f9ee",
+      "headIsBase": true,
+      "retry2StepState": "completed",
+      "archiveCommitsReachable": 1,
+      "deliverCommits": 1,
+      "taskMoved": true,
+      "sealRemoved": true
+    }
+  },
+  {
+    "name": "archive --retry path: no bad receipt, cleanup recovers real archive commit",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-archive-extra-via-archive-a5hHun",
+      "base": "629330e85b9789c1817b99da30f12dd28361f448",
+      "retry1State": "needs_attention",
+      "retry1Reason": "archive_parent_mismatch",
+      "retry1ArchiveCommit": null,
+      "retry1Persisted": null,
+      "retry2State": "completed",
+      "retry2Reason": null,
+      "retry2ArchiveCommit": "629330e85b9789c1817b99da30f12dd28361f448",
+      "restored": true,
+      "persisted": "629330e85b9789c1817b99da30f12dd28361f448",
+      "headIsBase": true,
+      "archiveCommits": 1
+    }
+  },
+  {
+    "name": "work completed then external commit: reject, no archive commit",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-work-extra-1x8ZUh",
+      "work": "437147b5205df935538d672e559b8cf685b935ed",
+      "external": "a8f84fdd6091bea1392f03fc7f88d94854166bf6",
+      "retryState": "needs_attention",
+      "retryReason": "work_commit_head_advanced",
+      "retryArchiveCommit": null,
+      "persistedArchiveCommit": null,
+      "headIsExternal": true,
+      "archiveCommits": 0,
+      "workStepState": "needs_attention"
+    }
+  },
+  {
+    "name": "work pre-commit reject, delete/rename retry commits D old + A new",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-work-rename-64htkb",
+      "firstReason": "git_commit_failed",
+      "indexAfter": "A\t.knit/tasks/11-02-audit/task.md\nM\tapp.txt\nR100\told.txt\tnew.txt",
+      "retryState": "completed",
+      "retryReason": null,
+      "workCommit": "c0db48d47f2e2e15f2c7caffd7dcfec31ad00265",
+      "paths": [
+        "A\t.knit/tasks/11-02-audit/task.md",
+        "M\tapp.txt",
+        "A\tnew.txt",
+        "D\told.txt"
+      ],
+      "oldInHead": "",
+      "newContent": "keep old",
+      "deliverCommits": 1,
+      "clean": true
+    }
+  },
+  {
+    "name": "archive pre-commit reject retry: D old task + A archive; idempotent",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-archive-reject-iwfWTs",
+      "firstReason": "archive_commit_failed",
+      "firstPersistedArchive": null,
+      "retry1State": "completed",
+      "archive": "29f9d164c3a65a3837ae91c785404fb98cfc321d",
+      "paths": [
+        "D\t.knit/tasks/11-02-audit/task.md",
+        "A\t.knit/tasks/archive/2026-11/11-02-audit/task.md"
+      ],
+      "oldTaskInHead": "",
+      "archivedTaskExists": true,
+      "retry2State": "completed",
+      "retry2SameArchive": true,
+      "headUnchanged": true,
+      "deliverCommits": 1,
+      "archiveCommits": 1
+    }
+  },
+  {
+    "name": "move checkpoint lost: verify target, no duplicate move, complete",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-move-lost-sqcs8S",
+      "firstReason": "archive_commit_failed",
+      "archivedPath": ".knit/tasks/archive/2026-11/11-02-audit",
+      "sourceExists": false,
+      "targetExists": true,
+      "retryState": "completed",
+      "retryReason": null,
+      "retryArchivePath": ".knit/tasks/archive/2026-11/11-02-audit",
+      "samePath": true,
+      "archiveCommits": 1,
+      "onlyOneArchivedTask": true
+    }
+  },
+  {
+    "name": "receipt lost (work) via real SIGKILL: retry reuses existing commit",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-receipt-work-3NVR2l",
+      "kind": "work",
+      "before": {
+        "status": null,
+        "signal": "SIGKILL",
+        "response": null,
+        "state": "planned",
+        "workCommit": null,
+        "archiveCommit": null,
+        "head": "4be0913f8e9917a0ee6eb3f4d5b9b91c71239227",
+        "workStep": "planned",
+        "archiveStep": "planned"
+      },
+      "retryState": "completed",
+      "retryReason": null,
+      "retryWork": "4be0913f8e9917a0ee6eb3f4d5b9b91c71239227",
+      "retryArchive": "24a5956850bd117931aae281becb0026e7ff126d",
+      "persistedWork": "4be0913f8e9917a0ee6eb3f4d5b9b91c71239227",
+      "persistedArchive": "24a5956850bd117931aae281becb0026e7ff126d",
+      "workRecovered": true,
+      "archiveRecovered": true,
+      "deliverCommits": 1,
+      "archiveCommits": 1
+    }
+  },
+  {
+    "name": "receipt lost (archive) via real SIGKILL: retry reuses existing commit",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-receipt-archive-OMvvTr",
+      "kind": "archive",
+      "before": {
+        "status": null,
+        "signal": "SIGKILL",
+        "response": null,
+        "state": "running",
+        "workCommit": "3122e6b820d1fe76442d4daa8b834596a4135f65",
+        "archiveCommit": null,
+        "head": "42fef0089be6b04c284774858da759bae8fa0b39",
+        "workStep": "completed",
+        "archiveStep": "planned"
+      },
+      "retryState": "completed",
+      "retryReason": null,
+      "retryWork": "3122e6b820d1fe76442d4daa8b834596a4135f65",
+      "retryArchive": "42fef0089be6b04c284774858da759bae8fa0b39",
+      "persistedWork": "3122e6b820d1fe76442d4daa8b834596a4135f65",
+      "persistedArchive": "42fef0089be6b04c284774858da759bae8fa0b39",
+      "workRecovered": true,
+      "archiveRecovered": true,
+      "deliverCommits": 1,
+      "archiveCommits": 1
+    }
+  },
+  {
+    "name": "same-message amend with lost receipt: accepted, no duplicate",
+    "ok": true,
+    "facts": {
+      "dir": "/tmp/m2a5/cases/fifth-amend-2jRRE9",
+      "original": "46368984473d0eae9f2ab80b4ced77aa16cb5e60",
+      "amended": "a6195f6a368b199db99dbbb44318a922d932a044",
+      "retryState": "completed",
+      "retryReason": null,
+      "retryArchive": "a6195f6a368b199db99dbbb44318a922d932a044",
+      "acceptedAmended": true,
+      "headUnchanged": true,
+      "archiveCommits": 1
+    }
+  }
+]

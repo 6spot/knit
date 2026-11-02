@@ -1,0 +1,105 @@
+{
+  "environment": {
+    "node": "v24.21.0",
+    "git": "git version 2.52.0",
+    "cwd": "/tmp/knit-016-e2e"
+  },
+  "taskId": "k-b2991e9d775f",
+  "runId": "run-80d7f011dd4a",
+  "snapshot": {
+    "state": "ready",
+    "createdAt": "2026-11-02T03:24:51.575Z",
+    "counts": {
+      "tracked": 2,
+      "untracked": 11,
+      "absent": 0
+    },
+    "bytes": 29668,
+    "digest": "70b877a9d6dcf98bad95b0e3ef38e24003dccd544e988033a53118991bf8e87c",
+    "indexEntries": 2
+  },
+  "restores": {
+    "code": {
+      "operationId": "restore-3fdfd5c6287e",
+      "state": "completed",
+      "paths": [
+        "app.txt",
+        "tool.sh",
+        "created.txt"
+      ],
+      "results": [
+        {
+          "path": "app.txt",
+          "status": "done",
+          "after": {
+            "kind": "file",
+            "fingerprint": "file:f34848ca92665c342abd5816c9e3eda0e82180671195362bcd0080544a3bc2ac:33188",
+            "mode": 33188,
+            "size": 5
+          },
+          "indexAfter": {
+            "present": true,
+            "mode": 33188,
+            "oid": "df967b96a579e45a18b8251732d16804b2e56a55"
+          },
+          "reason": null
+        },
+        {
+          "path": "tool.sh",
+          "status": "done",
+          "after": {
+            "kind": "file",
+            "fingerprint": "file:b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c:33261",
+            "mode": 33261,
+            "size": 18
+          },
+          "indexAfter": {
+            "present": true,
+            "mode": 33261,
+            "oid": "e37f89b3b76e73e0d000552c897006f0b8ba1b76"
+          },
+          "reason": null
+        },
+        {
+          "path": "created.txt",
+          "status": "done",
+          "after": {
+            "kind": "absent",
+            "fingerprint": "absent",
+            "mode": null,
+            "size": null
+          },
+          "indexAfter": {
+            "present": false,
+            "mode": null,
+            "oid": null
+          },
+          "reason": null
+        }
+      ],
+      "checkInvalidated": true
+    },
+    "taskInput": {
+      "operationId": "restore-77ea787991a4",
+      "state": "completed",
+      "taskInputUpdated": true
+    }
+  },
+  "branchRejected": {
+    "outcome": "error",
+    "reasonCode": "stale_input",
+    "message": "快照分支 main 与当前 other2 不一致"
+  },
+  "after": {
+    "app_txt": "base\n",
+    "tool_mode": "0o755",
+    "created_exists": false,
+    "git_index": [
+      "100644 df967b96a579e45a18b8251732d16804b2e56a55 0\tapp.txt",
+      "100755 e37f89b3b76e73e0d000552c897006f0b8ba1b76 0\ttool.sh"
+    ]
+  },
+  "limits": [
+    "子模块不恢复；目录不递归删除；ignored 路径不进入快照；同一文件不支持分块恢复；旧快照无 indexDigest 时 --index 拒绝。"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "requestId": "cancel-1793591044490",
+  "outcome": "completed",
+  "data": {
+    "runId": "run-d1d791016993",
+    "requested": true,
+    "state": "cancelled",
+    "reason": "cancel_recorded",
+    "workerVerdict": "alive",
+    "stageVerdict": "not_alive",
+    "terminated": true,
+    "terminalized": false
+  }
+}

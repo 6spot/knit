@@ -1,0 +1,47 @@
+{
+  "protocolVersion": 1,
+  "requestId": "snapshot-restore-1793589895204-t511xp",
+  "outcome": "completed",
+  "data": {
+    "preview": {
+      "runId": "run-80d7f011dd4a",
+      "taskId": "k-b2991e9d775f",
+      "branch": "main",
+      "head": "671b9ea37afc8b2cfe3155d213c67d224a3d16e7",
+      "snapshotDigest": "70b877a9d6dcf98bad95b0e3ef38e24003dccd544e988033a53118991bf8e87c",
+      "plans": [
+        {
+          "path": ".knit/tasks/11-02-restore-e2e/task.md",
+          "snapshot": {
+            "kind": "file",
+            "fingerprint": "file:99f7aa22f1701cd24385d199b465267ce72cbfc4db0876e4fb04a226f5c0f80b:33188",
+            "mode": 33188,
+            "size": 556
+          },
+          "current": {
+            "kind": "file",
+            "fingerprint": "file:38be4792344c87854e10c32633b4f356075b426e15947216d7eac9f2d83f8e4d:33188",
+            "mode": 33188,
+            "size": 337
+          },
+          "index": {
+            "present": false,
+            "mode": null,
+            "oid": null
+          },
+          "snapshotIndex": {
+            "present": false,
+            "mode": null,
+            "oid": null
+          },
+          "action": "restore",
+          "indexAction": "ignored",
+          "guard": "task_input",
+          "reason": null
+        }
+      ],
+      "index": false,
+      "removeCreated": false
+    }
+  }
+}

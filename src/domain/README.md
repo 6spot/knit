@@ -1,3 +1,11 @@
 # 领域规则
 
 依据 STATES.md 实现 Task、检查资格、修复计数和必要状态守卫。保持纯 TypeScript：不导入 fs、Git、进程、Pi 或 UI，不由模型报告直接修改业务状态。
+
+| 模块 | 职责 |
+| --- | --- |
+| [task.ts](task.ts) | Task status/phase/outcome 转移、clarify/change、待应用草案守卫、adopt 与摘要覆盖范围 |
+| [check.ts](check.ts) | 检查资格推导（missing/pending/valid/stale/blocked）与事件降级 |
+| [repair.ts](repair.ts) | 修复周期计数、上限与停止原因；clarify/resume 不重置 |
+
+决定一律返回 `{ allowed, reason }` 或转移对象，原因码稳定可测；应用层把领域原因映射到协议 ReasonCode。所有函数输入为已核实事实，输出为决定，不保存状态。

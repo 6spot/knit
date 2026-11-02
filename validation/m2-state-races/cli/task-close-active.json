@@ -1,0 +1,9 @@
+{
+  "protocolVersion": 1,
+  "requestId": "task-close-1793593295561-8wjzh0",
+  "outcome": "error",
+  "data": {
+    "error": "关闭时仍有活动／未知运行或待接收结果"
+  },
+  "reasonCode": "needs_review"
+}

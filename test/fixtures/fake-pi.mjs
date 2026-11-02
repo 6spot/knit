@@ -1,0 +1,120 @@
+#!/usr/bin/env node
+/** 最小 Pi RPC 假实现：只用于 Knit 阶段执行测试，不模拟真实模型。 */
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
+
+const argv = process.argv.slice(2);
+const arg = (name) => {
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : undefined;
+};
+const provider = arg("--provider") ?? "fake";
+const model = arg("--model") ?? "fake";
+const sessionDir = arg("--session-dir") ?? join(process.cwd(), "sessions");
+const explicitFile = arg("--session");
+const sessionId = arg("--session-id") ?? randomUUID();
+const cwd = process.cwd();
+mkdirSync(sessionDir, { recursive: true });
+const sessionFile = explicitFile ?? join(sessionDir, `${new Date().toISOString().replace(/[:.]/g, "-")}_${sessionId}.jsonl`);
+if (process.env.KNIT_FAKE_NO_FILE !== "1" && !existsSync(sessionFile)) {
+  writeFileSync(sessionFile, JSON.stringify({ type: "session", version: 3, id: sessionId, cwd, timestamp: new Date().toISOString() }) + "\n");
+}
+let parentId = null;
+let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+let lastText = "";
+let settled = false;
+function settle(aborted) {
+  if (settled) return;
+  settled = true;
+  event("agent_settled", { aborted });
+}
+
+function send(value) {
+  process.stdout.write(JSON.stringify(value) + "\n");
+}
+function event(type, extra = {}) {
+  send({ type, ...extra });
+}
+function entry(type, data) {
+  const id = randomUUID();
+  if (process.env.KNIT_FAKE_NO_FILE !== "1") {
+    appendFileSync(sessionFile, JSON.stringify({ id, parentId, type, timestamp: new Date().toISOString(), ...data }) + "\n");
+  }
+  parentId = id;
+  return id;
+}
+function respond(id, data) {
+  send({ type: "response", id, success: true, data });
+}
+function action() {
+  const path = process.env.KNIT_FAKE_ACTION;
+  if (!path || !existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+const rl = createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  let request;
+  try {
+    request = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const { id, type } = request;
+  if (type === "get_state") {
+    respond(id, { sessionId, sessionFile, model: { provider, id: model } });
+    return;
+  }
+  if (type === "set_model") {
+    respond(id, { provider, modelId: model });
+    return;
+  }
+  if (type === "get_last_assistant_text") {
+    respond(id, { text: lastText });
+    return;
+  }
+  if (type === "get_messages") {
+    respond(id, { messages: [] });
+    return;
+  }
+  if (type === "get_session_stats") {
+    respond(id, { tokens: { ...usage }, cost: null, assistantMessages: 1, toolCalls: 0 });
+    return;
+  }
+  if (type === "clear_queue" || type === "abort") {
+    respond(id, {});
+    if (type === "abort" && process.env.KNIT_FAKE_IGNORE_ABORT === "1") {
+      // 模拟工具/宿主暂不响应 abort；测试取消宽限与进程组清理。
+      return;
+    }
+    if (type === "abort") settle(true);
+    return;
+  }
+  if (type === "prompt") {
+    respond(id, {});
+    const spec = action();
+    for (const write of spec.writes ?? []) {
+      const target = join(cwd, write.path);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, write.content ?? "");
+    }
+    lastText = spec.text ?? "```json\n" + JSON.stringify(spec.report ?? { summary: "fake report" }) + "\n```";
+    usage = { input: usage.input + 100, output: usage.output + 20, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, total: usage.total + 120 };
+    event("agent_start");
+    entry("message", { role: "assistant", content: lastText });
+    event("agent_end");
+    setTimeout(() => settle(false), spec.delayMs ?? 5);
+    return;
+  }
+  respond(id, {});
+});
+rl.on("close", () => {
+  if (process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE === "1") return;
+  process.exit(0);
+});

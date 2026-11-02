@@ -8,7 +8,7 @@ Knit 按源码中的固定装配表使用客户端、runtime 与执行宿主，�
 
 `knit init --client pi` 自动生成项目 `.pi/extensions/knit.ts` 薄桥接。它仅使用 Pi 公开 API，转交原生会话、当前模型、事件、命令／工具和上下文计划；业务处理调用本机 Knit CLI，不嵌入任务和规范逻辑。
 
-桥接文件是可入库的固定模板，按其自身文件位置定位项目。`.knit/.runtime/installation.json` 保存本机 Knit CLI 位置与安装版本，`init-manifest.json` 保存模板版本、文件所有权、指纹、逐项结果及 `preparing/ready/failed`。本机路径不写进共享桥接；只有 ready 且匹配时桥接才处理调用，缺失或不匹配则提示 init。
+桥接文件是可入库的固定模板，按其自身文件位置定位项目。`.knit/.runtime/installation.json` 保存本机 Knit CLI 位置与安装版本，`init-manifest.json` 保存模板版本、文件所有权、指纹、逐项结果及 `preparing/ready/failed`。本机路径不写进共享桥接；只有 ready 且匹配时桥接才处理调用，缺失或不匹配则提示 init。模板随安装包发布在 `assets/templates/`：`.knit/` 项目资料（config、workflow、agents、standards）与 `pi/extensions/knit.ts` 桥接；实现位于 `src/application/`（InitializationService，任务008），配置校验在 `src/application/config.ts`。
 
 `knit start` 先核对项目桥接、受管入口和本机安装信息；用户修改过的受管代码或冲突先报告差异，不静默覆盖。用户直接运行 Pi 时由 Pi 自身加载项目扩展，Knit 不能拦截其他项目扩展代码。项目配置本身不构成执行任意模块或脚本的授权，验证命令仍遵守任务范围。
 
@@ -26,7 +26,9 @@ init 维护两类文件：配置、工作流、角色和规范属于项目资料
 
 同一用户各项目使用本机共享锁根 `~/.knit/locks/`：projects/<项目根摘要>/ 与 sessions/<客户端及原生身份摘要>/，目录0700、owner文件0600；不是用户级行为配置、服务或跨机锁。实际写操作按需建立，init --check／status／doctor 只读时不创建。这样同一原生会话不会因项目各有独立锁目录而绕过占用。
 
-项目执行锁以规范化项目根为稳定键，Git 身份作为每次核验事实，不因初始化仓库或分支变化改锁键；路径别名先解析为同一根。Session 执行锁以客户端、原生 ID 与必要实例身份为跨项目键，不用随 run 改变的文件目录作键。新建前预分配原生 ID，获得锁后让 CLI 使用该 ID 并核对实际返回。项目执行占用在前、Session 占用在后，同类多键排序，mkdir 已存在即失败并按 token 释放本次已取锁。原生恢复失败时释放旧 Session 锁再锁候选新 ID，项目占用保持；不同时持有两把不同 Session 锁倒序等待。owner.json 保存协议、token、动作／run、机器／启动标识、PID 与开始时间，心跳原子更新，释放核对 token。
+项目执行锁以规范化项目根为稳定键，Git 身份作为每次核验事实，不因初始化仓库或分支变化改锁键；路径别名先解析为同一根。Session 执行锁以客户端、原生 ID 与必要实例身份为跨项目键，不用随 run 改变的文件目录作键。新建前预分配原生 ID，获得锁后让 CLI 使用该 ID 并核对实际返回。项目执行占用在前、Session 占用在后，同类多键排序，mkdir 已存在即失败并按 token 释放本次已取锁。原生恢复失败时释放旧 Session 锁再锁候选新 ID，项目占用保持；不同时持有两把不同 Session 锁倒序等待。owner.json 保存协议、token、动作／run、机器／启动标识、PID 与开始时间，心跳原子更新，释放核对 token。基础设施实现（任务007）：`src/infrastructure/locks.ts` 用 mkdir 抢占、owner 文件原子写、AcquiredLock 携带获取时版本使心跳检测外部改写；进程身份含 /proc/<pid>/stat starttime 排除 PID 复用；实现与验证证据见该任务记录。
+
+实现（任务018）：`task update`／`task apply-pending`／`task close` 在项目与任务锁内按真实 run 仓储复核活动／结果／验收操作；活动 run 只保存草案，apply 与 close 在未收敛时拒绝。`run prepare` 与关闭／接收共用项目锁，并短暂等待上一 worker 释放；接收使用 `runs/<run>/acceptance.json` 检查点，Task／scope／check／binding 半写入可重入收敛。`task record` 等纯记录仍只取任务短锁。实现（任务017）：取得项目锁前创建锁根并核对本地文件系统，已知 NFS／SMB／FUSE 类型报 `lock_fs_unsupported`，权限不足报 `io_error`，不静默降级。owner 记录 scope／rawKey；`knit locks` 只读列出 `scope/hash`、进程核实与心跳；`knit unlock` 必须给 owner token，token 不符永远拒绝，alive／unknown 另需 `--force`，删除前再次核对 token，旧 token 不能删除新占用。worker 持有项目锁期间每 5 秒心跳；心跳版本冲突只记录并停止发布完成，不自动换锁。阶段在项目锁之后取得 `pi:<nativeSessionId>` Session 锁，worker 崩溃后该锁按普通残留处理，需显式 unlock。
 
 | 操作 | 占用范围 |
 | --- | --- |
@@ -35,6 +37,20 @@ init 维护两类文件：配置、工作流、角色和规范属于项目资料
 | Session 关联与查询元数据 | 对应短时元数据占用，不推进 phase |
 
 记录只改记录区，输入 update 声明 clarify/change 与说明。clarify 保持早期 phase，摘要变化使检查 stale；当前 deliver 一旦选定目标检查失效就回 open/check 清 completed，change 回 discuss。摘要未变不迁移，运行中保存拟修改与 kind，工具终态后再应用，不借记录绕输入。 挂起输入只保留当前草案及基线摘要；按 DESIGN3.6 的 --apply-pending／--withdraw-pending 和 --expect-pending 校验处理。应用前核实旧执行／结果和基线，撤回只留原因且可在活动 run 中进行。任务关闭先收敛本任务活动／未知运行及待接收事实，撤回未生效草案；关闭与启动／接收共用该任务短临界区，旧结果不重开任务。
+
+实现（任务009）：`src/application/task-service.ts` 的 TaskService 提供 new/rename/list/record/ready/update/close；输入摘要在 `src/contracts/task-inputs.ts`（inputsDigestOf 排除记录区标记内正文；草案版本摘要含生成它的更新操作 ID，同内容重建得新版本）。task.md 读写用 `src/application/task-document.ts`（YAML Document frontmatter，记录区标记 `<!-- knit:progress:start/end -->`，结构错误报 io_error 不静默修复）。占用：record/withdraw 用任务短锁（scope=task，按稳定 ID），rename/ready/update-direct/apply/close 在项目执行占用内重核版本。封存中 record 返回未保存（sealed）不写文件；封存标记由 deliver/archive 落盘。binding 新增 confirmedInputsDigest（ready 冻结）与 pendingDraft（至多一份）；run 活跃状态与 runsSettled 收敛核对待 run 仓储（任务012/013），当前由调用方传入。
+
+实现（任务010）：`src/application/session-service.ts` 的 SessionService 提供 attach／verify／list／useTask／clearTask／resolveSelection／history；索引存 DESIGN9.5 字段，按（客户端、原生 ID、角色）定位，Knit Session ID 为 `s-`+12hex。原生有效路径用 `src/adapters/pi/native-entries.ts` 的 parentId 回溯核实，只有路径上的最后选择事件生效；树切换后旧条目不在路径上，不复活索引快照。未落盘选择只记 `persisted:false` 待确认，`available` 仅在原生文件身份核实后置位；文件从已落盘变为缺失时为 missing，不冒充可恢复。临时 cwd／项目迁移由 cwd 比对返回未生效，不误选。`src/application/context-planner.ts` 的 ContextPlanner 生成分层输入：任务输入区与正式规范／角色计入 inputsDigest，记录区、未生效草案、候选规范只作背景并列入 excluded；role 文件缺失时 implement／check 不就绪。`knit session` 与 `knit context` 命令提供同能力；`inputs.json` 落盘与桥接原生条目写入分别归 012/013 与 015。
+
+实现（任务011）：`src/application/standards-service.ts` 的 StandardsService 提供 list／propose／review／apply／pending。候选写入任务辅助资料 `standards.md` 的 `<!-- knit:candidate:start/end -->` 标记块（`src/contracts/standards.ts` 解析／渲染），候选与记录不改变正式规范摘要或需求摘要。审阅回执存 `standards_reviews`（任务、分支、候选集合摘要、决定、理由、目标引用、操作 ID），按当前分支与候选摘要匹配；候选增删、正文或分支变化后重新提示。延期／拒绝有理由即可继续，无候选不要求新增。采纳在项目执行占用与任务短锁内核对回执、目标与文件版本，机械追加规则并补 `standards/index.md` 引用；重复采纳幂等。`TaskService.ready` 同时冻结 `confirmedStandardsDigest`；`ContextPlanner` 输出 `standardsDigest` 与 `effectiveInputsDigest`（任务输入区 + 正式规范），正式规则变化据此使相关检查 stale，记录与候选不参与。收尾／归档的机械提示由 014 复用 `standards pending`。
+
+实现（任务012）：`src/application/run-coordinator.ts` 的 RunCoordinator 提供 prepare／start／status：prepare 在任务短锁外只读生成 `request.json`（含预期 inputs／standards／effective 摘要、模型、工具策略、恢复引用与 acceptanceOperationId）和 planned `launch.json`，不取得项目执行占用、不写业务资料；同任务／阶段已有活动 run 时复用，不生成替代运行。start 先落盘 starting 与 PID／boot／starttime 句柄，再启动 `src/worker/knit-worker.ts`；已 confirmed 或句柄存活时只观察原运行，句柄缺失／死亡且未认领时置 failed，重复 start 不增加尝试，只有 `--retry` 才重试同一 run。worker 以 `mkdir claim` 原子认领，自行取得项目执行占用，重新核对任务阶段／分支、草案与预期摘要，冻结 `inputs.json`／`instructions.json`；implement 由 `src/application/snapshot.ts` 建立 `snapshot/`（tracked 工作区与 index OID、未忽略 untracked、模式／指纹、缺失路径、HEAD 起点），超限或 Git 覆盖未知时 manifest 置 failed，不能冒充 ready。就绪后 state 为 preparing + `prepared:true`；012 验收用 `--prepare-only` 在此退出，默认实现由 013 继续持锁执行阶段。`events.jsonl` 只作观察，status 不以其作为完成证据。
+
+实现（任务013）：`src/application/stage-runner.ts` 从 prepared 继续：按 phase 选择 implement／check／advisory 角色，登记独立子 Session（角色不同即不同原生对象），优先恢复请求指定原生记录，缺失／不匹配时同客户端预分配新 ID 新建；Pi 运行时只装配所选模型与工具，implement 可写，check／advisory 去掉 write／edit。等待 `agent_settled` 后才取最终文本，保存原生条目范围、本 run 增量用量和不可变 `result.json`。报告按 phase 校验；implement 的 `changedPaths` 必须与实际 Git 可见差异完全一致，check／advisory 改动任何文件即失败；`check` 以 Git 状态与逐路径指纹比对前后现场，检查者改代码时该次结果不接收。`src/application/run-acceptance.ts` 按固定 `acceptanceOperationId` 复核当前输入／正式规范／scope／分支与 Task 阶段，再机械写 `scope.json`、`checks/<run>.json`、Task phase 与 binding：implement 累积 scope 并转 check；check pass 转 deliver、changes_requested 转 implement 并累计修复轮、blocked 保留 check；模型报告不直接改 Task。修复轮达 `workflow.maxRepairRounds` 立即写 `repair_round_limit`；无授权周期时写 `repair_not_authorized`，`run prepare --new-repair-cycle` 才显式开新周期。结果待同步时 `run resume --run` 只接收不重跑；旧执行已终止且无有效结果时用原／新会话续做同一阶段。`run cancel` 落盘按 run 的取消意图，worker 在模型前／等待中／发布前观察并收敛为 cancelled，旧取消文件不作用于新 run；原生引用不可恢复只把 Session 标 opening，不否定已完成结果；`result.json` 写入失败置 failed，不发布完成。
+
+实现（任务014）：`src/application/delivery-service.ts` 的 DeliveryService 提供 deliver／archive。两者先落盘操作意图、完整 refs/heads 目标、授权来源与默认分支候选；直接 CLI 无来源只记显式调用，Agent 调用无 authorizationRef 拒绝。workflow 来源核实文件章节与 SHA-256，用户消息引用只保存声明，核心不冒充语义授权。默认分支候选按 `delivery.defaultBranch`、本地 `origin/HEAD`、unknown 顺序观察，不授权也不因 unknown 阻断明确目标。preflight 重核当前分支、任务／绑定分支、无待应用草案、运行与待接收结果已收敛、最新检查 pass 且输入／正式规范／scope 摘要未变、规范候选已处理。deliver 先收束 closed/completed，再以 scope、任务目录和已采纳规范目标为限定路径，用 `git add -A` + `git commit --only` 形成工作提交；提交后核对父节点、真实 OID、实际 name-status 范围，并比较无关 index 与工作区指纹。hook 改动选中或无关文件、范围不符时保留提交并置 needs_attention，不移动任务；显式 `--retry` 先核验原提交再继续，不重复提交。记录区追加交付记录后才写 `.knit-sealed` 固定摘要；封存中 task record 返回未保存。移动到 `archive/YYYY-MM/<原目录>` 后更新绑定，归档提交包含旧路径删除与新路径新增但不含封存标记；提交失败保留“已移动、待提交”。取消／替代 archive 只归档资料，不产生工作提交或空 commit。回执丢失按操作 ID 在 Git 历史中核实已生效提交，不重做。实现（任务020）：提交前保存 before／expectedPaths／expectedTree；恢复要求 HEAD、父节点、message、路径集合与提交树一致。删除／重命名路径已在 index 删除时不重复 add，只进入 commit pathspec。归档核验失败不落盘错误 archiveCommit，清理额外历史后同一操作可恢复真实提交；work 提交后的外部额外提交拒绝归档。
+
+实现（任务015）：`src/cli/status.ts`、`src/application/status-service.ts`、`src/application/diagnostics.ts` 提供 status／doctor／storage 只读投影；`status --events` 只输出事件行直到 run 终态，不接收结果。`src/cli/start.ts` 在项目 cwd 启动本机 Pi，不自动批准项目信任。`src/cli/resume.ts` 支持按 run／operation／task 恢复；operation 仅对交付操作重入或已 planned 的操作放弃，未知效果保持待核实。`src/application/informal-check.ts` 执行显式 `--scope` 的只读检查，不建 Task／binding；检查前后比较 Git 与范围指纹，有副作用即失败。`src/application/model-selection.ts` 按显式参数或项目 `phases` 选择模型，缺失显式阻塞。桥接模板注册 `knit_status`、`knit_task`、`knit_context`、`knit_run`、`knit_deliver`、`knit_standards`，参数 schema 由 `src/contracts/bridge-tools.ts` 构建期派生为 `dist/contracts/bridge-tools.json`；桥接只读安装包内派生 JSON。桥接在 session_start 登记主会话、恢复有效选择，按 run 发起方原生 ID 每 5 秒只读查询终态并按会话条目去重投递；忙时 follow-up，关闭观察不取消 worker。`--dev` 只向 stderr 输出白名单 JSON，worker 诊断继承同一 stderr，不建日志文件。
 
 prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入口保存 ID 后确认 start，之前无模型或项目业务副作用。这是入口内部协议，无需用户重复确认或手动执行 prepare/start 两条命令。取消按对象 ID 与 owner token 保存，终态裁定同一短锁排序。新 run ID／操作 token 隔离旧取消，不设请求级路由；确定性操作核实效果后 needs_attention，不回滚或改变业务 outcome。
 
@@ -60,7 +76,9 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 取消或失败后保留现场与快照，先展示实际差异、可恢复路径和未覆盖副作用。首版不自动 reset、stash apply 或整仓还原。`knit snapshot show <run-id> [--path <path>]` 只读查看，不直接输出疑似凭据。
 
-恢复路径必须位于当前项目，拒绝越界和通过父级符号链接写入其他位置。恢复使用 `/knit restore <run-id> --path <path>` 或对应 CLI，默认给出预览；用户明确执行时附 `--expect <当前指纹>`，在取得占用并核对当前分支、仓库和工具终态后逐路径处理。当前内容变化即停止。默认只恢复工作文件；恢复暂存内容须另外指定 `--index` 并核对 index 指纹。删除本次新建文件须指定 `--remove-created`，保留其他路径与后续用户修改。恢复后使旧检查失效并回到实施／检查所需环节。
+恢复路径必须位于当前项目，拒绝越界和通过父级符号链接写入其他位置。恢复使用 `knit snapshot restore <run-id> --path <path>` 或对应工具，默认给出预览；用户明确执行时附 `--expect <path=当前指纹>`（单路径可省略路径前缀），在取得项目执行占用并核对当前分支、仓库和工具终态后逐路径处理。当前工作区指纹或 index 状态变化即停止；同一文件的恢复单位是整个文件，不支持分块或自动三路合并。默认只恢复工作文件；恢复暂存内容须另外指定 `--index`，只写选中路径的 index 条目并核对快照 index 摘要。删除本次新建文件须指定 `--remove-created`，目录不递归删除，其他路径与后续修改保留。
+
+实现（任务016）：新建快照在 `snapshot/index/` 保存与工作区版本不同的 index blob，并在 manifest 的每条 entry 记录 `indexDigest`；没有该字段的旧快照仍可 `snapshot show`，但 `--index` 明确拒绝，不猜旧 index 字节。`snapshot show` 只输出 base、counts、路径、模式、摘要与 index OID，不输出文件正文。恢复指纹为 `file:<sha256>:<Git mode>`、`symlink:<sha256(目标)>` 或 `absent`，模式变化也算当前版本变化。文件按快照模式新建或原子替换；符号链接先写临时链接再 rename，不跟随目标；二进制按原始字节复制。`--index` 用保存的 blob 计算并 `git update-index --cacheinfo`，只改选中路径，保留无关 index／暂存内容。Task 的 `task.md` 不按普通文件覆盖：选中路径识别为 Task 文档时，读取快照输入区并经 `task update` 合并，保留 frontmatter、记录区与后来记录；任务移动、关闭或归档则拒绝。源码恢复成功后清空绑定 `lastCheckRunId`；任务原为 deliver 时按检查规则回到 check。每次执行在 `.knit/.runtime/restores/<operation-id>.json` 留下 running／completed／needs_attention 记录和逐路径结果，异常不自动回滚已写路径，按记录与现场继续核实。`.knit/.runtime/` 与 `.git/` 不进入普通源码恢复，子模块和目录覆盖不支持。
 
 Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖后来记录和业务状态；输入恢复经 task update 保留记录。本机 runtime、索引和原生 Session 不由源码 restore 覆盖。每次真实恢复记录独立操作并使旧检查不再适用于新目标。
 
@@ -76,7 +94,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 例如总输入 10,000、其中缓存读取 9,000、输出 1,000，累计总量是 11,000，不是 20,000。缓存与普通输入的价格不同，费用由实际计价来源另算；未知费用不作零，也不影响任务继续。显示范围为 Knit run，不把它冒充主会话或供应商账户总账。
 
-用户取消、真实错误／阻塞、修复轮次上限和原生工具自身明确条件仍生效。心跳默认 5 秒、30 秒未更新仅触发调查；取消宽限 30 秒后仍未核实工具终态，显示取消待确认，不因为等待太久而假报终止。
+用户取消、真实错误／阻塞、修复轮次上限和原生工具自身明确条件仍生效。锁心跳每 5 秒更新；心跳超过 30 秒只进入 doctor／locks 调查，不自动停止或强解。阶段取消先发 clear_queue／abort；实现（任务017）在 5 秒宽限后仍无稳定终态时终止本次 Pi 及完整后代进程树（工具可能另建进程组），以 `agent_aborted` 收敛并保留 `stage-process` 记录。`run cancel --terminate` 对已核实且 worker 已退出、阶段 Pi 仍存活的旧执行显式终止同一进程树；不把 RPC ack 当作已结束。
 
 knit storage 统计 runtime、快照、run、diagnostics 的字节，默认 512 MiB 提示；另列 refs/knit/bases/* 数量、关联 run 是否存在。引用可能共享 Git 对象，首版不把每个引用的可达大小相加冒充额外占用；创建时间无依据则 unknown，不用 commit 日期代替。Git 对象整体大小可单列，不能全归给 Knit。首版不自动 gc。
 
@@ -84,7 +102,7 @@ doctor --json 只读检查 schema、状态契约、文件／Git 回执、候选�
 
 status 始终显示总耗时、最近模型／工具活动距今时间与心跳。心跳、元数据和诊断事件不刷新活动时间；等待模型可能长期无输出，有输出也不证明有效进展。只提示，不做自动空转检测或超时取消。 `status --run <run-id> --json` 只读返回该运行、终态版本、来源定位和待同步事实，不接受结果或重派。桥接可用可销毁定时器观察本会话发起的 run，默认5秒，切会话／树或关闭时停止；通知前核对原上下文和原生已有通知，规则见 DESIGN 第9.3节。
 
-元数据由 M0 在文件与 SQLite 间比较后选择。数据库若入选，事务只覆盖内部 Session/binding/operation 更新，不跨模型、Git hooks 等等待；项目文件锁、执行占用、Git 和原生记录的核验仍保留，不再维护一套 JSON 权威镜像。
+元数据已选定 SQLite（Node24 内置 node:sqlite，M0 实证）。事务只覆盖内部 Session/binding/operation 更新，不跨模型、Git hooks 等等待；项目文件锁、执行占用、Git 和原生记录的核验仍保留，不维护 JSON 权威镜像。
 
 ### 4.1 提交目标与授权来源
 
@@ -94,7 +112,7 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 默认分支候选检测顺序：显式 delivery.defaultBranch 完整本地 ref；否则读取本地 refs/remotes/origin/HEAD 并映射为本地 ref；再否则 unknown。显式配置格式非法则报告配置错误，不忽略回落。无 origin 的本地仓库不猜 main/master，不联网补 HEAD。缓存可能过时，检测仅用于展示／审计，不授予权限，也不让 unknown 阻塞已明确授权的当前目标。
 
-operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
+operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
 
 ## 5. 数据版本与升级
 

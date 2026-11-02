@@ -58,12 +58,12 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 package.json（knit 0.1.0，ESM，bin=dist/cli/knit.js，files 白名单 assets/+dist/，脚本 typecheck/build/test/pack:check）、package-lock.json（lockfileVersion 3，锁 TS 6.0.3、Commander 15.0.0、TypeBox 1.3.27、YAML 2.9.0、@types/node 24、tsgo 换官方 tsc）、tsconfig.json（strict，NodeNext，verbatimModuleSyntax，types:["node"]）、tsconfig.build.json（outDir dist，declaration）、src/cli/knit.ts（仅 help/version，未知命令非零退出）、scripts/pack-check.mjs（npm pack --dry-run 白名单与禁止项检查）、test/cli.test.mjs（5 个真实进程测试）；更新 README.md 与 TECHNOLOGY.md 中已过时的环境描述。
+- 实际验证命令与结果：`node --version` → v24.21.0（/usr/bin/node）；`npm run typecheck` 通过；`npm run build` 通过；`npm test` → 5/5 pass 0 fail（--version 输出 0.1.0、--help/无参数输出 Usage、未知命令与未知选项均非零退出）；`npm run pack:check` → 9 项 PASS，包内仅 README.md、package.json、assets/pi/README.md、dist/cli/knit.js，无 src/test/tasks/validation/设计文档/本机路径（.d.ts 声明允许，.ts 源码禁止），编译入口实际运行且 --version 输出 0.1.0。
+- 证据位置：本记录与 package-lock.json、scripts/pack-check.mjs、test/cli.test.mjs；pack 实际文件列表由 pack-check 输出（共 4 文件）。
+- 未解决问题／决定：无阻塞。Commander 对未知命令/选项输出英文 error: 消息并以非零退出码结束，满足不回假成功要求；本地化消息后续需要时再议。`node --test <目录>` 在本机 Node24.21.0 下不执行测试（pass 0 fail 1），测试脚本改用 glob `test/*.test.mjs`，已记录事实。
+- 对下一项的交接：002 可直接开始；package.json/tsconfig/目录约定与测试运行方式已就绪，schema 依赖 typebox 已安装。
 
 优先扫描下一编号（阻塞时可继续跳过）：[002 建立最小协议、schema与内部端口](002-contracts-and-ports.md)。

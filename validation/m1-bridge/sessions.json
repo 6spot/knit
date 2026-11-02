@@ -1,0 +1,223 @@
+{
+  "protocolVersion": 1,
+  "requestId": "session-list-1793588304053-xq3m2m",
+  "outcome": "completed",
+  "data": [
+    {
+      "knitSessionId": "s-036405f66529",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "0102e09d-c3fa-469f-8ff6-a95de1acf16c",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "missing",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/sessions/2026-11-02T02-51-44-975Z_0102e09d-c3fa-469f-8ff6-a95de1acf16c.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": "native_file_missing",
+      "lastVerifiedAt": "2026-11-02T02:51:46.623Z",
+      "nativeReadable": false,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:51:46.623Z"
+    },
+    {
+      "knitSessionId": "s-4c2d3ff735a4",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "d740cb27-9694-4f88-94c6-bb80d4d547e8",
+        "role": "implement"
+      },
+      "kind": "sub",
+      "status": "available",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/pi-sessions/2026-11-02T02-51-19-319Z_d740cb27-9694-4f88-94c6-bb80d4d547e8.jsonl",
+      "parentSessionId": null,
+      "source": {
+        "kind": "attach",
+        "fromSessionId": null,
+        "reason": null
+      },
+      "taskId": "k-5ce4c47da8a5",
+      "branch": "refs/heads/main",
+      "runId": "run-0474f5a46603",
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:51:29.091Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:51:18.892Z"
+    },
+    {
+      "knitSessionId": "s-5131cdcd1c43",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "805b6961-1e04-4098-99b4-b0017af117c9",
+        "role": "check"
+      },
+      "kind": "sub",
+      "status": "available",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/pi-sessions/2026-11-02T02-51-50-223Z_805b6961-1e04-4098-99b4-b0017af117c9.jsonl",
+      "parentSessionId": null,
+      "source": {
+        "kind": "attach",
+        "fromSessionId": null,
+        "reason": null
+      },
+      "taskId": "k-5ce4c47da8a5",
+      "branch": "refs/heads/main",
+      "runId": "run-567f4f6f2c65",
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:51:56.987Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:51:49.780Z"
+    },
+    {
+      "knitSessionId": "s-62121def6064",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "3ac5bb0b-d010-4733-922a-bd6f491f8588",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "available",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/sessions/2026-11-02T02-57-49-975Z_3ac5bb0b-d010-4733-922a-bd6f491f8588.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:58:00.723Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:58:00.723Z"
+    },
+    {
+      "knitSessionId": "s-6f13d61eb547",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "b352b096-b933-4f70-8dfa-f9b15eb0c434",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "missing",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/sessions/2026-11-02T02-55-30-477Z_b352b096-b933-4f70-8dfa-f9b15eb0c434.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": "native_file_missing",
+      "lastVerifiedAt": "2026-11-02T02:57:36.159Z",
+      "nativeReadable": false,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:57:36.159Z"
+    },
+    {
+      "knitSessionId": "s-7b1630224006",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "1cd60f2a-4a36-4008-b0aa-f2fe26ec15f2",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "available",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/sessions/2026-11-02T02-51-09-155Z_1cd60f2a-4a36-4008-b0aa-f2fe26ec15f2.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": "k-5ce4c47da8a5",
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": {
+        "taskId": "k-5ce4c47da8a5",
+        "branch": "refs/heads/main",
+        "entryRef": "b301f3cd",
+        "operationId": "sel-mvynwsoa",
+        "recordedAt": "2026-11-02T02:51:14.281Z",
+        "persisted": true,
+        "pendingReason": null
+      },
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:51:13.801Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:51:14.289Z"
+    },
+    {
+      "knitSessionId": "s-8cfc14eee24f",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "3b4bbc34-11ca-41b9-9db4-164e473cbad5",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "available",
+      "sessionFile": "/tmp/knit-015-final2/project/.knit/.runtime/sessions/2026-11-02T02-53-27-507Z_3b4bbc34-11ca-41b9-9db4-164e473cbad5.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:53:34.885Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:53:34.885Z"
+    },
+    {
+      "knitSessionId": "s-c4415c02102e",
+      "protocolVersion": 1,
+      "ref": {
+        "client": "pi",
+        "nativeSessionId": "4bbb1cf9-c30c-4a4b-8ee3-41c5409d58ba",
+        "role": "implement"
+      },
+      "kind": "main",
+      "status": "available",
+      "sessionFile": ".knit/.runtime/sessions/2026-11-02T02-52-39-167Z_4bbb1cf9-c30c-4a4b-8ee3-41c5409d58ba.jsonl",
+      "parentSessionId": null,
+      "source": null,
+      "taskId": null,
+      "branch": "refs/heads/main",
+      "runId": null,
+      "cwd": "/tmp/knit-015-final2/project",
+      "checkpoint": null,
+      "selection": null,
+      "reason": null,
+      "lastVerifiedAt": "2026-11-02T02:52:54.760Z",
+      "nativeReadable": true,
+      "relatedRunState": null,
+      "recordedAt": "2026-11-02T02:52:54.760Z"
+    }
+  ]
+}

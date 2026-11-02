@@ -60,12 +60,48 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode / Pi session `01a1981c-6f75-749d-b9c2-7e5c897950a6`。
+- 开始／结束时间：2026-11-02（本会话）。
+- 实际修改：
+  - `src/contracts/acceptance.ts`（新）：接收检查点 schema（来源／目标状态、binding before/after、scope、check、输入／规范摘要）。
+  - `src/infrastructure/run-store.ts`：`acceptance.json` 原子读写／移除。
+  - `src/application/run-acceptance.ts`：接收前落检查点；按来源／目标与 binding／scope／check 现状幂等收敛；漂移、关闭、归档、check 冲突转 needs_attention 并保留检查点；重复接收返回既有 target phase；operation 完成后清理检查点。
+  - `src/application/run-activity.ts`（新）：按真实 run 终态、result、acceptance operation 计算 active／settled。
+  - `src/application/task-service.ts`：update／apply／withdraw／close／ready 在项目＋任务锁内重读权威；修复 pendingKind 恒为 null；活动 run 只保存草案；apply 要求真实收敛；close 对所有 outcome 要求收敛；旧草案摘要不能撤回后来草案；直接更新不能绕过草案。
+  - `src/application/run-coordinator.ts`：prepare 使用项目＋任务锁并短期等待上一 worker 释放；resume 在旧项目锁未释放时继续拒绝。
+  - `src/cli/task.ts`：TaskService 注入 RunActivityService；JSON 错误统一 exit 1（修复 `task close` 等错误响应曾 exit 0）。
+  - `test/stage.test.mjs`、`test/task.test.mjs`、`test/delivery.test.mjs`、`test/fixtures/accept-once.mjs`（新）、`test/run.test.mjs`：独立进程接收失败重入、活动 run 草案／关闭／撤回、迟到结果、scope 累积、最新失败检查、CLI 退出码与夹具清理。
+  - `validation/m2-state-races/`：CLI 事实与测试输出。
+  - `DESIGN.md`、`STATES.md`、`ARCHITECTURE.md`、`OPERATIONS.md`：回写 018 语义。
+- 实际验证命令与结果：
+  - `npm run -s typecheck`：通过。
+  - `npm run -s build`：通过。
+  - `npm run -s pack:check`：通过。
+  - `npm test`：**178/178**（任务完成时；2026-11-02 任务020复验后全套为 **194/194**）；含新增“接收检查点”“输入草案竞争”“scope 跨 run”“活动 run 未收敛”“任务关闭后迟到”“最新检查失败”。任务020复验修正：`failed`／`cancelled` 已裁决终态不再永久阻塞 close／deliver；`completed` 仍要求 result 与 completed 接收回执（`run-activity.ts` 的 `runSettled`，交付与 Task 服务共用）。
+  - `node --test --test-name-pattern "接收检查点" test/stage.test.mjs`：1/1；真实独立 Node 子进程 `test/fixtures/accept-once.mjs` 在 Task 写入后令 binding 保存失败，父进程按检查点重入，只追加一次 run／scope。
+  - 真实 CLI 夹具 `/tmp/knit-018-cli`：task `k-4acee072e3a0`、run `run-35929a94ec42`；prepare-only 后 `task update` 返回 `pending_saved`；`task close --runs-settled` 返回 error／needs_review 且 exit 1；`--withdraw-pending` 成功并保留输入区。
+  - `node --test --test-name-pattern "输入草案竞争" test/task.test.mjs`：1/1。
+  - `node --test --test-name-pattern "scope 跨 run" test/stage.test.mjs`：1/1。
+  - `node --test --test-name-pattern "最新检查失败" test/delivery.test.mjs`：1/1。
+  - `node --test --test-name-pattern "任务关闭后迟到" test/stage.test.mjs`：1/1。
+- 证据位置：`validation/m2-state-races/README.md`、`report.json`、`cli/`（task/run 回执、活动草案/关闭/撤回、exit 码、task-after）、`tests/`（五项命令输出）；临时夹具 `/tmp/knit-018-cli`。
+- 任务书必需验证逐项：
+  - result 已落盘、业务未写回：独立进程在写 Task 后失败，检查点保留；重入收敛，Task 不二次推进，binding／scope 只追加一次。
+  - 固定 acceptanceOperationId 重入：重复 accept 返回 duplicate；operation completed 后不重新计算或重跑模型。
+  - 文件半更新不宣称成功：只有 operation completed 后检查点才移除；失败操作保持 needs_attention，重入按来源／目标核对。
+  - SQLite 不跨 Git／模型：接收检查点只在短项目锁内做文件／元数据写回；没有持有事务等待模型、Git 或工具。
+  - pending 基线冲突／同内容新版本／apply-withdraw 互斥／活动撤回／输入失效：单元测试均覆盖；活动草案由真实 runActivity 判断，不信任 CLI 自报。
+  - 关闭／新启动／迟到接收：prepare 与 close 共用项目＋任务锁；活动 run 未收敛 close 拒绝；关闭后的 completed 迟到结果只保留事实、不改 frontmatter；旧回执不清除新 outcome。
+  - 最新失败检查不回退旧 pass：旧 pass 文件保留，但 binding 指向 blocked 时 deliver 拒绝。
+  - scope 跨 run 累积、Session 变更不重置修复计数：测试覆盖。
+  - 纯记录／候选／诊断不改需求摘要、模型自报不覆盖 phase／次数：沿用既有 inputsDigest 排除规则与接收只信请求／结果事实。
+- 未解决问题／决定：
+  1. `acceptance.json` 是文件检查点，不和 SQLite 组成跨介质事务；已覆盖进程在任一步退出后的重入，未模拟 SQLite WAL 断电损坏。
+  2. 检查点 schemaVersion 1 暂无迁移；旧版本／损坏检查点按 io_error 拒绝，不猜目标。
+  3. `RunActivityService` 只在 CLI 注入；直接调用 TaskService 的库使用者仍可自行传 runActive／runsSettled，服务无法在没有仓储时证明。
+  4. `run prepare` 对残留项目锁等待 15 秒后仍报 lock_busy，不自动强解；需 `knit locks`／`unlock` 核实。
+  5. `task close` 现在对 completed／cancelled／superseded 都要求 `--runs-settled`，比旧任务记录的“仅 completed”更严格；已回写 STATES／OPERATIONS。
+  6. 接收重复调用依据 operation reason 推导 target phase，若未来出现新的 acceptance reason 需同步更新 `acceptedPhase`。
+- 对下一项的交接：019 可复用 `acceptance.json` 来源／目标检查点、RunActivityService 与项目＋任务锁；Git／归档操作不要把验收检查点当提交回执，封存与归档仍需独立核实。
 
 优先扫描下一编号（阻塞时可继续跳过）：[019 验证Git、归档与封存的关键故障](019-git-and-seal-failures.md)。

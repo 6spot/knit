@@ -1,0 +1,12 @@
+{"at":"2026-11-02T03:43:51.435Z","event":"request_published","phase":"implement"}
+{"at":"2026-11-02T03:43:51.915Z","event":"launch_starting","attempt":1}
+{"at":"2026-11-02T03:43:52.303Z","event":"claimed","workerId":"w-2b75e8ac285e","pid":955636}
+{"at":"2026-11-02T03:43:52.307Z","event":"lock_acquired"}
+{"at":"2026-11-02T03:43:52.330Z","event":"inputs_frozen","inputsDigest":"7469fd14ca9f6af515184b818e6ae38d812b8cdc2f5366ca4f4c451fce212391"}
+{"at":"2026-11-02T03:43:52.375Z","event":"snapshot_finished","state":"ready","reason":null,"entries":12}
+{"at":"2026-11-02T03:43:52.378Z","event":"prepared","snapshot":"ready"}
+{"at":"2026-11-02T03:43:52.381Z","event":"stage_started","phase":"implement"}
+{"at":"2026-11-02T03:43:52.394Z","event":"launch_confirmed","workerId":"w-2b75e8ac285e"}
+{"at":"2026-11-02T03:44:04.505Z","event":"cancel_requested","reason":"真实工具取消2"}
+{"at":"2026-11-02T03:44:04.585Z","event":"result_published","state":"cancelled","verdict":null}
+{"at":"2026-11-02T03:44:04.587Z","event":"acceptance","accepted":true,"reason":"run_cancelled"}

@@ -59,12 +59,12 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 src/contracts/protocol.ts（PROTOCOL_VERSION=1、CliResponse、ProtocolEvent、outcome/reasonCode schema）、run.ts（RunRequest/PrepareResult/Result/Status、RunState、launch planned/starting/confirmed/failed、原生条目范围与用量可空字段）、session.ts（pi 客户端原生身份、opening/available/missing/incompatible、SessionRecord）、metadata.ts（TaskBinding、确定性操作 planned/running/needs_attention/completed/abandoned）、errors.ts（10 个原因码到 outcome／处理分类的映射）、validate.ts（版本核实先于结构校验）、frames.ts（增量 UTF-8、仅按 LF 切帧的 LfFrameDecoder）；新增 src/ports/index.ts（SessionRef/Binding/Operation/Run/NativeEntryRange 端口）与 infrastructure.ts（AtomicFileWriter、LockStore、ProcessPort、GitPort、Clock、MetadataStore 短事务契约）；新增 test/contracts.test.mjs 12 项校验测试。package.json 将四个运行依赖固定为精确版本（^ 范围曾使 typebox 实装 1.4.3，已重装回 1.3.27）。
+- 实际验证命令与结果：`npm test`（typecheck + build + node:test）通过，17/17 pass 0 fail，覆盖：合法响应／请求／Session／binding schema、额外字段与缺字段拒绝、非法枚举（outcome、reasonCode、phase=discuss、RunState=starting、SessionStatus=closed）、终态结果拒绝非终态状态、未知／非当前版本报 incompatible_version、错误组合映射（invalid_request/incompatible_version/internal_error→error，busy/io_error→blocked，needs_context/stale_input/needs_review/unknown_run/external_effect_unknown→needs_attention）、JSON 序列化往返后 schema 仍可用、LF 帧解码不受 U+2028/U+2029 影响、多字节 UTF-8 跨块不乱码、尾部半行不作完整帧。
+- 证据位置：test/contracts.test.mjs、src/contracts/、src/ports/；本记录。
+- 未解决问题／决定：无阻塞。宿主工具对内嵌 schema 的接受性按任务边界留给 005 实测；MetadataStore 物理后端（原子文件 vs SQLite）留待任务004实证比较，当前只有端口契约。typebox 1.3.27 的 Value.Errors 错误对象 path 属性非必有，validate.ts 已按可选处理。
+- 对下一项的交接：003 可直接开始；run/launch/session schema 与端口契约已就绪，Pi 适配仅需实现 AgentRuntime 相关端口，帧解码与版本校验可直接复用。
 
 优先扫描下一编号（阻塞时可继续跳过）：[003 实现本机Pi CLI协议适配](003-pi-cli-runtime.md)。

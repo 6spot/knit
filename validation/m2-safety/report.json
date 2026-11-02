@@ -1,0 +1,171 @@
+{
+  "environment": {
+    "node": "v24.21.0",
+    "pi": "1.4.0",
+    "provider": "magpie",
+    "model": "auto/glm-5.3-flash",
+    "fixture": "/tmp/knit-017-real"
+  },
+  "realCancel": {
+    "taskId": "k-e9f828073a4a",
+    "runId": "run-d1d791016993",
+    "cancel": {
+      "runId": "run-d1d791016993",
+      "requested": true,
+      "state": "cancelled",
+      "reason": "cancel_recorded",
+      "workerVerdict": "alive",
+      "stageVerdict": "not_alive",
+      "terminated": true,
+      "terminalized": false
+    },
+    "state": "cancelled",
+    "stageProcess": {
+      "schemaVersion": 1,
+      "runId": "run-d1d791016993",
+      "taskId": "k-e9f828073a4a",
+      "phase": "implement",
+      "state": "exited",
+      "workerPid": 955636,
+      "piPid": 955649,
+      "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+      "procStartTicks": null,
+      "hostname": "instance-20260508-1651",
+      "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+      "knitSessionId": "s-9c2febf8cb46",
+      "startedAt": "2026-11-02T03:43:52.389Z",
+      "recordedAt": "2026-11-02T03:44:04.578Z"
+    },
+    "result": {
+      "state": "cancelled",
+      "failureReason": "agent_aborted",
+      "session": {
+        "knitSessionId": "s-9c2febf8cb46",
+        "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+        "sessionFile": null,
+        "role": "implement",
+        "status": "available",
+        "resumeAction": "create_new",
+        "resumeReason": "no_previous_session",
+        "nativeReadable": false
+      }
+    },
+    "toolCommand": "cd /tmp/knit-017-real && echo \"SLEEP_START $(date +%s)\"; sleep 120; echo \"SLEEP_DONE $(date +%s)\"",
+    "observedProcesses": {
+      "pi": 955649,
+      "bash": 955713,
+      "sleep": 955715
+    },
+    "processesAfter": {
+      "pi": false,
+      "bash": false,
+      "sleep": false
+    },
+    "cancelLatencyMs": 567
+  },
+  "realNativeRecovery": {
+    "oldRunId": "run-d1d791016993",
+    "newRunId": "run-9834a51dbd67",
+    "resume": {
+      "oldRunId": "run-d1d791016993",
+      "accepted": true,
+      "resumed": true,
+      "request": {
+        "schemaVersion": 1,
+        "protocolVersion": 1,
+        "runId": "run-9834a51dbd67",
+        "taskId": "k-e9f828073a4a",
+        "phase": "implement",
+        "purpose": "stage",
+        "initiator": {
+          "client": "cli",
+          "knitSessionId": null,
+          "nativeSessionId": null,
+          "cwd": "."
+        },
+        "createdAt": "2026-11-02T03:45:02.085Z",
+        "expected": {
+          "branch": "refs/heads/main",
+          "inputsDigest": "a50d27e2ad89cfd3bdfad0db8e507fc636946c36753b3c50d548623e01ecbd61",
+          "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+          "effectiveInputsDigest": "1ddd8b5b880f56bc7061102df12c0356d58099197f41e790b41f736d7be5bb71",
+          "planId": "ctx-30a7ba1b26b5",
+          "scopeDigest": null
+        },
+        "model": {
+          "runtime": "pi",
+          "provider": "magpie",
+          "model": "auto/glm-5.3-flash"
+        },
+        "toolPolicy": {
+          "mode": "write",
+          "allow": [
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "task"
+          ],
+          "deny": []
+        },
+        "recovery": {
+          "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+          "resume": "prefer"
+        },
+        "acceptanceOperationId": "accept-e351216705fc",
+        "diagnostics": {
+          "enabled": false
+        }
+      },
+      "launch": {
+        "schemaVersion": 1,
+        "runId": "run-9834a51dbd67",
+        "state": "planned",
+        "attempts": 0,
+        "requestedAt": "2026-11-02T03:45:02.085Z",
+        "updatedAt": "2026-11-02T03:45:02.085Z",
+        "handle": null,
+        "instance": null,
+        "lastError": null
+      },
+      "reason": "resumed"
+    },
+    "state": "completed",
+    "result": {
+      "state": "completed",
+      "reportSummary": "确认 run-9834a51dbd67 的 inputs.json 为 ready 后，在项目根写入 done2.txt，内容为 `native recovery\\n`；用 cat -A（显示 `native recovery$`）与 wc -c（16 字节）核对为单行且末尾恰有一个换行，git status 显示本 run 唯一新增为 done2.txt，未运行 sleep，未修改其它文件。",
+      "actualChangedPaths": [
+        "done2.txt"
+      ],
+      "session": {
+        "knitSessionId": "s-9c2febf8cb46",
+        "nativeSessionId": "e9709a31-93e3-4323-ac7e-a3eb1688ed36",
+        "sessionFile": "/tmp/knit-017-real/.knit/.runtime/pi-sessions/2026-11-02T03-43-52-817Z_e9709a31-93e3-4323-ac7e-a3eb1688ed36.jsonl",
+        "role": "implement",
+        "status": "available",
+        "resumeAction": "resume",
+        "resumeReason": null,
+        "nativeReadable": true
+      }
+    },
+    "done2": "native recovery\n"
+  },
+  "automated": {
+    "sigkillWorker": {
+      "command": "node --test --test-name-pattern \"SIGKILL worker\" test/stage.test.mjs",
+      "result": "1/1 pass",
+      "evidence": "automated/sigkill-worker.txt"
+    },
+    "locksUnlock": {
+      "command": "node --test --test-name-pattern \"locks/unlock\" test/m1-cli.test.mjs",
+      "result": "1/1 pass",
+      "evidence": "automated/locks-unlock.txt"
+    }
+  },
+  "limits": [
+    "取消宽限默认 5 秒；真实场景使用 run cancel --terminate 立即清理已核实的 Pi 及后代进程树。",
+    "SIGKILL 场景使用最小假 Pi 进程模拟不响应 stdin 关闭的自有工具，验证 resume 在旧阶段进程存活时保持 run_active，清理 Pi 与项目/Session 残留锁后才续做。",
+    "未在真实 NFS／SMB 上执行；代码对已知远程文件系统类型直接阻塞，未实测网络盘。",
+    "不跨机协调；不接管不是本 run 记录的其他进程。"
+  ]
+}

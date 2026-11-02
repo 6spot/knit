@@ -61,12 +61,44 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode / Pi session `01a1981c-6f75-749d-b9c2-7e5c897950a6`。
+- 开始／结束时间：2026-11-02（本会话）。
+- 实际修改：
+  - `src/application/delivery.ts`：新增 `treeSnapshot`／`indexTreeFor`／`sameTree`，按提交树模式与 blob 核对实际内容。
+  - `src/application/delivery-service.ts`：工作／归档提交前记录预期 index 树，提交后核对路径集合与模式／blob；hook 拒绝／改 index／扩范围／改内容保留已产生提交并 needs_attention；显式 retry 重核 expectedPaths／expectedTree，不盲目完成；首次创建操作即固定 `archivePath`，跨月恢复不改目标；move 检查点丢失时按目标 Task ID／封存摘要恢复，源／目标冲突与外来目标保留现场；兼容旧操作 `tasks/...` 路径。
+  - `test/delivery.test.mjs`：新增混改（内容／100755／重命名／删除）、hook 拒绝、hook 加 index／扩范围、hook 改内容后 retry、move 检查点丢失、目标冲突、跨月 archivePath 测试；适配 hook 内容核对。
+  - `validation/m2-git-failures/`：真实临时 Git 测试输出与报告。
+  - `DESIGN.md`、`STATES.md`、`OPERATIONS.md`、`ARCHITECTURE.md`：回写 019 语义。
+- 实际验证命令与结果：
+  - `npm run -s typecheck`：通过。
+  - `npm run -s build`：通过。
+  - `npm run -s pack:check`：通过。
+  - `npm test`：**185/185**（任务完成时；任务020复验后全套 **194/194**）。
+  - `node --test test/delivery.test.mjs`：**19/19**（任务完成时；任务020复验后 **27/27**，真实临时 Git 仓库；提交树、index、路径、hook、move 恢复）。
+  - `node --test --test-name-pattern "同任务混改" test/delivery.test.mjs`：1/1；实际提交 `app.txt` 内容 `mixed
+`、`mode.sh` 100755、重命名 old→new、删除 staged.txt/other.txt。
+  - `node --test --test-name-pattern "hook 拒绝提交" ...`：1/1；无工作／归档提交、任务原位。
+  - `node --test --test-name-pattern "hook 把无关文件" ...`：1/1；提交范围／index 变化保留提交并 needs_attention。
+  - `node --test --test-name-pattern "移动成功但 move" ...`：1/1；目标 Task ID 核实，不重复移动，归档提交一次。
+  - `node --test --test-name-pattern "跨月重试" ...`：1/1；失败操作 archivePath 2026-11 在 2026-12 retry 后仍为 2026-11。
+  - `node --test --test-name-pattern "归档目标已存在" ...`：1/1；外来目标文件不被覆盖，任务不移动，无归档提交。
+- 证据位置：`validation/m2-git-failures/README.md`、`report.json`、`tests/`（delivery-all、mixed-paths、hook-reject、hook-index、move-recovery、cross-month、target-conflict、git-version）。
+- 任务书必需验证逐项：
+  - 同路径混改、模式、删除、重命名、无关 staged／unstaged 与验证产生变化：混改测试与既有 normal 测试覆盖；提交树按 mode/blob 核对，未检查的新变动不能进入交付。
+  - hook 拒绝／改内容／扩提交范围／改 index：拒绝、加入无关文件、越界写文件、改选中文件、改内容后 retry 均保留现场并 needs_attention。
+  - commit 成功后执行者退出：按操作 ID／提交 message 恢复，不重复工作提交（既有 receipt 测试）；父节点、范围、树核对。
+  - move 后检查点丢失：按目标 Task ID 与封存摘要核实并继续，不重复移动。
+  - 跨月恢复／目标冲突：首次 archivePath 固定；目标已存在不覆盖。
+  - seal 中记录未保存、按稳定 Task ID 补记、取消／替代仅资料：沿用 014 测试（record sealed、归档后补记、取消归档）。
+  - 授权来源与完整 ref、unknown defaultBranch 不猜：沿用 014 实现与测试。
+  - 无自动 reset／amend／stash：实现只做限定 add／commit／move，失败即保留现场。
+- 未解决问题／决定：
+  1. 未在 Git commit 子进程运行中强制 SIGKILL；以检查点丢失／hook 失败重入模拟，覆盖提交已生效但回执丢失。
+  2. 目标冲突检测在 work commit 之后才发生，可能已留下工作提交；保守保留该事实，不自动回滚（目标目录外来文件不覆盖）。
+  3. hook 内容核对只比较提交树 mode／blob，不核对签名、提交者字段或 reflog。
+  4. 外部并发进程、fetch／push／merge／rebase／冲突与历史改写不在本项范围；检测异常只保留现场。
+  5. 旧操作 `taskPath` 以 `.knit/` 前缀归一化兼容；旧 schema 无树证据时 retry 只能按路径／提交存在核实。
+- 任务020复验修正：提交前 checkpoint 保存 before／expectedPaths／expectedTree；恢复核验 HEAD、父节点、message、路径集合与树；删除／重命名路径已在 index 删除时不重复 add；归档核验失败不落盘错误 archiveCommit，清理额外历史后同一操作可恢复真实提交；work 提交后出现外部额外提交拒绝归档。新增回归测试覆盖 message 改写、祖先额外提交、clean worktree false-skip、归档 pre-commit retry、同 message 额外归档提交清理恢复。
+- 对下一项的交接：020 可引用 `validation/m2-git-failures`、`validation/m2-state-races`、`validation/m2-safety`、`validation/snapshot-restore`；独立门槛仍需真实项目保护、故障矩阵与未测外部并发说明，不能把本地临时仓库结果外推为生产保证。
 
 优先扫描下一编号（阻塞时可继续跳过）：[020 独立检查真实项目使用门槛](020-m2-independent-gate.md)。

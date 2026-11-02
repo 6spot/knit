@@ -1,0 +1,50 @@
+{
+  "task": "020",
+  "milestone": "M2",
+  "result": "pass",
+  "environment": {
+    "node": "v24.21.0",
+    "npm": "11.19.0",
+    "git": "2.52.0",
+    "platform": "linux"
+  },
+  "commands": {
+    "typecheck": "pass",
+    "build": "pass",
+    "packCheck": "pass (162 files)",
+    "npmTest": "194/194 pass (repeat; one unrelated lock_busy flake)",
+    "deliverySuite": "27/27 pass"
+  },
+  "m2": {
+    "snapshotAndIndex": "pass",
+    "locksAndCancellation": "pass",
+    "nativeRecovery": "pass (existing real-model artifacts; not rerun)",
+    "acceptanceAndStateRaces": "pass",
+    "deliveryAndArchive": "pass",
+    "sealAndMove": "pass",
+    "packAndBridgeSchema": "pass",
+    "workspaceNotInitializedOrCommitted": "pass"
+  },
+  "fixedDuringGate": [
+    "failed/cancelled terminal run no longer permanently blocks close/deliver; completed still requires result and completed acceptance",
+    "work/archive commit checkpoints store before/expectedPaths/expectedTree and verify HEAD, parent, message, paths and tree",
+    "deleted/renamed paths already staged are included in commit pathspec without repeated add",
+    "failed archive verification does not persist a bad archiveCommit; cleanup can recover the real archive commit",
+    "cancel grace, snapshot max, heartbeat interval wired from config; SMB2 rejected; sealed record rechecks inside task lock"
+  ],
+  "evidence": {
+    "independentReport": "audit-report.md",
+    "scenarios": "scenarios.json",
+    "gitFailures": "../m2-git-failures/",
+    "stateRaces": "../m2-state-races/",
+    "safety": "../m2-safety/",
+    "restore": "../snapshot-restore/"
+  },
+  "limitations": [
+    "no real paid model rerun; native recovery references existing real-model artifacts",
+    "no real NFS/SMB/FUSE mount; static filesystem magic check only",
+    "no SQLite power-loss, Windows/macOS, fetch/push/merge/rebase/signature tests",
+    "old persisted bad archiveCommit is not auto-migrated; current code cannot newly produce it",
+    "stage lock_busy flake at test/stage.test.mjs:179 under load; retryable, not a Git/state regression"
+  ]
+}

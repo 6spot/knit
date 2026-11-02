@@ -1,6 +1,6 @@
 # Knit 状态与转移
 
-本文定义首版需要持久化的业务状态和执行协议；架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，操作细则见 [OPERATIONS.md](OPERATIONS.md)。当前均为待实现设计。元数据的文件／SQLite 物理布局由 M0 对比决定，不改变这里的权威与守卫。
+本文定义首版需要持久化的业务状态和执行协议；架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，操作细则见 [OPERATIONS.md](OPERATIONS.md)。当前均为待实现设计。元数据物理实现已定为单一 SQLite 库（M0 实证），不改变这里的权威与守卫。
 
 ## 1. 状态边界
 
@@ -61,7 +61,7 @@ adopt 不创建或切换分支。必须没有活动或状态未知的 run、没�
 
 binding 只保存 repairCycleId、repairRounds、stopReason，不建立独立链文件或 active/paused/finished 状态机。新授权周期计数为 0；开始修复轮时累计，重复通知与内部 retry 不重复计数，普通 resume 不重置。
 
-达到项目上限、用户暂停或真实阻塞时写 stopReason，主 Agent 不自动续跑。用户明确开启新修复周期或确认新范围后才分配新 ID；clarify 不构成重置理由。取消旧 run 只影响其对应周期，不能暂停后来新开的周期。
+达到项目上限、用户暂停或真实阻塞时写 stopReason，主 Agent 不自动续跑。用户明确开启新修复周期或确认新范围后才分配新 ID；clarify 不构成重置理由。取消旧 run 只影响其对应周期，不能暂停后来新开的周期。实现（任务013）：检查 `changes_requested` 在有周期时累计，达到 `workflow.maxRepairRounds` 立即写 `repair_round_limit`；无授权周期时写 `repair_not_authorized`，`run prepare --new-repair-cycle` 显式开新周期。
 
 ## 5. run 启动与执行
 
@@ -69,7 +69,7 @@ run 只代表 worker 执行，正式阶段为 implement/check，discuss/deliver 
 
 准备入口先持久化 run ID／owner token 并把 ID 返回调用方；桥接确认拿到 ID 后才允许执行。准备尚未确认时不调用模型、不改项目业务文件、不做 Git 收尾。CLI 表面仍为一条 run 命令，内部复用 prepare/start；准备中断只留下可查询、可明确放弃的未启动意图。重发 start 按同 ID 认领，不产生第二个实例。
 
-launch 使用 planned/starting/confirmed/failed。starting 响应丢失先查匹配的 claim 和实例，不重启；无法证明有无旧运行时显示 unknown。OS 进程已启动不等于 Agent 已开始。worker 自行取得执行占用，重新核实预期输入，冻结 inputs 并完成必要准备。
+launch 使用 planned/starting/confirmed/failed。starting 响应丢失先查匹配的 claim 和实例，不重启；无法证明有无旧运行时显示 unknown。OS 进程已启动不等于 Agent 已开始。worker 自行取得执行占用，重新核实预期输入，冻结 inputs 并完成必要准备。实现（任务012）：`RunCoordinator` 在 `run-*` 目录落盘 request／launch，start 记录 PID+boot+starttime 句柄；已 confirmed 或句柄存活只观察，句柄缺失／死亡未认领置 failed，`--retry` 才重试同一 run。worker 认领后置 preparing；implement 快照 ready 后 state 为 preparing + `prepared:true`，阶段模型与代码执行由 013 继续。
 
 ```mermaid
 stateDiagram-v2
@@ -91,15 +91,15 @@ stateDiagram-v2
 
 Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开 prompt 完成／agent_settled 及真实工具终态为边界。result 先持久化，state 再收敛，均由 worker 写，终态不覆写。check 的 changes_requested 可是执行 completed；advisory 完成不推进 Task。
 
-崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。 Task 关闭与该任务启动／接收在同一任务短临界区核对 status、phase 与版本；迟到旧结果保留为执行事实，不能重开 cancelled/superseded、覆盖其 outcome 或继续自动修复。
+崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。实现（任务018）：接收先原子写 `runs/<run>/acceptance.json`（来源 target、binding before/after、scope、check、输入／规范摘要），再写 Task／scope／check／binding，最后完成 operation 并移除检查点；重入按当前事实与来源／目标对比，漂移转 needs_attention，不覆盖后来 Task、草案或输入。 Task 关闭与该任务启动／接收在同一任务短临界区核对 status、phase 与版本；迟到旧结果保留为执行事实，不能重开 cancelled/superseded、覆盖其 outcome 或继续自动修复。
 
-status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。
+status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。实现（任务015）：status 用只读元数据库投影耗时、最后事件与项目锁心跳；`--events` 只观察事件到终态，不接收结果；桥接每 5 秒按发起方原生 Session 查询未结束 run，并按会话内通知条目去重。
 
 ## 6. 对象级取消
 
 首版仅支持 cancel --run 和 cancel --operation，不设请求级取消路由。执行前已有目标 ID；桥接明确执行取消时持久化对象意图，不先杀掉调用进程。普通 CLI --wait 退出与单独观察取消只停止观察。
 
-run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复取消返回同一结果，旧取消不影响新 run。取消与终态发布在同一短临界区裁定，不比较 mtime；先发布终态则返回已结束，先登记取消则停止新调用并等待已知工具终态。30 秒宽限后仅显示待确认，保留占用。
+run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复取消返回同一结果，旧取消不影响新 run。先发布终态或结果则返回已结束，先登记取消则停止新调用；实现（任务017）在 5 秒宽限后仍未稳定时终止本次 Pi 的完整后代进程树并发布 cancelled result，`--terminate` 可显式处理 worker 已退出但阶段 Pi 仍存活的旧 run。取消宽限只适用于已登记的本 run，不设固定总运行预算；旧取消 token 不作用于新 run。
 
 确定性操作先有 operation ID 与本次执行 token。取消停止未开始步骤，核实在途 Git／文件效果后进入 needs_attention（reason=cancelled）；不自动撤销 commit/move，也不改变 Task outcome。恢复同操作取得新执行 token，迟到取消不作用于新尝试。意图已转达不等于目标已停止。
 
@@ -116,11 +116,11 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 默认 resume=prefer：先核实旧工具结束，再按项目执行锁→客户端原生 ID 锁的顺序取得占用，由原客户端加载并核对原生 ID／历史。旧记录缺失、损坏、不兼容或恢复失败时，保持项目占用、释放旧 Session 锁，再锁预分配的新原生 ID 并自动创建新 Session；旧对象保持原状态与引用，新对象 opening→available 后才更新阶段引用，来源与原因记录在本次准备结果中。新会话读当前任务、正式规范、进度、已有事实和实际代码续做，不重置 phase、修复次数、scope 或检查资格。客户端缺失、模型不可用和旧工具状态未知仍阻塞，新建失败不递归兜底；默认配置变化不改变旧记录归属。
 
-活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目；未落盘只记录待确认原因，不增加专用持久化状态。树切换重新核实，不清掉后来选择的别的任务。桥接只观察当前发起上下文可核实的 run，轮询／去重／投递按 DESIGN9.3；切会话／树或关闭停止观察但不取消 worker。完成可按已有继续授权触发回合，忙时用 follow-up；核心结果和原生通知分别核实，不承诺模型轮次恰好一次。已有受控回调实验不代替 Knit 真实桥接链路验收。
+活动选择由当前原生有效路径最后一个匹配项目的选择事件决定，taskId=null 清除；索引只作快照，不能复活早期选择。追加后响应丢失按 operationId 查已写条目；未落盘只记录待确认原因，不增加专用持久化状态。树切换重新核实，不清掉后来选择的别的任务。实现（任务010）：`src/application/session-service.ts` 按 parentId 回溯有效分支，只有 activeIds 上的选择事件生效；未落盘快照 `persisted:false`，解析不把它当权威；原生文件缺失时按曾有记录报 missing，不冒充可恢复。桥接只观察当前发起上下文可核实的 run，轮询／去重／投递按 DESIGN9.3；切会话／树或关闭停止观察但不取消 worker。完成可按已有继续授权触发回合，忙时用 follow-up；核心结果和原生通知分别核实，不承诺模型轮次恰好一次。已有受控回调实验不代替 Knit 真实桥接链路验收。
 
 ## 8. 检查资格
 
-最新获准检查的 lastCheckRunId 是唯一候选；仅被忙拒绝的请求不算开始，已接纳后的准备／执行失败不回退旧 pass。
+最新获准检查的 lastCheckRunId 是唯一候选；仅被忙拒绝的请求不算开始，已接纳后的准备／执行失败不回退旧 pass。失败／取消的检查 run 没有产生新结论，资格回到 missing（补检查），不把更早 pass 复原为 valid；实现见 `src/domain/check.ts`。
 
 | 事实 | 当前资格 |
 | --- | --- |
@@ -133,7 +133,7 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-scope 按 Task 累积，恢复新起点不清空旧成果。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过：未归档正常完成任务先回 open/check；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
+scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，implement 接收时合并；check 凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要；检查前后比对 Git 状态与逐路径指纹，检查者改动文件时结果不接收。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过：未归档正常完成任务先回 open/check；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选
 
@@ -152,7 +152,7 @@ scope 按 Task 累积，恢复新起点不清空旧成果。规范为授权输�
 | 前后均不匹配 | 保留现场，needs_attention |
 | 进程或 Git 效果未知 | 先核实，不重试或假放弃 |
 
-SQLite 若入选，可把关联元数据置于短事务；Git、Markdown 和原生历史效果仍逐步核验。事务／短锁不跨模型调用、工具等待或 hooks。记录／选择冲突只影响相关对象，输入或未核实 Git 效果阻相关后续代码及交付。
+实现（任务019）：交付／归档提交核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝或越界保留已产生提交并 needs_attention，显式 retry 重核不重复提交。SQLite 若入选，可把关联元数据置于短事务；Git、Markdown 和原生历史效果仍逐步核验。事务／短锁不跨模型调用、工具等待或 hooks。记录／选择冲突只影响相关对象，输入或未核实 Git 效果阻相关后续代码及交付。
 
 ## 11. 收尾与封存
 
@@ -176,13 +176,13 @@ deliver 和会提交的 archive 统一要求 --branch <refs/heads/...>，拒绝�
 
 需改业务目标时先暂停收尾。未移动且工具已结束时可明确解除封存后重新准备；已移动或结果未知先核实与修复，不自动 reset。
 
-取消／替代仅归档实际资料，不要求未完成代码检查成 pass，不默认提交部分源码，不造空 commit。重试沿同一操作及首次目标，结果分别报告工作提交、移动、归档提交和待办。
+取消／替代仅归档实际资料，不要求未完成代码检查成 pass，不默认提交部分源码，不造空 commit。重试沿同一操作及首次目标，结果分别报告工作提交、移动、归档提交和待办。实现（任务014）：操作记录与步骤存 `operations`，回执丢失按操作 ID 在 Git 历史核实；工作／归档提交核对父节点与真实范围，无关 index／工作区变化与 hook 越界置 needs_attention；封存标记存在时 task record 返回未保存，归档提交后移除标记，后补记录追加为新资料。实现（任务019）：首次创建操作即固定 archivePath，跨月不变；提交树模式／blob 也纳入核对；move 已完成而检查点丢失时按目标 Task ID 与封存摘要核实后继续，目标冲突不覆盖。
 
 ## 12. 占用与兼容性
 
-本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明。旧 token 不能写回；Session 键不随项目改变。
+本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明；`unlock` 必须匹配 owner token，alive／unknown 另需显式 force，旧 token 不能删除新占用。Session 键按客户端原生 ID，不随项目改变；阶段进程记录独立于 worker，worker 被强杀后仍能核实并阻塞续做。
 
-restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复使旧检查不再适用于新目标。未知版本只读报告，首版无自动 gc。
+restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复清空当前检查资格，deliver 回 check，恢复操作与逐路径结果留在 `.runtime/restores/`。实现（任务016）：快照 index 内容独立保存，恢复只改选中路径，当前模式／内容／index 任一变化即停。未知版本只读报告，首版无自动 gc。
 
 ## 13. 入口与验证范围
 

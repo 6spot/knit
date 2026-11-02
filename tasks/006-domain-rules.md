@@ -59,12 +59,18 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-01。
+- 实际修改：新增 src/domain/{task,check,repair}.ts 与 src/domain/README.md 模块表；新增 test/domain.test.mjs；STATES.md 第 8 节补一句失败检查 run 资格语义（回到 missing）；TASKS.md 006 状态。
+- 实际验证命令与结果：`npm test` 58/58（domain 23 + contracts 17 + cli 5 + pi-runtime 12 + metadata 6，其中 typecheck+build 先行）；`npm run pack:check` 通过。domain 模块导入仅类型互引（task↔check↔repair），无 fs/Git/Pi/UI 依赖。`node --test test/domain.test.mjs` 23/23。
+- 覆盖说明（按不变量造用例，不机械四倍矩阵）：
+  - Task 转移：ready/实施接受/检查接受仅合法 phase 推进；pass→deliver、changes_requested→implement、blocked 保留；clarify 保持早期 phase、deliver 摘要变化回 open/check 清 completed、摘要未变不迁移；change 回 open/discuss；recheck 仅 check/deliver 合法、discuss/implement 明确 phase_mismatch；未归档 completed 仅显式复查入口重开；取消／替代所有常规入口拒绝（稳定原因码）；待应用草案阻止代码阶段与交付，但草案应用自身不被草案守卫拦住；adopt 保持 discuss/implement/check、deliver 回 open/check 清 completed；关闭保留停止位置。
+  - 不变量断言：每条转移验证 open 无 outcome、closed 必有 outcome（STATES §3）。
+  - 检查资格：missing（无候选／凭据缺失／run 状态未知）、pending（检查未结束，不可借旧 pass 收尾、不可开实施）、valid（全匹配 pass）、blocked（changes_requested/blocked/证据缺失）、stale（任务／分支／输入摘要／成果版本任一失配）；候选错位返回 superseded_by_newer_check 不静默通过；失败检查 run 回 missing。
+  - 修复计数：上限 2 时第三轮拒绝并写 stopReason=repair_round_limit；clarify/resume 不重置不累计；周期错位拒绝（取消旧 run 不影响新周期）；停止后迟到事件拒 cycle_stopped；新周期授权清零清 stopReason；上限 0 与非法上限。
+- 实施中纠正的事实：转移函数初版守卫拒绝时返回 null，测试要求稳定原因码后改为返回 TaskTransitionResult；草案应用（onPendingResolved）不应被草案存在守卫拦截（应用是解决路径）；已接纳后失败的检查 run 资格语义在实现中定为回 missing（比"凭据本身判定"更保守），已回写 STATES §8；测试 .mjs 文件一度误用 TS type 导入语法（已知陷阱），改为纯 JS。
+- 证据位置：test/domain.test.mjs、src/domain/、npm test 输出；领域原因码到协议 ReasonCode 的映射留给应用层任务（009/013）。
+- 未解决问题／决定：无阻塞。待应用草案、adopt、关闭守卫中的"无活动 run、无未核实 Git 效果"等事实核对属于应用层（013），领域函数只裁决状态。
+- 对下一项的交接：007 文件／占用基础可独立开发；009 应用本模块时把 CLI 参数映射到 onInputsUpdated(kind, digestChanged) 并把领域原因码映射到协议响应；scope 累积的实际记录由 009/013 落 binding。
 
 优先扫描下一编号（阻塞时可继续跳过）：[007 实现文件、占用与操作检查点基础](007-local-infrastructure.md)。

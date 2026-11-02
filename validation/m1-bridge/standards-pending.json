@@ -1,0 +1,44 @@
+{
+  "protocolVersion": 1,
+  "requestId": "standards-pending",
+  "outcome": "completed",
+  "data": {
+    "taskId": "k-968704b3880b",
+    "branch": "refs/heads/main",
+    "hasCandidates": true,
+    "candidateIds": [
+      "c-c4bf51cc551b"
+    ],
+    "candidateDigest": "05805e50f4c5b62d9782c49aa9005e0e0412dcb7656d5db0d229a704c94c71cd",
+    "matchedReview": {
+      "reviewId": "r-184cf59478c0",
+      "taskId": "k-968704b3880b",
+      "branch": "refs/heads/main",
+      "candidateDigest": "05805e50f4c5b62d9782c49aa9005e0e0412dcb7656d5db0d229a704c94c71cd",
+      "decision": "deferred",
+      "reason": "final bridge test",
+      "targets": [],
+      "candidateIds": [
+        "c-c4bf51cc551b"
+      ],
+      "operationId": "std-review-dfdd040ed97f",
+      "recordedAt": "2026-11-02T02:53:37.725Z"
+    },
+    "latestReview": {
+      "reviewId": "r-184cf59478c0",
+      "taskId": "k-968704b3880b",
+      "branch": "refs/heads/main",
+      "candidateDigest": "05805e50f4c5b62d9782c49aa9005e0e0412dcb7656d5db0d229a704c94c71cd",
+      "decision": "deferred",
+      "reason": "final bridge test",
+      "targets": [],
+      "candidateIds": [
+        "c-c4bf51cc551b"
+      ],
+      "operationId": "std-review-dfdd040ed97f",
+      "recordedAt": "2026-11-02T02:53:37.725Z"
+    },
+    "needsReview": false,
+    "reason": "review_matched"
+  }
+}

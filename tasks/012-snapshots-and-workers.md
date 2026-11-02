@@ -60,12 +60,27 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-02。
+- 实际修改：
+  - `src/contracts/run.ts`：新增 run 资料 schema——request（身份、阶段、purpose、发起方、预期 inputs／standards／effective 摘要、模型、工具策略、恢复引用、acceptanceOperationId）、launch（planned/starting/confirmed/failed、attempts、PID/boot/starttime 句柄、worker 实例）、inputs、instructions、snapshot manifest、state。
+  - `src/infrastructure/run-store.ts`（新）：`.knit/.runtime/runs/<run-id>/` 原子写 request/launch/inputs/instructions/state；`mkdir claim` 原子认领；events.jsonl 追加；私有权限；重试清理。
+  - `src/application/snapshot.ts`（新）：Git index 条目（mode/OID）、tracked 工作区副本、未忽略 untracked、符号链接、执行位、缺失路径、HEAD 起点；`.knit/.runtime/` 排除；超限／unmerged index／Git 失败置 failed；ready 才 rename 为 `snapshot/`。
+  - `src/application/run-coordinator.ts`（新）：prepare 只发布请求与 planned launch，同任务／阶段活动 run 复用；start 落盘 starting+句柄后启动 worker，已 confirmed／句柄存活只观察，句柄缺失或死亡未认领置 failed，`--retry` 才重试同一 run；status 只读投影。
+  - `src/worker/knit-worker.ts`（新）：认领后自行取得项目执行占用，复核任务阶段／分支、草案、预期摘要，冻结 inputs/instructions；implement 建快照 ready 后 state=preparing + prepared:true 并释放占用退出；失败写 failed state/result/event。
+  - `src/cli/run.ts`（新）与 `src/cli/knit.ts`：run prepare/start/status/list，`--json` 协议输出与错误非零退出。
+  - `src/application/task-service.ts`：修正 ready 冻结摘要时机——原实现取转移前文档摘要，导致刚确认任务与当前输入摘要不一致；现按 ready 后文档（含 status/phase）计算 `confirmedInputsDigest`。
+  - `test/run.test.mjs`（新 10 项）。
+- 实际验证命令与结果：`npm test` 127/127（run 10 + standards 6 + session 7 + task 17 + init 11 + infrastructure 18 + domain 23 + contracts 17 + cli 5 + pi-runtime 12 + metadata 6）；`npm run pack:check` 通过；`npm run typecheck` 通过。临时真实项目（/tmp/knit-012-e2e，已清理）用真实 CLI 实测：init → task new → task ready（输入摘要 4254032c94df）→ 修改 tracked、暂存 staged、新增 untracked、删除 tracked、忽略 ignored → `run prepare`（run-b56ee3ac8799，planned，无 state/inputs/占用）→ `run start`（confirmed、prepared、snapshot ready）→ inputs.inputsDigest 4254032c94df、standards d4d82dc4ff79、effective 893c26cbed2d → snapshot coverage 全 true、tracked 4／untracked 13／absent 1（gone.txt）、ignored 与 `.knit/.runtime` 未收录、run.sh 100755 → 再次 start attempts 仍 1、reused=true → 项目锁目录空 → 零 Git 提交、零模型调用。
+- 任务书必需验证逐项：
+  - 无 ID 前无模型／业务写：prepare 后仅 request/launch/events，无 state/inputs/snapshot，任务文件未变；start 才 spawn，worker 全程不调用模型。
+  - 无 CLI→worker 长锁交接：prepare 不取得项目执行占用；worker 认领后自行取锁，测试中预占项目锁时 worker 以 lock_busy 失败，释放后显式 retry 同一 run 成功。
+  - 未 ready 不启动正式代码：012 不执行阶段模型／代码；worker 仅在 inputs/instructions 冻结且 implement 快照 ready 后置 prepared:true。013 从该点继续。
+  - 部分启动、重复 start 和父观察断开不重复运行：假 worker 秒退 → failed worker_exited_before_claim，attempts=1；再次 start 不增尝试；`--retry` 才 attempts=2 且 runId 不变；CLI 父进程退出后再次 start 仍 attempts=1、reused=true；句柄缺失置 failed handle_missing，不启动第二个 worker。
+  - 并行纯记录保留而不破坏快照冻结：start 与 task record 并发，记录保存成功、inputs 摘要与 effective 摘要不变、快照仍 ready、任务记录保留。
+  - 基本快照和启动故障测试：tracked/index/untracked／模式／符号链接／缺失起点／ignored 排除；超限 snapshot_too_large；Git 不可用 snapshot_unknown；unmerged index 拒绝。
+- 实施中纠正的事实：ready 原先把转移前文档摘要写成冻结值，任何 ready 后立即核对都会 stale；已改为按 ready 后文档计算。快照复制文件权限固定 0600，原模式只存 manifest，恢复由 016 按 manifest 还原。worker 在 012 验收的 `--prepare-only` 下于 prepared 后释放占用退出；013 已把默认路径改为同一 worker 持锁继续阶段，prepared 仍不等于 running。
+- 未解决问题／决定：① 013 的阶段执行与模型调用尚未实现，需从 `state.prepared` 继续并在执行期间持项目占用；② 模型 provider/model 目前由 prepare 显式传入，配置／主会话解析归 013/015；③ snapshot 还原、逐路径核对与外部改动保护归 016；④ run 未进 SQLite 索引，status 以文件为准，013 接收结果时再更新 binding/operations；⑤ 项目 `limits.snapshotsMaxBytes` 尚未接入，012 用默认 64 MiB 与 worker `--max-bytes`。
+- 对下一项的交接：013 从 `RunStore.readState(runId).prepared === true` 继续，复用 `inputs.json` 的 effectiveInputsDigest 与 `snapshot/manifest.json`；阶段执行期间保持项目执行占用，终态写 result 后由核心按 `request.acceptanceOperationId` 接收；启动失败先读 launch 句柄与 state，不另建 run；worker 已支持的 `--locks` 仅测试隔离用。
 
 优先扫描下一编号（阻塞时可继续跳过）：[013 实现实施、检查、结果接收与恢复续做](013-stage-execution-and-recovery.md)。

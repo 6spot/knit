@@ -1,0 +1,9 @@
+✔ scope 跨 run 累积、换会话不重置修复计数与检查事实 (2298.366369ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2731.936289

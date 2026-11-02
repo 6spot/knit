@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "runId": "run-80d7f011dd4a",
+  "taskId": "k-b2991e9d775f",
+  "phase": "implement",
+  "purpose": "stage",
+  "initiator": {
+    "client": "cli",
+    "knitSessionId": null,
+    "nativeSessionId": null,
+    "cwd": "."
+  },
+  "createdAt": "2026-11-02T03:24:51.124Z",
+  "expected": {
+    "branch": "refs/heads/main",
+    "inputsDigest": "40d3a7b02840f01b4c15cefa6da9a9ac5c8ea18bc900369eaed49d57a1844c1a",
+    "standardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda",
+    "effectiveInputsDigest": "442d6b6e4dbfd11fc1867aea9f726966b5f99a2da67395f3a90f8d74d9a7c856",
+    "planId": "ctx-45ebfb828274",
+    "scopeDigest": null
+  },
+  "model": {
+    "runtime": "pi",
+    "provider": "fake",
+    "model": "fake"
+  },
+  "toolPolicy": {
+    "mode": "write",
+    "allow": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "task"
+    ],
+    "deny": []
+  },
+  "recovery": {
+    "nativeSessionId": null,
+    "resume": "prefer"
+  },
+  "acceptanceOperationId": "accept-bf26570b5cb1",
+  "diagnostics": {
+    "enabled": false
+  }
+}

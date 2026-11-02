@@ -1,0 +1,9 @@
+✔ 接收检查点：Task 已写而 binding 失败时重入收敛，不重复推进或重跑 (1612.613797ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2043.496238

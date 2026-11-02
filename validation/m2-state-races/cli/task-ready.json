@@ -1,0 +1,11 @@
+{
+  "protocolVersion": 1,
+  "requestId": "task-ready-1793592663970-j75a0i",
+  "outcome": "completed",
+  "data": {
+    "taskId": "k-4acee072e3a0",
+    "phase": "implement",
+    "confirmedInputsDigest": "15abcdc859e5cb18ab25789c7db17a1222b3fe219ddbc55ab1435fb43fa0e9f2",
+    "confirmedStandardsDigest": "d4d82dc4ff79a66f82296dcef66eb29c72a895f0ed731cadae42f357b4ebfeda"
+  }
+}

@@ -59,12 +59,26 @@
 
 以下是事实记录，不另存一份任务状态；状态只改根 TASKS.md。
 
-- 执行者／Session：尚未认领。
-- 开始／结束时间：未开始。
-- 实际修改：未实施。
-- 实际验证命令与结果：未执行。
-- 证据位置：无。
-- 未解决问题／决定：无已知新增项；实施时据实补充。
-- 对下一项的交接：待本项完成后填写。
+- 执行者／Session：ZCode（Pi session 01a1981c-6f75-749d-b9c2-7e5c897950a6）。
+- 开始／结束时间：2026-11-02。
+- 实际修改：
+  - `src/contracts/session.ts`：索引记录升级为 DESIGN9.5 字段（Knit Session ID、kind、sessionFile、parent、source、task/branch/run、cwd、checkpoint、selection 快照、lastVerifiedAt、nativeReadable、relatedRunState）；`newKnitSessionId` 为 s-+12hex。
+  - `src/contracts/context-plan.ts`（新）：分层 section（task-inputs／progress／workflow／role／runtime／standard／pending-draft／standard-candidate）、注入途径、排除项、工具策略与就绪／阻塞字段。
+  - `src/adapters/pi/native-entries.ts`：新增 `readActiveEntryIds`（按 parentId 回溯当前有效分支）、`readCustomEntries`（只读选择事件）、`readEntrySummaries`（只读历史摘要，不含正文）；`native-file.ts`：`piSessionDir`（与 Pi 1.4.0 编码一致）与 `findNativeSessionFile`（按 `<timestamp>_<id>.jsonl` 稳定查找）。
+  - `src/application/session-service.ts`（新）：attach／verify／list／useTask／clearTask／resolveSelection／history；未落盘只记待确认，原生有效路径为选择权威，树切换不复活旧条目，cwd 不一致不误选，子会话不得复用主会话原生文件。
+  - `src/application/context-planner.ts`（新）：分层计划；只有任务输入区与正式规范／角色计入 inputsDigest，记录区、未生效草案、候选规范只作背景；role 文件缺失时 implement/check 不就绪。
+  - `src/application/guard-error.ts`（新）与 TaskGuardError 继承；`src/cli/output.ts` 统一映射（pending/runs_unsettled → needs_review，其余业务拒绝 → invalid_request）。
+  - `src/ports/infrastructure.ts` 与 `src/infrastructure/sqlite-metadata-store.ts`：sessions 增列（knit_session_id／kind／task_id／parent_session_id）与索引，新增 save／getByKnitId／list／setSelection，旧库按 PRAGMA table_info 补列。
+  - `src/application/task-service.ts`：导出 `tasksRootOf`／`listTaskDirectories`／`locateTaskDocument`（返回原文供指纹）供上下文计划复用；`src/cli/task.ts` 新增 task use／clear，`src/cli/session.ts`（新）注册 session attach／list／verify／resolve／history 与 context。
+  - `test/session.test.mjs`（新 7 项）；`test/contracts.test.mjs`、`test/metadata.test.mjs` 夹具适配完整索引记录。
+- 实际验证命令与结果：`npm test` 111/111（session 7 + task 17 + init 11 + infrastructure 18 + domain 23 + contracts 17 + cli 5 + pi-runtime 12 + metadata 6）；`npm run pack:check` 通过；`npm run typecheck` 通过。临时真实项目（/tmp/knit-010-e2e，已清理）用真实 CLI 实测：init → task new → session attach（真实 Pi 格式 JSONL，available 与稳定路径）→ session resolve（原生事件 k-9a3779361378 / entry e2）→ context --json（ready、inputsDigest b949b7cfd8ef、6 层 section、progress 背景、toolPolicy write）→ task clear --persisted（resolve 清除生效，entry e3）→ task use 未落盘（只待确认，resolve 仍无选择）→ 删除原生文件后 verify=missing/native_file_missing、恢复后 available；全程零 Git 提交、零模型调用。
+- 任务书必需验证逐项：
+  - Task ID／原生 Session／项目／角色不混淆：索引按（client、原生 ID、角色）定位，任务按稳定 ID；同原生 ID 不同角色得不同 Knit Session ID；同原生 ID 跨项目 attach 拒绝 project_conflict；子会话复用主会话原生文件拒绝 main_session_reuse；子会话必填父会话。
+  - 活跃主会话不被 worker 复用：同上 main_session_reuse 断言（测试）。
+  - 清除、路径切换与临时 cwd 不误选：clear 事件（taskId=null）生效后 resolve 返回无选择且不复活更早条目；新叶挂到更早父条目后旧分支选择不在 activeIds，返回 selection_entry_not_on_active_path；cwd 不一致返回 cwd_mismatch。
+  - 参数／指令就绪可首轮调用，未落盘不可声称可恢复：context 在模板齐全时 ready=true 且 toolPolicy 按角色；attach 未落盘为 opening/native_file_not_persisted、nativeReadable=false，不置 available。
+- 实施中纠正的事实：JSON 错误响应最初未设置非零退出码（协议错误被当成功）；子会话复用主会话时先报 kind 冲突而非 main_session_reuse；文件从已落盘变为缺失时状态应为 missing 而非 opening（按曾有记录区分）；`task clear` 人类可读输出按 persisted 判定。
+- 未解决问题／决定：① 主会话选择条目的写入由桥接经宿主 API 完成（015 验收），本任务实现核心侧的落盘确认（persisted+entryRef）、有效路径解析与索引更新；② ContextPlanner 生成的 plan 尚未写 `inputs.json`（run 发布归 012/013）；③ 候选规范目录约定 `.knit/standards/candidates/`，正式闭环归 011；④ 角色枚举无 deliver，收尾阶段使用 advisory 或主会话指令（DESIGN 8.1），如需独立 deliver 角色在 011 后再定。
+- 对下一项的交接：011 可直接用 `ContextPlanner.plan` 的 section 指纹与 excluded 理由区分“候选/正式”；SessionService.attach 已支持 source=fork/switch/resume_fallback 与 parent 关系，恢复兜底原因可写入 source.reason；`readActiveEntryIds`／`readEntrySummaries` 可复用于 run 条目范围核实；store.sessions.list({taskId}) 支持按任务查会话。
 
 优先扫描下一编号（阻塞时可继续跳过）：[011 实现规范候选到正式规则的闭环](011-standards-evolution.md)。

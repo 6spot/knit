@@ -1,0 +1,108 @@
+/** CLI 输出格式化：人类可读为主，--json 输出协议响应（stdout 只写协议结果）。 */
+import { PROTOCOL_VERSION } from "../contracts/protocol.js";
+import type { CliResponse, Outcome, ReasonCode } from "../contracts/protocol.js";
+import { GuardError } from "../application/guard-error.js";
+
+export function jsonResponse(requestId: string, outcome: Outcome, data?: unknown, reasonCode?: ReasonCode, nextActions?: string[]): CliResponse {
+  const response: CliResponse = { protocolVersion: PROTOCOL_VERSION, requestId, outcome };
+  if (data !== undefined) response.data = data;
+  if (reasonCode !== undefined) response.reasonCode = reasonCode;
+  if (nextActions !== undefined) response.nextActions = nextActions;
+  return response;
+}
+
+export function emit(response: CliResponse): void {
+  process.stdout.write(JSON.stringify(response, null, 2) + "\n");
+}
+
+/** 应用层错误到协议 reasonCode 的映射（应用层唯一映射点）。 */
+export function reasonForError(error: unknown): ReasonCode {
+  if (error instanceof GuardError) {
+    const guard = String(error.details?.guardReason ?? "");
+    if (
+      guard === "pending_draft_exists" ||
+      guard === "no_pending_draft" ||
+      guard === "runs_unsettled" ||
+      guard === "check_not_passed" ||
+      guard === "standards_review_required" ||
+      guard === "standards_apply_required" ||
+      guard === "authorization_changed" ||
+      guard === "policy_changed"
+    ) {
+      return "needs_review";
+    }
+    if (guard === "external_effect_unknown") return "external_effect_unknown";
+    if (
+      guard.startsWith("hook_") ||
+      guard === "git_failed" ||
+      guard === "git_commit_failed" ||
+      guard === "archive_commit_failed" ||
+      guard === "commit_scope_mismatch" ||
+      guard === "archive_scope_mismatch" ||
+      guard === "commit_parent_mismatch" ||
+      guard === "archive_parent_mismatch" ||
+      guard === "commit_message_mismatch" ||
+      guard === "commit_not_created" ||
+      guard === "archive_commit_not_created" ||
+      guard === "step_effect_missing" ||
+      guard === "archive_target_exists" ||
+      guard === "archive_move_unknown" ||
+      guard === "archive_target_missing" ||
+      guard === "archive_path_missing"
+    ) {
+      return "external_effect_unknown";
+    }
+    if (guard === "check_stale" || guard === "stale_scope" || guard === "stale_input" || guard === "branch_changed" || guard === "repo_mismatch") {
+      return "stale_input";
+    }
+    if (
+      guard === "snapshot_not_ready" ||
+      guard === "snapshot_index_unavailable" ||
+      guard === "remove_created_required" ||
+      guard === "unsupported_path" ||
+      guard === "task_closed" ||
+      guard === "task_not_managed"
+    ) {
+      return "needs_review";
+    }
+    // 请求事实不成立／身份冲突：参数错误，不按需人工复核处理。
+    return "invalid_request";
+  }
+  const code = (error as { code?: string })?.code;
+  switch (code) {
+    case "version_conflict":
+      // 草案／基线不匹配语义上是 stale_input；文件版本冲突是旧基线 incompatible_version。
+      return (error as { details?: { guardReason?: string } }).details?.guardReason === "stale_input" ? "stale_input" : "incompatible_version";
+    case "lock_busy":
+      return "busy";
+    case "path_escape":
+    case "multiple_session_locks":
+      return "invalid_request";
+    case "git_unavailable":
+    case "lock_token_mismatch":
+    case "lock_owner_unknown":
+    case "lock_fs_unsupported":
+      return "needs_review";
+    case "io_error":
+    default:
+      return "io_error";
+  }
+}
+
+export function outcomeForError(error: unknown): Outcome {
+  const reason = reasonForError(error);
+  if (reason === "busy" || reason === "io_error") return "blocked";
+  if (reason === "external_effect_unknown") return "needs_attention";
+  return "error";
+}
+
+/** 人类可读计划行。 */
+export function formatPlanItem(item: { path: string; action: string; reason: string }): string {
+  const actionLabel: Record<string, string> = {
+    create: "创建",
+    keep: "沿用",
+    update: "更新",
+    conflict: "冲突",
+  };
+  return `  ${actionLabel[item.action] ?? item.action}  ${item.path}  — ${item.reason}`;
+}

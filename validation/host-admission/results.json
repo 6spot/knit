@@ -1,0 +1,103 @@
+{
+  "status": "completed",
+  "cases": {
+    "schema-and-trust": {
+      "status": "passed",
+      "seconds": 18.19,
+      "details": {
+        "schema_probes": {
+          "ok": true,
+          "okPhase": true,
+          "badPhase": false,
+          "badType": false
+        },
+        "commands_registered": [
+          "knit-bridge-reload",
+          "knit-bridge-selftest",
+          "knit-bridge-status"
+        ],
+        "host_validation": {
+          "event": "selftest",
+          "version": "v1",
+          "objectRunId": {
+            "isError": true,
+            "reachedExecute": false,
+            "text": "Validation failed for tool \"knit_status\":\n  - runId: must be string\n\nReceived arguments:\n{\n  \"runId\": {\n    \"deep\": 1\n  },\n  \"phase\": \"implement\"\n}"
+          },
+          "badPhase": {
+            "isError": true,
+            "reachedExecute": false
+          },
+          "coerced": {
+            "isError": false,
+            "runId": "123"
+          },
+          "valid": {
+            "isError": false,
+            "runId": "r-probe",
+            "state": "unknown"
+          }
+        },
+        "coercion_semantics": "Value.Convert 强转兼容原始类型（123→\"123\"）；对象与非法联合字面量被拒（isError，不达 execute）",
+        "real_model_called_registered_tool": true,
+        "untrusted_not_loaded": true,
+        "ready_marker_not_trust": true,
+        "sdk_dependency": false
+      }
+    },
+    "reload-no-duplicate": {
+      "status": "passed",
+      "seconds": 2.45,
+      "details": {
+        "cmd_events_after_reload": 2,
+        "session_starts": 2,
+        "tool_registrations": 2,
+        "note": "reload 后旧监听不重复：每条命令仍只产生一条事件。"
+      }
+    },
+    "result-pipeline": {
+      "status": "passed",
+      "seconds": 34.75,
+      "details": {
+        "no_result_no_delivery": true,
+        "nonterminal_not_delivered": true,
+        "passive_delivered_without_model": true,
+        "dedupe_single_notice": true,
+        "wake_triggered_model_round": {
+          "tokens_before_after": {
+            "input": [
+              0,
+              56
+            ],
+            "output": [
+              0,
+              13
+            ],
+            "cacheRead": [
+              0,
+              2432
+            ],
+            "cacheWrite": [
+              0,
+              0
+            ],
+            "total": [
+              0,
+              2501
+            ]
+          }
+        },
+        "busy_followup_after_current_answer": true,
+        "foreign_origin_not_delivered": true,
+        "context_switch_no_misdelivery": true,
+        "sdk_dependency": false
+      }
+    }
+  },
+  "sdk_imported": false,
+  "env": {
+    "pi": "1.4.0",
+    "node": "v24.21.0",
+    "model": "magpie/auto/glm-5.3-flash"
+  }
+}
