@@ -57,4 +57,15 @@ title: 快照策略落地或改规范
 - 中断后重试不留 tmp 残留，有隔离夹具测试。
 - 搜索 HEAD 策略／bases 旧措辞，每处命中归属正确。
 
+### 交付记录
+
+<!-- knit:delivery:op-6b7fb6faebc3 -->
+- 操作: op-6b7fb6faebc3
+- 时间: 2026-11-02T11:00:25.668Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: d5702d4267c7aca45ed868f77ece94dfb02d9a75
+- 结果: 正常交付；检查 run-1b5ae6153e35 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-snapshot-policy
+
 <!-- knit:progress:end -->
