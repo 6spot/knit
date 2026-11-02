@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import process from "node:process";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -69,6 +69,9 @@ check(leaked.length === 0, `无禁止文件（${leaked.length > 0 ? leaked.join(
 
 const compiledEntry = readFileSync(new URL("../dist/cli/knit.js", import.meta.url), "utf8");
 check(!compiledEntry.includes(process.cwd()), "编译入口不含本机仓库绝对路径");
+
+const binMode = statSync(new URL("../dist/cli/knit.js", import.meta.url)).mode;
+check((binMode & 0o111) === 0o111, "bin 入口保留执行位（可执行）");
 
 const run = spawnSync(process.execPath, [new URL("../dist/cli/knit.js", import.meta.url).pathname, "--version"], {
   encoding: "utf8",
