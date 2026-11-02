@@ -2,11 +2,17 @@
 
 这是开发Knit本身的临时文件式排程，也是本仓库开发任务的唯一状态表。2026-11-02 用户已授权在本工程运行 knit init：`.knit/` 受管元数据与 `.pi/extensions/knit.ts` 桥接已生成，均未提交，去留随下次提交授权一并决定；本队列仍保存在根 tasks/，`.knit/tasks/` 只保存由 Knit 创建的任务。产品元数据已由 M0 选定 SQLite。
 
-目录骨架已建立；本次创建时26项统一设为pending，后续执行进度只以本表为准。本文件是唯一任务状态表；各任务文件只存范围、验收和执行事实，不重复维护status。
+初始001–026的执行事实按历史保留，027–043承接一致性审计修复与复验；本轮新增044–051承接主会话与任务规划补齐，052承接Pi 1.5.0兼容与公开能力评估，均设为pending。后续执行进度只以本表为准；各任务文件只存范围、验收和执行事实，不重复维护status。
 
 ## 当前一致性复核
 
 2026-11-02 对已提交基线 `50936d71a6fb414dec7edfb793e4510f81889ac4` 完成任务、设计与实现交叉核对，发现16项偏差（8 P1／7 P2／1 P3）。[审计报告与证据](validation/design-implementation-audit/README.md)记录原001–026逐项映射；027–042承接修复，043独立复验。原任务历史completed保留；当前不能据此前结论宣称无未处理数据保护／实现缺口。修复尚未实施，下一开发入口为027；check-report-fence产品任务的并发改动不在本轮改写范围。
+
+## 本轮首版交付补齐
+
+用户已确认将主会话任务识别与创建、澄清与实施规划、每轮上下文，以及小任务单文件／复杂任务多文件资料一并纳入首版。044明确共同契约，045–049分别实现资料、加载、宿主注入、创建和规划，050验证安装升级集成，051独立验收自然语言全链路。另增052核对Pi 1.5.0更新日志、CLI／RPC／宿主公开能力，落实必要适配并评估有利的新能力；可独立审当前基线，为新工作流提供版本化约束。各项范围、实际依赖和完成条件见任务文件；本轮仅创建开发排程并进行只读核对，未实施功能或创建产品Task。
+
+027–043保留原16项审计发现的修复职责。043通过不能代替新增能力验收；当前首版就绪还须044–050交付并由051独立核实，以及052确认目标Pi版本兼容，与既有必需门槛共同满足。编号仍按原规则优先推进，新增任务不要求把全部旧任务串为硬依赖；实际阻塞按具体接口判断。
 
 ## Agent 执行方式
 
@@ -17,7 +23,7 @@
 5. 记录后继续扫描后续任务。依赖同一阻塞且暂时无法实现的任务，引用同一阻塞编号，写清能做／待补部分后继续跳过；可独立推进的领域、契约、模板、查询、测试或文档照常开发。不得把关键安全、授权或真实效果要求降级成假成功。
 6. 实施并做相称验证，记录实际命令、环境、证据和未验证项，同步受影响设计。伪代码只表示待实现，最小测试替身只证明局部逻辑；必需实现／验证仍缺失时保持blocked，不能标completed。
 7. 一项交付与必需验证全部达到才改completed，然后继续下一项，无需重复请示。扫描到尾后，仅对有新事实／依赖已补齐的阻塞回头复验；需用户选择的等待明确决定，暂定接口不等于用户选型。
-8. 020、026用独立检查上下文，模型可以相同。检查可先审已有成果、记录缺口，但有必需阻塞就不能宣称阶段／发布验收通过；这不阻止继续开发其它独立任务。
+8. 020、026、043、051用独立检查上下文，模型可以相同。检查可先审已有成果、记录缺口，但有必需阻塞就不能宣称阶段／发布验收通过；043与051分别检查原审计修复和新增工作流，不互相替代。这不阻止继续开发其它独立任务。
 9. 当前无可推进工作时汇总已完成、伪代码和待用户决定项交接。不要为继续而空转，也不要仅因遇到第一项阻塞就结束整轮。
 
 ## 状态约定
@@ -85,6 +91,15 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 041 | 审计修复 P2 | pending | [在项目状态概览中列出按月归档任务](tasks/041-include-archive-status.md) |
 | 042 | 审计修复 P3 | pending | [在 Pi 命令中展示结构化查询结果](tasks/042-show-bridge-query-results.md) |
 | 043 | 审计复验 | pending | [独立复验一致性审计修复与当前就绪结论](tasks/043-audit-independent-regression.md) |
+| 044 | 首版工作流 | pending | [明确主会话工作流与任务规划资料契约](tasks/044-main-agent-workflow-contract.md) |
+| 045 | 首版工作流 | pending | [实现任务规划资料与多文件输入生命周期](tasks/045-task-planning-materials.md) |
+| 046 | 首版工作流 | pending | [按角色加载任务需求设计与实施计划](tasks/046-role-aware-task-context.md) |
+| 047 | 首版工作流 | pending | [实现主会话每轮任务上下文与工作流注入](tasks/047-main-session-context-injection.md) |
+| 048 | 首版工作流 | pending | [实现自然语言任务识别授权与创建衔接](tasks/048-conversation-task-intake.md) |
+| 049 | 首版工作流 | pending | [实现需求澄清持久规划与实施前核对](tasks/049-discussion-planning-readiness.md) |
+| 050 | 首版工作流 | pending | [集成首版工作流模板安装与升级](tasks/050-workflow-template-upgrade-integration.md) |
+| 051 | 首版工作流验收 | pending | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md) |
+| 052 | 首版运行时兼容 | pending | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md) |
 
 ## 阶段验收门槛
 
@@ -96,15 +111,17 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | M1 | 006–015 | 临时项目可安装闭环：Task／规范／Session／worker／独立检查／限定交付，生成桥接实际验收 |
 | M2 | 016–020 | 历史独立检查通过；本轮新增检查资格、草案、路径等缺口，当前结论须按027–040修复后由043独立复验；真实项目使用仍受020原有限制约束 |
 | M3A | 021–024 | 分支／树／多会话、升级与规则、完整查询用量、私有诊断及日常接续 |
-| M3B | 025–026、043 | 保留历史安装／审查证据；027–042修复后由043重新核对Linux首版就绪结论；macOS仍按B001延期，不自动发布 |
+| 首版主会话与规划 | 044–051 | 从自然语言需求进入任务创建／拒绝、澄清、轻重任务规划、实施交接和跨Session接续；实际包内初始化／升级可用，由051独立核实 |
+| Pi版本兼容 | 052 | 对比已验证基线与Pi 1.5.0公开变化，完成必要适配及CLI／宿主实际验证，给出新能力采用决定；为047–050交接版本化接口约束 |
+| M3B | 025–026、043、051–052 | 保留历史安装／审查证据；027–042修复由043复验，044–050新增工作流由051验收，052确认Pi目标版本兼容，共同核对Linux首版就绪结论；macOS仍按B001延期，不自动发布 |
 
 ## 覆盖与依据
 
-逐行对应DESIGN第16.1节；前面任务落实能力，后续门槛任务复核实际效果，不能以覆盖表代替验证。
+既有场景对应DESIGN第16.1节；本轮新增主会话与规划场景由044同步写入规范。前面任务落实能力，后续门槛任务复核实际效果，不能以覆盖表代替验证。
 
 | 首版验收场景 | 主要任务 |
 | --- | --- |
-| CLI 与存储验证 | [001](tasks/001-engineering-baseline.md)、[002](tasks/002-contracts-and-ports.md)、[003](tasks/003-pi-cli-runtime.md)、[004](tasks/004-metadata-storage-decision.md)、[005](tasks/005-pi-host-admission.md) |
+| CLI 与存储验证 | [001](tasks/001-engineering-baseline.md)、[002](tasks/002-contracts-and-ports.md)、[003](tasks/003-pi-cli-runtime.md)、[004](tasks/004-metadata-storage-decision.md)、[005](tasks/005-pi-host-admission.md)、[052](tasks/052-pi-1-5-compatibility-and-capabilities.md) |
 | 初始化与内部装配 | [008](tasks/008-project-initialization.md)、[015](tasks/015-cli-bridge-m1-gate.md) |
 | 输入与阶段 | [006](tasks/006-domain-rules.md)、[009](tasks/009-task-files-and-inputs.md)、[013](tasks/013-stage-execution-and-recovery.md)、[015](tasks/015-cli-bridge-m1-gate.md)、[018](tasks/018-acceptance-and-state-races.md) |
 | 规范演进 | [011](tasks/011-standards-evolution.md)、[015](tasks/015-cli-bridge-m1-gate.md) |
@@ -125,7 +142,13 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 初始化升级与指令 | [022](tasks/022-upgrades-and-instructions.md) |
 | 用量与完整查询 | [023](tasks/023-usage-history-and-diagnostics.md)、[024](tasks/024-developer-mode-m3a-gate.md) |
 | 归档历史 | [014](tasks/014-delivery-and-archive.md)、[019](tasks/019-git-and-seal-failures.md)、[021](tasks/021-adopt-tree-and-sessions.md)、[023](tasks/023-usage-history-and-diagnostics.md) |
-| 发布验证 | [025](tasks/025-packaging-and-platform-ci.md)、[026](tasks/026-release-independent-gate.md) |
+| 发布验证 | [025](tasks/025-packaging-and-platform-ci.md)、[026](tasks/026-release-independent-gate.md)、[043](tasks/043-audit-independent-regression.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| 主会话每轮任务与工作流上下文 | [044](tasks/044-main-agent-workflow-contract.md)、[046](tasks/046-role-aware-task-context.md)、[047](tasks/047-main-session-context-injection.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| 自然语言任务识别、授权、创建与拒绝 | [044](tasks/044-main-agent-workflow-contract.md)、[048](tasks/048-conversation-task-intake.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| 小任务单文件与复杂任务持久设计／计划 | [044](tasks/044-main-agent-workflow-contract.md)、[045](tasks/045-task-planning-materials.md)、[046](tasks/046-role-aware-task-context.md)、[049](tasks/049-discussion-planning-readiness.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| 多轮澄清、实施前核对与中途需求变化 | [044](tasks/044-main-agent-workflow-contract.md)、[045](tasks/045-task-planning-materials.md)、[048](tasks/048-conversation-task-intake.md)、[049](tasks/049-discussion-planning-readiness.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| 新工作流包内初始化、旧模板升级与跨会话接续 | [046](tasks/046-role-aware-task-context.md)、[047](tasks/047-main-session-context-injection.md)、[050](tasks/050-workflow-template-upgrade-integration.md)、[051](tasks/051-main-workflow-independent-gate.md) |
+| Pi 1.5.0兼容、公开接口变化与能力采用 | [052](tasks/052-pi-1-5-compatibility-and-capabilities.md)、[047](tasks/047-main-session-context-injection.md)、[050](tasks/050-workflow-template-upgrade-integration.md)、[051](tasks/051-main-workflow-independent-gate.md) |
 
 设计入口：[DESIGN.md](DESIGN.md)、[ARCHITECTURE.md](ARCHITECTURE.md)、[STATES.md](STATES.md)、[TECHNOLOGY.md](TECHNOLOGY.md)、[OPERATIONS.md](OPERATIONS.md)。审查与已有事实见 [RESEARCH.md](RESEARCH.md)、[整体设计审查](validation/design-audit/README.md)。这些既有材料减少重复调研，不能替代当前实现的验收。
 
