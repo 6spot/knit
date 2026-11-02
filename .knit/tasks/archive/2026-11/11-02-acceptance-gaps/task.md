@@ -52,4 +52,15 @@ title: 补验收与测试缺口
 
 验收标准：npm test 全绿且新增确定性用例通过；DESIGN §16.1 无无证据验收行；validation 记录无未标注的覆盖缺口。
 
+### 交付记录
+
+<!-- knit:delivery:op-9d6b164b0a95 -->
+- 操作: op-9d6b164b0a95
+- 时间: 2026-11-02T11:30:01.894Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-02-授权逐任务顺序交付
+- 工作提交: d71aef3066a700026e1bfeea07842edc79f3271a
+- 结果: 正常交付；检查 run-c75992bdd3b8 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-02-acceptance-gaps
+
 <!-- knit:progress:end -->
