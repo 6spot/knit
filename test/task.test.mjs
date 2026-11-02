@@ -60,6 +60,23 @@ function fixedDate() {
   return new Date("2026-11-02T03:04:05Z");
 }
 
+test("正式任务创建要求 Git／本地文件系统前置", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-009-nogit-"));
+  try {
+    const { store, service } = makeService(dir);
+    try {
+      await assert.rejects(
+        () => service.newTask({ dir, title: "无 Git", slug: "nogit" }),
+        (error) => error.guardReason === "git_required",
+      );
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("taskDirectoryName：日期前缀与重名短序号", () => {
   const existing = ["11-02-fix-login"];
   assert.equal(taskDirectoryName(fixedDate(), "fix-login", existing), "11-02-fix-login-2");

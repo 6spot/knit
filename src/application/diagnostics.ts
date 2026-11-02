@@ -3,7 +3,7 @@
  * 不创建目录、不迁移数据库、不写日志；容量只作提示。
  */
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -162,6 +162,15 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
   add("git", gitHead.status === 0 ? "ok" : "warn", gitHead.status === 0 ? gitHead.stdout.trim() : "无可用 HEAD（正式代码阶段与交付需要）");
   const branch = spawnSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd: root, encoding: "utf8" });
   add("branch", branch.status === 0 ? "ok" : "warn", branch.status === 0 ? branch.stdout.trim() : "当前不是本地分支");
+  const remoteFs = new Set([0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x65735546]);
+  try {
+    const type = statfsSync(root).type;
+    add("filesystem", remoteFs.has(type) ? "fail" : "ok", remoteFs.has(type) ? `项目根位于已知网络／云同步文件系统 (0x${type.toString(16)})` : "项目根文件系统可本地核实");
+  } catch (error) {
+    add("filesystem", "warn", `项目根文件系统无法核实: ${String(error)}`);
+  }
+  const syncRoot = ["Dropbox", "iCloud Drive", "OneDrive", "Google Drive"].find((name) => root.includes(`/${name}/`));
+  add("cloud-sync", syncRoot === undefined ? "ok" : "warn", syncRoot === undefined ? "未命中已知云同步根" : `项目位于 ${syncRoot}；活跃 runtime 不应跨机同步`);
   const piBin = input.piBin ?? process.env.KNIT_PI_BIN ?? "pi";
   const piVersion = spawnSync(piBin, ["--version"], { encoding: "utf8", timeout: 5000 });
   add("pi", piVersion.status === 0 ? "ok" : "fail", piVersion.status === 0 ? piVersion.stdout.trim() : `无法运行 ${piBin}`);

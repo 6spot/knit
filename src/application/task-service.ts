@@ -4,7 +4,7 @@
  * 占用：目录改名与输入变更用项目执行占用；task record 用任务文件短占用（OPERATIONS.md 第2节）。
  * 业务裁决委托 domain/task.ts；本服务核对事实、执行 IO、写回转移结果。
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
@@ -291,6 +291,36 @@ export function locateTaskDocument(
   throw new InfrastructureError("io_error", `任务不存在: ${taskId}`);
 }
 
+const REMOTE_FS_TYPES = new Set([0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x65735546]);
+
+/** 正式任务创建／ready 的 Git 与本地文件系统前置；只读查询不调用。 */
+function assertFormalTaskEnvironment(root: string): void {
+  try {
+    if (REMOTE_FS_TYPES.has(statfsSync(root).type)) {
+      throw new TaskGuardError("lock_fs_unsupported", "项目根位于已知网络／云同步文件系统，不能建立正式任务");
+    }
+  } catch (error) {
+    if (error instanceof TaskGuardError) throw error;
+    throw new TaskGuardError("lock_fs_unsupported", `无法核实项目根文件系统: ${String(error)}`);
+  }
+  const inside = gitSync(["rev-parse", "--is-inside-work-tree"], root);
+  if (inside.code !== 0 || inside.stdout.trim() !== "true") throw new TaskGuardError("git_required", "正式任务需要 Git 工作区");
+  if (gitSync(["rev-parse", "--verify", "HEAD"], root).code !== 0) throw new TaskGuardError("git_head_required", "正式任务需要可读 HEAD");
+  if (gitSync(["symbolic-ref", "-q", "HEAD"], root).code !== 0) throw new TaskGuardError("detached_head", "正式任务需要本地分支，不能 detached HEAD");
+  for (const marker of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"]) {
+    if (gitSync(["rev-parse", "-q", "--verify", marker], root).code === 0) {
+      throw new TaskGuardError("git_operation_in_progress", `Git 仍有未完成操作: ${marker}`);
+    }
+  }
+  for (const dir of ["rebase-merge", "rebase-apply"]) {
+    if (existsSync(join(root, ".git", dir))) throw new TaskGuardError("git_operation_in_progress", "Git rebase 尚未完成");
+  }
+  if (gitSync(["ls-files", "-u"], root).stdout.trim() !== "") throw new TaskGuardError("git_conflict", "Git index 仍有未解决冲突");
+  if (gitSync(["ls-files", "--", ".knit/.runtime"], root).stdout.trim() !== "") {
+    throw new TaskGuardError("runtime_tracked", ".knit/.runtime 已被 Git 跟踪，先移出跟踪");
+  }
+}
+
 export class TaskService {
   private readonly store: MetadataStore;
   private readonly locks: LockManager;
@@ -338,6 +368,7 @@ export class TaskService {
    */
   async newTask(input: TaskNewInput): Promise<TaskNewResult> {
     const root = normalizeRoot(input.dir);
+    assertFormalTaskEnvironment(root);
     const now = input.now ?? this.now();
     const tasksRoot = this.tasksRoot(root);
     if (!existsSync(tasksRoot)) {
@@ -853,6 +884,7 @@ export class TaskService {
     confirmedStandardsDigest: string;
   }> {
     const root = normalizeRoot(input.dir);
+    assertFormalTaskEnvironment(root);
     const lock = await this.locks.acquire({
       keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
       action: "task.ready",
