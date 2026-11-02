@@ -19,6 +19,7 @@ import { RunStore } from "../dist/infrastructure/run-store.js";
 import { StatusService } from "../dist/application/status-service.js";
 import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/application/task-document.js";
+import { parseStageReport } from "../dist/application/stage.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
@@ -1045,6 +1046,83 @@ test("心跳丢失后 worker 停止新动作：fake-pi 下一次调用被拒绝�
     assert.equal(resultFile.state, "failed");
     assert.ok(resultFile.failureReason.startsWith("lock_ownership_lost"));
     assert.equal(new RunStore(dir).readState(runId)?.reason.startsWith("lock_ownership_lost"), true);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseStageReport 容错：围栏包裹、语言标注与字符串内围栏错位均可解析", () => {
+  const report = { summary: "核对完成", verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] };
+  const json = JSON.stringify(report, null, 2);
+  // 无围栏整体文本。
+  assert.equal(parseStageReport(json).report?.summary, "核对完成");
+  // ```json 围栏 + 前置说明文字。
+  assert.equal(parseStageReport(`结论如下：\n\n\`\`\`json\n${json}\n\`\`\`\n`).report?.verdict, "pass");
+  // 无语言标注的 ``` 围栏。
+  assert.equal(parseStageReport(`\`\`\`\n${json}\n\`\`\``).report?.verdict, "pass");
+  // 候选按「相邻及末尾闭标记」配对，字符串值内含 ``` 不再导致错位失败。
+  const fencedInside = JSON.stringify({ summary: "a```b\nc", verdict: "pass", coverage: ["x"] });
+  assert.equal(parseStageReport(`\`\`\`json\n${fencedInside}\n\`\`\``).report?.summary, "a```b\nc");
+});
+
+test("parseStageReport 失败语义：畸形 JSON 报 report_not_json；schema 不合报 report_schema_invalid 且保留根因", () => {
+  const notJson = parseStageReport("完全不是 JSON");
+  assert.equal(notJson.report, null);
+  assert.ok(notJson.error.startsWith("report_not_json:"));
+  // 畸形围栏：剥壳候选也解析不出 JSON，仍报 not_json 而非吞错。
+  const fencedBad = parseStageReport("说明\n```json\n{summary: 未加引号}\n```");
+  assert.equal(fencedBad.report, null);
+  assert.ok(fencedBad.error.startsWith("report_not_json:"));
+  // JSON 合法但 schema 不合（额外字段）：报 schema_invalid 且错误细节含根因。
+  const invalid = parseStageReport(JSON.stringify({ summary: "x", verdict: "pass", coverage: ["x"], evidence: "额外字段" }));
+  assert.equal(invalid.report, null);
+  assert.ok(invalid.error.startsWith("report_schema_invalid:"));
+  assert.ok(invalid.error.includes("evidence"));
+});
+
+test("检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸形报告仍失败", async () => {
+  const dir = project("check-fence");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    const implStatus = await waitTerminal(s, dir, impl.runId);
+    assert.equal(implStatus.state, "completed");
+
+    // 检查报告：前置说明 + ```json 围栏（真实 worker 曾这样输出导致 run failed）。
+    const fencedText = [
+      "所有验证已完成。结论：",
+      "",
+      "```json",
+      JSON.stringify({ summary: "独立核对完成", verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] }, null, 2),
+      "```",
+    ].join("\n");
+    const check = await startRun(s, dir, task.taskId, "check", { text: fencedText });
+    const checkStatus = await waitTerminal(s, dir, check.runId);
+    assert.equal(checkStatus.state, "completed");
+    assert.equal(checkStatus.result.report.verdict, "pass");
+    assert.equal(checkStatus.result.reportSummary, "独立核对完成");
+
+    // 下一任务的检查输出畸形 JSON：run 仍失败且失败原因可诊断。
+    const task2 = await readyTask(dir, s, "第二任务");
+    const impl2 = await startRun(s, dir, task2.taskId, "implement", {
+      writes: [{ path: "docs.md", content: "# docs\n" }],
+      report: { summary: "实现二", changedPaths: ["docs.md"] },
+    });
+    const impl2Status = await waitTerminal(s, dir, impl2.runId);
+    assert.equal(impl2Status.state, "completed");
+
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, { text: "检查结论：\n```json\n{summary: 未加引号}\n```" });
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task2.taskId, "check"));
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const badStatus = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(badStatus.state, "failed");
+    assert.ok(badStatus.result.failureReason.startsWith("report_not_json:"));
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

@@ -12,7 +12,48 @@ import { Value } from "typebox/value";
 
 export type SectionContents = Record<string, string>;
 
-const REPORT_BLOCK = /```json\s*([\s\S]*?)```/g;
+/** 收集文本中所有 ``` 围栏位置（含 JSON 字符串内部出现的，需配对尝试）。 */
+function fenceMarkerIndexes(text: string): number[] {
+  const markers: number[] = [];
+  for (let index = text.indexOf("```"); index !== -1; index = text.indexOf("```", index + 3)) {
+    markers.push(index);
+  }
+  return markers;
+}
+
+/**
+ * 从围栏位置提取候选子串：每个开标记与相邻及末尾闭标记配对，跳过开标记行的语言标注
+ * （```json 的 `json`）。应对 JSON 字符串值内含 ``` 导致逐块懒匹配错位的情况；
+ * 候选是否可用由调用方 JSON 解析与 schema 校验把关。
+ */
+function fenceCandidates(text: string): string[] {
+  const markers = fenceMarkerIndexes(text);
+  if (markers.length < 2) return [];
+  const candidates: string[] = [];
+  const limit = 24;
+  for (let i = 0; i < markers.length && candidates.length < limit; i++) {
+    const open = markers[i];
+    if (open === undefined) continue;
+    const lineEnd = text.indexOf("\n", open);
+    const openEnd = lineEnd === -1 ? open + 3 : lineEnd + 1;
+    for (const j of [i + 1, markers.length - 1]) {
+      const close = markers[j];
+      if (close === undefined || j <= i) continue;
+      const inner = text.slice(openEnd, close).trim();
+      if (inner !== "") candidates.push(inner);
+      if (candidates.length >= limit) break;
+    }
+  }
+  return candidates;
+}
+
+/** 取 schema 校验失败的前几条根因细节（含 instancePath），用于 failureReason 诊断。 */
+function schemaErrorDetail(raw: unknown): string {
+  return [...Value.Errors(StageReportSchema, raw)]
+    .slice(0, 3)
+    .map((error) => `${error.instancePath || "/"}: ${error.message}`)
+    .join("; ");
+}
 
 /** 按 plan 的来源路径读取正文；任务输入／记录区从 task.md 切分。 */
 export function loadSectionContents(root: string, plan: ContextPlan, pendingDraft: string | null = null): SectionContents {
@@ -36,18 +77,28 @@ export function loadSectionContents(root: string, plan: ContextPlan, pendingDraf
   return contents;
 }
 
-/** 取最后一个 fenced JSON 块；没有块时尝试整体 JSON。 */
+/**
+ * 解析阶段报告：先尝试整体文本，再尝试各围栏子串（容错 ``` 包裹、语言标注与
+ * 字符串内含 ``` 的错位）；仅当候选解析为合法 JSON 且通过 schema 才采用。
+ * 无候选可用时维持 report_not_json / report_schema_invalid 失败语义，
+ * schema 失败在错误细节中保留根因（与 runtime_start_failed 的「代码：细节」约定一致）。
+ */
 export function parseStageReport(text: string): { report: StageReport | null; error: string | null } {
-  const blocks = [...text.matchAll(REPORT_BLOCK)];
-  const candidate = blocks.at(-1)?.[1]?.trim() ?? text.trim();
-  let raw: unknown;
-  try {
-    raw = JSON.parse(candidate);
-  } catch (error) {
-    return { report: null, error: `report_not_json:${String(error)}` };
+  let schemaDetail: string | null = null;
+  let parseError: string | null = null;
+  for (const candidate of [text.trim(), ...fenceCandidates(text)]) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(candidate);
+    } catch (error) {
+      parseError ??= String(error);
+      continue;
+    }
+    if (Value.Check(StageReportSchema, raw)) return { report: raw as StageReport, error: null };
+    schemaDetail ??= schemaErrorDetail(raw);
   }
-  if (!Value.Check(StageReportSchema, raw)) return { report: null, error: "report_schema_invalid" };
-  return { report: raw as StageReport, error: null };
+  if (schemaDetail !== null) return { report: null, error: `report_schema_invalid:${schemaDetail}` };
+  return { report: null, error: `report_not_json:${parseError ?? "无可解析的 JSON 候选"}` };
 }
 
 function sectionText(sections: ContextSection[], kinds: ContextSection["kind"][], contents: SectionContents): string {
