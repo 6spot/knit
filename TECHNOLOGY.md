@@ -61,7 +61,7 @@ JSON 协议区分 invalid_request、incompatible_version、busy、needs_context�
 
 ## 5. Git 与进程适配
 
-以 Git 2.30+ 的已有基础命令为目标，M0 验证所用选项，当前仅在本机 Git 2.54.0 做过部分行为实验。命令统一使用参数数组、项目 cwd、固定必要环境，解析 NUL 分隔结果；不从分支名或文件路径拼 shell 字符串。不会因最低目标声明而声称旧版本全测试通过。
+以 Git 2.30+ 的已有基础命令为目标，M0 验证所用选项，当前仅在本机 Git 2.52.0 做过部分行为实验。命令统一使用参数数组、项目 cwd、固定必要环境，解析 NUL 分隔结果；不从分支名或文件路径拼 shell 字符串。不会因最低目标声明而声称旧版本全测试通过。
 
 保留项目 hook，不默认 --no-verify。准备目标路径／树后提交并核实真实结果；hook 改变内容、额外路径或用户 index 时记录真实效果并进入 needs_attention，不自动 amend/reset。诊断禁用外部 diff/textconv、pager 与 fsmonitor hook。
 

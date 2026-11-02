@@ -280,7 +280,7 @@ test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
   assert.ok(block.startsWith(AGENTS_MANAGED_MARKER_BEGIN));
   assert.ok(block.trimEnd().endsWith(AGENTS_MANAGED_MARKER_END));
   assert.ok(block.includes(".knit/workflow.md"));
-  assert.ok(block.includes("knit list"));
+  assert.ok(block.includes("knit task list"));
 });
 
 test("CLI：init --json 输出协议响应；未知客户端拒绝", async () => {

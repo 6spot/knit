@@ -68,7 +68,7 @@ export function agentsManagedBlock(knitCommand: string): string {
     "",
     "本块由 Knit 生成并按基线维护；人工改动会因与基线不一致而报告差异，不静默覆盖。",
     "",
-    "- 任务列表：`.knit/tasks/`（`knit list`）",
+    "- 任务列表：`.knit/tasks/`（`" + knitCommand + " task list`）",
     `- 四环节工作流：\`.knit/workflow.md\`（讨论 → 实施 → 检查 → 交付；启动用 \`${knitCommand} start\`）`,
     "- 规范索引：`.knit/standards/index.md`",
     "- 阶段角色指令：`.knit/agents/`（implement / check / deliver，runtime 补充在 runtimes/）",

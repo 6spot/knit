@@ -109,7 +109,7 @@ export class InitializationService {
 
   constructor(options: InitServiceOptions = {}) {
     this.locks = new LockManager(options.locksRoot ? { root: options.locksRoot } : {});
-    this.knitCommand = options.knitCommand ?? "knit";
+    this.knitCommand = options.knitCommand ?? "npx --no-install knit";
     this.now = options.now ?? (() => new Date());
   }
 
