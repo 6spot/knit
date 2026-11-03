@@ -9,7 +9,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { Type } from "typebox";
 
 const MANAGED_BASELINE = "__BRIDGE_BASELINE__";
 const SELECTION_ENTRY = "knit.selection";
@@ -477,7 +476,8 @@ export default function (pi: any) {
     },
   });
 
-  const schema = (name: string) => (schemas && schemas[name] ? Type.Unsafe(schemas[name]) : Type.Object({}));
+  // 工具参数直接使用安装包内生成的纯 JSON Schema；未知工具名退回空对象 schema。
+  const schema = (name: string) => (schemas && schemas[name] ? schemas[name] : { type: "object" });
 
   pi.registerTool({
     name: "knit_status",
