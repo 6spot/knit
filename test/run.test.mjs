@@ -70,7 +70,7 @@ function services(dir) {
 }
 
 async function readyTask(dir, services, title = "run 任务") {
-  const task = await services.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-") });
+  const task = await services.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
   await services.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

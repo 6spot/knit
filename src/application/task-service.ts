@@ -8,10 +8,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSyn
 import { join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
+  DEFAULT_VERIFICATION,
   inputsDigestOf,
   pendingDraftDigest,
   newTaskId,
+  verificationModeOf,
   type UpdateKind,
+  type VerificationMode,
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import { onInputsUpdated, onPendingResolved, onReady, onComplete, onCloseWithOutcome, onRecordWritten, type TaskTransitionResult } from "../domain/task.js";
@@ -20,6 +23,7 @@ import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
 import { formalStandardsDigest } from "./standards.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
+import { RunStore } from "../infrastructure/run-store.js";
 import { readWithVersion, atomicWrite } from "../infrastructure/atomic.js";
 import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
@@ -34,6 +38,7 @@ import {
   snapshotTaskMaterials as snapshotMaterials,
 } from "./task-materials.js";
 import { scanCredentials } from "../contracts/credentials.js";
+import { CompletionService } from "./completion-service.js";
 
 const TASKS_DIR = "tasks";
 const ARCHIVE_DIR = "archive";
@@ -93,6 +98,8 @@ export interface TaskSummary {
   phase: string;
   outcome: string | null;
   branch: string | null;
+  /** 完成验证要求；旧记录缺省按 independent 展示。 */
+  verification: VerificationMode;
   /** 归档任务为相对 tasks/ 的目录路径；活跃任务为目录名。 */
   relativePath: string;
   archived: boolean;
@@ -109,6 +116,8 @@ export interface TaskNewInput {
   title: string;
   slug?: string;
   branch?: string | null;
+  /** 创建时确定完成验证要求；缺省 self。 */
+  verification?: VerificationMode;
   /** 测试注入；默认本地日期。 */
   now?: Date;
 }
@@ -119,6 +128,7 @@ export interface TaskNewResult {
   relativePath: string;
   title: string;
   branch: string | null;
+  verification: VerificationMode;
 }
 
 export interface TaskRenameInput {
@@ -141,6 +151,20 @@ export interface TaskAdoptInput {
   taskId: string;
   /** 完整 refs/heads/... 或 current（取当前本地分支）。 */
   branch: string;
+}
+
+export interface TaskVerificationInput {
+  dir: string;
+  taskId: string;
+  verification: VerificationMode;
+  reason?: string | null;
+}
+
+export interface TaskVerificationResult {
+  taskId: string;
+  verification: VerificationMode;
+  phase: string;
+  changed: boolean;
 }
 
 export interface TaskAdoptResult {
@@ -206,6 +230,8 @@ export interface TaskCloseInput {
   outcome: "completed" | "cancelled" | "superseded";
   /** 调用方已核实的收尾事实：无活动／未知 run、无未核实 Git 效果（STATES.md 第3节）。 */
   runsSettled: boolean;
+  /** 完成判断的用户说明；写入完成凭据。 */
+  reason?: string | null;
 }
 
 export interface TaskCloseResult {
@@ -215,6 +241,10 @@ export interface TaskCloseResult {
   phase: string;
   /** 关闭时撤回的未应用草案摘要；留原因记录。 */
   pendingWithdrawn: boolean;
+  /** completed 时写入的验证方式与凭据来源。 */
+  verification?: VerificationMode;
+  implementRunId?: string | null;
+  checkRunId?: string | null;
 }
 
 export interface TaskRunActivityPort {
@@ -422,12 +452,14 @@ export class TaskService {
     const { inputsBody, progressBody } = renderInitialTaskBody(input.title);
     // 创建前凭据扫描：标题进入任务正文（任务032）。
     assertNoCredentials(renderInitialTaskBody(input.title).inputsBody + input.title, "任务创建");
+    const verification = input.verification ?? DEFAULT_VERIFICATION;
     const frontmatter = {
       id: taskId,
       status: "open" as const,
       phase: "discuss" as const,
       outcome: null,
       branch: input.branch ?? null,
+      verification,
       createdAt: now.toISOString(),
       title: input.title,
     };
@@ -452,7 +484,7 @@ export class TaskService {
       pendingDraft: null,
     };
     await this.store.bindings.save(binding);
-    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch };
+    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification };
   }
 
   /** 任务列表：从任务目录派生（DESIGN.md 第2节）；frontmatter 为权威。 */
@@ -472,6 +504,7 @@ export class TaskService {
         phase: document.frontmatter.phase,
         outcome: document.frontmatter.outcome,
         branch: document.frontmatter.branch,
+        verification: verificationModeOf(document.frontmatter),
         relativePath: `${TASKS_DIR}/${name}`,
         archived: isArchived,
       };
@@ -540,7 +573,9 @@ export class TaskService {
         };
       }
       // 纯分支变化只使检查失效；deliver 不再可交付时回 check，discuss/implement/check 保持。
-      const nextPhase = document.frontmatter.phase === "deliver" ? "check" : document.frontmatter.phase;
+      const nextPhase = document.frontmatter.phase === "deliver"
+        ? (verificationModeOf(document.frontmatter) === "independent" ? "check" : "implement")
+        : document.frontmatter.phase;
       const updated = withRegions(document, {
         frontmatter: {
           ...document.frontmatter,
@@ -557,8 +592,9 @@ export class TaskService {
         mode: 0o644,
       });
       if (binding !== null) {
-        await this.store.bindings.save({ ...binding, branch, lastCheckRunId: null });
+        await this.store.bindings.save({ ...binding, branch, lastCheckRunId: null, lastImplement: null });
       }
+      new RunStore(root).removeCompletion(input.taskId);
       return {
         taskId: input.taskId,
         branch,
@@ -567,6 +603,59 @@ export class TaskService {
         checkInvalidated: true,
         phase: nextPhase,
       };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /**
+   * 设置完成验证要求：只在讨论阶段，作为任务输入的一部分。
+   * 已进入实施/检查后先走 change 更新回讨论，避免静默改写已冻结要求。
+   */
+  async setVerification(input: TaskVerificationInput): Promise<TaskVerificationResult> {
+    const root = normalizeRoot(input.dir);
+    if (!["none", "self", "independent"].includes(input.verification)) {
+      throw new TaskGuardError("invalid_verification", `未知验证要求: ${input.verification}`);
+    }
+    const lock = await this.locks.acquire({
+      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
+      action: "task.verification",
+    });
+    try {
+      const located = this.locate(root, input.taskId);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      if (document.frontmatter.status !== "open") throw new TaskGuardError("task_not_open", "已结束任务不能修改验证要求");
+      if (document.frontmatter.phase !== "discuss") {
+        throw new TaskGuardError("phase_mismatch", "验证要求只能在讨论阶段设置；先 task update --kind change 回到讨论");
+      }
+      const current = verificationModeOf(document.frontmatter);
+      if (current === input.verification) {
+        return { taskId: input.taskId, verification: current, phase: document.frontmatter.phase, changed: false };
+      }
+      const note = input.reason?.trim() ? `；理由: ${input.reason.trim()}` : "";
+      const updated = withRegions(document, {
+        frontmatter: { ...document.frontmatter, verification: input.verification },
+        progressBody: `${document.progressBody.trimEnd()}\n\n### 验证要求调整\n\n- 时间: ${this.now().toISOString()}\n- 方式: ${current} → ${input.verification}${note}\n`,
+      });
+      atomicWrite({
+        path: file,
+        data: Buffer.from(renderTaskDocument(updated), "utf8"),
+        expectedSha256: before.sha256,
+        mode: 0o644,
+      });
+      const binding = await this.store.bindings.get(input.taskId);
+      if (binding !== null) {
+        await this.store.bindings.save({
+          ...binding,
+          lastCheckRunId: null,
+          lastImplement: null,
+        });
+      }
+      new RunStore(root).removeCompletion(input.taskId);
+      return { taskId: input.taskId, verification: input.verification, phase: document.frontmatter.phase, changed: true };
     } finally {
       this.locks.release(lock);
     }
@@ -621,6 +710,7 @@ export class TaskService {
           relativePath: binding.relativePath.replace(currentName, newName),
         });
       }
+      if (!input.equivalent) new RunStore(root).removeCompletion(input.taskId);
     } finally {
       this.locks.release(lock);
     }
@@ -860,6 +950,7 @@ export class TaskService {
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       pendingKind: binding?.pendingDraft ? binding.pendingDraft.kind : null,
+      verification: document.frontmatter.verification,
     }, input.kind, digestChanged, archived), "task update");
     const updated = withRegions(document, {
       inputsBody: merged.inputsBody,
@@ -873,6 +964,9 @@ export class TaskService {
         pendingDraft: null,
         confirmedInputsDigest: nextDigest,
       });
+    }
+    if (digestChanged || input.kind === "change" || document.frontmatter.status === "closed") {
+      new RunStore(root).removeCompletion(input.taskId);
     }
     return {
       taskId: input.taskId,
@@ -927,6 +1021,7 @@ export class TaskService {
         outcome: document.frontmatter.outcome,
         branch: document.frontmatter.branch,
         pendingKind: draft.kind,
+        verification: document.frontmatter.verification,
       };
       const merged = this.mergeInputs(document, draft.content);
       const nextDigest = inputsDigestOf(renderTaskDocument(merged));
@@ -938,6 +1033,7 @@ export class TaskService {
       assertNoCredentials(draft.content, "应用输入草案");
       atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated)), expectedSha256: before.sha256, mode: 0o644 });
       await this.store.bindings.save({ ...binding, pendingDraft: null, confirmedInputsDigest: nextDigest });
+      new RunStore(root).removeCompletion(input.taskId);
       return {
         taskId: input.taskId,
         applied: "pending_applied",
@@ -1042,6 +1138,7 @@ export class TaskService {
       if (binding !== null) {
         await this.store.bindings.save({ ...binding, confirmedInputsDigest, confirmedStandardsDigest });
       }
+      new RunStore(root).removeCompletion(input.taskId);
       return { taskId: input.taskId, phase: transition.phase, confirmedInputsDigest, confirmedStandardsDigest };
     } finally {
       this.locks.release(lock);
@@ -1051,7 +1148,8 @@ export class TaskService {
   /**
    * task close：业务结束（completed/cancelled/superseded）。
    * 与该任务启动／接收共用短临界区：任务短锁内核对 frontmatter 版本并收敛事实；
-   * 未应用草案先撤回留原因，不使草案生效；迟到旧结果不得重开（STATES.md 第3、11节）。
+   * completed 先核对完成资格，存在未应用草案则拒绝；取消／替代撤回草案并留原因。
+   * 迟到旧结果不得重开（STATES.md 第3、11节）。
    */
   async close(input: TaskCloseInput): Promise<TaskCloseResult> {
     const root = normalizeRoot(input.dir);
@@ -1071,34 +1169,70 @@ export class TaskService {
       if (this.runActivity !== null && !(await this.runActivity.settled(root, input.taskId))) {
         throw new TaskGuardError("runs_unsettled", "关闭时仍有活动／未知运行或待接收结果");
       }
+      const binding = await this.store.bindings.get(input.taskId);
+      if (binding === null) throw new TaskGuardError("binding_missing", "任务绑定缺失，无法核对完成资格");
+      const pendingKind = binding.pendingDraft?.kind ?? null;
       const facts = {
         status: document.frontmatter.status,
         phase: document.frontmatter.phase,
         outcome: document.frontmatter.outcome,
         branch: document.frontmatter.branch,
-        pendingKind: null,
+        pendingKind,
+        verification: verificationModeOf(document.frontmatter),
       };
+      const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
+      const completion = input.outcome === "completed"
+        ? await completionService.assess({ root, taskId: input.taskId, document, raw: before.data, binding })
+        : null;
+      if (completion !== null && completion.allowed === false) {
+        throw new TaskGuardError(completion.reason, `任务不能完成: ${completion.reason}`);
+      }
       const transition = guardRejected(
         input.outcome === "completed" ? onComplete(facts) : onCloseWithOutcome(facts, input.outcome),
         "task close",
       );
-      // 锁内重读 binding：等待期间可能新增草案；关闭撤回的是当前草案。
-      const binding = await this.store.bindings.get(input.taskId);
-      const hadPending = binding?.pendingDraft !== null && binding?.pendingDraft !== undefined;
+      const hadPending = binding.pendingDraft !== null;
       const updated = withRegions(document, {
         frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
-        progressBody: hadPending ? `${document.progressBody}\n### 关闭撤回输入草案\n\n- 时间: ${this.now().toISOString()}\n- 理由: 任务关闭（${input.outcome}），未应用草案不生效\n` : document.progressBody,
+        progressBody: hadPending
+          ? `${document.progressBody}\n### 关闭撤回输入草案\n\n- 时间: ${this.now().toISOString()}\n- 理由: 任务关闭（${input.outcome}），未应用草案不生效\n`
+          : document.progressBody,
       });
-      atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      let recorded = false;
+      try {
+        if (completion !== null && completion.allowed === true) {
+          completionService.record({
+            root,
+            taskId: input.taskId,
+            document,
+            raw: before.data,
+            decision: completion,
+            reason: input.reason ?? null,
+          });
+          recorded = true;
+        }
+        atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      } catch (error) {
+        if (recorded) new RunStore(root).removeCompletion(input.taskId);
+        throw error;
+      }
       if (binding !== null) {
         await this.store.bindings.save({ ...binding, pendingDraft: null });
       }
+      if (input.outcome !== "completed") new RunStore(root).removeCompletion(input.taskId);
       return {
         taskId: input.taskId,
         status: transition.status,
         outcome: transition.outcome,
         phase: transition.phase,
         pendingWithdrawn: hadPending,
+        ...(completion !== null && completion.allowed === true
+          ? {
+              verification: completion.mode,
+              implementRunId: completion.implementRunId,
+              checkRunId: completion.checkRunId,
+            }
+          : {}),
       };
     } finally {
       this.locks.release(lock);

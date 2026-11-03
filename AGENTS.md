@@ -2,7 +2,7 @@
 
 ## 当前工作
 
-本仓库保留001–026的 Linux 候选实现与历史验收，macOS 后续验证。最新[一致性复核](validation/design-implementation-audit/README.md)发现16项尚待修复的偏差，后续排程为027–043；当前就绪结论须在修复后独立复验。NPM 发布、外部部署和其它真实项目操作仍未进行。`DESIGN.md` 保存产品规范，详细架构、状态、技术与运行约定分别在 `ARCHITECTURE.md`、`STATES.md`、`TECHNOLOGY.md`、`OPERATIONS.md`；术语和研究按链接查阅。当前开发入口为 [TASKS.md](TASKS.md)。用户已授权按编号优先推进首版，开发阻塞记录后以伪代码／暂定接口交接并继续可做任务，不再逐项重复请求许可；Git提交／推送、发布和其它真实项目操作仍需明确授权。
+本仓库保留001–057的 Linux 候选实现与历史验收，macOS 后续验证。027–043完成[一致性复核](validation/design-implementation-audit/README.md)修复并由043独立复验；044–054补齐主会话工作流与 Trellis 审视，055–057完成用户决定的建任务、完成守卫与逐任务收尾。当前无 pending 开发任务，B004 仍开放；NPM 发布、外部部署、真机／真实模型验收和其它真实项目操作仍未进行。`DESIGN.md` 保存产品规范，详细架构、状态、技术与运行约定分别在 `ARCHITECTURE.md`、`STATES.md`、`TECHNOLOGY.md`、`OPERATIONS.md`；术语和研究按链接查阅。当前开发入口为 [TASKS.md](TASKS.md)。用户已授权按编号优先推进首版，开发阻塞记录后以伪代码／暂定接口交接并继续可做任务，不再逐项重复请求许可；Git提交／推送、发布和其它真实项目操作仍需明确授权。
 
 本文件是开发 Knit 仓库的 Agent 入口，不作为 `knit init` 的产品模板。用户项目入口由安装包模板生成，并保留用户原有规则。
 
@@ -49,6 +49,8 @@
 
 - 任务列表：`.knit/tasks/`（`npx --no-install knit task list`）。本仓库为自管开发仓，开发任务队列另在根 [TASKS.md](TASKS.md) 与 `tasks/`；`.knit/tasks/` 只保存由 Knit 创建的任务。
 - 四环节工作流：`.knit/workflow.md`（讨论 → 实施 → 检查 → 交付；启动用 `npx --no-install knit start`）
+- 主会话工作流：是否建任务由用户决定；不建任务直接执行，普通问答／只读调查不强制记录；正式任务按验证要求推进，详见 `.knit/workflow.md`
+- 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md
 - 规范索引：`.knit/standards/index.md`
 - 阶段角色指令：`.knit/agents/`（implement / check / deliver，runtime 补充在 runtimes/）
 

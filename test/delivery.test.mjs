@@ -67,7 +67,7 @@ function services(dir) {
 }
 
 async function makeDeliverable(dir, s, { phase = "deliver", status = "open", outcome = null } = {}) {
-  const created = await s.tasks.newTask({ dir, title: "交付测试", slug: "delivery", branch: BRANCH });
+  const created = await s.tasks.newTask({ dir, title: "交付测试", slug: "delivery", branch: BRANCH, verification: "independent" });
   const taskFile = join(dir, ".knit", created.relativePath);
   const doc = parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile);
   writeFileSync(taskFile, renderTaskDocument({
@@ -107,6 +107,20 @@ async function makeDeliverable(dir, s, { phase = "deliver", status = "open", out
     scope: scope.entries,
     scopeRunIds: [check.runId],
   });
+  if (status === "closed" && outcome === "completed") {
+    runs.writeCompletion(created.taskId, {
+      schemaVersion: 1,
+      taskId: created.taskId,
+      verification: "independent",
+      inputsDigest: plan.inputsDigest,
+      scopeDigest: scope.digest,
+      implementRunId: check.runId,
+      checkRunId: check.runId,
+      unverified: [],
+      reason: null,
+      completedAt: NOW.toISOString(),
+    });
+  }
   return { ...created, taskFile, check, scope };
 }
 
@@ -129,14 +143,17 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
     assert.equal(result.state, "completed", result.reason ?? "");
     assert.equal(result.needsAttention, false);
     assert.ok(result.workCommit);
+    assert.ok(result.metadataCommit);
     assert.ok(result.archiveCommit);
     assert.equal(result.archivePath, `.knit/tasks/archive/2026-11/${task.relativePath.split("/")[1]}`);
 
     const workPaths = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", result.workCommit]).split("\n").filter(Boolean).sort();
-    assert.ok(workPaths.includes("app.txt"));
-    assert.ok(workPaths.includes(".knit/tasks/11-02-delivery/task.md"));
-    assert.ok(!workPaths.includes("other.txt"));
-    assert.ok(!workPaths.includes("staged.txt"));
+    assert.deepEqual(workPaths, ["app.txt"]);
+    const metadataPaths = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", result.metadataCommit]).split("\n").filter(Boolean).sort();
+    assert.ok(metadataPaths.includes(".knit/tasks/11-02-delivery/task.md"));
+    assert.ok(!metadataPaths.includes("app.txt"));
+    assert.ok(!metadataPaths.includes("other.txt"));
+    assert.ok(!metadataPaths.includes("staged.txt"));
 
     const archivePaths = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", result.archiveCommit]).split("\n").filter(Boolean);
     assert.ok(archivePaths.some((path) => path.includes("/archive/2026-11/")));
@@ -541,7 +558,7 @@ test("工作提交完成后出现额外提交：恢复拒绝把额外历史并�
     git(dir, ["commit", "-q", "-m", "external after work"]);
     const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
     assert.equal(retry.state, "needs_attention");
-    assert.equal(retry.reason, "work_commit_head_advanced");
+    assert.equal(retry.reason, "commit_scope_mismatch");
     assert.equal(retry.archiveCommit, null);
   } finally {
     s.store.close();
@@ -666,7 +683,7 @@ test("显式 retry：hook 失败现场清理后核实原提交并继续，不重
     assert.equal(retry.state, "completed", retry.reason ?? "");
     assert.equal(retry.workCommit, first.workCommit);
     assert.ok(retry.archiveCommit);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: deliver")).length, 1);
+    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: artifact")).length, 1);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

@@ -74,7 +74,7 @@ async function snapshotFixture(prefix) {
   const tasks = new TaskService({ store, locks, randomHex });
   const coordinator = new RunCoordinator({ store, locks, randomHex, lockRoot: join(dir, ".locks") });
   const restores = new RestoreService({ store, locks, randomHex });
-  const task = await tasks.newTask({ dir, title: "restore task", slug: "restore-task" });
+  const task = await tasks.newTask({ dir, title: "restore task", slug: "restore-task", verification: "independent" });
   await tasks.ready({ dir, taskId: task.taskId });
   const prepared = await coordinator.prepare({
     dir,

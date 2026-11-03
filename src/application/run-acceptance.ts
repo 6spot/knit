@@ -213,6 +213,7 @@ export class RunAcceptanceService {
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       pendingKind: binding.pendingDraft === null ? null : binding.pendingDraft.kind,
+      verification: document.frontmatter.verification,
     };
     if (facts.pendingKind !== null) return this.attention(operationId, request, "pending_inputs", result);
     // 草案在运行期间保存或撤回后，任务锁定由本接收持有；接收继续按冻结输入收敛（任务029）。
@@ -283,17 +284,23 @@ export class RunAcceptanceService {
         now: this.now().toISOString(),
       });
       const target: AcceptanceState = { status: transition.status, phase: transition.phase, outcome: transition.outcome };
+      const targetInputsDigest = inputsDigestOf(renderTaskDocument({
+        ...document,
+        frontmatter: { ...document.frontmatter, ...target },
+      }));
       const nextBinding: TaskBinding = {
         ...binding,
         lastRunIds: appendUnique(binding.lastRunIds, request.runId),
         scope: nextScope.entries,
         scopeRunIds: nextScope.runIds,
         stopReason: null,
-        confirmedInputsDigest: inputsDigestOf(renderTaskDocument({
-          ...document,
-          frontmatter: { ...document.frontmatter, ...target },
-        })),
+        confirmedInputsDigest: targetInputsDigest,
         confirmedStandardsDigest: plan.standardsDigest,
+        lastImplement: {
+          runId: request.runId,
+          inputsDigest: targetInputsDigest,
+          scopeDigest: nextScope.digest,
+        },
       };
       const journal: AcceptanceJournal = {
         schemaVersion: 1,

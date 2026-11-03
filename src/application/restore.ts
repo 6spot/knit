@@ -11,7 +11,7 @@ import { Value } from "typebox/value";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import type { SnapshotEntry, SnapshotManifest } from "../contracts/run.js";
 import { RestoreRecordSchema, type RestorePathPlan, type RestorePathState, type RestoreRecord, type RestoreIndexState } from "../contracts/restore.js";
-import { inputsDigestOf } from "../contracts/task-inputs.js";
+import { inputsDigestOf, verificationModeOf } from "../contracts/task-inputs.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
@@ -743,7 +743,7 @@ export class RestoreService {
     }
   }
 
-  /** 源码恢复改变选定目标：旧检查立即失效；deliver 回 check，不保留不可交付状态。 */
+  /** 源码恢复改变选定目标：旧检查立即失效；deliver 按 verification 回 check（independent）或 implement（self／none）。 */
   private async invalidateTaskCheck(root: string, taskId: string): Promise<boolean> {
     const binding = await this.store.bindings.get(taskId);
     if (binding === null) throw new GuardError("task_not_managed", `任务没有绑定: ${taskId}`);
@@ -760,12 +760,12 @@ export class RestoreService {
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       let updated = document;
       if (document.frontmatter.phase === "deliver") {
-        updated = { ...document, frontmatter: { ...document.frontmatter, phase: "check" } };
+        const phase = verificationModeOf(document.frontmatter) === "independent" ? "check" : "implement";
+        updated = { ...document, frontmatter: { ...document.frontmatter, phase } };
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated)), expectedSha256: before.sha256, mode: 0o644 });
       }
-      if (binding.lastCheckRunId !== null) {
-        await this.store.bindings.save({ ...binding, lastCheckRunId: null });
-      }
+      await this.store.bindings.save({ ...binding, lastCheckRunId: null, lastImplement: null });
+      new RunStore(root).removeCompletion(taskId);
       return true;
     } finally {
       this.locks.release(lock);

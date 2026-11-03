@@ -34,3 +34,9 @@
 - 本轮只创建任务并登记决定，B007 尚未修复，不能标为缺陷已解决。
 - 不引入默认强制提交，不操作真实项目、不提交／推送／发布。
 - 2026-11-03：登记，尚未实施。
+
+- 2026-11-03：执行者主 Agent（Pi session `01a1a086-1eea-700e-bd9e-e6afeaa93c25`）；按用户顺序开发指令实施并验证。
+- 实际修改：新增 `src/domain/completion.ts`、`src/application/completion-service.ts`、完成凭据契约与 `.knit/.runtime/completions/<task-id>.json`；`TaskService.close` 完成分支在任务锁内核对当前输入／scope／验证方式，`self` 核对最近获准实施，`independent` 核对当前有效检查，`none` 记录未验证项；完成不要求 Git。`RunAcceptanceService` 记录 `lastImplement`；`StatusService` 输出 verification／completion；交付 preflight 使用完成凭据。
+- B007：CLI／服务级 `task close completed` 已不再是无条件绕过；无完成资格时保持 open。旧记录缺 verification 仍按 independent 兼容。
+- 验证：`test/closeout.test.mjs` 覆盖 self 无提交完成、independent 缺检查拒绝、none 显式完成、成果变化后凭据失效、CLI close 拒绝；全量测试通过。
+- 未验证：真实模型、macOS；按用户要求暂缓。

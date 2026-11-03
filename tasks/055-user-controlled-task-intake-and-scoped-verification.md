@@ -34,3 +34,9 @@
 - 本轮只登记用户决定与开发任务，未修改实现或产品规范正文。
 - 不操作 `knit-demo`，不自动提交、推送、发布，不扩大到 Worktree、其它客户端或并行调度。
 - 2026-11-03：登记，尚未实施。
+
+- 2026-11-03：执行者主 Agent（Pi session `01a1a086-1eea-700e-bd9e-e6afeaa93c25`）；按用户顺序开发指令实施并验证。
+- 实际修改：`task.md` 增加可选 `verification: none|self|independent`（新任务默认 self，旧记录缺省 independent）；`task new --verification`、`task verification`、`task close --reason` 与桥接 schema／工具描述；实施接收按验证要求分流（independent→check，self／none→deliver）；主会话模板、角色模板、AGENTS 受管块、DESIGN／STATES／OPERATIONS／ARCHITECTURE 同步。
+- 无任务限制：Knit `run` 仍只服务正式任务；不建任务时使用宿主通用工具／子 Agent，宿主不提供委派时直接执行并说明，不暗建任务。未新增无任务 Knit worker。
+- 验证：`test/closeout.test.mjs` 覆盖完成／验证／按范围；`test/bridge-query.test.mjs` 覆盖无任务注入的新规则；`test/domain.test.mjs` 覆盖 self／none→deliver、independent→check。
+- 未验证：真实模型自然语言分流、真机宿主委派；按用户要求暂缓。

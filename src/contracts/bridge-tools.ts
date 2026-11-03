@@ -16,6 +16,7 @@ export const TaskToolSchema = Type.Object(
       Type.Literal("record"),
       Type.Literal("close"),
       Type.Literal("adopt"),
+      Type.Literal("verification"),
       Type.Literal("use"),
       Type.Literal("clear"),
     ]),
@@ -72,8 +73,9 @@ export const RunToolSchema = Type.Object(
 
 export const DeliverToolSchema = Type.Object(
   {
-    action: Type.Union([Type.Literal("deliver"), Type.Literal("archive")]),
-    taskId: Type.String({ minLength: 1 }),
+    action: Type.Union([Type.Literal("deliver"), Type.Literal("archive"), Type.Literal("plan")]),
+    taskId: Type.Optional(Type.String({ minLength: 1 })),
+    taskIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
     branch: Type.String({ pattern: "^refs/heads/.+" }),
     authorizationRef: Type.Optional(Type.String()),
     retry: Type.Optional(Type.Boolean()),

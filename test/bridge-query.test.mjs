@@ -171,6 +171,9 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     const first = host.systemPromptOptions.sections.knit;
     assert.match(first, /当前无选定任务/);
     assert.match(first, /task new/);
+    assert.match(first, /是否建任务由用户决定/);
+    assert.match(first, /不派发无任务 worker/);
+    assert.match(first, /verification/);
 
     // 创建并选择任务后，下轮注入当前任务状态。
     await host.commands.get("knit").handler("task new --title 注入任务 --slug inject", host.ctx);

@@ -70,7 +70,10 @@ export const DeliveryRecordSchema = Type.Object(
     policyVersion: Type.String({ minLength: 1 }),
     taskPath: Type.String({ minLength: 1 }),
     archivePath: Type.Union([Type.String(), Type.Null()]),
+    /** 业务产物提交；旧记录为原来的合并工作提交。 */
     workCommit: Type.Union([Type.String(), Type.Null()]),
+    /** 任务资料提交；旧记录没有该字段，按 workCommit 的合并语义处理。 */
+    metadataCommit: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     archiveCommit: Type.Union([Type.String(), Type.Null()]),
     sealDigest: Type.Union([Type.String(), Type.Null()]),
     steps: Type.Array(DeliveryStepSchema),
@@ -89,6 +92,7 @@ export interface DeliveryResult {
   reason: string | null;
   branch: string;
   workCommit: string | null;
+  metadataCommit: string | null;
   archiveCommit: string | null;
   archivePath: string | null;
   defaultBranch: DefaultBranch;

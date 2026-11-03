@@ -16,6 +16,20 @@ export const TaskBindingSchema = Type.Object(
     repairCycleId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     repairRounds: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
     stopReason: Type.Union([Type.String(), Type.Null()]),
+    /** 最近获准实施及其冻结输入／成果；self 完成凭据的来源。 */
+    lastImplement: Type.Optional(
+      Type.Union([
+        Type.Object(
+          {
+            runId: Type.String({ minLength: 1 }),
+            inputsDigest: Type.String({ minLength: 1 }),
+            scopeDigest: Type.String({ minLength: 1 }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Null(),
+      ]),
+    ),
     /** 讨论确认时冻结的输入摘要；未确认为 null（DESIGN.md 第3.8节）。 */
     confirmedInputsDigest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     /** 讨论确认时冻结的正式规范摘要；正式规则变化据此提示检查失效（STATES.md 第8节）。 */

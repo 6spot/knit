@@ -312,8 +312,9 @@ export default function (pi: any) {
       lines.push("下一步: 按 workflow.md 当前阶段推进；写动作由核心核对授权与状态。");
     } else {
       lines.push("当前无选定任务。");
-      lines.push("普通讨论与问答直接回答；非正式小修改在会话内完成，不建任务。");
-      lines.push("新正式需求先提出创建提议（目标与拟建任务），征得用户同意后 task new；已有持续授权可直接创建。");
+      lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
+      lines.push("不建任务时使用宿主工具／通用子 Agent；Knit run 只服务正式任务，不派发无任务 worker。");
+      lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
       lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
     }
     return { text: lines.join("\n"), taskId };
@@ -531,7 +532,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、记录、关闭与当前会话选择。",
+    description: "任务身份、输入草案、验证要求、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       if (params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
@@ -557,6 +558,7 @@ export default function (pi: any) {
         if (params.title) args.push("--title", params.title);
         if (params.slug) args.push("--slug", params.slug);
         if (params.branch) args.push("--branch", params.branch);
+        if (params.verification) args.push("--verification", params.verification);
         args.push("--dir", root);
         const created = core(args);
         if (created.code === 0 && created.response?.data?.taskId) {
@@ -576,6 +578,10 @@ export default function (pi: any) {
         if (params.nonEquivalent === true) args.push("--non-equivalent");
       } else if (params.action === "adopt") {
         args.push("--branch", params.branch ?? "current");
+      } else if (params.action === "verification") {
+        if (!params.verification) return failText("task verification 需要 verification");
+        args.push("--mode", params.verification);
+        if (params.reason) args.push("--reason", params.reason);
       } else if (params.action === "update") {
         if (params.kind) args.push("--kind", params.kind);
         if (params.applyPending === true) args.push("--apply-pending");
@@ -590,6 +596,7 @@ export default function (pi: any) {
       } else if (params.action === "close") {
         if (!params.outcome) return failText("task close 需要 outcome");
         args.push("--outcome", params.outcome);
+        if (params.reason) args.push("--reason", params.reason);
         if (params.runsSettled === true) args.push("--runs-settled");
       }
       args.push("--dir", root);
@@ -611,7 +618,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_run",
     label: "Knit run",
-    description: "派发实施／独立检查／advisory，查询、恢复或取消 run；结果通知由桥接观察。",
+    description: "派发正式任务的实施／独立检查／advisory，查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
     parameters: schema("run"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const model = ctx?.model;
@@ -659,11 +666,18 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_deliver",
     label: "Knit deliver",
-    description: "按完整分支与授权来源交付或归档；Agent 必须声明 authorizationRef。",
+    description: "按完整分支与授权来源交付、预检或归档；支持多个已完成任务逐项收尾。Agent 交付必须声明 authorizationRef。",
     parameters: schema("deliver"),
     async execute(_toolCallId: string, params: any) {
-      if (safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
-      const args = [params.action, params.taskId, "--branch", params.branch, "--caller", "agent", "--dir", root];
+      const ids: string[] = Array.isArray(params.taskIds) && params.taskIds.length > 0
+        ? params.taskIds
+        : params.taskId ? [params.taskId] : [];
+      if (ids.length === 0) return failText("deliver 需要 taskId 或 taskIds");
+      if (params.action === "archive" && ids.length !== 1) return failText("archive 一次只能处理一个任务");
+      for (const id of ids) if (safeId(id, "k-") === null) return failText(`非法 taskId: ${id}`);
+      const command = params.action === "plan" ? "deliver" : params.action;
+      const args = [command, ...ids, "--branch", params.branch, "--caller", "agent", "--dir", root];
+      if (params.action === "plan") args.push("--plan");
       if (params.authorizationRef) args.push("--authorization-ref", params.authorizationRef);
       if (params.retry === true) args.push("--retry");
       return toolResult(core(args));

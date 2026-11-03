@@ -70,7 +70,7 @@ export function agentsManagedBlock(knitCommand: string): string {
     "",
     "- 任务列表：`.knit/tasks/`（`" + knitCommand + " task list`）",
     `- 四环节工作流：\`.knit/workflow.md\`（讨论 → 实施 → 检查 → 交付；启动用 \`${knitCommand} start\`）`,
-    "- 主会话工作流：普通讨论、小修改、新正式需求、继续或补充已有任务的处理路径见 workflow.md；新任务需用户授权",
+    "- 主会话工作流：是否建任务由用户决定；不建任务直接执行，正式任务按验证要求推进；普通问答／只读调查不强制记录；详见 workflow.md",
     "- 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md",
     "- 规范索引：`.knit/standards/index.md`",
     "- 阶段角色指令：`.knit/agents/`（implement / check / deliver，runtime 补充在 runtimes/）",

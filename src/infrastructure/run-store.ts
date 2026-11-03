@@ -34,6 +34,7 @@ import {
   type SnapshotManifest,
 } from "../contracts/run.js";
 import { AcceptanceJournalSchema, type AcceptanceJournal } from "../contracts/acceptance.js";
+import { CompletionFileSchema, type CompletionFile } from "../contracts/completion.js";
 import { atomicWrite, readWithVersion } from "./atomic.js";
 import { InfrastructureError } from "./errors.js";
 import { normalizeRoot } from "./paths.js";
@@ -273,6 +274,32 @@ export class RunStore {
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });
+  }
+
+  completionPath(taskId: string): string {
+    if (!/^k-[0-9a-f]{12}$/.test(taskId)) throw new InfrastructureError("io_error", `非法 task ID：${taskId}`);
+    return join(this.root, ".knit", ".runtime", "completions", `${taskId}.json`);
+  }
+
+  readCompletion(taskId: string): CompletionFile | null {
+    return parseJson<CompletionFile>(this.completionPath(taskId), CompletionFileSchema, "completion.json");
+  }
+
+  /** 完成凭据可被重新完成覆盖；旧凭据不得用于当前输入／成果。 */
+  writeCompletion(taskId: string, completion: CompletionFile): void {
+    if (!Value.Check(CompletionFileSchema, completion)) throw new InfrastructureError("io_error", "completion 结构不符");
+    const path = this.completionPath(taskId);
+    privateDir(join(this.root, ".knit", ".runtime", "completions"));
+    atomicWrite({
+      path,
+      data: Buffer.from(JSON.stringify(completion, null, 2) + "\n"),
+      expectedSha256: readWithVersion(path)?.sha256 ?? null,
+      mode: 0o600,
+    });
+  }
+
+  removeCompletion(taskId: string): void {
+    rmSync(this.completionPath(taskId), { force: true });
   }
 
   checkPath(runId: string): string {

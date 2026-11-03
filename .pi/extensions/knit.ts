@@ -62,6 +62,22 @@ export default function (pi: any) {
     process.stderr.write(JSON.stringify(allowed) + "\n");
   }
 
+  /** 宿主侧资料路径预检；与核心 normalizeMaterialPath 同规则（任务045/048）。 */
+  function safeMaterialPath(path: unknown): string | null {
+    if (typeof path !== "string" || path === "") return null;
+    const normalized = path.replace(/^\.\//, "").split("\\").join("/");
+    if (normalized.includes("\0") || normalized.includes("..")) return null;
+    const top = normalized.split("/")[0];
+    if (top !== "plan.md" && top !== "design.md" && top !== "research") return null;
+    if (top === "research") {
+      const rest = normalized.slice("research/".length);
+      if (rest === "" || rest.endsWith("/") || !rest.endsWith(".md")) return null;
+    } else if (normalized !== top || !normalized.endsWith(".md")) {
+      return null;
+    }
+    return normalized;
+  }
+
   function installationReady(): { ready: boolean; reason?: string; runtime?: any } {
     const runtime = readJson(join(root, ".knit", ".runtime", "installation.json"));
     const manifest = readJson(join(root, ".knit", ".runtime", "init-manifest.json"));
@@ -266,6 +282,64 @@ export default function (pi: any) {
     state.started = false;
   }
 
+  /**
+   * 每轮模型调用前注入当前任务上下文（DESIGN §9.6，任务047）。
+   * 通过 Pi 公开 before_agent_start 事件 + systemPromptOptions.sections 实现：
+   * Pi 对分节做 diff，只追加变更，不堆叠历史正文。注入是行为引导，
+   * 所有写动作仍经核心按授权／阶段／锁／版本重新核对。
+   */
+  function buildTurnContext(ctx: any): { text: string; taskId: string | null } | null {
+    const session = sessionOf(ctx);
+    if (session === null) return null;
+    const resolution = core(["session", "resolve", session.knitSessionId, "--dir", root]);
+    const resolvedTaskId = resolution.response?.data?.taskId ?? null;
+    const lines: string[] = [];
+    let taskId: string | null = null;
+    if (typeof resolvedTaskId === "string" && resolvedTaskId !== "") {
+      taskId = resolvedTaskId;
+      const status = core(["status", taskId, "--dir", root]);
+      const data = status.response?.data ?? {};
+      const materials = core(["task", "material", "list", taskId, "--dir", root]);
+      const materialList: string[] = Array.isArray(materials.response?.data) ? materials.response.data : [];
+      const activeRuns: any[] = Array.isArray(data.runs) ? data.runs.filter((run: any) => run.state === "running") : [];
+      lines.push(`当前任务: ${taskId}${data.title ? `「${data.title}」` : ""}`);
+      lines.push(`阶段: ${data.phase ?? "?"}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
+      if (data.pendingDraft) lines.push(`待应用草案: ${data.pendingDraft.kind ?? "?"}（${data.pendingDraft.digest?.slice(0, 12) ?? ""}）——先应用或撤回再进入后续阶段`);
+      if (activeRuns.length > 0) lines.push(`活动运行: ${activeRuns.map((run: any) => `${run.runId}(${run.state ?? "?"})`).join(", ")}——活动运行使用冻结输入`);
+      lines.push(`任务入口: .knit/${data.relativePath ?? `tasks/…`}`);
+      if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
+      else lines.push("规划资料: 无（简单任务可只用 task.md）");
+      lines.push("下一步: 按 workflow.md 当前阶段推进；写动作由核心核对授权与状态。");
+    } else {
+      lines.push("当前无选定任务。");
+      lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
+      lines.push("不建任务时使用宿主工具／通用子 Agent；Knit run 只服务正式任务，不派发无任务 worker。");
+      lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
+      lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
+    }
+    return { text: lines.join("\n"), taskId };
+  }
+
+  pi.on("before_agent_start", (event: any, ctx: any) => {
+    if (state.nativeSessionId !== ctx?.sessionManager?.getSessionId?.()) return;
+    if (event.messageType !== "user") return; // 只注入用户发起的轮次；自身通知触发的轮次不叠加。
+    try {
+      const context = buildTurnContext(ctx);
+      const options = event.systemPromptOptions;
+      if (options === null || typeof options !== "object" || options.sections === null || typeof options.sections !== "object") {
+        if (context === null) diag("inject_unavailable", { reason: installationReady().reason ?? "session attach failed" });
+        return;
+      }
+      if (context === null) {
+        delete options.sections.knit;
+        return;
+      }
+      options.sections.knit = `<!-- knit:turn-context -->\n${context.text}`;
+    } catch (error) {
+      diag("inject_failed", { reason: String(error) });
+    }
+  });
+
   pi.on("session_start", async (_event: any, ctx: any) => {
     state.ctx = ctx;
     const session = sessionOf(ctx);
@@ -287,10 +361,60 @@ export default function (pi: any) {
     releaseObserver();
   });
 
+  /** 查询命令的成功 data 转可读文本；失败返回 null 由调用方走错误分支（任务042）。 */
+  const describeQuery = (tokens: string[], data: any): string | null => {
+    if (data === null || typeof data !== "object") return null;
+    const joinOutcome = (entry: any): string =>
+      `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}`;
+    // task list：{ active: [...], archived: [...] }
+    if (Array.isArray(data.active) && Array.isArray(data.archived)) {
+      const lines: string[] = [];
+      lines.push(`活跃任务（${data.active.length}）：`);
+      lines.push(...(data.active.length > 0 ? data.active.map(joinOutcome) : ["  - （无）"]));
+      lines.push(`已归档（${data.archived.length}）：`);
+      lines.push(...(data.archived.length > 0 ? data.archived.slice(0, 20).map(joinOutcome) : ["  - （无）"]));
+      if (data.archived.length > 20) lines.push(`  - …共 ${data.archived.length} 条`);
+      return lines.join("\n");
+    }
+    // 项目概览：{ tasks: [...], activeRuns: [...] }
+    if (Array.isArray(data.tasks)) {
+      const runs = Array.isArray(data.activeRuns) ? data.activeRuns : [];
+      const lines = [`任务（${data.tasks.length}）：`];
+      lines.push(...(data.tasks.length > 0 ? data.tasks.map((entry: any) => joinOutcome({ ...entry, archived: entry.archived === true })) : ["  - （无）"]));
+      lines.push(`活跃运行（${runs.length}）：`);
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}`) : ["  - （无）"]));
+      return lines.join("\n");
+    }
+    // 按任务查询（仅 status <taskId>）：{ taskId, title, phase, status, runs, ... }（任务042）。
+    if (tokens[0] === "status" && tokens.length >= 2 && typeof data.taskId === "string") {
+      const runs = Array.isArray(data.runs) ? data.runs : [];
+      const lines = [
+        `${data.taskId}「${data.title ?? "无标题"}」`,
+        `  状态: ${data.status ?? "?"} · 阶段: ${data.phase ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
+      ];
+      if (data.pendingDraft) lines.push(`  待应用草案: ${data.pendingDraft.kind ?? "?"}`);
+      lines.push(`  运行（${runs.length}）：`);
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
+      return lines.join("\n");
+    }
+    // 其它对象：键值摘要，不混入诊断。
+    if (tokens[0] !== undefined) {
+      const entries = Object.entries(data).slice(0, 12);
+      if (entries.length > 0) return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join("\n");
+    }
+    return null;
+  };
+
   pi.registerCommand("knit-status", {
     description: "Knit：查看任务与运行状态",
     handler: async (args: string, ctx: any) => {
       const result = core(["status", ...(args.trim() === "" ? [] : args.trim().split(/\s+/)), "--dir", root]);
+      const data = result.response?.data;
+      const readable = result.code === 0 && result.response?.outcome === "completed" ? describeQuery(["status"], data) : null;
+      if (readable !== null) {
+        ctx.ui.notify(readable, "info");
+        return;
+      }
       const text = result.error ?? result.response?.data?.error ?? result.response?.reasonCode ?? result.stderr;
       ctx.ui.notify(text ? String(text) : "knit status 无输出", result.code === 0 ? "info" : "warning");
     },
@@ -342,6 +466,12 @@ export default function (pi: any) {
         return;
       }
       const result = core([...tokens, "--dir", root]);
+      const data = result.response?.data;
+      const readable = result.code === 0 && result.response?.outcome === "completed" ? describeQuery(tokens, data) : null;
+      if (readable !== null) {
+        ctx.ui.notify(readable, "info");
+        return;
+      }
       const text = result.error ?? result.response?.data?.error ?? result.response?.reasonCode ?? result.stderr;
       ctx.ui.notify(text ? String(text) : "Knit 命令已完成", result.code === 0 ? "info" : "warning");
     },
@@ -369,10 +499,40 @@ export default function (pi: any) {
     },
   });
 
+  /** 当前主会话已选择且不同于给定任务时返回其 ID，否则 null（任务048 防重复创建引导）。 */
+  async function selectionReminder(ctx: any, createdTaskId: string): Promise<string | null> {
+    const session = sessionOf(ctx);
+    if (session === null) return null;
+    const resolution = core(["session", "resolve", session.knitSessionId, "--dir", root]);
+    const current = resolution.response?.data?.taskId;
+    return typeof current === "string" && current !== "" && current !== createdTaskId ? current : null;
+  }
+
+  pi.registerTool({
+    name: "knit_material",
+    label: "Knit materials",
+    description:
+      "任务规划资料（plan.md／design.md／research/）。action=list/read/save/delete。保存是进度与方案更新的入口；" +
+      "要求性内容（目标、条件、范围、验收）变化必须改用 knit_task action=update --kind，不能只改计划文件。",
+    parameters: schema("material"),
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, _ctx: any) {
+      if (safeId(params.taskId, "k-") === null) return failText("material 需要合法 taskId");
+      if (params.action !== "list" && safeMaterialPath(params.path) === null) return failText(`非法资料路径: ${params.path}`);
+      const args = ["task", "material", params.action, params.taskId];
+      if (params.action !== "list") args.push(params.path);
+      if (params.action === "save") {
+        if (typeof params.content !== "string") return failText("material save 需要 content");
+        if (params.expectDigest !== undefined) args.push("--expect-digest", params.expectDigest);
+      }
+      args.push("--dir", root);
+      return toolResult(core(args, params.action === "save" ? params.content : undefined));
+    },
+  });
+
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、记录、关闭与当前会话选择。",
+    description: "任务身份、输入草案、验证要求、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       if (params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
@@ -392,18 +552,36 @@ export default function (pi: any) {
           : ["task", "clear", "--session", session.knitSessionId, "--entry", entryId, ...persistedArgs, "--operation-id", operationId, "--branch", branch ?? "", "--dir", root];
         return toolResult(core(args));
       }
-      const args = ["task", params.action];
-      if (params.taskId) args.push(params.taskId);
       if (params.action === "new") {
+        // 创建后若当前会话已有其他任务选择，附加防重复引导；不自动切换（任务048）。
+        const args = ["task", "new"];
         if (params.title) args.push("--title", params.title);
         if (params.slug) args.push("--slug", params.slug);
         if (params.branch) args.push("--branch", params.branch);
-      } else if (params.action === "rename") {
+        if (params.verification) args.push("--verification", params.verification);
+        args.push("--dir", root);
+        const created = core(args);
+        if (created.code === 0 && created.response?.data?.taskId) {
+          const reminder = await selectionReminder(ctx, created.response.data.taskId);
+          if (reminder !== null) {
+            const text = `已创建 ${created.response.data.taskId}。注意：当前会话已选择任务 ${reminder}，新任务未自动选择；确认要切换时用 task use。`;
+            return { isError: false, content: [{ type: "text", text }], details: created.response.data };
+          }
+        }
+        return toolResult(created);
+      }
+      const args = ["task", params.action];
+      if (params.taskId) args.push(params.taskId);
+      if (params.action === "rename") {
         if (!params.newSlug) return failText("task rename 需要 newSlug");
         args.push(params.newSlug);
         if (params.nonEquivalent === true) args.push("--non-equivalent");
       } else if (params.action === "adopt") {
         args.push("--branch", params.branch ?? "current");
+      } else if (params.action === "verification") {
+        if (!params.verification) return failText("task verification 需要 verification");
+        args.push("--mode", params.verification);
+        if (params.reason) args.push("--reason", params.reason);
       } else if (params.action === "update") {
         if (params.kind) args.push("--kind", params.kind);
         if (params.applyPending === true) args.push("--apply-pending");
@@ -418,6 +596,7 @@ export default function (pi: any) {
       } else if (params.action === "close") {
         if (!params.outcome) return failText("task close 需要 outcome");
         args.push("--outcome", params.outcome);
+        if (params.reason) args.push("--reason", params.reason);
         if (params.runsSettled === true) args.push("--runs-settled");
       }
       args.push("--dir", root);
@@ -439,7 +618,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_run",
     label: "Knit run",
-    description: "派发实施／独立检查／advisory，查询、恢复或取消 run；结果通知由桥接观察。",
+    description: "派发正式任务的实施／独立检查／advisory，查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
     parameters: schema("run"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const model = ctx?.model;
@@ -487,11 +666,18 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_deliver",
     label: "Knit deliver",
-    description: "按完整分支与授权来源交付或归档；Agent 必须声明 authorizationRef。",
+    description: "按完整分支与授权来源交付、预检或归档；支持多个已完成任务逐项收尾。Agent 交付必须声明 authorizationRef。",
     parameters: schema("deliver"),
     async execute(_toolCallId: string, params: any) {
-      if (safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
-      const args = [params.action, params.taskId, "--branch", params.branch, "--caller", "agent", "--dir", root];
+      const ids: string[] = Array.isArray(params.taskIds) && params.taskIds.length > 0
+        ? params.taskIds
+        : params.taskId ? [params.taskId] : [];
+      if (ids.length === 0) return failText("deliver 需要 taskId 或 taskIds");
+      if (params.action === "archive" && ids.length !== 1) return failText("archive 一次只能处理一个任务");
+      for (const id of ids) if (safeId(id, "k-") === null) return failText(`非法 taskId: ${id}`);
+      const command = params.action === "plan" ? "deliver" : params.action;
+      const args = [command, ...ids, "--branch", params.branch, "--caller", "agent", "--dir", root];
+      if (params.action === "plan") args.push("--plan");
       if (params.authorizationRef) args.push("--authorization-ref", params.authorizationRef);
       if (params.retry === true) args.push("--retry");
       return toolResult(core(args));

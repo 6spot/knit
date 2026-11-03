@@ -4,6 +4,7 @@
  * 封存／归档、Git 收尾与记录写入不在本模块——本模块只回答业务状态允许什么。
  */
 import type { CheckVerdict } from "./check.js";
+import type { VerificationMode } from "../contracts/task-inputs.js";
 
 /** status：业务工作是否结束；与 Git 提交、归档完成分别判断。 */
 export type TaskStatus = "open" | "closed";
@@ -30,6 +31,8 @@ export interface TaskFacts {
   branch: string | null;
   /** 未应用的待应用草案存在时为其 kind。 */
   pendingKind: UpdateKind | null;
+  /** 完成验证要求；旧记录缺省按 independent 兼容。 */
+  verification?: VerificationMode;
 }
 
 /**
@@ -61,6 +64,11 @@ export interface TaskTransition {
 export type TaskTransitionResult = TaskTransition | ({ allowed: false; reason: TaskGuardReason });
 
 const OPEN = (phase: TaskPhase): TaskTransition => ({ status: "open", phase, outcome: null });
+
+/** deliver 后需求或分支变化：independent 重查，self／none 重做实施。 */
+function afterDeliver(task: TaskFacts): TaskPhase {
+  return (task.verification ?? "independent") === "independent" ? "check" : "implement";
+}
 
 /**
  * 已结束任务的常规业务转移守卫。
@@ -119,7 +127,7 @@ function inputsUpdateRefusal(task: TaskFacts, archived: boolean, applyPending = 
  * InputsUpdated（task update --kind）的领域规则（STATES.md 第3节）。
  * 摘要是否变化由调用方以冻结摘要对比传入；核心不做自然语言分类。
  * clarify：解释、纠正、补充定位／验证资料——保持 discuss/implement/check，
- * 摘要未变不迁移；deliver 的检查 stale 确定性回 open/check 并清 completed。
+ * 摘要未变不迁移；deliver 的资格 stale 回 open/check（independent）或 open/implement（self／none）并清 completed。
  * change：新增、删除或改变目标、条件、范围、业务约束——回 open/discuss。
  */
 export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived = false): TaskTransitionResult {
@@ -127,7 +135,7 @@ export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged
   if (refusal) return refusal;
   if (kind === "change") return OPEN("discuss");
   if (!digestChanged) return OPEN(task.phase);
-  return task.phase === "deliver" ? OPEN("check") : OPEN(task.phase);
+  return task.phase === "deliver" ? OPEN(afterDeliver(task)) : OPEN(task.phase);
 }
 
 /**
@@ -156,7 +164,9 @@ export function onImplementationAccepted(task: TaskFacts): TaskTransitionResult 
   const refusal = firstRefusal(task);
   if (refusal) return refusal;
   if (task.phase !== "implement") return { allowed: false, reason: "phase_mismatch" };
-  return OPEN("check");
+  // independent 保留独立检查；self／none 在实施获准后直接进入交付阶段，
+  // 由完成守卫核对是否具备完成条件（DESIGN §3.8）。
+  return OPEN(task.verification === "independent" || task.verification === undefined ? "check" : "deliver");
 }
 
 /**
@@ -230,7 +240,7 @@ export function onCloseWithOutcome(task: TaskFacts, outcome: "cancelled" | "supe
  * adopt（分支接管）的资格影响（DESIGN.md 第3.5节）。
  * 调用方须先核实：无存活／未知 run、无未核实 Git 效果、输入已收敛、文件在当前分支可见。
  * 仅分支改变且有效需求未变时：discuss/implement 保持；check 保持待检查；
- * deliver（含未归档 completed）恢复为 open/check 并清 completed。
+ * deliver（含未归档 completed）按 verification 恢复为 open/check 或 open/implement 并清 completed。
  * 取消／替代只接管收尾，不自动重开。
  */
 export function onAdopt(task: TaskFacts): TaskTransitionResult {
@@ -238,10 +248,10 @@ export function onAdopt(task: TaskFacts): TaskTransitionResult {
     if (task.outcome === "cancelled") return { allowed: false, reason: "outcome_cancelled" };
     if (task.outcome === "superseded") return { allowed: false, reason: "outcome_superseded" };
     if (task.outcome === null) return { allowed: false, reason: "task_not_open" };
-    return OPEN("check");
+    return OPEN(afterDeliver(task));
   }
   if (task.pendingKind !== null) return { allowed: false, reason: "pending_draft_exists" };
-  return task.phase === "deliver" ? OPEN("check") : OPEN(task.phase);
+  return task.phase === "deliver" ? OPEN(afterDeliver(task)) : OPEN(task.phase);
 }
 
 /** 记录写入（task record）不改变业务状态；提供显式判定防止调用方误转移。 */

@@ -120,6 +120,8 @@ test("task new：稳定 ID、目录创建与 binding 落库", async () => {
     const parsed = parseTaskDocument(markdown);
     assert.equal(parsed.frontmatter.id, result.taskId);
     assert.equal(parsed.frontmatter.phase, "discuss");
+    assert.equal(parsed.frontmatter.verification, "self");
+    assert.equal(result.verification, "self");
     // 同 ID 歧义：已存在该 ID 的文件时重新生成
     const second = await service.newTask({ dir, title: "另一个任务" });
     assert.notEqual(second.taskId, result.taskId);
@@ -162,7 +164,7 @@ test("task record：只改记录区、版本核对、并行短锁串行", async 
   const dir = gitProject("record");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
     const digestBefore = inputsDigestOf(readFileSync(file, "utf8"));
     const result = await service.record({ dir, taskId, body: "进展：完成调研" });
@@ -202,7 +204,7 @@ test("task adopt：分支变化保持早期 phase，deliver 回 check，清检�
   const dir = gitProject("adopt");
   const { store, service } = makeService(dir);
   try {
-    const task = await service.newTask({ dir, title: "接管", slug: "adopt" });
+    const task = await service.newTask({ dir, title: "接管", slug: "adopt", verification: "independent" });
     const file = taskFile(dir, task.relativePath);
     const doc = parseTaskDocument(readFileSync(file, "utf8"), file);
     writeFileSync(file, renderTaskDocument({
@@ -278,7 +280,7 @@ test("task ready：discuss → implement 并冻结输入摘要；phase 不符拒
   const dir = gitProject("ready");
   const { store, service } = makeService(dir);
   try {
-    const { taskId } = await service.newTask({ dir, title: "T" });
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     const ready = await service.ready({ dir, taskId });
     assert.equal(ready.phase, "implement");
     assert.match(ready.confirmedInputsDigest, /^[0-9a-f]{64}$/);
@@ -300,7 +302,7 @@ test("task update：clarify 保持 phase 且不使摘要未变任务迁移；cha
   const dir = gitProject("update-kind");
   const { store, service } = makeService(dir);
   try {
-    const { taskId } = await service.newTask({ dir, title: "T" });
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     await service.ready({ dir, taskId });
     // change：回 open/discuss
     const change = await service.update({ dir, taskId, kind: "change", reason: "范围扩大", content: "## 目标与边界\n\n新目标\n", runActive: false });
@@ -328,7 +330,7 @@ test("task update：活动 run 只保存草案；apply/withdraw 按摘要与基�
   const dir = gitProject("pending");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
     const baseline = await service.readInputs({ dir, taskId });
     // 运行中：保存草案，冻结输入不变
@@ -450,7 +452,7 @@ test("task update：apply 按草案 kind 应用；change 草案回 discuss，cla
   const dir = gitProject("apply");
   const { store, service } = makeService(dir);
   try {
-    const { taskId } = await service.newTask({ dir, title: "T" });
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     await service.ready({ dir, taskId });
     // 模拟运行中保存 change 草案
     const saved = await service.update({ dir, taskId, kind: "change", reason: "目标改变", content: "## 目标与边界\n\n改变后的目标\n", runActive: true, updateOperationId: "op-9" });
@@ -469,7 +471,7 @@ test("任务规划资料：按需创建读取保存、越界与白名单拒绝�
   const dir = gitProject("materials");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const taskDir = join(dir, ".knit", "tasks", relativePath.split("/")[1]);
     // 创建时不堆空文件。
     const initial = await service.listMaterials({ dir, taskId });
@@ -578,7 +580,7 @@ test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 
   const dir = gitProject("pending-phase");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
     await service.ready({ dir, taskId });
     // 模拟实施完成推进到 deliver：直接改权威文件（本测试只关注 apply 转移持久化）。
@@ -619,7 +621,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
     const dir = gitProject("reopen-completed");
     const { store, service } = makeService(dir);
     try {
-      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       await service.ready({ dir, taskId });
       // 构造未归档 completed/deliver（模拟交付完成但尚未 archive）。
@@ -652,7 +654,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
     const dir = gitProject("reopen-archived");
     const { store, service } = makeService(dir);
     try {
-      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
@@ -674,7 +676,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
     const dir = gitProject("reopen-cancelled");
     const { store, service } = makeService(dir);
     try {
-      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "cancelled" } }));
@@ -692,7 +694,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
     const dir = gitProject("reopen-superseded");
     const { store, service } = makeService(dir);
     try {
-      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "superseded" } }));
@@ -713,7 +715,7 @@ test("凭据扫描：任务记录与输入更新命中即暂停、不回显完�
     const dir = gitProject("scan-record");
     const { store, service } = makeService(dir);
     try {
-      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const before = readFileSync(file, "utf8");
       const synthetic = "-----BEGIN RSA PRIVATE KEY-----\n合成占位\n-----END RSA PRIVATE KEY-----\n";
@@ -735,7 +737,7 @@ test("凭据扫描：任务记录与输入更新命中即暂停、不回显完�
     const dir = gitProject("scan-update");
     const { store, service } = makeService(dir);
     try {
-      const { taskId } = await service.newTask({ dir, title: "T" });
+      const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
       const fakeToken = "ghp_" + "a".repeat(36);
       const error = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: `## 目标与边界\n\n使用 ${fakeToken} 访问\n`, runActive: false }).then(() => null, (e) => e);
       assert.ok(error, "应拒绝");
@@ -755,7 +757,7 @@ test("task close：completed 收敛事实；cancelled 撤回草案留记录；cl
   const dir = gitProject("close");
   const { store, service } = makeService(dir);
   try {
-    const { taskId } = await service.newTask({ dir, title: "T" });
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     // 挂一份草案再取消：关闭撤回草案并留原因
     await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "x", runActive: true, updateOperationId: "op-2" });
     const closed = await service.close({ dir, taskId, outcome: "cancelled", runsSettled: true });
@@ -777,7 +779,7 @@ test("task close：completed 收敛事实；cancelled 撤回草案留记录；cl
       (error) => error instanceof TaskGuardError && error.details.guardReason === "outcome_cancelled",
     );
     // completed 需收敛事实
-    const t2 = await service.newTask({ dir, title: "T2" });
+    const t2 = await service.newTask({ dir, title: "T2", verification: "none" });
     await assert.rejects(
       () => service.close({ dir, taskId: t2.taskId, outcome: "completed", runsSettled: false }),
       (error) => error instanceof TaskGuardError && error.details.guardReason === "runs_unsettled",
@@ -794,7 +796,7 @@ test("封存：record 明确返回未保存且不写任务文件", async () => {
   const dir = gitProject("seal");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
     const before = readFileSync(file, "utf8");
     writeFileSync(join(dir, ".knit", "tasks", "11-02-01".length === 10 ? "x" : "x"), "placeholder");
@@ -817,7 +819,7 @@ test("锁定与多键：任务短锁允许与项目长占用并存且顺序固�
   const dir = gitProject("locks");
   const { store, service } = makeService(dir);
   try {
-    const { taskId } = await service.newTask({ dir, title: "T" });
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     // 独占项目执行占用时，record（任务短锁）仍可进行——OPERATIONS：记录允许与长阶段并行
     const locks = new LockManager({ root: join(dir, ".lock-root") });
     const projectLock = await locks.acquire({ keys: [{ scope: "project", rawKey: dir }], action: "phase.implement" });
@@ -903,7 +905,7 @@ test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任�
   const dir = gitProject("ready-structural");
   const { store, service } = makeService(dir);
   try {
-    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
     // 1. 模板占位未填：核心不机械拒绝（语义判断属主 Agent）；ready 正常通过（简单任务，无 plan.md）。
     const ready = await service.ready({ dir, taskId });

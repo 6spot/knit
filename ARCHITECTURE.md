@@ -94,12 +94,12 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | plan.md／design.md／research/ | 任务规划资料（045 实现，经核心统一接口） | 实施计划、方案依据与调查材料；随任务目录生命周期，要求性内容变化走 task update |
 | installation/init 清单 | InitializationService | 本机安装、文件所有权、模板与准备状态 |
 | Session 元数据 | SessionService | 身份、角色、关系和原生引用；选择仅作已核实快照 |
-| binding 元数据 | 核心任务／运行服务 | 位置、分支、范围、运行／检查引用、修复 ID／计数／停止原因 |
+| binding 元数据 | 核心任务／运行服务 | 位置、分支、范围、最近获准实施／检查引用、修复 ID／计数／停止原因 |
 | run request/inputs | RunCoordinator／ContextPlanner | 不可变请求；取得占用后冻结输入，含固定 acceptanceOperationId |
 | run launch | RunCoordinator | 启动意图、实例句柄与确认 |
 | run state/result | worker | 真实准备、执行、取消与终态；result 不证明 Git 交付 |
 | instructions、events | worker | 指令落实与脱敏进度，事件不代替结果 |
-| scope/check | RunAcceptanceService（结果接收时） | 不可变范围（`.runtime/tasks/<task-id>/scope.json`）与检查凭据（`.runtime/checks/<run-id>.json`），当前适用性另行推导 |
+| scope/check/completion | RunAcceptanceService／完成服务 | 不可变范围（`.runtime/tasks/<task-id>/scope.json`）、检查凭据（`.runtime/checks/<run-id>.json`）与完成凭据（`.runtime/completions/<task-id>.json`），当前适用性另行推导；完成凭据不表示 Git 已提交 |
 | snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready；index 内容独立保存，逐路径恢复记录独立 |
 | cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
 | 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |
@@ -109,7 +109,7 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 
 Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路径实证选定，比较夹具与证据见 [任务004](tasks/004-metadata-storage-decision.md) 与 [验证资料](validation/metadata-storage/README.md)）；数据库是唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
 
-讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason，以及至多一份 pendingInput 草案和基线／草案摘要；该草案不属于当前冻结输入。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
+讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、lastImplement、完成凭据引用、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason，以及至多一份 pendingInput 草案和基线／草案摘要；该草案不属于当前冻结输入。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
 
 ## 7. 写入与恢复协议
 
@@ -134,13 +134,13 @@ task update 声明 clarify/change 及理由，核心只校验摘要和结构。c
 
 归档先写完整收尾记录，再在任务短锁下捕捉 seal 版本。封存中补记明确返回未保存，不自动转存或留修改。结束后按原意重试为新档案修改，不归入原提交或重开业务。归档移动、binding 与清关联按操作检查点恢复。
 
-以报告／结论本身为正式成果的任务，把可验收正文放在显式成果文件并纳入 scope，Task 记录区只留摘要、验证和引用；不能借纯记录的排除规则免检业务产物。简短日常讨论仍可不建正式任务。
+以报告／结论本身为正式成果的任务，把可验收正文放在显式成果文件并纳入 scope，Task 记录区只留摘要、验证和引用；不能借纯记录的排除规则免检业务产物。是否独立检查由任务 `verification` 与用户要求决定，`self` 的自检不能冒充独立检查。简短日常讨论仍可不建正式任务。
 
 scope 按 Task 汇总已确认成果，不能在新 run 时清空。恢复须继承旧基线、已确认范围及待核实改动；本次快照只定义本次起点。补报告的 run 即使没有新改动，也不能遗漏前次已经产生的成果。
 
 ContextPlanner 区分需求、所选指令版本、授权输出和纯记录。规范文件本身是明确输出时，旧输入取冻结版本，新内容作为成果核查，不能仅因同一路径改变就判需求实变。正式新规则是否适用于本任务须由主 Agent 明确，不能把未来规则自动追溯成当前验收条件；该决定与版本进入输入计划。
 
-检查结论对指定输入和成果版本成立。工作提交前比较当前工作内容；工作提交后核实所选 commit 的内容和检查范围，不把后来未纳入该成果的工作区变动伪称已交付。若用户要求将新变更纳入本任务，先暂停收尾并重新确认范围／检查。
+检查或 self 完成结论对指定输入和成果版本成立。产物提交前比较当前工作内容；产物／资料提交后核实所选 commit 的内容和完成范围，不把后来未纳入该成果的工作区变动伪称已交付。若用户要求将新变更纳入本任务，先暂停收尾并重新确认范围／完成资格。
 
 原生引用按客户端解释，模型每次按既定优先级解析并验证，未知版本不覆盖旧记录。旧记录无法恢复时可沿同一客户端新建会话，保留来源和失败原因；客户端缺失、模型不可用或旧工具状态未知不以新建会话绕过。标准角色、项目正文、原生自动加载和显式注入去重。跨目录、外部协作与自动清理不混入本轮架构。
 

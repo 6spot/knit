@@ -17,6 +17,7 @@ import type {
 import type { CheckFile } from "../contracts/run.js";
 import type { OperationState } from "../contracts/metadata.js";
 import { onComplete, type TaskFacts } from "../domain/task.js";
+import { CompletionService } from "./completion-service.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
@@ -29,6 +30,7 @@ import { ContextPlanner } from "./context-planner.js";
 import { runSettled } from "./run-activity.js";
 import { GuardError } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
+import { validateCheckEvidence } from "./check-validation.js";
 import { StandardsService } from "./standards-service.js";
 import { locateTaskDocument } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
@@ -72,6 +74,24 @@ export interface DeliveryInput {
   retry?: boolean;
 }
 
+export interface DeliveryPlanItem {
+  taskId: string;
+  taskPath: string;
+  artifacts: string[];
+  metadata: string[];
+  /** 已在 index 中有内容的业务路径；当前实现不能可靠拆分，先报告冲突。 */
+  stagedArtifacts: string[];
+  status: "ready" | "conflict";
+  reason: string | null;
+}
+
+export interface DeliveryPlan {
+  branch: string;
+  tasks: DeliveryPlanItem[];
+  conflicts: Array<{ path: string; taskIds: string[] }>;
+  readOnly: true;
+}
+
 export interface DeliveryServiceOptions {
   store: MetadataStore;
   locks?: LockManager;
@@ -90,7 +110,10 @@ interface Prepared {
   config: ProjectConfig;
   branch: string;
   check: CheckFile | null;
+  /** 旧操作合并提交范围；新操作按 artifacts／metadata 分开。 */
   selected: string[];
+  artifacts: string[];
+  metadata: string[];
   defaultBranch: DeliveryResult["defaultBranch"];
   authorization: AuthorizationSource;
   policyVersion: string;
@@ -117,6 +140,52 @@ export class DeliveryService {
 
   async archive(input: DeliveryInput): Promise<DeliveryResult> {
     return this.run({ ...input, mode: "archive" });
+  }
+
+  /** 只读预检：分类、跨任务同路径冲突和已暂存业务路径；不创建操作、不写 Git。 */
+  async plan(inputs: DeliveryInput[]): Promise<DeliveryPlan> {
+    if (inputs.length === 0) throw new GuardError("task_required", "至少需要一个任务 ID");
+    const branch = inputs[0]?.branch ?? "";
+    for (const input of inputs) {
+      if (input.branch !== branch) throw new GuardError("branch_mismatch", "批量收尾的任务必须使用同一分支");
+    }
+    const root = normalizeRoot(inputs[0]?.dir ?? "");
+    const tasks: DeliveryPlanItem[] = [];
+    for (const input of inputs) {
+      const located = locateTaskDocument(root, input.taskId);
+      const taskPath = relative(root, join(located.dir, TASK_FILE)).split("\\").join("/");
+      const classified = await this.classifyPaths(root, input.taskId, located.dir);
+      const stagedResult = this.git(["diff", "--cached", "--name-only", "--", ...classified.artifacts], root);
+      if (stagedResult.code !== 0) throw new GuardError("git_failed", `读取暂存状态失败: ${stagedResult.stderr.trim()}`);
+      const staged = new Set(stagedResult.stdout.split(/\r?\n/).filter(Boolean));
+      const stagedArtifacts = classified.artifacts.filter((path) => staged.has(path));
+      tasks.push({
+        taskId: input.taskId,
+        taskPath,
+        artifacts: classified.artifacts,
+        metadata: classified.metadata,
+        stagedArtifacts,
+        status: stagedArtifacts.length > 0 ? "conflict" : "ready",
+        reason: stagedArtifacts.length > 0 ? "preexisting_staged" : null,
+      });
+    }
+    const owners = new Map<string, string[]>();
+    for (const task of tasks) {
+      for (const path of [...task.artifacts, ...task.metadata]) {
+        owners.set(path, [...(owners.get(path) ?? []), task.taskId]);
+      }
+    }
+    const conflicts = [...owners.entries()]
+      .filter(([, taskIds]) => taskIds.length > 1)
+      .map(([path, taskIds]) => ({ path, taskIds }));
+    const conflicted = new Set(conflicts.flatMap((entry) => entry.taskIds));
+    for (const task of tasks) {
+      if (conflicted.has(task.taskId)) {
+        task.status = "conflict";
+        task.reason = task.reason ?? "path_shared_by_tasks";
+      }
+    }
+    return { branch, tasks, conflicts, readOnly: true };
   }
 
   private async run(input: DeliveryInput & { mode: "deliver" | "archive" }): Promise<DeliveryResult> {
@@ -199,7 +268,7 @@ export class DeliveryService {
     const defaultBranch = defaultBranchCandidate(root, config, this.git);
     const now = this.now().toISOString();
     const steps: DeliveryStep[] = (input.mode === "deliver"
-      ? ["work_commit", "final_record", "seal", "move", "archive_commit"]
+      ? ["artifact_commit", "final_record", "metadata_commit", "seal", "move", "archive_commit"]
       : ["final_record", "seal", "move", "archive_commit"]
     ).map((kind, index) => ({
       stepId: `${index + 1}-${kind}`,
@@ -228,6 +297,7 @@ export class DeliveryService {
       // 首次目标固定，跨月恢复也使用同一 archivePath。
       archivePath: this.archivePath(root, located.dir),
       workCommit: null,
+      metadataCommit: null,
       archiveCommit: null,
       sealDigest: null,
       steps,
@@ -240,6 +310,33 @@ export class DeliveryService {
     const path = join(root, ".knit", "config.json");
     if (!existsSync(path)) return defaultConfig();
     return parseConfig(readFileSync(path, "utf8"));
+  }
+
+  /** 业务产物与任务资料分开：任务目录只进 metadata；scope 中其余路径是 artifacts。 */
+  private async classifyPaths(
+    root: string,
+    taskId: string,
+    taskDir: string,
+  ): Promise<{ artifacts: string[]; metadata: string[]; selected: string[] }> {
+    const scope = loadScope(new RunStore(root), taskId, this.now().toISOString());
+    const review = await this.store.standardsReviews.latest(taskId);
+    const taskDirRelative = relative(root, taskDir).split("\\").join("/");
+    const artifactPaths = scope.entries
+      .map((entry) => entry.path)
+      .filter((path) => path !== taskDirRelative && !path.startsWith(`${taskDirRelative}/`))
+      .filter((path) => path !== RUNTIME_PREFIX && !path.startsWith(`${RUNTIME_PREFIX}/`));
+    const artifactSet = new Set(artifactPaths);
+    const metadataSet = new Set<string>([taskDirRelative]);
+    for (const target of review?.targets ?? []) {
+      if (!artifactSet.has(target)) metadataSet.add(target);
+    }
+    if ((review?.targets.length ?? 0) > 0 && !artifactSet.has(".knit/standards/index.md")) {
+      metadataSet.add(".knit/standards/index.md");
+    }
+    const selected = [...new Set([...artifactPaths, ...metadataSet])]
+      .filter((path) => path !== RUNTIME_PREFIX && !path.startsWith(`${RUNTIME_PREFIX}/`))
+      .sort();
+    return { artifacts: [...artifactSet].sort(), metadata: [...metadataSet].sort(), selected };
   }
 
   private async prepare(
@@ -259,6 +356,7 @@ export class DeliveryService {
     const taskPath = join(taskDir, TASK_FILE);
     const taskRelative = relative(root, taskPath).split("\\").join("/");
     const document = located.document;
+    const raw = located.raw;
     const binding = await this.store.bindings.get(input.taskId);
     if (binding === null) throw new GuardError("binding_missing", `任务绑定缺失: ${input.taskId}`);
     const config = this.readConfig(root);
@@ -302,21 +400,45 @@ export class DeliveryService {
       }
     }
     let check: CheckFile | null = null;
-    if (!located.archived && (operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver"))) {
-      check = await this.validCheck(root, input.taskId, binding, branch);
+    const isDeliverOperation = operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver");
+    if (!located.archived && isDeliverOperation) {
+      const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
+      if (document.frontmatter.status === "closed" && document.frontmatter.outcome === "completed") {
+        const completed = await completionService.validate({ root, taskId: input.taskId, document, raw, binding });
+        if (!completed.valid) {
+          // 旧记录没有 verification 字段：保留既有“有效检查才能正常交付”语义。
+          if (document.frontmatter.verification !== undefined) {
+            // independent 的完成凭据失效仍以检查资格原因报告，便于调用方按既有语义重查。
+            if (document.frontmatter.verification === "independent") {
+              check = await this.validCheck(root, input.taskId, binding, branch);
+            }
+            throw new GuardError(completed.reason, `完成凭据不可用: ${completed.reason}`);
+          }
+          check = await this.validCheck(root, input.taskId, binding, branch);
+        } else if (completed.completion.checkRunId !== null) {
+          check = new RunStore(root).readCheck(completed.completion.checkRunId);
+          if (check === null) throw new GuardError("check_missing", "完成凭据引用的检查凭据缺失");
+        }
+      } else {
+        // independent 保留既有检查资格错误语义；self／none 由完成守卫判断。
+        if ((document.frontmatter.verification ?? "independent") === "independent") {
+          check = await this.validCheck(root, input.taskId, binding, branch);
+        } else {
+          const decision = await completionService.assess({ root, taskId: input.taskId, document, raw, binding });
+          if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
+          if (decision.checkRunId !== null) {
+            check = new RunStore(root).readCheck(decision.checkRunId);
+            if (check === null) throw new GuardError("check_missing", "当前检查凭据缺失");
+          }
+        }
+      }
       if (!runsSettled) throw new GuardError("runs_unsettled", "任务仍有活动／未知运行或待接收结果");
       await this.standardsGate(root, input.taskId);
     } else if (!located.archived) {
       await this.standardsGate(root, input.taskId);
     }
 
-    const scope = loadScope(new RunStore(root), input.taskId, this.now().toISOString());
-    const review = await this.store.standardsReviews.latest(input.taskId);
-    const selected = new Set<string>([relative(root, taskDir).split("\\").join("/")]);
-    for (const entry of scope.entries) selected.add(entry.path);
-    for (const target of review?.targets ?? []) selected.add(target);
-    if ((review?.targets.length ?? 0) > 0) selected.add(".knit/standards/index.md");
-    const selectedPaths = [...selected].filter((path) => path !== RUNTIME_PREFIX && !path.startsWith(`${RUNTIME_PREFIX}/`)).sort();
+    const { artifacts, metadata, selected: selectedPaths } = await this.classifyPaths(root, input.taskId, taskDir);
     const defaultBranch = operation.defaultBranch.ref === null || operation.defaultBranch.source === "unknown"
       ? defaultBranchCandidate(root, config, this.git)
       : operation.defaultBranch;
@@ -332,6 +454,8 @@ export class DeliveryService {
       branch,
       check,
       selected: selectedPaths,
+      artifacts,
+      metadata,
       defaultBranch,
       authorization,
       policyVersion: operation.policyVersion,
@@ -379,67 +503,80 @@ export class DeliveryService {
       await this.closeCompleted(prepared.root, op.taskId);
     }
 
-    // 2. 工作提交（仅正常交付）。
+    const alreadyArchived = !existsSync(join(prepared.root, op.taskPath));
+    // 2. 业务产物提交（仅正常交付）；任务资料在最终记录后单独提交。
     if (op.mode === "deliver") {
-      const work = step("work_commit");
-      if (work?.state === "completed") {
-        const oid = op.workCommit;
-        if (oid === null) {
-          const skipped = work.evidence?.skipped === "true";
-          const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-          if (!skipped || (work.evidence?.before !== undefined && work.evidence.before !== head)) {
-            return attention("work_commit", "step_effect_missing");
-          }
-        } else if (!commitExists(prepared.root, oid, this.git)) {
-          return attention("work_commit", "step_effect_missing");
-        } else {
-          const archive = step("archive_commit");
-          const archiveStarted = archive?.state === "completed" || op.archiveCommit !== null ||
-            this.findOperationCommit(prepared.root, op.operationId, "knit: archive") !== null;
-          if (!archiveStarted) {
-            const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-            if (head !== oid) return attention("work_commit", "work_commit_head_advanced", { commit: oid, head });
-          }
+      if (step("artifact_commit") !== undefined) {
+        if (!alreadyArchived) {
+          const artifact = await this.commitSelected(prepared, op, prepared.artifacts, "artifact_commit", "knit: artifact", checkpoint);
+          if (artifact.commit !== null) await save({ workCommit: artifact.commit });
+          else if (artifact.attention === null) await save({ workCommit: null });
+          if (artifact.attention !== null) return attention("artifact_commit", artifact.attention, artifact.evidence);
+          await completeStep("artifact_commit", artifact.evidence);
         }
-      } else if (op.workCommit !== null) {
-        // 上次已产生提交但被 hook 等置 needs_attention：显式重试只核实，不重复提交。
-        if (!commitExists(prepared.root, op.workCommit, this.git)) return attention("work_commit", "step_effect_missing");
-        if (!commitMessage(prepared.root, op.workCommit, this.git).includes(op.operationId)) {
-          return attention("work_commit", "commit_message_mismatch", { commit: op.workCommit });
-        }
-        const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-        if (head !== op.workCommit) return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, head });
-        const prior = work?.evidence ?? {};
-        if (prior.before !== undefined) {
-          const parent = gitOrThrow(prepared.root, ["rev-parse", `${op.workCommit}^`], "读取提交父节点", this.git);
-          if (parent !== prior.before) return attention("work_commit", "commit_parent_mismatch", { commit: op.workCommit, parent });
-        }
-        if (prior.expectedPaths !== undefined) {
-          const actualPaths = commitPaths(prepared.root, op.workCommit, this.git);
-          const expectedPaths = prior.expectedPaths.split("\n").filter(Boolean);
-          if (!sameSet(actualPaths, expectedPaths)) {
-            return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, expected: prior.expectedPaths, actual: actualPaths.join("\n") });
-          }
-        }
-        if (prior.expectedTree !== undefined) {
-          let expectedTree: Record<string, string> = {};
-          try {
-            expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
-          } catch {
-            return attention("work_commit", "commit_verification_unavailable", { commit: op.workCommit });
-          }
-          if (!sameTree(expectedTree, treeSnapshot(prepared.root, op.workCommit, prepared.selected, this.git), prepared.selected)) {
-            return attention("work_commit", "hook_changed_selected", { commit: op.workCommit });
-          }
-        }
-        const scopeDirty = dirtyPaths(prepared.root, prepared.selected.filter((path) => path !== prepared.taskRelative), this.git);
-        if (scopeDirty.length > 0) return attention("work_commit", "selected_worktree_dirty", { paths: scopeDirty.join("\n") });
-        await completeStep("work_commit", { commit: op.workCommit, recovered: "true" });
       } else {
-        const result = await this.workCommit(prepared, op, checkpoint);
-        if (result.commit !== null) await save({ workCommit: result.commit });
-        if (result.attention !== null) return attention("work_commit", result.attention, result.evidence);
-        await completeStep("work_commit", result.evidence);
+      if (op.mode === "deliver") {
+        const work = step("work_commit");
+        if (work?.state === "completed") {
+          const oid = op.workCommit;
+          if (oid === null) {
+            const skipped = work.evidence?.skipped === "true";
+            const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
+            if (!skipped || (work.evidence?.before !== undefined && work.evidence.before !== head)) {
+              return attention("work_commit", "step_effect_missing");
+            }
+          } else if (!commitExists(prepared.root, oid, this.git)) {
+            return attention("work_commit", "step_effect_missing");
+          } else {
+            const archive = step("archive_commit");
+            const archiveStarted = archive?.state === "completed" || op.archiveCommit !== null ||
+              this.findOperationCommit(prepared.root, op.operationId, "knit: archive") !== null;
+            if (!archiveStarted) {
+              const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
+              if (head !== oid) return attention("work_commit", "work_commit_head_advanced", { commit: oid, head });
+            }
+          }
+        } else if (op.workCommit !== null) {
+          // 上次已产生提交但被 hook 等置 needs_attention：显式重试只核实，不重复提交。
+          if (!commitExists(prepared.root, op.workCommit, this.git)) return attention("work_commit", "step_effect_missing");
+          if (!commitMessage(prepared.root, op.workCommit, this.git).includes(op.operationId)) {
+            return attention("work_commit", "commit_message_mismatch", { commit: op.workCommit });
+          }
+          const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
+          if (head !== op.workCommit) return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, head });
+          const prior = work?.evidence ?? {};
+          if (prior.before !== undefined) {
+            const parent = gitOrThrow(prepared.root, ["rev-parse", `${op.workCommit}^`], "读取提交父节点", this.git);
+            if (parent !== prior.before) return attention("work_commit", "commit_parent_mismatch", { commit: op.workCommit, parent });
+          }
+          if (prior.expectedPaths !== undefined) {
+            const actualPaths = commitPaths(prepared.root, op.workCommit, this.git);
+            const expectedPaths = prior.expectedPaths.split("\n").filter(Boolean);
+            if (!sameSet(actualPaths, expectedPaths)) {
+              return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, expected: prior.expectedPaths, actual: actualPaths.join("\n") });
+            }
+          }
+          if (prior.expectedTree !== undefined) {
+            let expectedTree: Record<string, string> = {};
+            try {
+              expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
+            } catch {
+              return attention("work_commit", "commit_verification_unavailable", { commit: op.workCommit });
+            }
+            if (!sameTree(expectedTree, treeSnapshot(prepared.root, op.workCommit, prepared.selected, this.git), prepared.selected)) {
+              return attention("work_commit", "hook_changed_selected", { commit: op.workCommit });
+            }
+          }
+          const scopeDirty = dirtyPaths(prepared.root, prepared.selected.filter((path) => path !== prepared.taskRelative), this.git);
+          if (scopeDirty.length > 0) return attention("work_commit", "selected_worktree_dirty", { paths: scopeDirty.join("\n") });
+          await completeStep("work_commit", { commit: op.workCommit, recovered: "true" });
+        } else {
+          const result = await this.workCommit(prepared, op, checkpoint);
+          if (result.commit !== null) await save({ workCommit: result.commit });
+          if (result.attention !== null) return attention("work_commit", result.attention, result.evidence);
+          await completeStep("work_commit", result.evidence);
+        }
+      }
       }
     }
 
@@ -454,6 +591,17 @@ export class DeliveryService {
       const written = this.appendFinalRecord(prepared, op);
       await save({ sealDigest: written.digest });
       await completeStep("final_record", { digest: written.digest });
+    }
+
+    // 3.5 任务资料提交（最终记录已写入，业务产物已单独提交）。
+    if (op.mode === "deliver" && step("metadata_commit") !== undefined && !alreadyArchived) {
+      const metadata = await this.commitSelected(prepared, op, prepared.metadata, "metadata_commit", "knit: metadata", checkpoint);
+      if (metadata.commit !== null) await save({ metadataCommit: metadata.commit });
+      else if (metadata.attention === null) await save({ metadataCommit: null });
+      if (metadata.attention !== null) return attention("metadata_commit", metadata.attention, metadata.evidence);
+      await completeStep("metadata_commit", metadata.evidence);
+      const noteDigest = this.appendMetadataCommitNote(prepared, op);
+      if (noteDigest !== null) await save({ sealDigest: noteDigest });
     }
 
     // 4. 封存固定版本。
@@ -607,10 +755,31 @@ export class DeliveryService {
   }
 
   private async workCommit(prepared: Prepared, op: DeliveryOperation, checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
+    return this.commitSelected(prepared, op, prepared.selected, "work_commit", "knit: deliver", checkpoint);
+  }
+
+  private async commitSelected(
+    prepared: Prepared,
+    op: DeliveryOperation,
+    selected: string[],
+    stepKind: string,
+    messagePrefix: string,
+    checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>,
+  ): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
     const root = prepared.root;
-    const recovered = this.findOperationCommit(root, op.operationId, "knit: deliver");
-    const prior = op.steps.find((item) => item.kind === "work_commit")?.evidence ?? {};
+    let recovered = this.findOperationCommit(root, op.operationId, messagePrefix);
+    // 兼容升级前已产生、message 仍是 knit: deliver 的首次工作提交；仍按当前步骤范围核对。
+    if (recovered === null && stepKind === "artifact_commit") {
+      recovered = this.findOperationCommit(root, op.operationId, "knit: deliver");
+    }
+    if (recovered === null && stepKind === "artifact_commit" && op.workCommit !== null) {
+      recovered = op.workCommit;
+    }
+    const prior = op.steps.find((item) => item.kind === stepKind)?.evidence ?? {};
     if (recovered !== null && isAncestor(root, recovered, "HEAD", this.git)) {
+      if (!commitMessage(root, recovered, this.git).includes(op.operationId)) {
+        return { commit: recovered, evidence: { reason: "commit_message_mismatch", commit: recovered }, attention: "commit_message_mismatch" };
+      }
       const actual = commitPaths(root, recovered, this.git);
       const head = gitOrThrow(root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
       if (head !== recovered) {
@@ -639,11 +808,11 @@ export class DeliveryService {
         } catch {
           return { commit: recovered, evidence: { reason: "commit_verification_unavailable", commit: recovered }, attention: "commit_verification_unavailable" };
         }
-        if (!sameTree(expectedTree, treeSnapshot(root, recovered, prepared.selected, this.git), prepared.selected)) {
+        if (!sameTree(expectedTree, treeSnapshot(root, recovered, selected, this.git), selected)) {
           return { commit: recovered, evidence: { reason: "hook_changed_selected", commit: recovered, recovered: "true" }, attention: "hook_changed_selected" };
         }
       }
-      const outside = actual.filter((path) => !selectedPath(path, prepared.selected));
+      const outside = actual.filter((path) => !selectedPath(path, selected));
       if (outside.length > 0) {
         return {
           commit: recovered,
@@ -657,23 +826,23 @@ export class DeliveryService {
     if (prior.before !== undefined && beforeHead !== prior.before) {
       return { commit: null, evidence: { reason: "commit_unverified", before: prior.before, head: beforeHead }, attention: "commit_unverified" };
     }
-    await checkpoint?.("work_commit", { before: beforeHead });
+    await checkpoint?.(stepKind, { before: beforeHead });
     const beforeStaged = stagedSnapshot(root, this.git);
     const beforeWorktree = this.signature(root);
-    const expected = dirtyPaths(root, prepared.selected, this.git);
+    const expected = dirtyPaths(root, selected, this.git);
     if (expected.length === 0) {
       return { commit: null, evidence: { skipped: "true", reason: "no_selected_changes", before: beforeHead }, attention: null };
     }
-    const addable = this.addable(root, prepared.selected);
+    const addable = this.addable(root, selected);
     const stageable = this.stageable(root, addable);
     if (stageable.length > 0) gitOrThrow(root, ["add", "-A", "--", ...stageable], "暂存交付路径", this.git);
-    const expectedTree = indexTreeFor(stagedSnapshot(root, this.git), prepared.selected);
-    await checkpoint?.("work_commit", {
+    const expectedTree = indexTreeFor(stagedSnapshot(root, this.git), selected);
+    await checkpoint?.(stepKind, {
       before: beforeHead,
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const message = `knit: deliver ${op.taskId} (${op.operationId})`;
+    const message = `${messagePrefix} ${op.taskId} (${op.operationId})`;
     const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取提交后 HEAD", this.git);
     if (commit.code !== 0) {
@@ -701,7 +870,7 @@ export class DeliveryService {
         attention: "commit_scope_mismatch",
       };
     }
-    if (!sameTree(expectedTree, treeSnapshot(root, afterHead, prepared.selected, this.git), prepared.selected)) {
+    if (!sameTree(expectedTree, treeSnapshot(root, afterHead, selected, this.git), selected)) {
       return {
         commit: afterHead,
         evidence: { reason: "hook_changed_selected", commit: afterHead, expectedTree: JSON.stringify(expectedTree) },
@@ -711,7 +880,7 @@ export class DeliveryService {
     const afterStaged = stagedSnapshot(root, this.git);
     const afterWorktree = this.signature(root);
     const stagedChanged = Object.keys({ ...beforeStaged, ...afterStaged }).some(
-      (path) => !selectedPath(path, prepared.selected) && beforeStaged[path] !== afterStaged[path],
+      (path) => !selectedPath(path, selected) && beforeStaged[path] !== afterStaged[path],
     );
     const selectedIndexChanged = !sameTree(
       expectedTree,
@@ -719,11 +888,11 @@ export class DeliveryService {
       Object.keys(expectedTree),
     );
     const worktreeChanged = Object.keys({ ...beforeWorktree.entries, ...afterWorktree.entries }).some(
-      (path) => !selectedPath(path, prepared.selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
+      (path) => !selectedPath(path, selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
     );
     // 提交后选中路径会从脏列表消失；只有提交后仍脏且内容变化才说明 hook 改了选中文件。
     const selectedChanged = Object.keys(afterWorktree.entries).some(
-      (path) => selectedPath(path, prepared.selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
+      (path) => selectedPath(path, selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
     );
     const evidence = { commit: afterHead, parent, paths: actual.join("\n") };
     if (stagedChanged || selectedIndexChanged || worktreeChanged || selectedChanged) {
@@ -873,8 +1042,11 @@ export class DeliveryService {
     const document = parseTaskDocument(before.data.toString("utf8"), prepared.taskPath);
     const marker = `<!-- knit:delivery:${op.operationId} -->`;
     if (document.progressBody.includes(marker)) return { digest: sha256Text(before.data.toString("utf8")) };
+    const verification = prepared.document.frontmatter.verification ?? "independent";
     const resultLine = op.mode === "deliver"
-      ? `- 结果: 正常交付；检查 ${prepared.check?.runId ?? "unknown"} 通过`
+      ? prepared.check !== null
+        ? `- 结果: 正常交付；检查 ${prepared.check.runId} 通过`
+        : `- 结果: 正常交付；完成验证 ${verification}（无独立检查）`
       : `- 结果: 业务${prepared.document.frontmatter.outcome ?? "结束"}；未提交半成品代码`;
     const append = [
       "",
@@ -894,6 +1066,36 @@ export class DeliveryService {
     const data = Buffer.from(renderTaskDocument(updated), "utf8");
     atomicWrite({ path: prepared.taskPath, data, expectedSha256: before.sha256, mode: 0o644 });
     return { digest: sha256Bytes(data) };
+  }
+
+  /** 在资料提交后补记哈希；该补记随归档提交进入档案，不回写已生成资料提交。 */
+  private appendMetadataCommitNote(prepared: Prepared, op: DeliveryOperation): string | null {
+    const before = readWithVersion(prepared.taskPath);
+    if (before === null) return null;
+    const text = before.data.toString("utf8");
+    const marker = `<!-- knit:metadata-commit:${op.operationId} -->`;
+    if (!existsSync(prepared.taskPath)) return null;
+    // 上次已写补记但 sealDigest 未落盘：返回当前摘要，允许重入更新封存版本。
+    if (text.includes(marker)) return sha256Bytes(before.data);
+    const document = parseTaskDocument(text, prepared.taskPath);
+    const append = [
+      "",
+      "### 任务资料提交记录",
+      "",
+      marker,
+      `- 任务资料提交: ${op.metadataCommit ?? "无"}`,
+      `- 归档目标: ${op.archivePath ?? "待移动"}`,
+      "",
+    ].join("\n");
+    const updated = withRegions(document, { progressBody: `${document.progressBody.trimEnd()}\n${append}` });
+    const data = Buffer.from(renderTaskDocument(updated), "utf8");
+    atomicWrite({
+      path: prepared.taskPath,
+      data,
+      expectedSha256: before.sha256,
+      mode: 0o644,
+    });
+    return sha256Bytes(data);
   }
 
   private hasRecord(taskPath: string, operationId: string): boolean {
@@ -932,33 +1134,16 @@ export class DeliveryService {
     return true;
   }
 
-  private async validCheck(root: string, taskId: string, binding: TaskBinding, branch: string): Promise<CheckFile> {
-    if (binding.lastCheckRunId === null) throw new GuardError("check_missing", "没有可交付的检查");
-    const check = new RunStore(root).readCheck(binding.lastCheckRunId);
-    if (check === null) throw new GuardError("check_missing", `检查凭据缺失: ${binding.lastCheckRunId}`);
-    if (check.verdict !== "pass") throw new GuardError("check_not_passed", `最新检查结论不是 pass: ${check.verdict}`);
-    if (check.branch !== branch) throw new GuardError("check_stale", "检查分支与当前交付分支不一致");
-    const plan = await new ContextPlanner({ store: this.store, now: this.now, randomHex: this.randomHex }).plan({
-      dir: root,
+  private async validCheck(root: string, taskId: string, binding: TaskBinding, branch: string | null): Promise<CheckFile> {
+    return validateCheckEvidence({
+      root,
+      store: this.store,
       taskId,
-      role: "check",
+      binding,
+      branch,
+      now: this.now,
+      randomHex: this.randomHex,
     });
-    if (!plan.ready) throw new GuardError("check_stale", `检查上下文不再 ready: ${plan.blockers.join(",")}`);
-    if (
-      check.inputsDigest !== plan.inputsDigest ||
-      check.standardsDigest !== plan.standardsDigest ||
-      check.effectiveInputsDigest !== plan.effectiveInputsDigest
-    ) {
-      throw new GuardError("check_stale", "检查后输入或正式规范变化");
-    }
-    if (binding.confirmedInputsDigest !== plan.inputsDigest || binding.confirmedStandardsDigest !== plan.standardsDigest) {
-      throw new GuardError("check_stale", "任务冻结摘要与当前输入／规范不一致");
-    }
-    const scope = loadScope(new RunStore(root), taskId, this.now().toISOString());
-    if (check.scopeDigest !== scope.digest) throw new GuardError("check_stale", "检查后成果范围变化");
-    // scope 摘要只冻结路径列表；交付前按当前事实重核每个路径的类型、模式和内容（任务027）。
-    if (!scopeEntriesCurrent(root, scope.entries)) throw new GuardError("check_stale", "检查后成果路径现状与记录不符");
-    return check;
   }
 
   private async standardsGate(root: string, taskId: string): Promise<void> {
@@ -988,24 +1173,35 @@ export class DeliveryService {
     const before = readWithVersion(path);
     if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${path}`);
     const document = parseTaskDocument(before.data.toString("utf8"), path);
+    if (document.frontmatter.status === "closed") {
+      if (document.frontmatter.outcome !== "completed") throw new GuardError("task_closed", `任务已结束: ${document.frontmatter.outcome}`);
+      return;
+    }
+    const binding = await this.store.bindings.get(taskId);
+    if (binding === null) throw new GuardError("binding_missing", "任务绑定缺失，无法核对完成资格");
+    const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
+    const decision = await completionService.assess({ root, taskId, document, raw: before.data, binding });
+    if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
     const facts: TaskFacts = {
       status: document.frontmatter.status,
       phase: document.frontmatter.phase,
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
-      pendingKind: null,
+      pendingKind: binding.pendingDraft?.kind ?? null,
+      verification: document.frontmatter.verification,
     };
-    if (facts.status === "closed") {
-      if (facts.outcome !== "completed") throw new GuardError("task_closed", `任务已结束: ${facts.outcome}`);
-      return;
-    }
     const transition = onComplete(facts);
     if ("allowed" in transition && transition.allowed === false) throw new GuardError(transition.reason, "任务不能正常完成");
     if (!("phase" in transition)) throw new GuardError("transition_invalid", "完成转移无效");
     const updated = withRegions(document, { frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome } });
-    atomicWrite({ path, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
-    const binding = await this.store.bindings.get(taskId);
-    if (binding !== null) await this.store.bindings.save({ ...binding, pendingDraft: null });
+    completionService.record({ root, taskId, document, raw: before.data, decision, reason: null });
+    try {
+      atomicWrite({ path, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+    } catch (error) {
+      new RunStore(root).removeCompletion(taskId);
+      throw error;
+    }
+    await this.store.bindings.save({ ...binding, pendingDraft: null });
   }
 
   private resultOf(op: DeliveryOperation, complete: boolean): DeliveryResult {
@@ -1017,6 +1213,7 @@ export class DeliveryService {
       reason: op.reason,
       branch: op.branch,
       workCommit: op.workCommit,
+      metadataCommit: op.metadataCommit ?? null,
       archiveCommit: op.archiveCommit,
       archivePath: op.archivePath,
       defaultBranch: op.defaultBranch,

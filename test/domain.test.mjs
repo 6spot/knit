@@ -22,6 +22,7 @@ import {
   qualificationOf,
 } from "../dist/domain/check.js";
 import { mayStartRepairRound, repairDecision } from "../dist/domain/repair.js";
+import { completionDecision } from "../dist/domain/completion.js";
 
 const openDiscuss = { status: "open", phase: "discuss", outcome: null, branch: "refs/heads/main", pendingKind: null };
 const openImplement = { ...openDiscuss, phase: "implement" };
@@ -59,6 +60,17 @@ test("实施接受仅从 implement 推进并进入 check", () => {
   assert.equal(onImplementationAccepted(openDeliver)?.allowed, false);
 });
 
+test("实施接受按任务验证要求分流：independent→check，self／none→deliver", () => {
+  const selfTask = onImplementationAccepted({ ...openImplement, verification: "self" });
+  assert.equal(selfTask.phase, "deliver");
+  const noneTask = onImplementationAccepted({ ...openImplement, verification: "none" });
+  assert.equal(noneTask.phase, "deliver");
+  const independent = onImplementationAccepted({ ...openImplement, verification: "independent" });
+  assert.equal(independent.phase, "check");
+  // 旧记录缺省 independent，保持既有检查语义。
+  assert.equal(onImplementationAccepted(openImplement).phase, "check");
+});
+
 test("check 接受按结论分流 pass→deliver / changes_requested→implement / blocked 保留", () => {
   const pass = onCheckAccepted(openCheck, "pass");
   assertTransitionInvariant(pass);
@@ -85,6 +97,8 @@ test("clarify 保持早期 phase；deliver 因摘要变化回 open/check", () =>
   assertTransitionInvariant(deliverStale);
   assert.equal(deliverStale.phase, "check");
   assert.equal(deliverStale.status, "open");
+  assert.equal(onInputsUpdated({ ...openDeliver, verification: "self" }, "clarify", true).phase, "implement");
+  assert.equal(onInputsUpdated({ ...openDeliver, verification: "none" }, "clarify", true).phase, "implement");
   // 摘要未变：不迁移
   const unchanged = onInputsUpdated(openDeliver, "clarify", false);
   assert.equal(unchanged.phase, "deliver");
@@ -172,6 +186,7 @@ test("adopt 保持 discuss/implement/check，deliver 回 open/check 并清 compl
   assert.equal(fromDeliver.phase, "check");
   assert.equal(fromDeliver.outcome, null);
   assert.equal(fromDeliver.status, "open");
+  assert.equal(onAdopt({ ...deliverCompleted, verification: "self" }).phase, "implement");
 });
 
 test("纯记录与等价改名不使检查失效；运行引用、候选、模型用量不进摘要", () => {
@@ -348,4 +363,34 @@ test("上限 0 与非法上限", () => {
   const invalid = repairDecision(repairFacts, { kind: "repairRoundCompleted", repairCycleId: "c1" }, -1);
   assert.deepEqual(invalid, { allowed: false, reason: "max_rounds_invalid" });
   assert.deepEqual(mayStartRepairRound(repairFacts, -1), { allowed: false, reason: "max_rounds_invalid" });
+});
+
+test("完成资格：self 需要匹配的获准实施，independent 需要有效检查，none 明确记录未验证", () => {
+  const base = {
+    status: "open",
+    phase: "deliver",
+    outcome: null,
+    pendingKind: null,
+    verification: "self",
+    confirmedInputsDigest: "in",
+    currentInputsDigest: "in",
+    currentScopeDigest: "scope",
+    scopeCurrent: true,
+    lastImplement: { runId: "run-1", inputsDigest: "in", scopeDigest: "scope" },
+    checkQualification: "missing",
+    checkRunId: null,
+  };
+  const self = completionDecision(base);
+  assert.equal(self.allowed, true);
+  assert.equal(self.mode, "self");
+  assert.deepEqual(completionDecision({ ...base, phase: "check" }), { allowed: false, reason: "phase_mismatch" });
+  assert.deepEqual(completionDecision({ ...base, lastImplement: null }), { allowed: false, reason: "implementation_missing" });
+  assert.deepEqual(completionDecision({ ...base, lastImplement: { runId: "run-1", inputsDigest: "old", scopeDigest: "scope" } }), { allowed: false, reason: "implementation_stale" });
+  const independent = completionDecision({ ...base, verification: "independent", checkQualification: "valid", checkRunId: "run-check" });
+  assert.equal(independent.allowed, true);
+  assert.equal(independent.mode, "independent");
+  assert.deepEqual(completionDecision({ ...base, verification: "independent" }), { allowed: false, reason: "check_missing" });
+  const none = completionDecision({ ...base, verification: "none", confirmedInputsDigest: null, lastImplement: null });
+  assert.equal(none.allowed, true);
+  assert.match(none.unverified[0], /verification=none/);
 });

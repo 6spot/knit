@@ -34,3 +34,10 @@
 - 本轮只登记开发任务，不研究或修改实现，不对当前工作区执行提交、暂存、推送、归档或发布。
 - 不引入 Worktree、自动分支管理或其它客户端，不改变已有用户修改。
 - 2026-11-03：登记，尚未实施。
+
+- 2026-11-03：执行者主 Agent（Pi session `01a1a086-1eea-700e-bd9e-e6afeaa93c25`）；按用户顺序开发指令实施并验证。
+- Trellis 核对：固定提交 `f089cb3286071199e84118dee86b6d76aab032f1` 的 workflow 3.4 先列 AI 编辑／未识别 dirty paths 并形成 work commits；finish-work 过滤 `.trellis/tasks/`、`.trellis/workspace/`，由归档脚本处理 bookkeeping。证据和固定链接见 `validation/per-task-closeout/README.md`。
+- 实际修改：`DeliveryService` 新操作分 `artifact_commit`、`metadata_commit`、`archive_commit`；`DeliveryResult`／记录增加 `metadataCommit`；`deliver <taskId...>` 批量逐项，`--plan` 只读预检；跨任务同路径与已暂存业务路径在执行前停止；旧 `work_commit` 操作用于恢复兼容。
+- 验证：`test/delivery.test.mjs` 29 项通过；`test/closeout.test.mjs` 覆盖单任务分提交、批量、计划冲突、暂存冲突；全量 255 项通过；typecheck／build／pack:check 通过。
+- 已知限制：同一文件被多任务/任务前未暂存修改时无法仅凭路径拆分同一 diff；计划明确报告冲突，不静默合并。
+- 未验证：真实项目、真实模型、推送／发布；按用户要求暂缓。

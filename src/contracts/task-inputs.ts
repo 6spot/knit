@@ -27,6 +27,21 @@ export const TaskOutcomeSchema = Type.Union([
 ]);
 export type TaskOutcome = Static<typeof TaskOutcomeSchema>;
 
+/** 任务完成所需的验证强度；none 只可由用户明确选择。 */
+export const VerificationModeSchema = Type.Union([
+  Type.Literal("none"),
+  Type.Literal("self"),
+  Type.Literal("independent"),
+]);
+export type VerificationMode = Static<typeof VerificationModeSchema>;
+
+/** 新任务默认自检＋范围验证；旧记录缺省按 independent 保持既有检查语义。 */
+export const DEFAULT_VERIFICATION: VerificationMode = "self";
+
+export function verificationModeOf(frontmatter: { verification?: VerificationMode }): VerificationMode {
+  return frontmatter.verification ?? "independent";
+}
+
 /** frontmatter：最小元信息（DESIGN.md 第3.1节）；branch 为完整本地引用或 null。 */
 export const TaskFrontmatterSchema = Type.Object(
   {
@@ -35,6 +50,8 @@ export const TaskFrontmatterSchema = Type.Object(
     phase: TaskPhaseSchema,
     outcome: Type.Union([TaskOutcomeSchema, Type.Null()]),
     branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    /** 完成验证要求；旧记录缺省按 independent 兼容。 */
+    verification: Type.Optional(VerificationModeSchema),
     createdAt: Type.String({ minLength: 1 }),
     title: Type.String({ minLength: 1 }),
   },

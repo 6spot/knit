@@ -8,6 +8,8 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
+import { verificationModeOf, type VerificationMode } from "../contracts/task-inputs.js";
+import type { CompletionFile } from "../contracts/completion.js";
 import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
@@ -41,7 +43,9 @@ export interface TaskStatusView {
   binding: TaskBinding | null;
   pendingDraft: TaskBinding["pendingDraft"];
   scopeCount: number;
+  verification: VerificationMode;
   lastCheckRunId: string | null;
+  completion: CompletionFile | null;
   runs: RunStatusView[];
   latestRun: RunStatusView | null;
   activeRuns: number;
@@ -132,7 +136,9 @@ export class StatusService {
       binding,
       pendingDraft: binding?.pendingDraft ?? null,
       scopeCount: binding?.scope?.length ?? 0,
+      verification: verificationModeOf(document.frontmatter),
       lastCheckRunId: binding?.lastCheckRunId ?? null,
+      completion: new RunStore(root).readCompletion(taskId),
       runs,
       latestRun: runs.at(-1) ?? null,
       activeRuns: runs.filter((run) => !["completed", "cancelled", "failed"].includes(run.state)).length,

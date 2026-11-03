@@ -35,29 +35,29 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | --- | --- | --- |
 | TaskCreated：task new | 用户授权、身份唯一、有效 Git HEAD／分支（DESIGN14.1） | open/discuss，不自动实施 |
 | DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备 | discuss → implement，保存确认输入引用 |
-| InputsUpdated：task update --kind clarify | 未完整归档且非 cancelled/superseded；原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则转 open/check 并清 completed |
+| InputsUpdated：task update --kind clarify | 未完整归档且非 cancelled/superseded；原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则独立检查任务转 open/check、self／none 转 open/implement 并清 completed |
 | InputsUpdated：task update --kind change | 未完整归档且非 cancelled/superseded；新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
 | PendingApplied：task update --apply-pending | 草案摘要与基线输入均匹配，旧执行已结束且结果事实收敛 | 按草案保存的 kind 应用 InputsUpdated，清本份草案，不发模型 |
 | PendingWithdrawn：task update --withdraw-pending | 含更新操作 ID 的草案版本摘要匹配、有撤回理由 | 清本份草案并留记录，冻结输入／phase 不变；不作用于后来草案 |
 | InputsUpdateProposed：运行中 update | 已有活动 run，不改其冻结输入 | 保存 kind、理由、预期原摘要和拟修改内容，待工具终态后应用 |
 | RecordWritten：task record | 只改记录、未封存、短锁内核对版本 | 不改有效输入或 phase，不使检查失效 |
-| ImplementationAccepted | Task 为 open/implement，execution 报告及实际成果有效 | implement → check，累积 scope |
+| ImplementationAccepted | Task 为 open/implement，execution 报告及实际成果有效 | independent → check；self／none → deliver；累积 scope 与 lastImplement |
 | CheckAccepted | 最新获准检查及目标版本匹配 | pass → deliver；changes_requested → implement；blocked 保留 check |
 | RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check；discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施 |
-| BusinessClosed：deliver 或 task close | 正常完成须有效检查及主 Agent 完成判断 | closed/completed/deliver，Git 收尾另看回执 |
+| BusinessClosed：deliver 或 task close | 按 verification 核对当前目标、成果与验证；不要求 Git 提交／回执／归档 | closed/completed/deliver；完成凭据另存，Git 收尾后做 |
 | TaskEndRequested：task close | 明确取消／替代，无该任务活动／未知 run 或未核实 Git 效果；待接收结果先核实事实并收敛 | closed 及相应 outcome，不默认提交部分源码 |
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 
 任务规划资料（DESIGN §3.4）：plan.md 步骤勾选与证据追加、research/ 追加为进度更新，不改有效输入、不产生草案、不使检查失效；方案文件中被输入引用的要求性内容变化等同 InputsUpdated，活动 run 期间按 InputsUpdateProposed 保存草案。plan 的未完成步骤与证据不参与业务 phase 推导，不从复选框自动认定业务完成；规划资料不建立独立状态机，业务状态仍只在 task.md frontmatter 与元数据仓储。
 
-核心操作使选定目标的检查 stale 时，若当前 phase=deliver，确定性回 open/check 并清 completed；clarify、adopt、restore 和生效规范变化使用同一规则，不保留不可交付的 deliver。其他阶段不因 clarify 回讨论，摘要未变不迁移。run check 是显式复查入口；非正式 check --scope 不推进正式 Task。已完整归档的资料维护不自动重开。
+核心操作使选定目标的检查 stale 时，若当前 phase=deliver，independent 确定性回 open/check、self／none 回 open/implement 并清 completed；clarify、adopt、restore 和生效规范变化使用同一规则，不保留不可交付的 deliver。其他阶段不因 clarify 回讨论，摘要未变不迁移。run check 是显式复查入口；非正式 check --scope 不推进正式 Task。已完整归档的资料维护不自动重开。
 
 外部编辑造成的失效在只读查询中报告“应检查、状态待同步”，查询不改 task.md；下一写动作先在占用内收敛 phase，不允许提交。
 
 待应用变更在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
 
-adopt 不创建或切换分支。必须没有活动或状态未知的 run、没有未核实的 Git 效果，且输入已收敛一致。满足这些守卫后：discuss/implement 保持，check 待复查，deliver 回 open/check 并清 completed；分支变化使旧检查失去交付资格但保留历史。实现（任务021）：只允许改绑当前检出分支；项目＋任务锁内复核分支、文件、run 与未完成 delivery 操作；选择记录分支不一致时报告 `branch_changed`，不把旧树选择投到新分支。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
+adopt 不创建或切换分支。必须没有活动或状态未知的 run、没有未核实的 Git 效果，且输入已收敛一致。满足这些守卫后：discuss/implement 保持，check 待复查，deliver 按 verification 回 open/check 或 open/implement 并清 completed；分支变化使旧检查失去交付资格但保留历史。实现（任务021）：只允许改绑当前检出分支；项目＋任务锁内复核分支、文件、run 与未完成 delivery 操作；选择记录分支不一致时报告 `branch_changed`，不把旧树选择投到新分支。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
 
 ## 4. 自动修复计数
 
@@ -119,6 +119,8 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 ## 8. 检查资格
 
+检查不是所有任务的必经步骤：任务 `verification=self` 依据实施自检与范围验证完成，`none` 由用户明确跳过并记录未验证项；只有 `independent` 或用户明确要求时才需要正式检查凭据。
+
 最新获准检查的 lastCheckRunId 是唯一候选；仅被忙拒绝的请求不算开始，已接纳后的准备／执行失败不回退旧 pass。失败／取消的检查 run 没有产生新结论，资格回到 missing（补检查），不把更早 pass 复原为 valid；实现见 `src/domain/check.ts`。
 
 | 事实 | 当前资格 |
@@ -132,7 +134,7 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，implement 接收时合并；check 凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要；检查前后比对 Git 状态与逐路径指纹，检查者改动文件时结果不接收。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺凭据时不猜通过：未归档正常完成任务先回 open/check；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
+scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，implement 接收时合并；check 凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要；检查前后比对 Git 状态与逐路径指纹，检查者改动文件时结果不接收。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选
 
@@ -155,13 +157,14 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 
 ## 11. 收尾与封存
 
-正常完成调用 deliver；archive 只处理可归档资料或继续已有归档，不能绕过正常交付条件；task close 只记业务结束。
+业务完成与 Git 收尾分开。`task close --outcome completed` 按 verification 核对当前目标、成果与验证后记录业务完成并写完成凭据；不要求 Git 提交。`deliver` 逐任务提交产物、任务资料并归档；archive 只处理可归档资料或继续已有归档，不能绕过完成资格。多个任务可以先完成、最后逐项提交，任务资料与业务产物分开；完成不自动授予提交／推送授权。
 
 | 步骤 | 完成证据 |
 | --- | --- |
-| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束、候选已处理；正常完成另需有效检查和主 Agent 完成判断 |
-| work_commit | 限定候选路径与目标树，核实真实 OID、范围与 index 保护；无需工作提交则跳过并记原因 |
-| prepare_archive | 完整结果、验证、工作提交和结束结果进入记录 |
+| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束、候选已处理；正常完成另需有效完成资格（self／none／independent 按任务 verification）和主 Agent 完成判断 |
+| artifact_commit | 限定业务产物路径与目标树，核实真实 OID、范围与 index 保护；无产物则跳过并记原因 |
+| metadata_commit | 最终记录后限定任务资料路径；与产物提交分开核对 |
+| prepare_archive | 完整结果、验证、产物／资料提交和结束结果进入记录 |
 | seal_archive | 短锁内捕捉记录版本、目录与首次归档月份 |
 | move_task | ID、目标和文件指纹匹配 |
 | archive_commit | 本任务路径及明确引用的真实提交，不能写自身哈希反复提交 |
@@ -175,17 +178,17 @@ deliver 和会提交的 archive 统一要求 --branch <refs/heads/...>，拒绝�
 
 需改业务目标时先暂停收尾。未移动且工具已结束时可明确解除封存后重新准备；已移动或结果未知先核实与修复，不自动 reset。
 
-取消／替代仅归档实际资料，不要求未完成代码检查成 pass，不默认提交部分源码，不造空 commit。重试沿同一操作及首次目标，结果分别报告工作提交、移动、归档提交和待办。实现（任务014）：操作记录与步骤存 `operations`，回执丢失按操作 ID 在 Git 历史核实；工作／归档提交核对父节点与真实范围，无关 index／工作区变化与 hook 越界置 needs_attention；封存标记存在时 task record 返回未保存，归档提交后移除标记，后补记录追加为新资料。实现（任务019）：首次创建操作即固定 archivePath，跨月不变；提交树模式／blob 也纳入核对；move 已完成而检查点丢失时按目标 Task ID 与封存摘要核实后继续，目标冲突不覆盖。
+取消／替代仅归档实际资料，不要求未完成代码检查成 pass，不默认提交部分源码，不造空 commit。重试沿同一操作及首次目标，结果分别报告产物提交、资料提交、移动、归档提交和待办。实现（任务014）：操作记录与步骤存 `operations`，回执丢失按操作 ID 在 Git 历史核实；工作／归档提交核对父节点与真实范围，无关 index／工作区变化与 hook 越界置 needs_attention；封存标记存在时 task record 返回未保存，归档提交后移除标记，后补记录追加为新资料。实现（任务019）：首次创建操作即固定 archivePath，跨月不变；提交树模式／blob 也纳入核对；move 已完成而检查点丢失时按目标 Task ID 与封存摘要核实后继续，目标冲突不覆盖。
 
 ## 12. 占用与兼容性
 
 本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明；`unlock` 必须匹配 owner token，alive／unknown 另需显式 force，旧 token 不能删除新占用。Session 键按客户端原生 ID，不随项目改变；阶段进程记录独立于 worker，worker 被强杀后仍能核实并阻塞续做。
 
-restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复清空当前检查资格，deliver 回 check，恢复操作与逐路径结果留在 `.runtime/restores/`。实现（任务016）：快照 index 内容独立保存，恢复只改选中路径，当前模式／内容／index 任一变化即停。未知版本只读报告，首版无自动 gc。
+restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复清空当前检查与 lastImplement 资格，deliver 按 verification 回 check 或 implement，恢复操作与逐路径结果留在 `.runtime/restores/`。实现（任务016）：快照 index 内容独立保存，恢复只改选中路径，当前模式／内容／index 任一变化即停。未知版本只读报告，首版无自动 gc。
 
 ## 13. 入口与验证范围
 
-context 提供讨论输入；task ready 推进讨论确认；task update 写入输入显式声明 clarify/change，草案应用／撤回分别校验摘要；run implement/check 派发或复查；assist 只给建议；deliver、archive、task close 职责分别处理；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
+context 提供讨论输入；task new 由用户决定并可指定 verification；task verification 只在讨论阶段调整完成验证；task ready 推进讨论确认；task update 写入输入显式声明 clarify/change，草案应用／撤回分别校验摘要；run implement/check 派发或复查；assist 只给建议；deliver 逐任务分离产物与资料提交，archive 归档，task close 按完成资格结束业务且不要求 Git；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
 
 测试按不变量和副作用选择：
 

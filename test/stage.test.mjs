@@ -65,7 +65,7 @@ function services(dir) {
 }
 
 async function readyTask(dir, s, title = "阶段任务") {
-  const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-") });
+  const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }
@@ -586,7 +586,7 @@ test("运行边界核对实际分支：prepare、启动、接收三处拒绝，d
   const dir = project("branch-boundary");
   const s = services(dir);
   try {
-    const task = await s.tasks.newTask({ dir, title: "分支边界", slug: "branch-boundary", branch: "refs/heads/main" });
+    const task = await s.tasks.newTask({ dir, title: "分支边界", slug: "branch-boundary", branch: "refs/heads/main", verification: "independent" });
     await s.tasks.ready({ dir, taskId: task.taskId });
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
 

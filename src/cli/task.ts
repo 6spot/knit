@@ -10,6 +10,7 @@ import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js
 import { gitSync } from "../infrastructure/process.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
+const VERIFICATIONS = new Set(["none", "self", "independent"]);
 
 function openStore(dir: string): SqliteMetadataStore {
   return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
@@ -86,13 +87,22 @@ export function registerTaskCommands(program: Command): void {
     .option("--slug <slug>", "目录名 slug（默认 task）")
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .option("--branch <branch>", "绑定完整本地分支引用（默认当前分支）")
+    .option("--verification <mode>", "完成验证：none、self 或 independent", "self")
     .action(async (options) => {
       const requestId = `task-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (!VERIFICATIONS.has(options.verification)) {
+        const reason = `未知 --verification "${options.verification}"`;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
       const current = gitSync(["symbolic-ref", "-q", "HEAD"], options.dir);
       const branch = options.branch ?? (current.code === 0 && current.stdout.trim() !== "" ? current.stdout.trim() : null);
-      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch }), (result) => {
+      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch, verification: options.verification }), (result) => {
         console.log(`任务已创建: ${result.taskId}`);
         console.log(`目录: ${result.relativePath}`);
+        console.log(`完成验证: ${options.verification}`);
       });
     });
 
@@ -134,8 +144,8 @@ export function registerTaskCommands(program: Command): void {
     .action(async (options) => {
       const requestId = `task-list-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await withService(requestId, options.dir, (service) => Promise.resolve(service.list({ dir: options.dir })), (result) => {
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; relativePath: string }) =>
-          `  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  ${t.title}  (${t.relativePath})`;
+        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string }) =>
+          `  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})`;
         console.log(`活跃任务（${result.active.length}）:`);
         for (const t of result.active) console.log(row(t));
         console.log(`归档任务（${result.archived.length}）:`);
@@ -283,9 +293,35 @@ export function registerTaskCommands(program: Command): void {
     });
 
   task
+    .command("verification <taskId>")
+    .description("设置完成验证要求（仅讨论阶段）：none、self 或 independent")
+    .requiredOption("--mode <mode>", "none、self 或 independent")
+    .option("--reason <reason>", "调整理由")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-verification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (!VERIFICATIONS.has(options.mode)) {
+        const reason = `未知 --mode "${options.mode}"`;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      await withService(
+        requestId,
+        options.dir,
+        (service) => service.setVerification({ dir: options.dir, taskId, verification: options.mode, reason: options.reason }),
+        (result) => {
+          console.log(`任务 ${result.taskId}: 完成验证 ${result.changed ? "已更新为 " : "保持 "}${result.verification}`);
+        },
+      );
+    });
+
+  task
     .command("close <taskId>")
     .description("业务结束：--outcome completed/cancelled/superseded；不等于已提交归档")
     .requiredOption("--outcome <outcome>", "completed、cancelled 或 superseded")
+    .option("--reason <reason>", "完成判断或结束说明；写入完成凭据")
     .option("--runs-settled", "确认该任务活动／未知运行与待接收结果已收敛", false)
     .option("--dir <dir>", "项目目录", ".")
     .action(async (taskId, options) => {
@@ -300,9 +336,9 @@ export function registerTaskCommands(program: Command): void {
       await withService(
         requestId,
         options.dir,
-        (service) => service.close({ dir: options.dir, taskId, outcome: options.outcome, runsSettled: options.runsSettled === true }),
+        (service) => service.close({ dir: options.dir, taskId, outcome: options.outcome, reason: options.reason, runsSettled: options.runsSettled === true }),
         (result) => {
-          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
+          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.verification ? `（${result.verification}）` : ""}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
         },
       );
     });
