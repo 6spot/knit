@@ -29,6 +29,12 @@ import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { parseTaskDocument, renderTaskDocument, withRegions, type TaskDocument } from "./task-document.js";
+import {
+  archivedHistoryProblems,
+  gitTrackedFiles,
+  type TaskHistoryInfo,
+  type TaskListProblem,
+} from "./task-history.js";
 import { PLAN_FILE } from "./task-materials.js";
 import {
   listTaskMaterials as listMaterials,
@@ -103,12 +109,16 @@ export interface TaskSummary {
   /** 归档任务为相对 tasks/ 的目录路径；活跃任务为目录名。 */
   relativePath: string;
   archived: boolean;
+  /** 仅归档条目：跨机历史分类与判定问题；活跃条目为 null。 */
+  history: TaskHistoryInfo | null;
 }
 
 export interface TaskListResult {
   root: string;
   active: TaskSummary[];
   archived: TaskSummary[];
+  /** list 级诊断：归档解析失败、重复来源、Git 跟踪状态不可判定。 */
+  problems: TaskListProblem[];
 }
 
 export interface TaskNewInput {
@@ -565,15 +575,33 @@ export class TaskService {
     return result;
   }
 
-  /** 直接读取权威 task.md 并分组；只在 list 缓存未命中或失效时调用。 */
+  /**
+   * 直接读取权威 task.md 并分组；只在 list 缓存未命中或失效时调用。
+   * 活动区解析失败仍抛错（业务权威必须严格）；归档区单条损坏只记 problems。
+   * 归档条目按字段与 Git 索引事实分类，另做重复来源诊断；不写任何业务状态。
+   */
   private computeList(root: string): TaskListResult {
     const active: TaskSummary[] = [];
     const archived: TaskSummary[] = [];
+    const problems: TaskListProblem[] = [];
+    const firstSource = new Map<string, string>();
+    const archiveEntries: Array<{ summary: TaskSummary; gitPath: string }> = [];
     for (const { name, archived: isArchived } of this.taskDirectories(root)) {
       const file = join(this.tasksRoot(root), name, TASK_FILE);
       const raw = readWithVersion(file);
       if (raw === null) continue;
-      const document = parseTaskDocument(raw.data.toString("utf8"), file);
+      const relativePath = `${TASKS_DIR}/${name}`;
+      let document: TaskDocument;
+      try {
+        document = parseTaskDocument(raw.data.toString("utf8"), file);
+      } catch (error) {
+        if (!isArchived) throw error;
+        problems.push({
+          path: `${relativePath}/${TASK_FILE}`,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
       const summary: TaskSummary = {
         taskId: document.frontmatter.id,
         title: document.frontmatter.title,
@@ -582,12 +610,57 @@ export class TaskService {
         outcome: document.frontmatter.outcome,
         branch: document.frontmatter.branch,
         verification: verificationModeOf(document.frontmatter),
-        relativePath: `${TASKS_DIR}/${name}`,
+        relativePath,
         archived: isArchived,
+        history: null,
       };
-      (isArchived ? archived : active).push(summary);
+      const prior = firstSource.get(summary.taskId);
+      if (prior !== undefined) {
+        problems.push({
+          path: `${relativePath}/${TASK_FILE}`,
+          message: `重复来源: 任务 ${summary.taskId} 同时出现在 ${prior}/${TASK_FILE} 与 ${relativePath}/${TASK_FILE}`,
+        });
+      } else {
+        firstSource.set(summary.taskId, relativePath);
+      }
+      if (isArchived) {
+        const historyProblems = archivedHistoryProblems(document.frontmatter);
+        summary.history = {
+          kind: historyProblems.length === 0 ? "local-only" : "invalid",
+          problems: historyProblems,
+        };
+        archiveEntries.push({ summary, gitPath: `.knit/${relativePath}/${TASK_FILE}` });
+        archived.push(summary);
+      } else {
+        active.push(summary);
+      }
     }
-    return { root, active, archived };
+    this.classifyGitHistory(root, archiveEntries, problems);
+    return { root, active, archived, problems };
+  }
+
+  /** 对字段有效的归档条目批量核对 Git 跟踪；查询失败按未验证处理，不冒充已入库。 */
+  private classifyGitHistory(
+    root: string,
+    entries: Array<{ summary: TaskSummary; gitPath: string }>,
+    problems: TaskListProblem[],
+  ): void {
+    const candidates = entries.filter((entry) => entry.summary.history?.kind === "local-only");
+    if (candidates.length === 0) return;
+    const tracked = gitTrackedFiles(root, candidates.map((entry) => entry.gitPath));
+    if (!tracked.ok) {
+      const message = tracked.problem ?? "Git 跟踪状态不可判定";
+      problems.push({ path: `.knit/${TASKS_DIR}/${ARCHIVE_DIR}`, message });
+      for (const entry of candidates) {
+        entry.summary.history = { kind: "local-only", problems: [message] };
+      }
+      return;
+    }
+    for (const entry of candidates) {
+      if (tracked.tracked.has(entry.gitPath)) {
+        entry.summary.history = { kind: "git-history", problems: [] };
+      }
+    }
   }
 
   /**

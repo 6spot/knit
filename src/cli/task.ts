@@ -144,12 +144,25 @@ export function registerTaskCommands(program: Command): void {
     .action(async (options) => {
       const requestId = `task-list-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await withService(requestId, options.dir, (service) => Promise.resolve(service.list({ dir: options.dir })), (result) => {
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string }) =>
-          `  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})`;
+        const marker = (history: { kind: string; problems: string[] } | null): string => {
+          if (history === null) return "";
+          if (history.kind === "git-history") return "  [Git 历史已归档（只读）]";
+          if (history.kind === "invalid") return "  [档案异常]";
+          return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
+        };
+        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null }) =>
+          `  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${marker(t.history)}`;
         console.log(`活跃任务（${result.active.length}）:`);
         for (const t of result.active) console.log(row(t));
         console.log(`归档任务（${result.archived.length}）:`);
-        for (const t of result.archived) console.log(row(t));
+        for (const t of result.archived) {
+          console.log(row(t));
+          for (const problem of t.history?.problems ?? []) console.log(`    问题: ${problem}`);
+        }
+        if (result.problems.length > 0) {
+          console.log(`列表问题（${result.problems.length}）:`);
+          for (const problem of result.problems) console.log(`  ${problem.path}  ${problem.message}`);
+        }
       });
     });
 
