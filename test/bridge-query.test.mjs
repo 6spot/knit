@@ -174,6 +174,11 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /是否建任务由用户决定/);
     assert.match(first, /不派发无任务 worker/);
     assert.match(first, /verification/);
+    assert.match(first, /澄清门/);
+    assert.match(first, /关键缺口先讨论/);
+    assert.match(first, /需求明确直接登记/);
+    assert.match(first, /Agent 建议须标注待确认/);
+    assert.match(first, /拆分方案/);
 
     // 创建并选择任务后，下轮注入当前任务状态。
     await host.commands.get("knit").handler("task new --title 注入任务 --slug inject", host.ctx);

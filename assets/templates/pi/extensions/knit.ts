@@ -314,6 +314,7 @@ export default function (pi: any) {
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
       lines.push("不建任务时使用宿主工具／通用子 Agent；Knit run 只服务正式任务，不派发无任务 worker。");
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
+      lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
       lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
     }
     return { text: lines.join("\n"), taskId };

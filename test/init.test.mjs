@@ -55,6 +55,24 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
   }
 });
 
+test("init：workflow.md 模板含创建前需求澄清门与复杂拆分提示（k-efc748322ccf）", async () => {
+  const dir = freshProject("clarify-gate");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const workflow = readFileSync(join(dir, ".knit", "workflow.md"), "utf8");
+    assert.match(workflow, /关键缺口先讨论/, "关键缺口先讨论");
+    assert.match(workflow, /需求明确直接登记/, "需求明确直接登记");
+    assert.match(workflow, /想法登记/, "想法登记路径");
+    assert.match(workflow, /（Agent 建议，待确认）/, "Agent 建议标注");
+    assert.match(workflow, /复杂需求先拆分/, "复杂需求拆分提示");
+    assert.match(workflow, /创建同意不等于实施授权/, "创建同意与实施授权分开");
+    assert.match(workflow, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("init：无 Pi 依赖、无 Git 提交、无依赖安装", async () => {
   const dir = freshProject("nogit-call");
   try {
@@ -351,6 +369,15 @@ test("config：默认配置解析与未知版本阻塞", () => {
   const bad = defaultConfig();
   bad.limits.heartbeatStaleMs = bad.limits.heartbeatIntervalMs;
   assert.throws(() => parseConfig(JSON.stringify(bad)), (error) => error.code === "io_error");
+});
+
+test("模板：仓库 AGENTS.md 受管块与当前基线逐字一致", () => {
+  const content = readFileSync(join(import.meta.dirname, "..", "AGENTS.md"), "utf8");
+  const begin = content.indexOf(AGENTS_MANAGED_MARKER_BEGIN);
+  const end = content.indexOf(AGENTS_MANAGED_MARKER_END);
+  assert.ok(begin !== -1 && end > begin, "仓库 AGENTS.md 含受管块标记");
+  const currentBlock = `${content.slice(begin, end + AGENTS_MANAGED_MARKER_END.length)}\n`;
+  assert.equal(currentBlock, agentsManagedBlock("npx --no-install knit"), "受管块不漂移");
 });
 
 test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
