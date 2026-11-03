@@ -2,7 +2,7 @@
 
 这是开发Knit本身的临时文件式排程，也是本仓库开发任务的唯一状态表。2026-11-02 用户已授权在本工程运行 knit init：`.knit/` 受管元数据与 `.pi/extensions/knit.ts` 桥接已生成，均未提交，去留随下次提交授权一并决定；本队列仍保存在根 tasks/，`.knit/tasks/` 只保存由 Knit 创建的任务。产品元数据已由 M0 选定 SQLite。
 
-初始001–026的执行事实按历史保留，027–043承接一致性审计修复与复验；044–051实现主会话与任务规划补齐（051独立验收通过），052完成Pi 1.5.0兼容验证，053修复复验发现的锁重入回滚缺陷。全部任务已完成，无pending项。后续执行进度只以本表为准；各任务文件只存范围、验收和执行事实，不重复维护status。
+初始001–026的执行事实按历史保留，027–043承接一致性审计修复与复验；044–051实现主会话与任务规划补齐（051独立验收通过），052完成Pi 1.5.0兼容验证，053修复复验发现的锁重入回滚缺陷，054完成Trellis提示词与角色审视及只读调查／正式任务分流建议（研究，不改产品规则）。全部开发任务已完成，无pending项；未决事项见 [BLOCKERS.md](BLOCKERS.md)。后续执行进度只以本表为准；各任务文件只存范围、验收和执行事实，不重复维护status。
 
 ## 当前一致性复核
 
@@ -101,7 +101,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 051 | 首版工作流验收 | completed | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md)；确定性链路 85/85、真实宿主 3 模型轮全过（[validation/main-workflow-gate/](validation/main-workflow-gate/README.md)）；复验发现的 B005 已当轮修复并复验（探针复跑全过），验收通过 |
 | 052 | 首版运行时兼容 | completed | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md)；兼容验证见 validation/pi-1.5.0-compat/ |
 | 053 | 复验缺陷修复 | completed | [修复锁混合重入失败的对称回滚](tasks/053-lock-reentry-rollback.md)；独立 worker 实施及规定验证完成（基础设施31、主探针47、后果探针8、全量236项全过），主 Agent 已复核代码与验证证据，B003已修复；另记范围外B004 |
-| 054 | 提示词与角色改进 | pending | [参考 Trellis 审视提示词、角色职责与任务分流](tasks/054-trellis-prompts-and-role-review.md)；对照实际提示词与调用链，形成只读调研／正式任务分流、角色职责、文案草案及后续实施／验收清单，本轮仅登记 |
+| 054 | 提示词与角色改进 | completed | [参考 Trellis 审视提示词、角色职责与任务分流](tasks/054-trellis-prompts-and-role-review.md)；固定基线对照、只读调查／正式任务分流、角色职责、文案草案及实施／验收清单见 [validation/trellis-prompts-and-roles/](validation/trellis-prompts-and-roles/README.md)；未改产品提示词／状态机，B006、B007 待决定 |
 
 ## 阶段验收门槛
 

@@ -2,7 +2,7 @@
 
 - 里程碑：工作流使用体验改进
 - 执行角色：工作流／提示词设计 Agent
-- 来源：2026-11-03 用户反馈只读调研任务被纳入 implement → check，要求参考 Trellis 的提示词与角色设计，并先创建开发任务；本轮只登记，不实施修改。
+- 来源：2026-11-03 用户反馈只读调研任务被纳入 implement → check，要求参考 Trellis 的提示词与角色设计，并先创建开发任务；登记轮只登记，后续执行研究与建议交付，不实施产品修改。
 - 实际依赖：044–051 已交付的主会话工作流、角色上下文、入口识别及模板升级；参考当前阶段执行与状态规则。可独立调研，不以其它缺陷修复为前置。
 - 唯一状态入口：[TASKS.md](../TASKS.md)。
 
@@ -48,7 +48,14 @@
 
 ## 边界与执行记录
 
-- 本轮仅创建排程及任务说明，不执行本任务、不修改产品提示词、角色、桥接或状态机。
+- 登记轮仅创建排程及任务说明，不执行本任务、不修改产品提示词、角色、桥接或状态机。
 - 不修改 `knit-demo` 的任务、成果和安装，不自动派发其检查或交付；真实案例只读取必要事实，交付中保留可移植摘要。
 - 不引入 Worktree、并行调度、其它客户端、Pi SDK／RpcClient 或新的模型运行时，不提交、推送或发布。
 - 2026-11-03：按用户要求登记，研究与方案尚未执行。
+- 2026-11-03：按用户“查看任务列表并开发”的指令执行研究与建议交付；执行者：主 Agent（Pi session `01a1a086-1eea-700e-bd9e-e6afeaa93c25`）。
+  - 读取固定基线 Trellis `f089cb3286071199e84118dee86b6d76aab032f1`（CLI 0.6.17）的 workflow、common skills／commands、Pi research／implement／check 角色、Pi 扩展与 shared hook 注入路径；任务提到的旧副本 `/tmp/agent-framework-research-20261031/Trellis/` 本机不存在，改用该固定提交的新克隆 `/tmp/trellis-054` 并核对版本。未启动 Trellis CLI／模型。核对 Knit 的 workflow、角色模板、桥接注入、`context-planner.ts`、`stage.ts`、`run-acceptance.ts`、`domain/task.ts`、`informal-check.ts` 与 044–052 验收。
+  - 产出 [validation/trellis-prompts-and-roles/README.md](../validation/trellis-prompts-and-roles/README.md)、[sources.md](../validation/trellis-prompts-and-roles/sources.md)、[comparison.md](../validation/trellis-prompts-and-roles/comparison.md)、[proposal.md](../validation/trellis-prompts-and-roles/proposal.md)、[implementation-and-acceptance.md](../validation/trellis-prompts-and-roles/implementation-and-acceptance.md)。
+  - 结论：真实案例根因是只读调查无显式入口、正式任务只有 implement 写入阶段且核心固定 implement → check；Trellis research 角色仍依附任务、check 会自修，不能照搬。推荐 A：不新增 research 阶段／角色，只读调查不建任务，正式研究报告仍走 implement → check → 受权 deliver。
+  - 未修改产品源码、模板、桥接、状态机或 `knit-demo`；未运行真实模型、未提交／推送／发布。需要用户决定的事项登记为 [B006](../BLOCKERS.md)（正式调研免检查／免 Git 完成路径）与 [B007](../BLOCKERS.md)（`task close --outcome completed` 未核对检查资格）。
+  - 核对：引用的 Trellis 文件与行号均存在于固定提交；术语统一为 discuss／implement／check／deliver，不把 research 写成新阶段；建议与已实现／已确认规则分栏标注。
+  - 文档检查：本地 Markdown 链接全部存在，代码围栏成对、表格列数一致、无尾随空白；未运行 build／全量测试（本轮无代码改动）。

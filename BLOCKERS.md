@@ -101,3 +101,26 @@
 
 - 用户决定及来源：用户授权按任务列表顺序执行全部任务；051 复验发现后由主 Agent 当轮修复（2026-11-03）。
 - 恢复与验证：修复 `context-planner.ts`（目录路径切片改为 `.knit/tasks/<dir>`，去重复前缀）与 `stage.ts`（worker 提示装配 planning 分节：plan/design 全文进系统提示，research 摘要进背景区，不再静默跳过）。`npm run typecheck`／`npm run build` 通过；`node --test test/*.test.mjs` 242 项全过；独立确定性探针复跑 **85/85 全过**（场景7 五项转 PASS）。B005 已解决并关闭。
+
+## B006 正式只读调研的完成路径与免 Git 归档未定
+
+- 关联任务：[054](tasks/054-trellis-prompts-and-role-review.md)（Trellis 提示词／角色审视）；影响：正式研究报告任务是否必须独立检查、能否无 Git 完成／归档。
+- 问题与证据（054，2026-11-03）：真实案例 `knit-demo` 的任务 `k-748f2087202d`（`11-03-eval-pi-rexagents`）只要求静态调研，却以 implement 派发并在接收后进入 check。原因不是单一提示词误读：`assets/templates/.knit/workflow.md` 没有只读调查入口；`onImplementationAccepted` 固定 `implement → check`（`src/domain/task.ts:151-160`）；`run-acceptance.ts:261-270` 允许空 changedPaths 接收；正式任务 deliver／archive 都需要收尾提交，Agent 交付另需授权来源。Trellis 固定提交的 research 角色也依附活动任务、只写 `research/`，其 check 角色会直接修复发现，不能作为免检查先例。
+- 待用户决定：A（推荐）不新增 research 阶段／角色；一次性只读调查不建任务，正式研究报告仍走 implement → check → deliver，拒绝 check／commit 就不建正式任务。B1 允许正式调研 implement 后跳过 check 但仍提交；B2 允许无 Git 标记 completed／归档；C 新增 research phase／role；D 用 advisory 作为研究闭环（不可行：需 taskId；报告只作为 run 结果，不写任务输入／业务资料，也不推进阶段）。
+- 已尝试：核对固定 Trellis research／check 角色与 Knit `workflow.md`、`onImplementationAccepted`、`run-acceptance.ts`、交付路径；未改状态机，避免自行取舍。
+- 尚不能完成：用户尚未选择 A／B1／B2／C；未验证任何免检查或免 Git 路径。
+- 伪代码／暂定接口：A 方案的提示词草案见 [proposal.md](validation/trellis-prompts-and-roles/proposal.md#4-文案草案)；若选 B／C，须先在任务文件补状态转移、完成结果与归档伪代码，再实现。
+- 推荐与影响：A 只改提示词／注入／文档，保留独立性、状态机与授权边界；B1／B2／C 需新增任务类型／结果／完成守卫、修改 `STATES.md` 与交付路径并补测试，另立任务。
+- 仍可继续：054 报告与 A 方案文案；现有正式代码任务不受影响。
+- 用户决定及来源：尚未决定。
+
+## B007 `task close --outcome completed` 未核对检查与交付资格
+
+- 关联任务：054；相关规则：`STATES.md:47`（正常完成须有效检查及主 Agent 完成判断）、`DESIGN.md` 第10节、交付服务。
+- 问题与证据（054 源码核对，2026-11-03）：`TaskService.close`（`src/application/task-service.ts:1052-1093`）只核对 `runsSettled` 与领域状态；`onComplete`（`src/domain/task.ts:209-216`）不核对 `phase`／`lastCheckRunId`／check 通过。直接调用当前构建的 `onComplete` 对 discuss／implement／check／deliver 四个 phase 均返回 `closed/completed/deliver`；因此从 implement 或 check 直接 `task close --outcome completed` 在代码上可行，会得到 `closed/completed/deliver`，但没有有效检查或交付回执。该路径与 `STATES.md` 的正常完成规则不一致，不能作为正式调研跳过检查的合法捷径。
+- 影响：任何“免检查完成”的产品决定必须先显式设计；当前 close 的绕过不能当成已支持能力，也不能用它替代 B006 的方案选择。
+- 已尝试：直接调用当前构建的 `onComplete` 核对 discuss／implement／check／deliver 四个 phase；未修改 close 实现。
+- 尚不能完成：是否补守卫、是否允许显式 override 尚未决定；未做 CLI 级 close 夹具。
+- 伪代码／暂定接口：在 `TaskService.close` 的 completed 分支增加“有效检查（`lastCheckRunId` 对应检查 pass 且目标版本匹配）＋主 Agent 明确完成判断”核对；不满足则拒绝并提示先走 deliver 或显式例外。具体字段和 override 语义待用户决定后写入任务。
+- 待用户决定／修复：补守卫（仅有效检查后的 deliver 可 completed，或其他显式、可审计的 override）还是保留为管理操作并在文档中明确例外；推荐补守卫，另立实现任务。
+- 用户决定及来源：尚未决定；054 未修改状态机。
