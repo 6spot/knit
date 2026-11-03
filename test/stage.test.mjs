@@ -411,18 +411,54 @@ test("取消终态且无 result 的 run 不把取消意图当完成，也不阻�
   }
 });
 
-test("报告改动路径与实际不符时不接收；模型报告不直接改 Task", async () => {
+test("报告改动路径与实际不符时不接收，失败原因带实际路径清单", async () => {
   const dir = project("mismatch");
   const s = services(dir);
   try {
     const task = await readyTask(dir, s);
     const impl = await startRun(s, dir, task.taskId, "implement", {
-      writes: [{ path: "README.md", content: "# actual\n" }],
+      writes: [
+        { path: "alpha.txt", content: "a\n" },
+        { path: "notes.txt", content: "n\n" },
+      ],
       report: { summary: "声称完成", changedPaths: ["other.txt"] },
     });
     const status = await waitTerminal(s, dir, impl.runId);
     assert.equal(status.state, "failed");
-    assert.equal(status.result.failureReason, "changed_paths_mismatch");
+    assert.equal(status.result.failureReason, "changed_paths_mismatch:alpha.txt,notes.txt");
+    assert.deepEqual(status.result.actualChangedPaths, ["alpha.txt", "notes.txt"]);
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("树基线已含改动时重派为零 diff，失败原因标注 zero_diff", async () => {
+  const dir = project("zero-diff");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    // 第一次实施真实写入 README，但报告了错误路径：拒绝并保留实际改动在树中。
+    const first = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# actual\n" }],
+      report: { summary: "报告路径错误", changedPaths: ["other.txt"] },
+    });
+    const firstStatus = await waitTerminal(s, dir, first.runId);
+    assert.equal(firstStatus.state, "failed");
+    assert.equal(firstStatus.result.failureReason, "changed_paths_mismatch:README.md");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# actual\n");
+
+    // 未还原基线即重派：本次观察不到差异，正确拒绝并明确标注 zero_diff。
+    const second = await startRun(s, dir, task.taskId, "implement", {
+      report: { summary: "重派", changedPaths: ["README.md"] },
+    });
+    const secondStatus = await waitTerminal(s, dir, second.runId);
+    assert.equal(secondStatus.state, "failed");
+    assert.equal(secondStatus.result.failureReason, "changed_paths_mismatch:zero_diff");
+    assert.deepEqual(secondStatus.result.actualChangedPaths, []);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
     assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);

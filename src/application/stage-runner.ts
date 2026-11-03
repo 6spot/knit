@@ -416,7 +416,14 @@ export class StageRunner {
       const reported = new Set((parsed.report.changedPaths ?? []).map(normalizePath));
       const actual = new Set(changedPaths.map(normalizePath));
       if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
-        return this.failure(session, "changed_paths_mismatch", usage, nativeEntries, sessionFile, text, parsed.report);
+        // 失败原因直接带实际 diff 路径清单；零 diff（基线已含改动／重派无改动）显式标注为 zero_diff，
+        // 便于排障时区分「报告路径写错」与「基线未还原导致无法再产生差异」。
+        const actualPaths = [...actual].sort();
+        const reason =
+          actualPaths.length === 0
+            ? "changed_paths_mismatch:zero_diff"
+            : `changed_paths_mismatch:${actualPaths.join(",")}`;
+        return this.failure(session, reason, usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
       }
     }
 
@@ -690,6 +697,7 @@ export class StageRunner {
     sessionFile: string | null,
     text = "",
     report: StageReport | null = null,
+    actualChangedPaths: string[] = [],
   ): StageExecution {
     const entries = nativeEntries ?? { startEntryId: null, leafEntryId: null };
     return {
@@ -701,7 +709,7 @@ export class StageRunner {
         entries,
         session,
         text,
-        [],
+        actualChangedPaths,
         reason,
       ),
     };
