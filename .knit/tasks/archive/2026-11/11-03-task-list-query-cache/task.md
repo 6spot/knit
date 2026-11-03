@@ -47,4 +47,10 @@ title: 列表性能：可失效查询缓存
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-task-list-query-cache
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3c5494e80e5b -->
+- 任务资料提交: 55b9e517c3540b34492cc21e975cd8aa576609e1
+- 归档目标: .knit/tasks/archive/2026-11/11-03-task-list-query-cache
+
 <!-- knit:progress:end -->
