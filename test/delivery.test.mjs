@@ -176,6 +176,36 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
   }
 });
 
+test("归档提交包含任务同目录材料移动后的旧路径删除", async () => {
+  const dir = project("archive-materials");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const taskDir = join(dir, ".knit", task.relativePath.split("/").slice(0, -1).join("/"));
+    mkdirSync(join(taskDir, "research"), { recursive: true });
+    writeFileSync(join(taskDir, "plan.md"), "# 计划\n");
+    writeFileSync(join(taskDir, "design.md"), "# 设计\n");
+    writeFileSync(join(taskDir, "research", "notes.md"), "调查材料\n");
+
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    assert.ok(result.archiveCommit);
+
+    const oldPrefix = `.knit/${task.relativePath.split("/").slice(0, -1).join("/")}`;
+    const archivePaths = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", result.archiveCommit]).split("\n").filter(Boolean);
+    for (const material of ["task.md", "plan.md", "design.md", "research/notes.md"]) {
+      assert.ok(archivePaths.includes(`${oldPrefix}/${material}`), `归档提交含旧路径删除: ${material}`);
+      assert.ok(archivePaths.includes(`${result.archivePath}/${material}`), `归档提交含新路径新增: ${material}`);
+      assert.ok(existsSync(join(dir, result.archivePath, material)), `归档文件存在: ${material}`);
+      assert.ok(!existsSync(join(taskDir, material)), `旧文件已移走: ${material}`);
+    }
+    assert.equal(git(dir, ["status", "--porcelain", "--", oldPrefix]), "");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("pre-commit hook 越界写文件：提交真实存在但 needs_attention，不移动任务", async () => {
   const dir = project("hook");
   const s = services(dir);
@@ -684,6 +714,28 @@ test("显式 retry：hook 失败现场清理后核实原提交并继续，不重
     assert.equal(retry.workCommit, first.workCommit);
     assert.ok(retry.archiveCommit);
     assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: artifact")).length, 1);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("凭据扫描只覆盖本次差异新增行：既有夹具不阻塞后续交付，新增命中行仍暂停", async () => {
+  const dir = project("scan-diff-only");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    // 动态拼接，避免测试源码自身命中扫描模式。
+    const fakeKey = ["AK", "IA", "IOSFODNN7", "EXAMP", "LE"].join("");
+    const tracked = join(dir, "fixtures.txt");
+    writeFileSync(tracked, `sample=${fakeKey}\n`);
+    execFileSync("git", ["add", "fixtures.txt"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: dir });
+
+    // 只改动该跟踪文件的其它行：既有夹具不再阻塞交付。
+    writeFileSync(tracked, `sample=${fakeKey}\nchanged=unrelated\n`);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
