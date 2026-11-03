@@ -1,61 +1,30 @@
 ---
 id: k-efc748322ccf
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T14:51:35.014Z
 title: 完善任务创建前的需求澄清与复杂任务拆分提示
 ---
 
-# 完善任务创建前的需求澄清与复杂任务拆分提示
+需求冻结（主会话核查 assets/templates/.knit/workflow.md 主会话分流段与 discuss 段、assets/templates/pi/extensions/knit.ts 无任务注入 L316-321、src/application/templates.ts agentsManagedBlock、test/bridge-query.test.mjs L160-180 既有断言、test/init.test.mjs 模板安装/受管块一致性、validation/trellis-prompts-and-roles/ 今日固定提交研究后决策）：
 
-## 目标与边界
+Trellis 借鉴点（来源 validation/trellis-prompts-and-roles/sources.md，固定提交 f089cb3286071199e84118dee86b6d76aab032f1、@mindfoldhq/trellis 0.6.17，2026-11-03 核对，当日新鲜可直接引用；/tmp/trellis-054 若存在可复核）：先取证再问用户（brainstorm.md L39-70）；创建同意与实施批准分开（workflow.md L325-365）；简单/复杂分流提问（workflow.md L155-183）。不引入其状态面包屑/jsonl 上下文清单机制。
 
-修改 Knit 的任务创建与讨论提示，使主 Agent 在需求存在关键缺口时先与用户讨论，确认足以定义任务范围和完成条件后再创建待执行任务；需求已经明确时直接登记，避免重复讨论和机械追问。
-
-用户明确要求修改提示词，并建议参考成熟产品 Trellis 的需求讨论体验。后续实施须查阅 Trellis 的实际源码、提示词及适用版本，区分可核实的行为、用户期望与拟采用的方案，不能仅凭印象声称 Trellis 已具备某种能力。
-
-非常复杂且可拆分的需求应拆成多个范围清晰、可分别验收的任务，说明执行顺序、依赖和各自交付结果，支持逐个执行并控制上下文规模，避免把全部工作和讨论堆入单个任务。
-
-本轮仅创建任务，不修改提示词、模板或实现，不启动实施。
-
-### 已确认的要求
-
-- 是否建立正式任务仍由用户决定，已有授权可以沿用。
-- 有影响目标、范围、行为或完成条件的关键缺口时，先讨论需求，不能直接按 Agent 自己的理解写成已确认要求。
-- 需求足够明确时无需反复询问或固定走多轮讨论；能从代码或资料查清的事实由 Agent 调查。
-- Agent 提出的假设、方案和验收建议必须与用户已确认要求区分，不能因写入 task.md 就视为用户认可。
-- 非常复杂的工作应合理拆成多个任务，逐个执行，让各任务上下文更集中。
-- 参考 Trellis 的成熟做法，并落实到 Knit 实际提供给主 Agent 的提示与工作流。
-
-### 后续设计需明确的问题
-
-- 如何表达需求已经足够明确，以及哪些缺口必须向用户提问；不把这一判断简化为固定问题数量或每次额外索要一次确认。
-- 如何区分“先记录一个待讨论想法”和“需求确认后创建待执行任务”，避免 task.md 已存在或 phase=discuss 被误当作需求已经确认。
-- 如何判断拆分边界、展示多任务方案并取得必要的范围确认；各任务只携带自身必需输入和上游结果，避免复制全部讨论。
-- 现有 plan.md 等任务内规划资料与拆分成多个任务分别适用于哪些情况；是否需要额外机制由研究和实际需求决定，不预设新的字段或状态机。
-
-## 完成条件
-
-- 核对并记录 Trellis 相关流程的实际来源、版本和可借鉴部分，参考既有研究但不把旧结论直接当作当前事实。
-- 修订主会话的任务识别、需求讨论和创建提示，覆盖用户项目的安装模板、每轮桥接上下文及对应规范；核对本仓库入口和现有受管资料的一致性，不仅修改仓库 AGENTS.md。
-- 对需求模糊的场景，Agent 能先指出关键缺口并围绕用户取舍展开讨论，不自行补齐要求后直接创建待执行任务；对需求明确的场景，能直接登记，不机械增加讨论轮次。
-- 对 Agent 补充的假设、方案和验收建议，明确标识其确认情况；创建任务、确认需求和授权实施的含义清楚，不相互替代。
-- 对非常复杂的场景，先形成合理的多任务边界、依赖和执行顺序，再按确认后的范围登记；每个任务有明确目标、完成条件与必要上下文，支持逐个执行。
-- 按实际改动验证模糊需求、明确需求、用户仅要求登记想法、复杂需求拆分及已有任务补充等场景，如实记录执行过的检查。当前只创建任务，不执行这些验证。
-- 保留用户控制任务创建、按范围选择验证方式以及 Git 提交／发布独立授权的既定规则。
-
-## 输入引用
-
-- 用户反馈：前两次创建任务未先讨论需求，Agent 自行补充范围与完成条件；仅处于 discuss 阶段不能证明需求已确认。
-- 用户要求：提示词必须修改，参考 Trellis；关键需求确认后再创建执行，明确需求不反复讨论；非常复杂的工作拆成多个任务逐个执行，以保持上下文集中。
-- `AGENTS.md`、`.knit/workflow.md`、`.knit/agents/`、`assets/templates/` 及主会话桥接上下文生成逻辑。
-- `src/application/templates.ts`、`src/application/task-service.ts` 中与任务创建、输入更新和 ready 相关的行为。
-- `docs/design/DESIGN.md`、`docs/design/OPERATIONS.md` 中的主会话、讨论、创建和任务规划规则。
-- `docs/history/tasks/054-trellis-prompts-and-role-review.md`、`validation/trellis-prompts-and-roles/` 中的既有研究；实施时核实来源和适用性。
-- 验证方式：`self`；具体回归范围按最终改动和风险确定。
+交付设计：
+1. workflow.md「主会话：识别请求与任务入口」段新增需求澄清门（替换现"新正式需求"条目并扩写）：
+   a) 关键缺口判断：目标、范围、行为或完成条件任一存在需用户取舍的缺口→先向用户呈现缺口与可选项讨论，不得把 Agent 自行补齐的理解写成"已确认要求"后创建待执行任务；已有资料/代码能查清的事实先自行调查，不为查证类问题打扰用户。
+   b) 需求已明确（用户已给出目标/范围/完成条件，或唯一合理解释可从资料核实）→直接登记，不机械追问、不固定多轮。
+   c) 想法登记路径：用户只要登记想法/待讨论时允许建任务，但 task.md 需求区标注"需求未确认，仅登记想法"，保持 discuss 不 ready；phase=discuss 本身不证明需求已确认。
+   d) 假设标注：Agent 提出的假设、方案、验收建议写入 task.md 时标注"（Agent 建议，待确认）"，用户确认后才升级为已确认要求；两者不混写。
+   e) 复杂拆分：非常复杂需求先提出多任务拆分方案（各任务边界、依赖、执行顺序、各自交付物与验证），经用户确认范围后逐个登记；每任务只携带自身必需输入与上游结果，不复制全部讨论；上下文可集中时优先用任务内 plan.md 而非强行拆任务。
+   f) 创建同意≠实施授权：task new 征得同意只覆盖登记；ready/派发实施仍按既有授权规则。
+2. workflow.md discuss 段补一句：讨论先取证后提问（已有基础），明确"任务创建同意不等于需求确认或实施授权"。
+3. knit.ts 无任务注入：加一行澄清门提示（关键缺口先讨论、需求明确直接登记、Agent 建议须标注、复杂需求先给拆分方案）。
+4. templates.ts 受管块「主会话工作流」行扩写加"关键缺口先讨论再创建待执行任务"；同步重新生成本仓库 AGENTS.md 受管块（与 agentsManagedBlock 输出逐字一致，保持基线不漂移）；templateVersion 随包版本机制不变。
+5. 测试：a) init 安装出的 workflow.md 含澄清门关键句（缺口/明确/想法登记/Agent 建议/拆分）；b) 受管块一致性（仓库 AGENTS.md 受管块与 agentsManagedBlock("npx --no-install knit") 输出一致，或按既有基线校验方式通过）；c) bridge-query 无任务注入含澄清门提示且既有断言仍过；d) templates 既有 force/不覆盖项目正文测试回归。全量 npm test 绿。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -67,5 +36,18 @@ title: 完善任务创建前的需求澄清与复杂任务拆分提示
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-090db35cc64f，已接收 implementation_accepted）：assets/templates/.knit/workflow.md 主会话段将"新正式需求"扩为六条需求澄清门（关键缺口先讨论／需求明确直接登记／想法登记标注"需求未确认"不 ready／假设标注"（Agent 建议，待确认）"／复杂需求先给拆分方案经确认后逐个登记／创建同意≠实施授权），discuss 段补"先取证后提问、创建同意不等于需求确认或实施授权"；assets/templates/pi/extensions/knit.ts 与 .pi/extensions/knit.ts 无任务注入同步加澄清门提示；src/application/templates.ts agentsManagedBlock 主会话工作流行加"关键缺口先讨论再创建待执行任务"，本仓库 AGENTS.md 受管块同步重生成保持基线一致。Trellis 参考来源为 validation/trellis-prompts-and-roles（固定提交 f089cb3、0.6.17、2026-11-03 核对），未引入其状态面包屑等机制。验证（self）：npm test 311/311 绿（init 模板含澄清门、受管块一致性、桥接注入提示、既有不覆盖/force 回归）。
+
+### 交付记录
+
+<!-- knit:delivery:op-bed479b99c4f -->
+- 操作: op-bed479b99c4f
+- 时间: 2026-11-03T17:58:51.534Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: e281604189b0c2d68cdf106e9419f44573be9be8
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-clarify-before-task-creation-and-split-complex-work
 
 <!-- knit:progress:end -->
