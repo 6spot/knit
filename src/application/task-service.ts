@@ -334,6 +334,59 @@ export function listTaskDirectories(root: string): { name: string; archived: boo
   return result;
 }
 
+interface TaskListCacheEntry {
+  fingerprint: string;
+  result: TaskListResult;
+}
+
+/**
+ * list 聚合缓存指纹（任务 k-57324c702c9e）：任务目录结构 + 每 task.md 的 dev/inode/size/mtimeNs。
+ * atomicWrite 经 rename 发布会换 inode；同尺寸同毫秒的就地覆盖也会改变 mtimeNs；
+ * 目录增删改名与归档移动改变结构。指纹不可得（目录或文件在遍历中消失、无权限等）返回 null，
+ * 调用方按失效处理并直接重算，不用缓存掩盖真实 IO 状态。
+ */
+function taskListFingerprint(root: string): string | null {
+  const tasksRoot = tasksRootOf(root);
+  if (!existsSync(tasksRoot)) return null;
+  const parts: string[] = [];
+  const addTaskFile = (label: string, file: string): void => {
+    const stats = statSync(file, { bigint: true });
+    parts.push(`${label}\u0000${stats.dev}\u0000${stats.ino}\u0000${stats.size}\u0000${stats.mtimeNs}`);
+  };
+  try {
+    const active = readdirSync(tasksRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== ARCHIVE_DIR)
+      .map((entry) => entry.name)
+      .sort();
+    for (const name of active) {
+      const file = join(tasksRoot, name, TASK_FILE);
+      if (!existsSync(file)) continue;
+      addTaskFile(`active/${name}`, file);
+    }
+    const archiveRoot = join(tasksRoot, ARCHIVE_DIR);
+    if (!existsSync(archiveRoot)) return parts.join("\n");
+    const months = readdirSync(archiveRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    for (const month of months) {
+      const monthDir = join(archiveRoot, month);
+      const names = readdirSync(monthDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+      for (const name of names) {
+        const file = join(monthDir, name, TASK_FILE);
+        if (!existsSync(file)) continue;
+        addTaskFile(`archive/${month}/${name}`, file);
+      }
+    }
+    return parts.join("\n");
+  } catch {
+    return null;
+  }
+}
+
 /** 按稳定 ID 定位任务文档；同目录名不等于同任务，ID 以 frontmatter 为准。 */
 export function locateTaskDocument(
   root: string,
@@ -388,6 +441,8 @@ export class TaskService {
   private readonly runActivity: TaskRunActivityPort | null;
   private readonly now: () => Date;
   private readonly randomHex: (bytes: number) => string;
+  /** list 聚合结果缓存：每项目根一条，只有指纹一致时复用（任务 k-57324c702c9e）。 */
+  private readonly listCache = new Map<string, TaskListCacheEntry>();
 
   constructor(options: TaskServiceOptions) {
     this.store = options.store;
@@ -487,9 +542,31 @@ export class TaskService {
     return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification };
   }
 
-  /** 任务列表：从任务目录派生（DESIGN.md 第2节）；frontmatter 为权威。 */
+  /**
+   * 任务列表：从任务目录派生（DESIGN.md 第2节）；frontmatter 为权威。
+   * 聚合结果按 root 缓存，指纹一致才复用；读取期间目录／文件若有变化不落缓存，
+   * 下一次调用整体重算（不做部分失效）。返回副本，调用方改动不污染缓存。
+   */
   list(input: { dir: string }): TaskListResult {
     const root = normalizeRoot(input.dir);
+    const before = taskListFingerprint(root);
+    const cached = this.listCache.get(root);
+    if (cached !== undefined && before !== null && cached.fingerprint === before) {
+      return structuredClone(cached.result);
+    }
+    const result = this.computeList(root);
+    const after = taskListFingerprint(root);
+    if (before !== null && after !== null && before === after) {
+      this.listCache.set(root, { fingerprint: after, result: structuredClone(result) });
+    } else {
+      // 指纹不可得或读取前后不一致：不缓存，避免把旧结果配给新指纹。
+      this.listCache.delete(root);
+    }
+    return result;
+  }
+
+  /** 直接读取权威 task.md 并分组；只在 list 缓存未命中或失效时调用。 */
+  private computeList(root: string): TaskListResult {
     const active: TaskSummary[] = [];
     const archived: TaskSummary[] = [];
     for (const { name, archived: isArchived } of this.taskDirectories(root)) {

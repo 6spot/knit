@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -155,6 +155,72 @@ test("task new：目录重名追加短序号；list 含归档分区", async () =
     assert.equal(list.active.length, 2);
     assert.equal(list.archived.length, 1);
     assert.equal(list.archived[0].taskId, "k-ffffffffffff");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("task list 缓存：命中一致，外改／新增／归档／删除后如实失效（任务 k-57324c702c9e）", async () => {
+  const dir = gitProject("list-cache");
+  const { store, service } = makeService(dir, { now: fixedDate });
+  // 每次新建实例读取：绕过实例缓存，作为直接读取基准。
+  const readDirect = () => new TaskService({ store }).list({ dir });
+  try {
+    const a = await service.newTask({ dir, title: "缓存 A", slug: "alpha" });
+    const b = await service.newTask({ dir, title: "缓存 B", slug: "beta" });
+    const first = service.list({ dir });
+    assert.equal(first.active.length, 2);
+    assert.deepEqual(service.list({ dir }), first, "重复 list 结果深相等");
+    assert.deepEqual(service.list({ dir }), readDirect(), "缓存命中与直接读取一致");
+
+    // 1. 同尺寸就地覆盖：inode 与 size 不变，靠 mtimeNs 失效。
+    const fileA = join(dir, ".knit", "tasks", "11-02-alpha", "task.md");
+    const before = readFileSync(fileA, "utf8");
+    assert.ok(before.includes("缓存 A"));
+    writeFileSync(fileA, before.replace("缓存 A", "缓存 C"));
+    utimesSync(fileA, new Date("2026-11-02T00:00:00Z"), new Date("2026-11-02T00:00:05Z"));
+    const afterEdit = service.list({ dir });
+    assert.equal(afterEdit.active.find((task) => task.taskId === a.taskId).title, "缓存 C");
+    assert.deepEqual(afterEdit, readDirect());
+
+    // 2. 新增任务目录。
+    const c = await service.newTask({ dir, title: "缓存 D", slug: "gamma" });
+    const afterAdd = service.list({ dir });
+    assert.equal(afterAdd.active.length, 3);
+    assert.ok(afterAdd.active.some((task) => task.taskId === c.taskId));
+    assert.deepEqual(afterAdd, readDirect());
+
+    // 3. 归档移动（目录移动改变结构，不依赖 binding）。
+    const monthDir = join(dir, ".knit", "tasks", "archive", "2026-11");
+    mkdirSync(monthDir, { recursive: true });
+    renameSync(join(dir, ".knit", "tasks", "11-02-beta"), join(monthDir, "11-02-beta"));
+    const afterArchive = service.list({ dir });
+    assert.equal(afterArchive.active.length, 2);
+    assert.equal(afterArchive.archived.length, 1);
+    assert.equal(afterArchive.archived[0].taskId, b.taskId);
+    assert.deepEqual(afterArchive, readDirect());
+
+    // 4. 删除 task.md。
+    rmSync(join(monthDir, "11-02-beta", "task.md"));
+    const afterDelete = service.list({ dir });
+    assert.equal(afterDelete.archived.length, 0);
+    assert.deepEqual(afterDelete, readDirect());
+
+    // 5. 命中不重读权威文件：task.md 不可读时仍返回上次结果（未命中会因 EACCES 失败）。
+    chmodSync(fileA, 0o000);
+    try {
+      assert.deepEqual(service.list({ dir }), afterDelete);
+    } finally {
+      chmodSync(fileA, 0o644);
+    }
+
+    // 6. 指纹不可得（整个 tasks 目录缺失）按失效处理，不返回旧缓存。
+    rmSync(join(dir, ".knit", "tasks"), { recursive: true, force: true });
+    const afterRootRemoved = service.list({ dir });
+    assert.equal(afterRootRemoved.active.length, 0);
+    assert.equal(afterRootRemoved.archived.length, 0);
+    assert.deepEqual(afterRootRemoved, readDirect());
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
