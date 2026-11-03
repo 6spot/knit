@@ -1,0 +1,101 @@
+✔ 原子写：预期版本不符不覆盖后来内容 (28.862875ms)
+✔ 原子写：私有权限 0600 与嵌套目录创建 (9.107625ms)
+✔ 原子写失败路径：临时文件清理后原文件保留 (17.103ms)
+✔ 指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸 (5.984334ms)
+✔ 运行目录与数据库权限：新建与既有 0755 目录、0644 数据库在不同 umask 下收紧到 0700／0600（任务040） (5.127875ms)
+✔ 文件事实：absent 如实记录，不抛错；链接按目标、文件含模式（任务027） (7.607417ms)
+✔ 锁：占用互斥、owner 记录与 token 释放 (87.181583ms)
+✔ 锁：多键失败按 token 释放本次已取得锁 (43.267917ms)
+✔ 锁058：混合申请 newFirst=false outerFirst=false (188.781667ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=false (185.205333ms)
+✔ 锁058：混合申请 newFirst=false outerFirst=true (176.593917ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=true (174.865208ms)
+✔ 锁058：合并多个独立 owner 并含重复键，心跳与释放覆盖所有引用 (234.870083ms)
+✔ 锁058：混合句柄的错误 token 与替换 owner 均不释放他者占用 (85.382375ms)
+✔ 锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变 (86.920709ms)
+✔ 锁044：排序后 busy 先于重入键，未触达外层不变 (64.98075ms)
+✔ 锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录 (112.676583ms)
+✔ 锁044：新建键后遇 busy，同实例与 rival 可重新获取释放 (98.919958ms)
+✔ 锁044：新建与多次重入逆序撤销，不泄漏真实外层引用 (129.147ms)
+✔ 锁044：正常重入与混合新建成功后逐层释放，不同动作仍 busy (110.508125ms)
+✔ 锁044：release 不删除已被其它 token 替换的 owner (67.327625ms)
+✔ 锁：只读 inspect 不创建目录 (15.310541ms)
+✖ 锁：PID 复用由 starttime 识别，身份未知不冒充死亡 (54.675041ms)
+✔ 锁：同 Session 跨项目是同一把 session 锁 (56.529708ms)
+✔ 锁：owner 写入失败回滚不留残留；unlock --force 可清除无 owner 残留 (77.804208ms)
+✔ 锁：固定顺序排序，同类键按 rawKey (0.106792ms)
+✔ 锁：心跳原子更新在版本被外部改动时拒绝 (40.386208ms)
+✖ 进程：procStartTicks 是当前进程的数字字符串 (14.872042ms)
+✔ Git：argv 调用与 NUL 解析、固定环境 (108.169417ms)
+✔ 操作检查点：意图→执行→核验→完成与放弃 (0.301875ms)
+✔ 操作检查点：after 不匹配与效果未知进 needs_attention，不盲目重试 (0.119292ms)
+✔ 操作检查点：before 匹配的幂等重入返回既有证据 (0.049292ms)
+✔ 进程：spawn/wait/killProcessGroup 对真实子进程 (1616.434041ms)
+✔ 锁：显式 unlock 要求 token，alive 需 force；旧 token 不删新占用 (189.260041ms)
+✔ 锁：跨进程 mkdir 竞争只有一个持有者 (113.346292ms)
+✖ 进程树：取消时清理工具自建进程组的后代 (259.98ms)
+✔ 锁：权限不足显式失败，不创建假占用 (19.188ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 34
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4538.192583
+
+✖ failing tests:
+
+test at test/infrastructure.test.mjs:487:1
+✖ 锁：PID 复用由 starttime 识别，身份未知不冒充死亡 (54.675041ms)
+  AssertionError [ERR_ASSERTION]: starttime 不匹配 → PID 复用，判 not_alive
+  + actual - expected
+  
+  + 'alive'
+  - 'not_alive'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:499:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'alive',
+    expected: 'not_alive',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/infrastructure.test.mjs:615:1
+✖ 进程：procStartTicks 是当前进程的数字字符串 (14.872042ms)
+  AssertionError [ERR_ASSERTION]: unexpected: null
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:617:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/infrastructure.test.mjs:837:1
+✖ 进程树：取消时清理工具自建进程组的后代 (259.98ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(tree.includes(root.pid))
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:847:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

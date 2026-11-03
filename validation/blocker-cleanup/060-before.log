@@ -1,0 +1,67 @@
+✖ 060：计划报告任务资料部分暂存冲突，预检保持index与任务原样 (241.039166ms)
+✖ 060：服务直接交付在metadata部分暂存时先拒绝，不被hook失败覆盖index (1258.434333ms)
+✖ 060：规划后必需文件消失，提示装配明确报sourceId与path，不静默启动 (1.046959ms)
+✔ 060：可选背景文件缺失仍可省略，必需文件已加载内容保留 (1.151375ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 1
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1654.788875
+
+✖ failing tests:
+
+test at test/closeout.test.mjs:95:1
+✖ 060：计划报告任务资料部分暂存冲突，预检保持index与任务原样 (241.039166ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ready'
+  - 'conflict'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/closeout.test.mjs:106:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ready',
+    expected: 'conflict',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/closeout.test.mjs:115:1
+✖ 060：服务直接交付在metadata部分暂存时先拒绝，不被hook失败覆盖index (1258.434333ms)
+  AssertionError [ERR_ASSERTION]: 不得把工作区B覆盖到用户预先暂存的A
+  + actual - expected
+  
+  + 'worktree B'
+  - 'staged A'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/closeout.test.mjs:131:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'worktree B',
+    expected: 'staged A',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/materials-regression.test.mjs:14:1
+✖ 060：规划后必需文件消失，提示装配明确报sourceId与path，不静默启动 (1.046959ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/materials-regression.test.mjs:18:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.start (node:internal/test_runner/test:1242:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'throws',
+    diff: 'simple'
+  }

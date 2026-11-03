@@ -1,0 +1,50 @@
+✖ 060：删除checkpoint后重建file仍保护index中的删除 (1344.113208ms)
+✖ 060：删除checkpoint后重建dangling-symlink仍保护index中的删除 (877.546542ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2362.732666
+
+✖ failing tests:
+
+test at test/closeout.test.mjs:174:50
+✖ 060：删除checkpoint后重建file仍保护index中的删除 (1344.113208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ready'
+  - 'conflict'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/closeout.test.mjs:196:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ready',
+    expected: 'conflict',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/closeout.test.mjs:174:50
+✖ 060：删除checkpoint后重建dangling-symlink仍保护index中的删除 (877.546542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ready'
+  - 'conflict'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/closeout.test.mjs:196:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ready',
+    expected: 'conflict',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

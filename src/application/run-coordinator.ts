@@ -620,8 +620,15 @@ export class RunCoordinator {
   private identityVerdict(pid: number, bootId: string, recordedTicks: string | null): "alive" | "not_alive" | "unknown" {
     if (bootId !== machineBootId()) return "unknown";
     const ticks = procStartTicks(pid);
-    // /proc 条目消失即进程已死；读取失败但条目存在时仍按 unknown，不误判重试。
-    if (ticks === null) return existsSync(`/proc/${pid}`) ? "unknown" : "not_alive";
+    // 无启动身份时再检查PID是否存在；无/proc或读取失败不能冒充死亡。
+    if (ticks === null) {
+      try {
+        process.kill(pid, 0);
+        return "unknown";
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "ESRCH" ? "not_alive" : "unknown";
+      }
+    }
     if (recordedTicks === null) return "unknown";
     return ticks === recordedTicks ? "alive" : "not_alive";
   }

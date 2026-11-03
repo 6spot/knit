@@ -38,6 +38,8 @@ const GIT_ENV: Record<string, string> = {
 };
 
 export class NodeProcessPort implements ProcessPort {
+  private readonly exits = new WeakMap<ManagedProcess, Promise<{ exitCode: number | null; signal: string | null }>>();
+
   spawn(command: string, args: string[], options: { cwd: string; env?: Record<string, string>; inheritStderr?: boolean; detachStreams?: boolean }): Promise<ManagedProcess> {
     const detachedStreams = options.detachStreams === true;
     const child = spawn(command, args, {
@@ -85,33 +87,18 @@ export class NodeProcessPort implements ProcessPort {
             },
           }),
     };
+    // 在返回句柄前订阅退出，wait晚于快速退出调用也能取得真实状态；不依赖/proc。
+    const exited = new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
+      child.once("exit", (exitCode, signal) => resolve({ exitCode, signal }));
+      child.once("error", reject);
+    });
+    void exited.catch(() => {}); // spawn错误由wait返回；尚未等待时不产生未处理拒绝。
+    this.exits.set(managed, exited);
     return Promise.resolve(managed);
   }
 
   wait(process: ManagedProcess): Promise<{ exitCode: number | null; signal: string | null }> {
-    return new Promise((resolve, reject) => {
-      // /proc 轮询兜底：脱离进程组的子进程退出事件仍可由 PID 身份核实。
-      const onExit = (code: number | null, signal: string | null) => {
-        clearInterval(poll);
-        resolve({ exitCode: code, signal });
-      };
-      const poll = setInterval(() => {
-        try {
-          readFileSync(`/proc/${process.pid}/stat`, "utf8");
-        } catch {
-          clearInterval(poll);
-          // 进程对象已消失：无法区分正常退出与信号，返回未知终态
-          resolve({ exitCode: null, signal: null });
-        }
-      }, 1_000);
-      try {
-        // ManagedProcess 未携带 child 引用；等待经由 /proc 轮询统一处理。
-        void onExit;
-      } catch (error) {
-        clearInterval(poll);
-        reject(error);
-      }
-    });
+    return this.exits.get(process) ?? Promise.reject(new InfrastructureError("io_error", "unknown process handle"));
   }
 
   killProcessGroup(process: ManagedProcess, signal: string): Promise<void> {
@@ -230,24 +217,28 @@ export function processTable(): Map<number, { ppid: number; pgid: number; startT
   }
 }
 
-/** ps 回退进程表（macOS 等）；lstart 文本作为启动标识，同平台自洽。 */
+/** ps 回退进程表（macOS 等）；固定C语言环境，按字段解析而不假设lstart列宽。 */
 function processTablePs(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
+  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart="], {
+    encoding: "utf8", env: { ...process.env, LC_ALL: "C" },
+  });
+  if (result.status !== 0 || !result.stdout) return new Map();
+  return parseProcessTablePs(result.stdout);
+}
+
+/** 纯解析入口用于Linux／macOS的ps夹具；保留标准化lstart文本作为身份。 */
+export function parseProcessTablePs(output: string): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
   const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
-  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8" });
-  if (result.status !== 0 || !result.stdout) return table;
-  for (const line of result.stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(.{25})$/.exec(trimmed);
+  for (const line of output.split("\n")) {
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})$/.exec(line.trim());
     if (match === null) continue;
     const pid = Number(match[1]);
-    const ppidText = match[2];
-    const ppid = Number(ppidText);
-    const pgidText = match[3];
-    const pgid = Number(pgidText);
+    const ppid = Number(match[2]);
+    const pgid = Number(match[3]);
     if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
-    const startText = match[4] ?? "";
-    table.set(pid, { ppid, pgid, startTicks: startText.trim() });
+    // 维持ps既有lstart文本的单日两列格式，避免同日不同空白产生不同身份。
+    const startText = `${match[4]} ${match[5]} ${match[6]!.padStart(2, " ")} ${match[7]} ${match[8]}`;
+    table.set(pid, { ppid, pgid, startTicks: startText });
   }
   return table;
 }

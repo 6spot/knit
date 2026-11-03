@@ -26,7 +26,7 @@ init 维护两类文件：配置、工作流、角色和规范属于项目资料
 
 同一用户各项目使用本机共享锁根 `~/.knit/locks/`：projects/<项目根摘要>/ 与 sessions/<客户端及原生身份摘要>/，目录0700、owner文件0600；不是用户级行为配置、服务或跨机锁。实际写操作按需建立，init --check／status／doctor 只读时不创建。这样同一原生会话不会因项目各有独立锁目录而绕过占用。
 
-项目执行锁以规范化项目根为稳定键，Git 身份作为每次核验事实，不因初始化仓库或分支变化改锁键；路径别名先解析为同一根。Session 执行锁以客户端、原生 ID 与必要实例身份为跨项目键，不用随 run 改变的文件目录作键。新建前预分配原生 ID，获得锁后让 CLI 使用该 ID 并核对实际返回。项目执行占用在前、Session 占用在后，同类多键排序，mkdir 已存在即失败并按 token 释放本次已取锁。原生恢复失败时释放旧 Session 锁再锁候选新 ID，项目占用保持；不同时持有两把不同 Session 锁倒序等待。owner.json 保存协议、token、动作／run、机器／启动标识、PID 与开始时间，心跳原子更新，释放核对 token。基础设施实现（任务007）：`src/infrastructure/locks.ts` 用 mkdir 抢占、owner 文件原子写、AcquiredLock 携带获取时版本使心跳检测外部改写；进程身份含 /proc/<pid>/stat starttime 排除 PID 复用；实现与验证证据见该任务记录。
+项目执行锁以规范化项目根为稳定键，Git 身份作为每次核验事实，不因初始化仓库或分支变化改锁键；路径别名先解析为同一根。Session 执行锁以客户端、原生 ID 与必要实例身份为跨项目键，不用随 run 改变的文件目录作键。新建前预分配原生 ID，获得锁后让 CLI 使用该 ID 并核对实际返回。项目执行占用在前、Session 占用在后，同类多键排序，mkdir 已存在即失败并按 token 释放本次已取锁。原生恢复失败时释放旧 Session 锁再锁候选新 ID，项目占用保持；不同时持有两把不同 Session 锁倒序等待。owner.json 保存协议、token、动作／run、机器／启动标识、PID 与开始时间，心跳原子更新，释放核对 token。基础设施实现（任务007）：`src/infrastructure/locks.ts` 用 mkdir 抢占、owner 文件原子写、AcquiredLock 按 keys 顺序保存每个 owner 的 token 与版本；token 字段兼容首键，混合重入的释放及心跳逐键核对 ownerTokens。同实例嵌套句柄共享已成功写入的心跳版本，外部改写仍报版本冲突，失败申请逆序撤销本次新增引用与资源；旧单 token 句柄保持原调用约定；进程身份含 /proc/<pid>/stat starttime 排除 PID 复用；实现与验证证据见该任务记录。
 
 实现（任务018）：`task update`／`task apply-pending`／`task close` 在项目与任务锁内按真实 run 仓储复核活动／结果／验收操作；活动 run 只保存草案，apply 与 close 在未收敛时拒绝。`run prepare` 与关闭／接收共用项目锁，并短暂等待上一 worker 释放；接收使用 `runs/<run>/acceptance.json` 检查点，Task／scope／check／binding 半写入可重入收敛。`task record` 等纯记录仍只取任务短锁。实现（任务022）：init 以 `init-manifest.json` 上次 `baselineSha256` 区分旧受管基线与人工改动；旧基线按新模板更新，人工／未知来源冲突不覆盖，`--force` 显式覆盖；清单模板版本高于当前安装包时拒绝降级。安装映射每次按当前 CLI 入口重写。桥接模板以进程级 Symbol guard 在重复加载／reload 前停止旧观察器，ready 不授予 Pi 项目信任。`task adopt` 在项目＋任务锁内重新核对当前分支、Task 版本、活动 run 与未完成 delivery 操作；只可改绑到当前检出分支，discuss／implement／check 保持，deliver 回 open/check，清 `lastCheckRunId` 但保留检查历史文件。原生选择事件的分支与当前分支不一致时报告 `branch_changed` 并不生效；run 状态投影保存发起分支，桥接轮询发现分支不一致时跳过通知。实现（任务017）：取得项目锁前创建锁根并核对本地文件系统，已知 NFS／SMB／FUSE 类型报 `lock_fs_unsupported`，权限不足报 `io_error`，不静默降级。owner 记录 scope／rawKey；`knit locks` 只读列出 `scope/hash`、进程核实与心跳；`knit unlock` 必须给 owner token，token 不符永远拒绝，alive／unknown 另需 `--force`，删除前再次核对 token，旧 token 不能删除新占用。worker 持有项目锁期间每 5 秒心跳；心跳版本冲突只记录并停止发布完成，不自动换锁。阶段在项目锁之后取得 `pi:<nativeSessionId>` Session 锁，worker 崩溃后该锁按普通残留处理，需显式 unlock。
 
@@ -92,7 +92,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 复杂任务讨论中按需创建任务目录内资料：`plan.md`（步骤产出、真实依赖、受影响结构／接口、验证、风险与未完成标记）、`design.md`（重要取舍与依据）、`research/`（调查材料与入口摘要）；简单任务只用 task.md，不堆空文件。读取、更新、冻结与交接生命周期由核心统一接口实现，业务状态不另建第二套权威。
 
-实施前核对：必需的目标／完成条件／规划齐备且无阻碍实施的待决项才 `task ready`；可选文件缺失不阻挡简单任务。实施中进度勾选与证据追加直接更新 plan.md 或 `task record`，不产生草案、不使检查失效；方案中要求性内容变化等同 `task update --kind`，活动 run 期间保存为草案待终态应用。收尾核对以实际成果与验证为准，不按计划复选框判定业务完成。
+实施前核对：必需的目标／完成条件／规划齐备且无阻碍实施的待决项才 `task ready`；可选文件缺失不阻挡简单任务。阶段提示装配时再次读取必需资料，失败则报告sourceId与路径并终止本次执行；可选背景不可读取仍可省略。实施中进度勾选与证据追加直接更新 plan.md 或 `task record`，不产生草案、不使检查失效；方案中要求性内容变化等同 `task update --kind`，活动 run 期间保存为草案待终态应用。收尾核对以实际成果与验证为准，不按计划复选框判定业务完成。
 
 每轮主会话上下文由桥接在模型调用前注入：当前任务稳定 ID 与 phase、业务摘要、待决项、待应用草案与活动运行摘要、下一步规则及资料入口；无任务时给出入口规则。注入为当前快照不叠加历史，写动作仍经核心核对授权／阶段／锁／版本；实现见任务047，规则见 DESIGN §9.6。
 
@@ -126,7 +126,7 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
 
-实现（任务055–057）：`task close --outcome completed` 在任务锁内按 `verification` 核对当前输入、成果和完成凭据；业务完成不要求 Git 提交、回执或归档，完成凭据写 `.knit/.runtime/completions/<task-id>.json`。`deliver <id...>` 支持批量逐项处理，先以 `--plan` 只读预检业务产物／任务资料分类、已暂存业务路径和跨任务同路径冲突；有冲突时不执行。每个任务先提交业务产物（`knit: artifact`），再写最终记录并单独提交任务资料（`knit: metadata`），随后封存、移动和归档提交；多个任务不合并为整仓提交。任一项失败保留已生效提交和后续任务现场，按操作 ID 与显式 retry 继续，不重复提交。
+实现（任务055–057）：`task close --outcome completed` 在任务锁内按 `verification` 核对当前输入、成果和完成凭据；业务完成不要求 Git 提交、回执或归档，完成凭据写 `.knit/.runtime/completions/<task-id>.json`。`deliver <id...>` 支持批量逐项处理，先以 `--plan` 只读预检业务产物／任务资料分类、已暂存业务路径及任务资料、跨任务同路径冲突；有冲突时不执行。任务资料的用户暂存内容也在服务取得占用后、创建操作与修改Task前重核；拒绝时保留index、HEAD及Task。重试仅接受当前HEAD和预期路径／blob匹配的未完成操作暂存检查点；资料部分暂存始终停止，不能借retry覆盖新改动。每个任务先提交业务产物（`knit: artifact`），再写最终记录并单独提交任务资料（`knit: metadata`），随后封存、移动和归档提交；多个任务不合并为整仓提交。任一项失败保留已生效提交和后续任务现场，按操作 ID 与显式 retry 继续，不重复提交。
 
 ## 6. 数据版本与升级
 

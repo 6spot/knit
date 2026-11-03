@@ -1,0 +1,524 @@
+
+> knit@0.1.0 test
+> npm run -s typecheck && npm run -s build && node --test "test/*.test.mjs"
+
+✔ 桥接命令展示结构化查询结果：task list、status、按任务查询可见；失败与空列表有准确提示（任务042） (3353.365959ms)
+✔ 每轮注入：before_agent_start 写 knit 分节；无任务入口规则；任务切换刷新；不堆叠（任务047） (4960.164541ms)
+✔ 对话任务衔接：显式创建、重复引导、拒绝无副作用、选择已有任务、部分结果如实（任务048） (4674.922042ms)
+✔ knit_material 与 knit_task new 提醒：需求写入入口与重复创建引导（任务048） (3808.030458ms)
+✔ --version 输出 package.json 版本且退出码为 0 (244.903375ms)
+✔ --help 输出用法且退出码为 0 (191.250125ms)
+✔ 无参数时输出帮助且退出码为 0 (165.462375ms)
+✔ 未知命令不回假成功 (166.292916ms)
+✔ 未知选项不回假成功 (191.314125ms)
+✔ 055/056：self 任务完成后无 Git 提交；完成凭据记录实际验证方式 (680.522583ms)
+✔ 056：independent 任务缺少当前有效检查时不能完成；none 必须由用户显式选择 (997.379958ms)
+✔ 056：完成凭据随输入或成果变化失效，交付不能沿用旧完成 (976.921208ms)
+✔ 057：业务产物与任务资料分开提交，归档单独提交 (2147.239583ms)
+✔ 057：批量收尾逐任务提交，跨任务同路径在执行前报告冲突 (3504.733042ms)
+✔ 057：已暂存业务路径不能可靠归属时 plan 报告冲突 (597.199125ms)
+✔ 057：两个任务需要同一业务路径时 plan 停止并列出归属冲突 (687.988666ms)
+✔ 055/056：CLI close completed 被完成守卫拒绝，任务保持 open (699.89525ms)
+✔ 055：验证要求只能在讨论阶段显式调整，并清空旧完成凭据 (611.840917ms)
+✔ 057：CLI deliver --plan 只读预检，不创建提交 (646.8595ms)
+✔ 055/056：self 任务在 deliver 上澄清会回实施，不逼出独立检查 (461.143ms)
+✔ 协议版本常量为 1 (0.45625ms)
+✔ 合法响应与请求通过 schema 校验 (1.757916ms)
+✔ 额外字段与缺字段被拒绝 (0.099ms)
+✔ 非法枚举被拒绝 (0.170834ms)
+✔ 终态结果 schema 拒绝非终态 run 状态 (0.201ms)
+✔ 未知协议版本被识别为 incompatible_version (0.445834ms)
+✔ JSON 序列化往返后 schema 仍可用于核心校验 (0.264417ms)
+✔ 错误模式组合映射 outcome 与分类 (0.064667ms)
+✔ errorResponse 结构完整且可校验 (0.116292ms)
+✔ 帧解码只按 LF 切分，不受 U+2028/U+2029 影响 (0.143084ms)
+✔ 多字节 UTF-8 跨块不乱码 (0.101625ms)
+✔ 尾部半行不作完整帧，空行被跳过 (0.06175ms)
+✔ 正常交付：工作提交与归档提交范围准确，无关 staged／unstaged 保留 (2088.394208ms)
+✔ pre-commit hook 越界写文件：提交真实存在但 needs_attention，不移动任务 (1731.520458ms)
+✔ 取消任务归档只移动资料，不提交半成品代码、不造空工作提交 (1389.009084ms)
+✔ 封存标记使 record 明确未保存；归档完成后可按档案新资料写入 (2182.086084ms)
+✔ 授权与分支守卫：Agent 无来源拒绝、短分支拒绝、分支不一致拒绝 (1813.283625ms)
+✔ 回执丢失但提交已生效：按操作 ID 核实并继续，不重复工作提交 (1685.539542ms)
+✔ hook 改动选中文件：提交保留但 needs_attention，不移动任务 (1164.245417ms)
+✔ hook 改内容后的显式 retry 不复用旧 pass；scope 现状重核拒绝 check_stale (1163.766375ms)
+✔ commit 已成功但回执丢失：恢复仍核验提交范围，不把越界提交当完成 (1189.574166ms)
+✔ 恢复时 HEAD 已有额外提交：即使找到操作提交也拒绝，不把后续历史并入归档 (1203.838125ms)
+✔ 恢复时提交 message 被改写：找不到操作提交但 HEAD 已前进，不误判 no_selected_changes (1011.610833ms)
+✔ 恢复时操作保存的 workCommit 含越界路径：保留预期 checkpoint 并拒绝 (903.997542ms)
+✔ 恢复时操作保存的 workCommit message 不匹配：不被当成完成提交 (1014.311708ms)
+✔ 归档提交 pre-commit 拒绝后 retry：旧任务路径删除与新路径新增都进入提交 (1637.542583ms)
+✔ 工作提交完成后出现额外提交：恢复拒绝把额外历史并入归档 (950.879917ms)
+✔ 归档提交后出现同 message 额外提交：不落盘错误候选，清理后可恢复真实归档提交 (1192.717584ms)
+✔ 检查后正式规范变化：交付拒绝 check_stale (272.62875ms)
+✔ archive 不能绕过正常交付：未交付的 completed／open 任务要求先 deliver (453.37ms)
+✔ CLI deliver --json 走协议输出并真实归档 (1107.179125ms)
+✔ 显式 retry：hook 失败现场清理后核实原提交并继续，不重复工作提交 (1135.037791ms)
+✔ 凭据扫描：限定提交命中即暂停、无新提交、结果不回显完整值（任务032） (972.028958ms)
+✔ scope 现状重核：改字节、换类型、改执行位或删除后旧 pass 拒绝交付，恢复后可用 (1939.465041ms)
+✔ 最新检查失败时不回退旧 pass 交付 (367.202041ms)
+✔ 同任务混改：模式、删除、重命名与内容一起按真实提交范围核对 (1378.854875ms)
+✔ hook 拒绝提交：事实保留，不移动任务 (819.434833ms)
+✔ hook 把无关文件加入 index：检测 index 变化并保留提交事实 (790.57825ms)
+✔ 移动成功但 move 检查点丢失：核实目标后继续，不重复移动 (1014.056167ms)
+✔ 归档目标已存在：不覆盖、不移动，保留现场 (714.995833ms)
+✔ 跨月重试沿用操作首次 archivePath，不按当前月份改目标 (1190.461041ms)
+✔ task ready 仅从 discuss 推进 (0.945125ms)
+✔ 实施接受仅从 implement 推进并进入 check (0.084541ms)
+✔ 实施接受按任务验证要求分流：independent→check，self／none→deliver (0.067625ms)
+✔ check 接受按结论分流 pass→deliver / changes_requested→implement / blocked 保留 (0.073791ms)
+✔ clarify 保持早期 phase；deliver 因摘要变化回 open/check (0.1195ms)
+✔ change 回 open/discuss (0.046167ms)
+✔ 待应用草案存在时阻止代码阶段与交付 (0.091416ms)
+✔ 取消／替代不隐式重开；completed 复查仅显式入口 (0.107833ms)
+✔ recheck 仅 check/deliver 合法，discuss/implement 明确拒绝 (0.076041ms)
+✔ 业务关闭：取消／替代保留停止位置 (0.112334ms)
+✔ adopt 保持 discuss/implement/check，deliver 回 open/check 并清 completed (1.29925ms)
+✔ 纯记录与等价改名不使检查失效；运行引用、候选、模型用量不进摘要 (0.119084ms)
+✔ 无凭据或缺范围是 missing，不猜通过 (0.203708ms)
+✔ 最新检查尚未结束是 pending，不能借更早 pass 收尾 (0.055125ms)
+✔ pass 且身份／输入／成果匹配是 valid (0.043833ms)
+✔ changes_requested 与 blocked 是 blocked；证据缺失也是 blocked (0.051625ms)
+✔ 身份／输入／成果／分支失配是 stale (0.638541ms)
+✔ 候选错位与已接纳后失败不回退旧 pass 的语义 (0.282209ms)
+✔ 事件降级只把 valid 变 stale；pending 不被事件跳过 (0.140125ms)
+✔ 修复轮累计且上限 2 时第三轮拒绝并写 stopReason (0.311083ms)
+✔ clarify 与 resume 不重置不累计；周期错位拒绝 (0.117042ms)
+✔ 停止后迟到事件不改变事实；新周期授权清零并清 stopReason (0.103208ms)
+✔ 取消旧 run 只影响其对应周期，不暂停后来新开的周期 (0.300041ms)
+✔ 上限 0 与非法上限 (0.062959ms)
+✔ 完成资格：self 需要匹配的获准实施，independent 需要有效检查，none 明确记录未验证 (0.157792ms)
+✔ 原子写：预期版本不符不覆盖后来内容 (36.609542ms)
+✔ 原子写：私有权限 0600 与嵌套目录创建 (10.700666ms)
+✔ 原子写失败路径：临时文件清理后原文件保留 (20.699542ms)
+✔ 指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸 (8.970416ms)
+✔ 运行目录与数据库权限：新建与既有 0755 目录、0644 数据库在不同 umask 下收紧到 0700／0600（任务040） (8.347667ms)
+✔ 文件事实：absent 如实记录，不抛错；链接按目标、文件含模式（任务027） (10.296667ms)
+✔ 锁：占用互斥、owner 记录与 token 释放 (159.036416ms)
+✔ 锁：多键失败按 token 释放本次已取得锁 (80.3605ms)
+✔ 锁058：混合申请 newFirst=false outerFirst=false (494.58175ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=false (301.155958ms)
+✔ 锁058：混合申请 newFirst=false outerFirst=true (368.909416ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=true (431.699208ms)
+✔ 锁058：合并多个独立 owner 并含重复键，心跳与释放覆盖所有引用 (483.924209ms)
+✔ 锁058：混合句柄的错误 token 与替换 owner 均不释放他者占用 (215.424084ms)
+✔ 锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变 (191.074834ms)
+✔ 锁044：排序后 busy 先于重入键，未触达外层不变 (120.635958ms)
+✔ 锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录 (225.100959ms)
+✔ 锁044：新建键后遇 busy，同实例与 rival 可重新获取释放 (208.989042ms)
+✔ 锁044：新建与多次重入逆序撤销，不泄漏真实外层引用 (307.557667ms)
+✔ 锁044：正常重入与混合新建成功后逐层释放，不同动作仍 busy (205.987167ms)
+✔ 锁044：release 不删除已被其它 token 替换的 owner (164.846458ms)
+✔ 锁：只读 inspect 不创建目录 (25.073709ms)
+✖ 锁：PID 复用由 starttime 识别，身份未知不冒充死亡 (109.943125ms)
+✔ 锁：同 Session 跨项目是同一把 session 锁 (150.046625ms)
+✔ 锁：owner 写入失败回滚不留残留；unlock --force 可清除无 owner 残留 (178.367625ms)
+✔ 锁：固定顺序排序，同类键按 rawKey (0.27175ms)
+✔ 锁：心跳原子更新在版本被外部改动时拒绝 (64.867083ms)
+✖ 进程：procStartTicks 是当前进程的数字字符串 (31.725333ms)
+✔ Git：argv 调用与 NUL 解析、固定环境 (374.712833ms)
+✔ 操作检查点：意图→执行→核验→完成与放弃 (0.367834ms)
+✔ 操作检查点：after 不匹配与效果未知进 needs_attention，不盲目重试 (0.112791ms)
+✔ 操作检查点：before 匹配的幂等重入返回既有证据 (0.059666ms)
+✔ 进程：spawn/wait/killProcessGroup 对真实子进程 (1623.658583ms)
+✔ 锁：显式 unlock 要求 token，alive 需 force；旧 token 不删新占用 (277.16225ms)
+✔ 锁：跨进程 mkdir 竞争只有一个持有者 (150.696167ms)
+✖ 进程树：取消时清理工具自建进程组的后代 (266.286625ms)
+✔ 锁：权限不足显式失败，不创建假占用 (34.349167ms)
+✔ init：首次初始化 ready，逐项清单与私有权限 (540.797834ms)
+✔ init：无 Pi 依赖、无 Git 提交、无依赖安装 (691.330958ms)
+✔ init：项目资料只补缺，受管冲突不覆盖，--force 显式更新 (816.484417ms)
+✔ init：重复执行幂等，AGENTS 标记块只追加一次 (659.07625ms)
+✔ init --check：只读不写，不建锁目录与运行目录 (438.001417ms)
+✖ init：子目录归一到仓库根；非 Git 目录可准备资料并提示 Git 条件 (445.307ms)
+✔ init：上次受管基线可升级，人工改动仍冲突；更新版本不降级 (1151.012167ms)
+✔ init：升级中断重试保留旧受管基线，桥接不判未知来源（任务039） (661.900666ms)
+✔ init：清单项被外部清空后（旧缺陷遗留）重试准确报告真实冲突，不冒充升级成功（任务039） (687.205292ms)
+✔ init：安装映射移动／换机器后由 init 重写，不把本机绝对路径写进桥接 (616.060167ms)
+✔ init：缺映射／未 ready 不能声称可调用（bridgeReady 为 false） (768.344125ms)
+✔ config：默认配置解析与未知版本阻塞 (2.359625ms)
+✔ 模板：受管基线指纹稳定，AGENTS 块含标记与入口 (0.4215ms)
+✔ CLI：init --json 输出协议响应；未知客户端拒绝 (947.8415ms)
+✔ 项目根解析：目录不存在与文件路径报错 (0.634917ms)
+✔ task adopt：接管当前完整分支，纯分支变化改绑并使旧检查失效 (2280.026666ms)
+✖ start：在项目 cwd 启动 Pi，保留 -- 后的参数，不自动批准信任 (1641.910209ms)
+✔ status：按月归档任务进入项目概览，与 task list／按 ID status 一致（任务041） (2675.271625ms)
+✔ status/doctor/storage：只读查询不接收结果、不写数据库 (2378.314292ms)
+✔ run implement + status --events：真实 worker 终态观察，事件流不接收结果 (4408.786666ms)
+✔ assist discuss：advisory worker 只给建议，不推进 Task (2805.2345ms)
+✔ run check --scope：非正式只读检查不建 Task／binding；副作用失败 (1214.303709ms)
+✔ --dev：写命令生成私有 JSONL；只读命令不建诊断目录，日志失败不吞业务 (1401.374959ms)
+✔ cancel --operation：只放弃未执行效果的 planned 操作 (750.356042ms)
+✔ --dev：stdout 仍是单一协议响应，诊断只写 stderr 且白名单 (608.509917ms)
+✔ 桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JSON (0.713667ms)
+✔ locks/unlock：只读列举、token 校验与显式强解，不改项目业务状态 (640.278ms)
+✔ 关联写入：同一短事务更新 Session/binding/operation，同提交同回滚 (17.844625ms)
+✔ 重复接收不多计：幂等追加同 ID 只计一次 (16.134875ms)
+✔ 两进程竞争：并发追加无丢失更新，计数为两者之和 (55.203833ms)
+✔ 崩溃回滚：持有未提交写事务的进程死亡后，库可打开且未提交数据不可见 (554.475ms)
+✔ busy 冲突如实报错，不静默吞掉；释放后可写 (377.545875ms)
+✔ 只读路径不写库：连续读取后主库与 WAL 字节不变 (7.158ms)
+✔ decideResume 缺失记录时预分配新原生 ID，不冒充可恢复 (2.138042ms)
+✔ decideResume 身份不符时报 id_mismatch，不交另一记录解释 (1.196625ms)
+✔ checkNativeSessionFile 识别合法文件与损坏文件 (2.887333ms)
+✔ buildRuntimeOptions 按 decision 选择 --session 或预分配新 ID (0.189333ms)
+✔ isolatedEnv 移除主会话变量并设置离线标志 (0.204542ms)
+✔ 连接在进程被杀后以 PiConnectionClosedError 拒绝未决请求并给出真实信号 (4.222875ms)
+✔ 连接层把非 JSON 与非对象帧归入 invalidFrames，不作响应或事件 (39.377542ms)
+✔ 真实模型冒烟：非法模型经 set_model 拒绝，不静默替换（零模型请求） (289.726125ms)
+✔ 真实模型冒烟：prompt 稳定结束、文本与用量可读、条目范围可定位 (6783.432667ms)
+✔ 真实模型冒烟：受控工具取消在 agent_settled(aborted) 且子进程真实结束 (4703.743125ms)
+✔ 真实模型冒烟：兜底新建会话读任务文件续做，新记录落在稳定目录 (10907.214084ms)
+✔ 真实模型冒烟：旧原生记录按原客户端恢复且历史可读（零模型请求） (186.454666ms)
+✔ snapshot show 与逐路径恢复：二进制、模式、删除、未跟踪、符号链接和 index (3103.594ms)
+✔ 后续修改与指纹不匹配即停；删除后来路径必须显式 --remove-created (1673.796583ms)
+✔ Task 输入恢复经 task update，保留 frontmatter、记录与后来记录 (1483.896459ms)
+✔ 分支变化拒绝；恢复源码会清空旧检查资格并把 deliver 回 check (1885.318042ms)
+✔ 恢复预览后 index 或工作区变化停止；损坏 index 快照留下可核实的中断记录 (1455.772417ms)
+✔ 越界与父级符号链接拒绝；快照缺失/未 ready 不冒充可恢复 (1231.248334ms)
+✔ snapshot CLI：show／预览／--expect 执行保持 stdout 协议 (1942.223125ms)
+✔ prepare 只发布请求；start 后 worker 自行持锁并冻结输入，正式代码前快照 ready (2463.87975ms)
+✔ 并行纯记录可写入且不改变冻结输入或快照 (1662.551917ms)
+✔ 快照保存 tracked/index/untracked、模式与缺失起点，排除 ignored 与 runtime (1221.030666ms)
+✔ 快照超限或 Git 覆盖未知时 failed，不产生 ready (1147.2405ms)
+✔ 中断残留的 snapshot.tmp-* 在重建时回收，不留临时目录 (990.29175ms)
+✔ worker 复核失败：待应用输入、输入变化、分支变化都不进入 prepared (2307.179042ms)
+✔ 部分启动：句柄死亡且未认领时 failed，重复 start 不换 run，显式 retry 才重试同一 run (4108.142916ms)
+✖ worker 自行取锁：项目占用被占时失败，释放后可显式重试同一 run (1126.294167ms)
+✔ 句柄缺失时不启动第二个 worker，只置 failed 等待显式重试 (466.218042ms)
+✔ 阶段／计划守卫：phase 不符、草案未应用、角色缺失都不发布请求 (866.981334ms)
+✔ CLI：prepare/start/status/list 协议输出，未知 run 非零退出 (2147.079416ms)
+✖ session attach：预分配原生 ID，opening→available 与稳定记录位置 (358.353084ms)
+✖ session attach：身份不符 incompatible，项目与角色不混淆，主会话不被 worker 复用 (1179.815625ms)
+✔ 任务规划资料进上下文：plan/design 全文、research 入口摘要；更新后计划版本刷新（任务046） (1010.351292ms)
+✖ task use/clear：未落盘只待确认，原生有效路径为权威，清除不复活旧选择 (818.703625ms)
+✖ 选择分支与当前分支不一致：不生效，不把旧树选择投到新分支 (449.449792ms)
+✖ 临时 cwd 与项目迁移不误选：cwd 不一致返回未生效 (455.196083ms)
+✔ context：分层输入、规范／角色指纹、草案与候选只作背景 (692.769458ms)
+✖ history：只读摘要，不复制正文、不修改原生文件 (240.593625ms)
+✔ CLI：session attach 与 context --json 走协议输出 (1336.690417ms)
+✖ implement→check 独立会话；结果与原生范围保存，重复接收幂等 (3778.398208ms)
+✔ 接收检查点：Task 已写而 binding 失败时重入收敛，不重复推进或重跑 (2602.510458ms)
+✔ 任务关闭后迟到结果只保留事实，不隐式重开 (1510.905875ms)
+✔ 活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓储保存草案 (1394.363541ms)
+✔ 检查改动文件时该次结果失败，Task 不被推进 (2484.395333ms)
+✔ 取消终态且无 result 的 run 不把取消意图当完成，也不阻塞 task close (746.269625ms)
+✔ 报告改动路径与实际不符时不接收；模型报告不直接改 Task (1493.557416ms)
+✔ changes_requested→修复→重查两轮后停止，不自动开始第三轮 (3908.169334ms)
+✔ scope 跨 run 累积、换会话不重置修复计数与检查事实 (2774.284584ms)
+✔ 检查接收窗口外部改动成果：重核不符转 scope_changed，不发布检查凭据 (1502.102417ms)
+✔ 输入在结果发布后变化时接收 stale，不写 Task／scope (1470.168333ms)
+✔ 运行边界核对实际分支：prepare、启动、接收三处拒绝，detach 拒绝，adopt 后可继续 (2200.839709ms)
+✔ resume --run：结果待同步先接收不重跑；已完成不新建 run；失败后新 run 恢复原会话 (2105.385875ms)
+✔ 原生引用不可恢复时保留执行结果，不把会话失败当代码重跑理由 (1082.154292ms)
+✔ runtime 启动失败保留 pi 侧错误细节；run 目录与 status 可读 (2141.957375ms)
+✔ 连接中断启动失败同样落盘诊断尾部 (938.355167ms)
+✔ 真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结输入；接收不丢草案 (3718.615583ms)
+✔ 结果写入失败不发布完成，Task 不推进 (2516.685042ms)
+✔ 取消在安全点收敛为 cancelled，不推进 Task；旧 run 取消不影响新 run (1665.516917ms)
+✔ 取消与完成竞争：fake-pi 收到取消的同一 tick 发布完成结果，终态唯一 (819.107708ms)
+✔ resume --run：已完成结果待同步时只接收，不新建 run、不重跑模型 (1430.158166ms)
+✔ advisory 只产出建议，不推进 Task；CLI resume/accept 协议输出 (923.361375ms)
+✔ 取消在工具不响应 abort 时按宽限终止自有 Pi 进程组，留下真实终态与进程记录 (6080.04625ms)
+✖ SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有进程并显式解锁后才续做 (1259.491167ms)
+✔ 心跳丢失后 worker 停止新动作：fake-pi 下一次调用被拒绝，run 以 lock_ownership_lost 终止 (1110.134375ms)
+✔ 无固定阶段总时限：长阶段跨原 15 分钟截止仍完成；显式取消仍收敛（任务034） (2505.393416ms)
+✔ 授权规范成果：明确授权后实施可改正式规范并进 scope；未授权仍拒绝（任务037） (1839.336042ms)
+✔ prefer 恢复身份核对与回退：实际 ID 不符新建续做，旧查询不歧义；恢复失败不静默重跑（任务035） (1665.64925ms)
+✔ parseStageReport 容错：围栏包裹、语言标注与字符串内围栏错位均可解析 (0.444125ms)
+✔ parseStageReport 失败语义：畸形 JSON 报 report_not_json；schema 不合报 report_schema_invalid 且保留根因 (0.412958ms)
+✔ 检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸形报告仍失败 (3287.860208ms)
+✔ 生效指令变化纳入检查身份：角色／工作流变更使旧凭据过期，纯记录与候选不影响（任务031） (790.246292ms)
+✔ 采纳目标边界：父链接、目标链接、.. 与绝对路径拒绝，项目外无变化；项目内采纳正常（任务033） (2768.1995ms)
+✔ propose：候选只写任务资料，正式摘要与输入摘要不变 (612.736333ms)
+✔ pending：有候选无回执需审阅；延期／拒绝有理由即可继续 (437.514042ms)
+✔ review：候选或分支变化重新提示，回执按摘要匹配 (595.209792ms)
+✔ apply：按回执写入正文与索引，正式摘要变化并列出受影响任务 (495.562375ms)
+✔ 采纳按实际效果恢复：正文成功索引失败可补齐；候选同 ID 新版本不假成功（任务038） (611.473292ms)
+✔ apply 守卫：目标须在匹配回执内且不能是候选目录 (436.748ms)
+✔ CLI：propose/review/apply/pending 走协议输出，未知决定为参数错误 (1490.097625ms)
+✔ 正式任务创建要求 Git／本地文件系统前置 (45.061167ms)
+✔ taskDirectoryName：日期前缀与重名短序号 (0.81325ms)
+✔ task.md 文档模型：分区解析与往返渲染 (8.199959ms)
+✔ task new：稳定 ID、目录创建与 binding 落库 (871.62775ms)
+✔ task new：目录重名追加短序号；list 含归档分区 (776.572875ms)
+✔ task record：只改记录区、版本核对、并行短锁串行 (597.164666ms)
+✔ task adopt：分支变化保持早期 phase，deliver 回 check，清检查资格并保留历史 (582.6175ms)
+✔ task adopt：活动 run 或未核实 Git 效果拒绝，不写 Task (748.508584ms)
+✔ task ready：discuss → implement 并冻结输入摘要；phase 不符拒绝 (704.686542ms)
+✔ task update：clarify 保持 phase 且不使摘要未变任务迁移；change 回 discuss (600.519459ms)
+✔ task update：活动 run 只保存草案；apply/withdraw 按摘要与基线核对 (347.666625ms)
+✔ 输入草案竞争：存在草案时直接更新拒绝；同内容新版本、基线冲突与 apply/withdraw 互斥 (610.08275ms)
+✔ task update：apply 按草案 kind 应用；change 草案回 discuss，clarify 草案保持 (514.356834ms)
+✔ 任务规划资料：按需创建读取保存、越界与白名单拒绝、版本核对、改名重定位、归档可读（任务045） (637.801125ms)
+✔ task rename：等价移动不改变输入摘要；路径线索与绑定更新 (394.209458ms)
+✔ 应用草案持久化转移：change 实际回 open/discuss，deliver 上 clarify 回 open/check，响应与磁盘一致（任务030） (669.380833ms)
+✔ 未归档 completed 可按规定重新打开：change 回 discuss、deliver 上 clarify 回 check；已归档与 cancelled/superseded 拒绝（任务036） (1466.163833ms)
+✔ 凭据扫描：任务记录与输入更新命中即暂停、不回显完整值；无命中正常写入（任务032） (692.867708ms)
+✔ task close：completed 收敛事实；cancelled 撤回草案留记录；closed 不复活 (505.575291ms)
+✔ 封存：record 明确返回未保存且不写任务文件 (241.439791ms)
+✔ 锁定与多键：任务短锁允许与项目长占用并存且顺序固定 (257.35775ms)
+✔ 任务锁按稳定 ID 定位：移动后 record 用新路径仍定位同一任务 (296.511208ms)
+✔ CLI：task new/list/record 真实进程冒烟 (759.472208ms)
+✔ CLI：task update/close 错误路径输出协议错误 (455.155375ms)
+✔ newTaskId 与随机源：k- 前缀稳定身份 (0.085125ms)
+✔ 实施前结构核对：占位未填与空 plan 阻止 ready；简单任务不受阻；进度更新不重置（任务049） (614.852ms)
+ℹ tests 261
+ℹ suites 0
+ℹ pass 247
+ℹ fail 14
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 62244.175
+
+✖ failing tests:
+
+test at test/infrastructure.test.mjs:487:1
+✖ 锁：PID 复用由 starttime 识别，身份未知不冒充死亡 (109.943125ms)
+  AssertionError [ERR_ASSERTION]: starttime 不匹配 → PID 复用，判 not_alive
+  + actual - expected
+  
+  + 'alive'
+  - 'not_alive'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:499:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'alive',
+    expected: 'not_alive',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/infrastructure.test.mjs:615:1
+✖ 进程：procStartTicks 是当前进程的数字字符串 (31.725333ms)
+  AssertionError [ERR_ASSERTION]: unexpected: null
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:617:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/infrastructure.test.mjs:837:1
+✖ 进程树：取消时清理工具自建进程组的后代 (266.286625ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(tree.includes(root.pid))
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/infrastructure.test.mjs:847:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/init.test.mjs:152:1
+✖ init：子目录归一到仓库根；非 Git 目录可准备资料并提示 Git 条件 (445.307ms)
+  AssertionError [ERR_ASSERTION]: 子目录归一到仓库根
+  + actual - expected
+  
+  + '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-008-subdir-4AAnCd'
+  - '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-008-subdir-4AAnCd'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/init.test.mjs:158:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-008-subdir-4AAnCd',
+    expected: '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-008-subdir-4AAnCd',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/m1-cli.test.mjs:85:1
+✖ start：在项目 cwd 启动 Pi，保留 -- 后的参数，不自动批准信任 (1641.910209ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-015-start-UzNljG|--foo bar'
+  - '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-015-start-UzNljG|--foo bar'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/m1-cli.test.mjs:94:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-015-start-UzNljG|--foo bar',
+    expected: '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-015-start-UzNljG|--foo bar',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/run.test.mjs:379:1
+✖ worker 自行取锁：项目占用被占时失败，释放后可显式重试同一 run (1126.294167ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/run.test.mjs:388:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:84:1
+✖ session attach：预分配原生 ID，opening→available 与稳定记录位置 (358.353084ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-010-attach-E1Hzcv'
+  - '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-010-attach-E1Hzcv'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:95:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-010-attach-E1Hzcv',
+    expected: '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-010-attach-E1Hzcv',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:117:1
+✖ session attach：身份不符 incompatible，项目与角色不混淆，主会话不被 worker 复用 (1179.815625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'opening'
+  - 'available'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:149:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'opening',
+    expected: 'available',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:242:1
+✖ task use/clear：未落盘只待确认，原生有效路径为权威，清除不复活旧选择 (818.703625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'index' !== 'native'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:266:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'index',
+    expected: 'native',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:314:1
+✖ 选择分支与当前分支不一致：不生效，不把旧树选择投到新分支 (449.449792ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'native_file_not_persisted'
+  - 'branch_changed'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:328:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'native_file_not_persisted',
+    expected: 'branch_changed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:347:1
+✖ 临时 cwd 与项目迁移不误选：cwd 不一致返回未生效 (455.196083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + null
+  - 'k-000000000011'
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:358:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: 'k-000000000011',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/session.test.mjs:451:1
+✖ history：只读摘要，不复制正文、不修改原生文件 (240.593625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'native_file_not_persisted'
+  - null
+  
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/session.test.mjs:463:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'native_file_not_persisted',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/stage.test.mjs:132:1
+✖ implement→check 独立会话；结果与原生范围保存，重复接收幂等 (3778.398208ms)
+  Error [InfrastructureError]: lock already held: project/df50e1c5278c3df4d5c267f7f1199327
+      at LockManager.acquire (file:///Users/me/IdeaProjects/knit/dist/infrastructure/locks.js:126:35)
+      at TaskService.close (file:///Users/me/IdeaProjects/knit/dist/application/task-service.js:939:39)
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/stage.test.mjs:182:34)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    code: 'lock_busy',
+    details: { scope: 'project', key: '/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-013-flow-jNpP1z', ownerPath: '/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-013-flow-jNpP1z/.locks/projects/df50e1c5278c3df4d5c267f7f1199327/owner.json' }
+  }
+
+test at test/stage.test.mjs:1083:1
+✖ SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有进程并显式解锁后才续做 (1259.491167ms)
+  Error [GuardError]: 旧阶段的 Pi／工具尚未确认结束: run-00000000007e
+      at RunCoordinator.resume (file:///Users/me/IdeaProjects/knit/dist/application/run-coordinator.js:463:23)
+      at TestContext.<anonymous> (file:///Users/me/IdeaProjects/knit/test/stage.test.mjs:1140:41)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'io_error',
+    details: { guardReason: 'run_active' },
+    guardReason: 'run_active'
+  }

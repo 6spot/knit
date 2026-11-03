@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig, defaultConfig } from "../dist/application/config.js";
@@ -12,7 +12,7 @@ import { sha256Text } from "../dist/infrastructure/fingerprint.js";
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 
 function freshProject(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), `knit-008-${prefix}-`));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), `knit-008-${prefix}-`)));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
   execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: dir });
   execFileSync("git", ["config", "user.name", "t"], { cwd: dir });

@@ -41,3 +41,4 @@
 - 验证：`test/delivery.test.mjs` 29 项通过；`test/closeout.test.mjs` 覆盖单任务分提交、批量、计划冲突、暂存冲突；全量 255 项通过；typecheck／build／pack:check 通过。
 - 已知限制：同一文件被多任务/任务前未暂存修改时无法仅凭路径拆分同一 diff；计划明确报告冲突，不静默合并。
 - 未验证：真实项目、真实模型、推送／发布；按用户要求暂缓。
+- 后续060独立复核发现原暂存保护只覆盖业务路径，任务资料部分暂存可能被git add覆盖，已补stagedMetadata计划冲突及服务锁内／提交前守卫；删除检查点后重建文件与悬空链接亦保留暂存选择。相关48/48、最终全量273/273与pack:check通过，独立末轮确认闭合。详见[060](060-required-material-and-metadata-index-guards.md)及[复核证据](../validation/blocker-cleanup/README.md)。

@@ -9,6 +9,7 @@ import { inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
 import { researchDigestSummary } from "./task-materials.js";
 import type { RunPhase } from "../contracts/run.js";
 import { StageReportSchema, type StageReport } from "../contracts/run.js";
+import { InfrastructureError } from "../infrastructure/errors.js";
 import { Value } from "typebox/value";
 
 export type SectionContents = Record<string, string>;
@@ -68,7 +69,14 @@ export function loadSectionContents(root: string, plan: ContextPlan, pendingDraf
     let text: string;
     try {
       text = readFileSync(join(root, section.path), "utf8");
-    } catch {
+    } catch (error) {
+      if (section.required) {
+        throw new InfrastructureError("io_error", `必需上下文资料不可读取: ${section.sourceId} (${section.path})`, {
+          sourceId: section.sourceId,
+          path: section.path,
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
       continue;
     }
     if (section.kind === "task-inputs") contents[section.sourceId] = inputsRegionOf(text);

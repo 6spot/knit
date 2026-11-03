@@ -81,6 +81,8 @@ export interface DeliveryPlanItem {
   metadata: string[];
   /** 已在 index 中有内容的业务路径；当前实现不能可靠拆分，先报告冲突。 */
   stagedArtifacts: string[];
+  /** 用户已暂存且不属于本操作可核实检查点的任务资料。 */
+  stagedMetadata: string[];
   status: "ready" | "conflict";
   reason: string | null;
 }
@@ -159,14 +161,18 @@ export class DeliveryService {
       if (stagedResult.code !== 0) throw new GuardError("git_failed", `读取暂存状态失败: ${stagedResult.stderr.trim()}`);
       const staged = new Set(stagedResult.stdout.split(/\r?\n/).filter(Boolean));
       const stagedArtifacts = classified.artifacts.filter((path) => staged.has(path));
+      const operation = await this.latestOperation(root, input.taskId);
+      const stagedMetadata = this.metadataStagedConflicts(root, classified.metadata, operation);
+      const hasStagedConflict = stagedArtifacts.length > 0 || stagedMetadata.length > 0;
       tasks.push({
         taskId: input.taskId,
         taskPath,
         artifacts: classified.artifacts,
         metadata: classified.metadata,
         stagedArtifacts,
-        status: stagedArtifacts.length > 0 ? "conflict" : "ready",
-        reason: stagedArtifacts.length > 0 ? "preexisting_staged" : null,
+        stagedMetadata,
+        status: hasStagedConflict ? "conflict" : "ready",
+        reason: hasStagedConflict ? "preexisting_staged" : null,
       });
     }
     const owners = new Map<string, string[]>();
@@ -213,6 +219,12 @@ export class DeliveryService {
       const latest = await this.latestOperation(root, input.taskId);
       if (latest?.state === "completed") return this.resultOf(latest, true);
       if (latest?.state === "needs_attention" && input.retry !== true) return this.resultOf(latest, false);
+      const located = locateTaskDocument(root, input.taskId);
+      const classified = await this.classifyPaths(root, input.taskId, located.dir);
+      const stagedMetadata = this.metadataStagedConflicts(root, classified.metadata, latest);
+      if (stagedMetadata.length > 0) {
+        throw new GuardError("preexisting_staged", `任务资料已有用户暂存内容，请先整理index: ${stagedMetadata.join(", ")}`);
+      }
       const operation = latest ?? (await this.createOperation(root, input, caller));
       recheckAuthorization(root, operation.authorization, caller);
       const prepared = await this.prepare(root, input, operation, caller);
@@ -220,6 +232,30 @@ export class DeliveryService {
     } finally {
       this.locks.release(lock);
     }
+  }
+
+  /** 只认同一操作在当前HEAD留下的未完成暂存检查点；部分暂存始终保留给用户。 */
+  private metadataStagedConflicts(root: string, metadata: string[], operation: DeliveryOperation | null): string[] {
+    if (metadata.length === 0) return [];
+    const staged = gitOrThrow(root, ["diff", "--cached", "--name-only", "-z", "--", ...metadata], "读取资料暂存状态", this.git)
+      .split("\0").filter(Boolean);
+    if (staged.length === 0) return [];
+    const unstaged = new Set(gitOrThrow(root, ["diff", "--name-only", "-z", "--", ...metadata], "读取资料工作区差异", this.git).split("\0").filter(Boolean));
+    const head = gitOrThrow(root, ["rev-parse", "HEAD"], "读取HEAD", this.git);
+    const snapshot = stagedSnapshot(root, this.git);
+    const tree = indexTreeFor(snapshot, metadata);
+    return staged.filter((path) => {
+      if (unstaged.has(path) || (snapshot[path] !== undefined && !snapshot[path]!.endsWith(" 0"))) return true;
+      // 删除后的重建项已不在index，git diff不会报告它；包括悬空符号链接。
+      if (snapshot[path] === undefined && lstatSync(join(root, path), { throwIfNoEntry: false }) !== undefined) return true;
+      return !operation?.steps.some((step) => {
+        if (step.state === "completed" || step.evidence?.before !== head || !step.evidence.expectedPaths?.split("\n").includes(path)) return false;
+        try {
+          const expected = JSON.parse(step.evidence.expectedTree ?? "null") as Record<string, string> | null;
+          return expected !== null && typeof expected === "object" && !Array.isArray(expected) && expected[path] === tree[path];
+        } catch { return false; }
+      });
+    });
   }
 
   private taskLockKey(root: string, taskId: string) {
@@ -767,6 +803,10 @@ export class DeliveryService {
     checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>,
   ): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
     const root = prepared.root;
+    const stagedMetadata = this.metadataStagedConflicts(root, prepared.metadata, op);
+    if (stagedMetadata.length > 0) {
+      return { commit: null, evidence: { reason: "preexisting_staged", paths: stagedMetadata.join("\n") }, attention: "preexisting_staged" };
+    }
     let recovered = this.findOperationCommit(root, op.operationId, messagePrefix);
     // 兼容升级前已产生、message 仍是 knit: deliver 的首次工作提交；仍按当前步骤范围核对。
     if (recovered === null && stepKind === "artifact_commit") {

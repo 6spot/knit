@@ -9,11 +9,11 @@
  * unlock --force 可清除「目录在而 owner 不可核实」的残留，正常 token 校验路径不变。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statfsSync, statSync } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { atomicWrite, readWithVersion } from "./atomic.js";
-import { procStartTicks } from "./process.js";
+import { procStartTicks, machineBootId } from "./process.js";
 
 export { procStartTicks } from "./process.js";
 import { hashKey } from "./paths.js";
@@ -60,10 +60,13 @@ export interface AcquireRequest {
 }
 
 export interface AcquiredLock {
+  /** 首键的 owner token；混合重入的逐键凭据见 ownerTokens。 */
   token: string;
   keys: LockKey[];
   ownerPaths: string[];
-  /** 获取时各 owner 文件的 SHA-256；心跳用它与当前内容比对，检测并发篆改。 */
+  /** 与 keys 同序；旧的单 token 句柄可省略。owner 文件协议不变。 */
+  ownerTokens?: string[];
+  /** 获取时各 owner 文件的 SHA-256；心跳用它与当前内容比对，检测并发篡改。 */
   ownerVersions: string[];
 }
 
@@ -84,18 +87,10 @@ export interface LockEntry extends LockStatus {
   key: string | null;
 }
 
-function bootId(): string {
-  try {
-    return readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
-  } catch {
-    return `unknown-boot-${hostname()}`;
-  }
-}
-
 /** /proc/<pid>/stat starttime；空格包裹的 comm 字段内可能含空格，取最后一个 ')' 之后解析。 */
 export function currentIdentity(): ProcessIdentity {
   const pid = process.pid;
-  return { pid, procStartTicks: procStartTicks(pid), machineBootId: bootId() };
+  return { pid, procStartTicks: procStartTicks(pid), machineBootId: machineBootId() };
 }
 
 export interface LockManagerOptions {
@@ -173,6 +168,7 @@ export class LockManager {
     let token: string | null = null;
     const startedAt = this.now().toISOString();
     const ownerPaths: string[] = [];
+    const ownerTokens: string[] = [];
     const ownerVersions: string[] = [];
     /** 只记录本次实际完成的步骤；mkdir 后立即登记，覆盖 owner 写失败。 */
     const undo: AcquireUndo[] = [];
@@ -188,6 +184,7 @@ export class LockManager {
           held.count += 1;
           undo.push({ kind: "reentered", heldKey, held });
           ownerPaths.push(join(dir, "owner.json"));
+          ownerTokens.push(held.token);
           ownerVersions.push(held.ownerVersion);
           if (token === null) token = held.token;
           continue;
@@ -233,6 +230,7 @@ export class LockManager {
         const ownerPath = join(dir, "owner.json");
         const written = this.writeOwner(ownerPath, owner);
         ownerPaths.push(ownerPath);
+        ownerTokens.push(token);
         ownerVersions.push(written.sha256);
         created.held = { token: owner.token, ownerVersion: written.sha256, action: request.action, count: 1 };
         this.heldBySelf.set(heldKey, created.held);
@@ -241,7 +239,7 @@ export class LockManager {
       this.rollbackAcquire(undo);
       throw error;
     }
-    return { token: token as string, keys: request.keys, ownerPaths, ownerVersions };
+    return { token: token as string, keys: [...request.keys], ownerPaths, ownerTokens, ownerVersions };
   }
 
   /** owner 文件写入；单一入口，测试可注入 owner.json 写入失败。 */
@@ -396,32 +394,40 @@ export class LockManager {
     return ticks === owner.procStartTicks ? "alive" : "not_alive";
   }
 
-  /** 心跳原子更新：核对 token 与获取时版本，更新 heartbeatAt。token 或版本不符抛错。 */
+  /** 心跳逐键核对 token 和版本；同实例嵌套句柄共享本机已成功写入的版本。 */
   async heartbeat(lock: AcquiredLock): Promise<void> {
-    const next: string[] = [];
+    if (lock.ownerTokens && (lock.ownerTokens.length !== lock.keys.length || lock.ownerTokens[0] !== lock.token)) {
+      throw new InfrastructureError("lock_token_mismatch", "lock handle token mismatch");
+    }
     for (const [index, ownerPath] of lock.ownerPaths.entries()) {
+      const token = lock.ownerTokens?.[index] ?? lock.token;
       const current = readWithVersion(ownerPath);
       if (!current) throw new InfrastructureError("lock_token_mismatch", `owner file missing: ${ownerPath}`);
       const owner = JSON.parse(current.data.toString("utf8")) as LockOwner;
-      if (owner.token !== lock.token) {
+      if (owner.token !== token) {
         throw new InfrastructureError("lock_token_mismatch", `owner token mismatch: ${ownerPath}`);
       }
-      if (current.sha256 !== lock.ownerVersions[index]) {
+      const held = this.heldBySelf.get(this.heldKey(lock.keys[index]!));
+      const expected = held?.token === token ? held.ownerVersion : lock.ownerVersions[index];
+      if (current.sha256 !== expected) {
         throw new InfrastructureError("version_conflict", `owner file changed outside heartbeat: ${ownerPath}`);
       }
       const data = Buffer.from(JSON.stringify({ ...owner, heartbeatAt: this.now().toISOString() }, null, 2), "utf8");
       const written = atomicWrite({ path: ownerPath, data, expectedSha256: current.sha256, mode: 0o600 });
-      next.push(written.sha256);
+      // 每个成功写入立即登记；后续键失败时仍可用真实版本继续，重复键亦然。
+      lock.ownerVersions[index] = written.sha256;
+      if (held?.token === token) held.ownerVersion = written.sha256;
     }
-    lock.ownerVersions = next;
   }
 
-  /** 释放：核对每个 owner 的 token；仅删除本次 token 写下的 owner 与目录。 */
-  release(lock: { token: string; keys: LockKey[]; ownerPaths?: string[] }): void {
-    for (const key of lock.keys) {
+  /** 逐键核对 owner token 并撤销本次引用，不用首键 token 代替其它键的凭据。 */
+  release(lock: { token: string; keys: LockKey[]; ownerTokens?: string[]; ownerPaths?: string[] }): void {
+    if (lock.ownerTokens && (lock.ownerTokens.length !== lock.keys.length || lock.ownerTokens[0] !== lock.token)) return;
+    for (const [index, key] of lock.keys.entries()) {
+      const token = lock.ownerTokens?.[index] ?? lock.token;
       const heldKey = this.heldKey(key);
       const held = this.heldBySelf.get(heldKey);
-      if (held !== undefined && held.token === lock.token) {
+      if (held !== undefined && held.token === token) {
         held.count -= 1;
         if (held.count > 0) continue; // 嵌套占用仍有效，不删目录
         this.heldBySelf.delete(heldKey);
@@ -435,7 +441,7 @@ export class LockManager {
       } catch {
         continue; // 无法核实的 owner 不动
       }
-      if (owner?.token !== lock.token) continue; // 他者占用，不释放
+      if (owner?.token !== token) continue; // 他者占用，不释放
       try {
         rmSync(dir, { recursive: true, force: true });
       } catch {

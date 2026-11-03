@@ -1,3 +1,4 @@
+import { isProcessAlive } from "./helpers/run-settled.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, statSync, symlinkSync } from "node:fs";
@@ -277,6 +278,75 @@ async function acquireAndRelease(manager, key, action = "same") {
   assert.equal(manager.inspect(key).exists, false, "真实句柄释放后无残留引用");
 }
 
+// 058：成功混合申请必须逐键记住 owner 凭据，引用与心跳均不依赖键顺序。
+for (const outerFirst of [false, true]) {
+  for (const newFirst of [false, true]) {
+    test(`锁058：混合申请 newFirst=${newFirst} outerFirst=${outerFirst}`, async () => {
+      await isolatedLocks("locks-mixed-success", async (root, manager, rival) => {
+        const outer = await manager.acquire({ keys: [reentryB], action: "same" });
+        const keys = newFirst ? [reentryA, reentryB] : [reentryB, reentryA];
+        const mixed = await manager.acquire({ keys, action: "same" });
+        await manager.heartbeat(mixed);
+        await manager.heartbeat(outer);
+        await manager.heartbeat(mixed);
+        if (outerFirst) manager.release(outer);
+        manager.release(mixed);
+        assert.equal(manager.inspect(reentryA).exists, false, "本次新键必须释放");
+        assert.equal(manager.inspect(reentryB).exists, !outerFirst, "只保留真实外层引用");
+        if (!outerFirst) {
+          await assert.rejects(() => rival.acquire({ keys: [reentryB], action: "same" }), isBusy);
+          manager.release(outer);
+        }
+        for (const key of [reentryA, reentryB]) {
+          await acquireAndRelease(rival, key);
+          await acquireAndRelease(manager, key);
+        }
+      });
+    });
+  }
+}
+
+test("锁058：合并多个独立 owner 并含重复键，心跳与释放覆盖所有引用", async () => {
+  await isolatedLocks("locks-multi-owner", async (root, manager, rival) => {
+    const a = await manager.acquire({ keys: [reentryA], action: "same" });
+    const b = await manager.acquire({ keys: [reentryB], action: "same" });
+    assert.notEqual(a.token, b.token);
+    const mixed = await manager.acquire({ keys: [reentryC, reentryA, reentryB, reentryA], action: "same" });
+    await manager.heartbeat(mixed);
+    await manager.heartbeat(a);
+    await manager.heartbeat(b);
+    manager.release(a);
+    manager.release(b);
+    manager.release(mixed);
+    for (const key of [reentryA, reentryB, reentryC]) {
+      assert.equal(manager.inspect(key).exists, false);
+      await acquireAndRelease(rival, key);
+      await acquireAndRelease(manager, key);
+    }
+  });
+});
+
+test("锁058：混合句柄的错误 token 与替换 owner 均不释放他者占用", async () => {
+  await isolatedLocks("locks-mixed-replacement", async (root, manager, rival) => {
+    const outer = await manager.acquire({ keys: [reentryB], action: "same" });
+    const mixed = await manager.acquire({ keys: [reentryA, reentryB], action: "same" });
+    manager.release({ ...mixed, token: "wrong" });
+    assert.equal(manager.inspect(reentryA).exists, true);
+    assert.equal(manager.inspect(reentryB).exists, true);
+    await assert.rejects(() => manager.heartbeat({ ...mixed, token: "wrong" }),
+      (error) => error.code === "lock_token_mismatch");
+    rmSync(join(outer.ownerPaths[0], ".."), { recursive: true, force: true });
+    const replacement = await rival.acquire({ keys: [reentryB], action: "rival" });
+    const before = readFileSync(replacement.ownerPaths[0], "utf8");
+    await assert.rejects(() => manager.heartbeat(mixed), (error) => error.code === "lock_token_mismatch");
+    manager.release(mixed);
+    manager.release(outer);
+    assert.equal(readFileSync(replacement.ownerPaths[0], "utf8"), before);
+    assert.equal(manager.inspect(reentryA).exists, false);
+    rival.release(replacement);
+  });
+});
+
 test("锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变", async () => {
   await isolatedLocks("locks-reentry-busy", async (root, manager, rival) => {
     const outer = await manager.acquire({ keys: [reentryA], action: "same" });
@@ -543,9 +613,11 @@ test("锁：心跳原子更新在版本被外部改动时拒绝", async () => {
   }
 });
 
-test("进程：procStartTicks 是当前进程的数字字符串", () => {
+test("进程：procStartTicks 是当前进程的稳定启动身份", () => {
   const ticks = procStartTicks(process.pid);
-  assert.ok(ticks !== null && /^\d+$/.test(ticks), `unexpected: ${ticks}`);
+  assert.ok(typeof ticks === "string" && ticks.length > 0, `unexpected: ${ticks}`);
+  assert.equal(procStartTicks(process.pid), ticks, "同一进程多次读取身份一致");
+  if (process.platform === "linux") assert.match(ticks, /^\d+$/);
   assert.equal(procStartTicks(2 ** 22), null, "不存在进程返回 null");
 });
 
@@ -682,7 +754,7 @@ test("进程：spawn/wait/killProcessGroup 对真实子进程", async () => {
   const sleeper = await port.spawn("sh", ["-c", "sleep 30"], { cwd: tmpdir() });
   await port.killProcessGroup(sleeper, "SIGTERM");
   await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.equal(existsSync(`/proc/${sleeper.pid}`), false, "子进程组已终止");
+  assert.equal(isProcessAlive(sleeper.pid), false, "子进程组已终止");
   void sha256Bytes;
   void readWithVersion;
   void InfrastructureError;
@@ -767,7 +839,13 @@ function spawnSyncNode(script, root) {
 
 test("进程树：取消时清理工具自建进程组的后代", async () => {
   const port = new NodeProcessPort();
-  const root = await port.spawn("sh", ["-c", "setsid sleep 30 & echo $!; wait"], { cwd: tmpdir() });
+  const root = await port.spawn(process.execPath, ["-e", `
+    const { spawn } = require("node:child_process");
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+    process.on("SIGTERM", () => {});
+    child.once("exit", () => process.exit(0));
+    console.log(child.pid);
+  `], { cwd: tmpdir() });
   try {
     const reader = root.stdout.getReader();
     const { value } = await reader.read();
@@ -779,8 +857,8 @@ test("进程树：取消时清理工具自建进程组的后代", async () => {
     assert.ok(tree.includes(childPid), `树应包含工具子进程: ${tree.join(",")}`);
     signalProcessTree(root.pid, "SIGTERM", tree);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(existsSync(`/proc/${root.pid}`), false);
-    assert.equal(existsSync(`/proc/${childPid}`), false, "工具自建进程组也必须清理");
+    assert.equal(isProcessAlive(root.pid), false);
+    assert.equal(isProcessAlive(childPid), false, "工具自建进程组也必须清理");
   } finally {
     signalProcessTree(root.pid, "SIGKILL");
     await new Promise((resolve) => setTimeout(resolve, 100));

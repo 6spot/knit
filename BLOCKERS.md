@@ -36,34 +36,26 @@
 
 ## 实际记录
 
-后续在此追加真实条目。
+当前可执行修复均已完成并验证；B001及真实模型／真实宿主验收依用户要求延期。B002保留历史未知超时的观察边界，本轮复现机制已定位修复；后续新失败继续调查，不以复跑通过替代根因处置。
 
-## B001 macOS 安装／运行矩阵未实测
+## B001 macOS 安装／运行矩阵未实测（按用户要求延期）
 
-- 关联任务：任务025（Linux 候选已完成，macOS 后续补测）、任务026（按 Linux 候选审查）。
-- 问题与证据：Linux + Node v24.21.0 已完成 `npm pack`、本地安装、`init`、`start -- --version`（`validation/release-candidate-linux/`）；当前没有 macOS 机器或可实际运行的 macOS runner，未执行构建、安装、init、start、桥接加载。
-- 已尝试：检查现有工作区和 CI 资源；没有可用的 macOS 执行环境，未创建只声明不运行的 CI 兼容矩阵。
-- 尚不能完成：macOS 平台实测、跨平台安装路径／进程／锁／原生 Session 行为验证、首版跨平台发布声明。
-- 仍可继续：Linux 候选包与文档已验证；026 可按 Linux 候选审查，不等待 macOS 事实。
-- 伪代码／暂定接口：任务025文件记录当前只能声明 Linux 候选，不新增平台代码分支。
-- 待用户决定：无当前阻塞；macOS 执行环境后续提供时补测并更新平台声明。
-- 参考选项与影响：提供 macOS 机器／runner 可补齐实测；仅 Linux 候选可先形成单平台预览，但不能宣称 macOS 兼容；延期不阻塞 Linux 证据保留。
-- 用户决定及来源：用户于 2026-11-02 明确“目前就以 Linux 通过为准，记录 macOS 后续验证”；接受首版候选仅声明 Linux，macOS 后续补测，不阻塞 025／026 的 Linux 发布就绪结论。
-- 恢复与验证：macOS 后续实测后回填任务025矩阵和证据，再更新跨平台声明；当前 Linux 候选按用户范围通过。
-## B002 全量并行测试偶发单例失败（负载型，非功能回归）
+- 关联任务：025／026；Linux候选历史打包、安装、init、start证据见 validation/release-candidate-linux/。
+- 当前事实：本会话已有macOS开发环境，058／059已运行本地隔离单元及fake-worker检查；原“当前没有macOS机器”的说法仅描述025当时的环境，已不作为延期原因。这些开发检查不等于安装、桥接信任、真实Pi／真实模型或发布矩阵验收。
+- 用户决定及来源：2026-11-02接受首版候选以Linux为准；本轮再次明确排除真机，特别是macOS真机验收。真实模型验收亦按既有决定暂缓，不等待再次授权或环境提供。
+- 后续：用户恢复验收后补025矩阵、真实宿主／模型及平台声明。当前不宣称macOS发布就绪；延期不阻止其它独立开发或保留Linux候选历史证据。
 
-- 关联任务：027（实施中发现）、029、031；下游影响 043 复验的判定口径。
-- 问题与证据：`node --test test/*.test.mjs` 多进程并行全量时，个别真实 worker 子进程用例（implement→check 独立会话、心跳丢失、运行边界等）偶发超时或断言失败，失败项每轮不同；同一提交单跑该文件或连续多轮全量大多 100% 通过。2026-11-02 在基线（未含 027–031 修复，git stash 对照）同样复现 `test/stage.test.mjs` 单例失败 1 次，证明与本次改动无关。
-- 已尝试：单跑失败用例均通过；连续 4 轮全量全过；基线对照仍偶发。未修改测试超时或并行度，保持既有口径。
-- 尚不能完成：将"全量并行零偶发"作为每轮验收的确定性标准；需定位是并行负载（fake-pi 子进程延迟 × 多用例同时启动）导致 waitTerminal 15s 边界偶发超时，还是用例间隔离问题。
-- 仍可继续：027–031 修复由单文件复跑、连续多轮全量与审计探针验证；各任务验收以"连续两轮全量通过 + 单跑失败用例通过 + 探针复核"为准。
-- 伪代码／暂定接口：无需代码占位。若 043 复验再命中，可考虑放大 `waitTerminal` 超时或显式降低 `node --test` 并行度；属测试基础设施调整，不改业务语义。
-- 待用户决定：是否接受"偶发单例失败不阻塞修复验收，由 043 汇总观察"的口径；或要求先做测试并行度调整。
-- 参考选项与影响：接受口径——修复推进不被测试基础设施波动阻塞；调整并行度——增加独立改动并需单独验证；串行全量——时间成本高。
-- 用户决定及来源：尚未决定；按 AGENTS.md 既有授权默认采用"接受口径、043 汇总观察"。
-- 恢复与验证：043 独立复验时统计全量通过率与失败项分布；若同一用例反复失败则升级为确定缺陷另行登记。
+## B002 全量并行测试偶发失败（本轮复现机制已修复）
 
-## B003（已修复，053待主 Agent 复核）029 锁混合重入失败回滚误删外层占用
+- 关联任务：027、029、031、043及[059](tasks/059-parallel-test-failure-investigation.md)。历史不同用例的超时／断言失败保留为观察，不再未经证据归因于负载。
+- 用户决定及来源：2026-11-03用户确认处理口径，本轮授权处理真机验收之外的可执行阻塞。
+- 已确定的处理原则：一次尚未复现的失败不停止其它独立开发；失败必须保留并调查，不能仅凭偶发或复跑通过就归因于负载。确认是隔离、等待条件或并行资源问题时修测试基础设施，确认是产品问题时修产品。相关必需验证通过且失败已作有证据的处置后才算验收完成，不将“偶发失败可以忽略”作为长期标准，也不靠反复重跑至通过掩盖未定位问题。
+- 本轮证据：默认并行全量首轮247/261，14项失败；其中implement→check用例的worker已发布completed、finally尚未释放项目锁，测试立即close触发lock_busy。新增门控回归确定性保留该窗口，测试交接等待实际worker退出，既有15秒截止与默认并行度均未放宽。
+- 同轮发现并修复：ps回退固定25字符且未固定语言环境，导致进程身份／进程树漏读；worker与协调器启动标识来源不一致导致旧Pi已死仍unknown；NodeProcessPort.wait仅轮询/proc而丢失退出码；测试夹具使用临时目录别名、setsid外部命令和/proc存在性而产生误断言。分别修正产品实现与隔离夹具，不通过跳过用例消除失败。
+- 验证：新增四项进程／门控回归，恢复针对性5/5；中间全量263/264暴露最后的启动身份缺陷，修复后默认并行npm test为265/265，含typecheck与build；pack:check通过。完整失败及成功日志见[validation/blocker-cleanup/](validation/blocker-cleanup/README.md)。
+- 当前结论：本轮可复现缺陷已作有证据的修复，未遗留阻止隔离开发验收的失败；不声称已逐一证明所有历史无详细诊断的超时根因。以后新失败继续按上述口径调查，不能凭复跑转绿放行。真实模型／真机验收仍延期。
+
+## B003 029 锁混合重入失败回滚误删外层占用（已修复并复核）
 
 - 关联任务：029（修复引入的实现缺口）、043（复验发现）、[053](tasks/053-lock-reentry-rollback.md)（授权修复）；下游影响：任何未来在同实例内混合重入键与新建键的 acquire 调用。
 - 发现时问题与历史证据：修复前 `src/infrastructure/locks.ts` 的 `rollbackAcquire` 只按 owner 文件 token 匹配删除，不查 `heldBySelf` 重入计数。同一实例已持键 K（外层）时，`acquire({ keys: [K, 其他键], action 与外层相同 })` 中 K 计数 +1，其他键失败触发回滚会把 K 的锁目录整个删除。隔离探针实测（`validation/audit-fix-verification/lock-reentry.mjs`，委派053前重跑为14断言中2失败；后果探针 `lock-reentry-consequence.mjs`）：回滚后 `inspect(K).owner === null`，rival 实例可立即抢占该键，本实例重入仍自认持有（计数残留）。旧记录声称后续 release 链会误删 rival owner，未复现，已撤回该已确认后果表述；053已通过 token 保护回归。旧主探针场景间残留已由053修正隔离，并真实命中 owner 写失败。
@@ -74,33 +66,21 @@
 - 用户决定及来源：2026-11-02 本会话用户明确“重新创建一个新的任务，也就是44号……写清楚要怎么做……让其他的agent去改”；由独立 worker Agent 实施，主 Agent 复核。
 - 后续独立缺口：成功混合申请时的新键先行多 token 问题另记 B004；它不属于本次失败回滚修复。
 
-## B004 成功混合申请中新键先行导致单 token 句柄无法释放所有重入引用
+## B004 成功混合申请中新键先行导致单 token 句柄无法释放所有重入引用（已修复）
 
 - 来源与关联：053实施期间隔离复现；涉及 `src/infrastructure/locks.ts` 的 `acquire` 返回单 `token` 与 `release` 按该 token 撤引用。按053“另一个公共契约缺陷先记录、不扩大范围”的边界交接，未改成功路径策略或公共 API，未自行创建后续开发任务。
 - 根因与证据：同实例先持 `project:/tmp/z-held`（action=`same`），再成功调用 `acquire({keys: orderKeys([heldKey, project:/tmp/a-new]), action: 'same'})`。新键先创建并决定返回 token，后续重入的既有键保留原 token。隔离实测 `returnedTokenMatchesOuter=false`、`ownerTokensDiffer=true`；依次 `release(mixed)` 和 `release(outer)` 后 `newKeyRemains=false`、`heldKeyRemainsAfterAllRealReleases=true`。两键同为 project scope，不依赖跨 scope 逆序获取。完整最小复现见053实施记录。
 - 影响：该成功调用的混合句柄不能代表所有键的 token，真实句柄全部释放后仍留原键引用。失败调用回滚由053逐步骤记录正确撤销；B003闭合不等同解决此成功路径问题。当前产品同动作重入仍为单键路径，未证实主流程可触达。
-- 尚待处理：选定同一次成功申请的 token 归并／拒绝策略，或调整每键持有凭据契约；需补新键先行、多个既有不同 token 与正常 heartbeat/release 的验收。本轮仅保留证据，不自行选方案。
-- 伪代码／暂定接口：`held A(token1); acquire([new B, A]) -> {token2, keys:[B,A]}; release(handle) -> releases B but not A reference; release(outer) -> A count remains 1`。后续实现须令成功句柄能对称撤销每个实际获取步骤，并同步 heartbeat／release，不可只改失败回滚。
-- 待决定：安排独立修复范围；其它开发与053验收可继续。修复前不新增同动作混合键重入业务路径，避免引入已确认的成功释放缺口。
+- 修复（058）：AcquiredLock 保存逐键 ownerTokens，释放／心跳按实际 owner 凭据处理；同实例已成功写入的心跳版本同步到重入记录，外部改写仍拒绝。owner 文件协议与旧单 token 调用保持兼容，失败回滚不变。
+- 验证：混合顺序、多个独立 owner、重复键、心跳交替、外层先后释放及替换 owner 等14项针对性回归通过；历史47项主探针、8项后果探针通过。基础设施首轮另有3项进程相关失败，交059定位，不计为本项通过。证据见 [validation/blocker-cleanup/](validation/blocker-cleanup/README.md)。
+- 已解除此前“不新增同动作混合键重入业务路径”的临时限制；开发仍按固定锁顺序获取并成对释放实际句柄。
 
-## B005 任务规划资料分节 path 错误且实施／检查 worker 提示不渲染 planning 分节
+## B005 任务规划资料分节path错误且worker提示未渲染（已修复）
 
-- 关联任务：[046](tasks/046-role-aware-task-context.md)（规划资料入上下文的实现）、[049](tasks/049-discussion-planning-readiness.md)（实施交接依赖该链路）、[051](tasks/051-main-workflow-independent-gate.md)（独立验收发现）；下游影响：复杂任务实施／检查 worker 实际收到的阶段上下文。
-- 问题与证据（051 独立验收，2026-11-03）：两处叠加缺陷，使 ContextPlan 中的规划资料分节（046 声称"plan.md／design.md 全文注入"）从未真正进入实施／检查 worker 提示：
-  1. `src/application/context-planner.ts:282` 用 `taskRelative.split("/").slice(1, -1)` 计算任务目录名，而 `taskRelative` 形如 `.knit/tasks/<dir>/task.md`，切出的 `taskIdDirName` 含多余 `tasks` 段，导致 `planning-material` 分节与 excluded 记录的 `path` 为 `.knit/tasks/tasks/<dir>/plan.md`（真实文件在 `.knit/tasks/<dir>/plan.md`）。
-  2. `src/application/stage.ts` 的 `loadSectionContents`（59–77 行）按该错误 path 读文件失败后静默 `continue`（规划分节与 research 分节全部落空）；且 `buildSystemPrompt`／`buildUserPrompt`（120/140 行起）只渲染 role/workflow/runtime/standard/task-inputs/progress/background，从不渲染 `kind: "planning-material"` 分节——即使 path 正确，plan/design 全文也不会出现在 worker 提示中。
-  探针证据：`validation/main-workflow-gate/deterministic-probe.mjs` 场景7（5 项 FAIL：两角色分节 path 不指向真实文件、loadSectionContents 载入 0 个规划分节、实施提示不含 plan/design 正文；分节 sourceId/digest/bytes 本身正确，digest 按正确内容计算，冻结摘要语义未受污染）。
-- 已尝试：核对既有测试（test/session.test.mjs 只断言 planning 分节 sourceId/bytes/digest，未断言 path 与 worker 提示内容，故未拦截）；核对 046 执行记录"plan 注入任务规划资料分节——plan.md／design.md 全文（required、mode=resource）"与 DESIGN §3.4/§4.2 的实施入口要求；验证 digest／冻结 inputs 摘要不受影响（planning 分节 countsTowardInputs=false，inputsDigest 由 task.md 计算）。
-- 尚不能完成：051 的"实施交接：ready 后实施／检查上下文实际含规划资料"项——worker 只能靠角色指令自行用工具读 plan.md（task-inputs 分节头含任务目录路径），规划资料的分节注入在最后一公里失效；`required: true` 的分节加载失败被静默跳过，无 blocker 报告，违背 051"必需资料缺失不会跳过"的核对意图。
-- 仍可继续：051 其余确定性链路（入口规则、创建／拒绝、澄清、进度与需求变更分流、ready 核对、跨会话接续、每轮注入）与真实宿主最小验证均通过；主会话每轮注入（047，桥接侧）不经 stage.ts，不受本缺陷影响。
-- 伪代码／暂定接口：`taskIdDirName = taskRelative.split("/").slice(2, -1).join("/")`（或以 `.knit/tasks/` 前缀剥离）；`buildUserPrompt` 增加规划分节渲染（如 `sectionText(plan.sections, ["planning-material"], contents)` 并按 required/background 分层），`loadSectionContents` 对 required 分节读取失败时返回可核对的缺口而非静默跳过。
-- 待用户决定：修复范围按 046 归属安排（最小改 path + 渲染，或同时为 required 分节补加载失败 blocker）；修复后 051 场景7 五项需复验通过。
-- 参考选项与影响：仅修 path——research 可进 worker 背景，但 plan/design 仍不进提示，046 交付语义打折；修 path + 渲染——与 046 记录声明一致，worker 提示长度增加（plan/design 全文），需确认与"避免复制正文多份权威"的取舍；两者都不改摘要与冻结语义。
-- 用户决定及来源：尚未决定。
-- 恢复与验证：修复后重跑 `validation/main-workflow-gate/deterministic-probe.mjs`（场景7 全过）并抽查一次真实 worker run 的实际提示（或等价 buildUserPrompt 断言）。
-
-- 用户决定及来源：用户授权按任务列表顺序执行全部任务；051 复验发现后由主 Agent 当轮修复（2026-11-03）。
-- 恢复与验证：修复 `context-planner.ts`（目录路径切片改为 `.knit/tasks/<dir>`，去重复前缀）与 `stage.ts`（worker 提示装配 planning 分节：plan/design 全文进系统提示，research 摘要进背景区，不再静默跳过）。`npm run typecheck`／`npm run build` 通过；`node --test test/*.test.mjs` 242 项全过；独立确定性探针复跑 **85/85 全过**（场景7 五项转 PASS）。B005 已解决并关闭。
+- 关联任务：046规划资料入上下文、049实施交接、051独立验收。
+- 历史根因与证据：context-planner.ts把任务目录拼为.knit/tasks/tasks/<dir>；stage.ts提示未渲染planning-material，required加载失败静默跳过。051场景7原有五项失败，摘要及冻结语义未受污染。
+- 已实施：051复验修复目录切片与提示装配，plan/design全文进系统提示、research摘要进背景区。本轮060继续发现required读取异常仍被catch后continue，已改为明确抛出io_error并携带sourceId／path，发生在runtime创建之前；可选背景仍可省略。此前笼统写成“必需资料不再静默跳过”的记录不准确，缺口由060闭合。
+- 已验证：051当时typecheck／build通过，全量242项全过；独立确定性探针85/85，场景7五项转PASS，原始报告保留在validation/main-workflow-gate/。060必需／可选加载回归通过，最终全量273/273及pack:check通过，独立复核确认必需缺失在runtime启动前失败。未重启真实宿主或模型验收。
 
 ## B006 用户决定的任务流程与独立Git收尾（已实现）
 
@@ -119,6 +99,14 @@
 - 问题与证据（054源码核对，2026-11-03）：`TaskService.close`只核对运行收敛与领域状态，未核对当前目标、有效成果及所需验证；`onComplete`的调用方没有落实规范要求的完成资格守卫。对当时构建的领域函数核对，discuss／implement／check／deliver四个阶段均可返回`closed/completed/deliver`。该证据证明完成资格核对存在缺口，不表示缺少Git回执本身是业务完成缺陷；当时未做CLI级close夹具。
 - 用户决定及来源：2026-11-03当前会话，用户认可补齐完成资格核对，并明确“完成是完成，提交Git是提交Git”；多个任务可以先完成、最后再提交。是否建任务由用户决定；测试／复核默认按目标、影响范围和风险执行，用户明确要求优先。
 - 已确定的实施约束：业务完成不要求已有Git提交、交付回执或归档；不将所有任务强制独立检查。不新增用于绕过资格核对的通用override作为默认路径，也不再要求用户重新选择“补守卫还是保留管理例外”。
-- 待实施：在有权核对业务事实的服务边界，按055定义的要求验证当前目标／成果、所需验证及主Agent完成判断；需要独立检查时核对通过结论与目标、成果版本匹配，明确不要求独立检查时使用对应完成条件，不伪造pass。保留活动／未知运行、待接收结果、输入草案与版本核对。具体字段与转移由056按已确认原则设计，不因例行实现选择再次等待用户取舍。
+- 实施契约：056在服务边界按055定义的要求核对完成资格；需要独立检查时验证检查与当前目标／成果版本匹配，self核对有效实施，none明确记录未验证项。保留活动／未知运行、待接收结果、输入草案与版本守卫，不把Git回执当作业务完成前提。
 - 恢复与验证：056 已补 CLI／服务级回归，覆盖无效完成被拒绝、self／none 按完成条件结束、多个已完成未提交任务，以及输入／成果变化后资格失效；Git 收尾由 057 单独处理。全量 255 项测试通过；真机／真实模型验收依用户要求暂缓。
 - 历史来源：原始发现及当时备选见054研究交付与版本历史；此前“是否补守卫、是否允许override尚未决定”的记录已被上述用户决定取代。
+
+## B008 057任务资料部分暂存会被交付覆盖（已修复）
+
+- 来源与关联：本轮独立reviewer复核055–057发现，交[060](tasks/060-required-material-and-metadata-index-guards.md)修复。原plan只检查artifacts暂存，metadata不受保护；任务plan.md暂存A／工作区B时，metadata提交前git add -A会覆盖index，即使hook拒绝也已丢失原暂存边界。
+- 修复：plan增加stagedMetadata冲突；取得占用后在创建操作、修改Task前重核，提交步骤再次检查。未知用户暂存安全停止并保留index／HEAD／Task。旧操作缺少可信检查点时同样停止；仅允许当前HEAD、预期路径及index blob匹配本操作未完成检查点的重试。
+- 补充独立发现与修复：删除检查点后用户重建文件属于untracked，git diff不报告；增加lstat检查，同时覆盖普通重建文件及悬空符号链接，不再通过缺项相等放行。
+- 验证：初始四项回归三失败、删除重建两项修复前均失败；修复后资料／closeout／delivery相关48/48，默认并行npm test273/273（含typecheck／build）、最终pack:check通过。独立末轮复核确认原发现及删除绕过已闭合，未发现本次变更新增可复现问题。原始失败、成功与审查结果见[validation/blocker-cleanup/](validation/blocker-cleanup/README.md)。
+- 授权边界：测试中的Git提交／hook均在一次性隔离夹具；本仓库没有提交、推送、发布或真实项目操作，真机／真实模型验收继续延期。

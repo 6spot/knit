@@ -2,9 +2,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { LockManager } from "../dist/infrastructure/locks.js";
 import { TaskService } from "../dist/application/task-service.js";
@@ -91,6 +91,117 @@ async function taskWithWork(dir, s, { title, path, content, verification = "self
   });
   return { ...task, file, inputsDigest, scope };
 }
+
+test("060：计划报告任务资料部分暂存冲突，预检保持index与任务原样", async () => {
+  const dir = project("metadata-plan");
+  const s = services(dir);
+  try {
+    const task = await taskWithWork(dir, s, { title: "meta-plan", path: "app.txt", content: "new\n" });
+    const file = join(dirname(task.file), "plan.md");
+    const path = relative(dir, file).split("\\").join("/");
+    writeFileSync(file, "staged A\n"); git(dir, ["add", "--", path]);
+    writeFileSync(file, "worktree B\n");
+    const head = git(dir, ["rev-parse", "HEAD"]);
+    const plan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }]);
+    assert.equal(plan.tasks[0].status, "conflict");
+    assert.deepEqual(plan.tasks[0].stagedMetadata, [path]);
+    assert.equal(plan.tasks[0].reason, "preexisting_staged");
+    assert.equal(git(dir, ["show", `:${path}`]), "staged A");
+    assert.equal(git(dir, ["rev-parse", "HEAD"]), head);
+    assert.equal((await s.store.operations.list()).length, 0);
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("060：服务直接交付在metadata部分暂存时先拒绝，不被hook失败覆盖index", async () => {
+  const dir = project("metadata-direct");
+  const s = services(dir);
+  try {
+    const task = await taskWithWork(dir, s, { title: "meta-direct", path: "app.txt", content: "new\n" });
+    const file = join(dirname(task.file), "plan.md");
+    const path = relative(dir, file).split("\\").join("/");
+    writeFileSync(file, "staged A\n"); git(dir, ["add", "--", path]);
+    writeFileSync(file, "worktree B\n");
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nif git diff --cached --name-only | grep -q '/plan.md$'; then exit 1; fi\n");
+    chmodSync(hook, 0o755);
+    const head = git(dir, ["rev-parse", "HEAD"]);
+    const taskText = readFileSync(task.file, "utf8");
+    let rejected = null;
+    try { await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH }); } catch (error) { rejected = error; }
+    assert.equal(git(dir, ["show", `:${path}`]), "staged A", "不得把工作区B覆盖到用户预先暂存的A");
+    assert.equal(rejected?.guardReason, "preexisting_staged");
+    assert.equal(git(dir, ["rev-parse", "HEAD"]), head);
+    assert.equal(readFileSync(task.file, "utf8"), taskText);
+    assert.equal((await s.store.operations.list()).length, 0);
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+for (const changeWorktree of [false, true]) test(`060：metadata hook失败后的重试${changeWorktree ? "保护新出现的部分暂存" : "复核本操作checkpoint后继续"}`, async () => {
+  const dir = project(`metadata-retry-${changeWorktree}`);
+  const s = services(dir);
+  try {
+    const task = await taskWithWork(dir, s, { title: "meta-retry", path: "app.txt", content: "new\n" });
+    const file = join(dirname(task.file), "plan.md");
+    const path = relative(dir, file).split("\\").join("/");
+    writeFileSync(file, "operation A\n");
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nif git diff --cached --name-only | grep -q '/plan.md$'; then exit 1; fi\n");
+    chmodSync(hook, 0o755);
+    const first = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(first.reason, "git_commit_failed");
+    assert.equal(git(dir, ["show", `:${path}`]), "operation A");
+    rmSync(hook);
+    if (changeWorktree) writeFileSync(file, "user B\n");
+    const plan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }]);
+    if (changeWorktree) {
+      const head = git(dir, ["rev-parse", "HEAD"]);
+      assert.deepEqual(plan.tasks[0].stagedMetadata, [path]);
+      await assert.rejects(() => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true }), (error) => error.guardReason === "preexisting_staged");
+      assert.equal(git(dir, ["show", `:${path}`]), "operation A");
+      assert.equal(readFileSync(file, "utf8"), "user B\n");
+      assert.equal(git(dir, ["rev-parse", "HEAD"]), head);
+    } else {
+      assert.equal(plan.tasks[0].status, "ready");
+      const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
+      assert.equal(retry.state, "completed", retry.reason ?? "");
+      assert.equal(retry.workCommit, first.workCommit);
+      assert.ok(retry.metadataCommit);
+      assert.ok(retry.archiveCommit);
+    }
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+for (const kind of ["file", "dangling-symlink"]) test(`060：删除checkpoint后重建${kind}仍保护index中的删除`, async () => {
+  const dir = project(`metadata-delete-${kind}`);
+  const s = services(dir);
+  try {
+    const task = await taskWithWork(dir, s, { title: "meta-delete", path: "app.txt", content: "new\n" });
+    const file = join(dirname(task.file), "notes.txt");
+    const path = relative(dir, file).split("\\").join("/");
+    writeFileSync(file, "tracked original\n");
+    git(dir, ["add", "--", path]);
+    git(dir, ["commit", "-q", "-m", "fixture tracked notes", "--only", "--", path]);
+    rmSync(file);
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nif git diff --cached --name-only | grep -q '/notes.txt$'; then exit 1; fi\n");
+    chmodSync(hook, 0o755);
+    const first = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(first.reason, "git_commit_failed");
+    assert.equal(git(dir, ["ls-files", "--", path]), "");
+    assert.equal((await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }])).tasks[0].status, "ready", "尚未重建时可沿删除checkpoint重试");
+    if (kind === "file") writeFileSync(file, "user recreation\n");
+    else symlinkSync("missing-target", file);
+    const head = git(dir, ["rev-parse", "HEAD"]);
+    const plan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }]);
+    assert.equal(plan.tasks[0].status, "conflict");
+    assert.ok(plan.tasks[0].stagedMetadata.includes(path));
+    await assert.rejects(() => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true }), (error) => error.guardReason === "preexisting_staged");
+    assert.equal(git(dir, ["ls-files", "--", path]), "", "index删除仍保留");
+    assert.equal(git(dir, ["rev-parse", "HEAD"]), head);
+    if (kind === "file") assert.equal(readFileSync(file, "utf8"), "user recreation\n");
+    else assert.equal(readlinkSync(file), "missing-target");
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("055/056：self 任务完成后无 Git 提交；完成凭据记录实际验证方式", async () => {
   const dir = project("self-close");

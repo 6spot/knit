@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -19,7 +19,7 @@ function git(dir, args) {
 }
 
 function project(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), `knit-015-${prefix}-`));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), `knit-015-${prefix}-`)));
   git(dir, ["init", "-q", "-b", "main"]);
   git(dir, ["config", "user.email", "t@example.com"]);
   git(dir, ["config", "user.name", "t"]);

@@ -31,6 +31,7 @@ function renderPlan(plan: DeliveryPlan): void {
     console.log(`  业务产物: ${task.artifacts.length === 0 ? "无" : task.artifacts.join(", ")}`);
     console.log(`  任务资料: ${task.metadata.join(", ")}`);
     if (task.stagedArtifacts.length > 0) console.log(`  已暂存业务路径: ${task.stagedArtifacts.join(", ")}`);
+    if (task.stagedMetadata.length > 0) console.log(`  已暂存任务资料: ${task.stagedMetadata.join(", ")}`);
   }
   if (plan.conflicts.length > 0) {
     console.log("\n跨任务同路径冲突：");

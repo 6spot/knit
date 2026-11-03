@@ -1,0 +1,22 @@
+✔ 锁058：混合申请 newFirst=false outerFirst=false (207.603667ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=false (187.446125ms)
+✔ 锁058：混合申请 newFirst=false outerFirst=true (177.502083ms)
+✔ 锁058：混合申请 newFirst=true outerFirst=true (178.91175ms)
+✔ 锁058：合并多个独立 owner 并含重复键，心跳与释放覆盖所有引用 (238.399209ms)
+✔ 锁058：混合句柄的错误 token 与替换 owner 均不释放他者占用 (86.299709ms)
+✔ 锁044：重入后遇 busy 仅撤销本次引用，外层与 rival owner 不变 (87.081625ms)
+✔ 锁044：排序后 busy 先于重入键，未触达外层不变 (65.879334ms)
+✔ 锁044：重入后 mkdir 成功、owner 写失败，保留外层且清本次目录 (113.23725ms)
+✔ 锁044：新建键后遇 busy，同实例与 rival 可重新获取释放 (100.339542ms)
+✔ 锁044：新建与多次重入逆序撤销，不泄漏真实外层引用 (130.147083ms)
+✔ 锁044：正常重入与混合新建成功后逐层释放，不同动作仍 busy (110.517917ms)
+✔ 锁044：release 不删除已被其它 token 替换的 owner (65.544458ms)
+✔ 锁：心跳原子更新在版本被外部改动时拒绝 (38.576875ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1844.8015

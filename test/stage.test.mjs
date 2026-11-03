@@ -2,10 +2,11 @@
  * 013 阶段执行、接收、检查失效、修复计数与恢复测试。
  * 使用真实 Git／文件／worker 子进程和最小 Pi RPC 假实现，不调用真实模型。
  */
+import { isProcessAlive, isRunSettled } from "./helpers/run-settled.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -38,7 +39,7 @@ function git(dir, args) {
 }
 
 function project(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), `knit-013-${prefix}-`));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), `knit-013-${prefix}-`)));
   git(dir, ["init", "-q", "-b", "main"]);
   git(dir, ["config", "user.email", "t@example.com"]);
   git(dir, ["config", "user.name", "t"]);
@@ -104,7 +105,7 @@ async function waitTerminal(s, dir, runId, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const status = await s.coordinator.status({ dir, runId });
-    if (["completed", "failed", "cancelled"].includes(status.state)) return status;
+    if (isRunSettled(status)) return status;
     if (Date.now() > deadline) throw new Error(`run 未终止: ${status.state}`);
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -1070,7 +1071,7 @@ test("取消在工具不响应 abort 时按宽限终止自有 Pi 进程组，留
     assert.notEqual(processRecord, null);
     assert.equal(processRecord.state, "exited");
     assert.notEqual(processRecord.piPid, null);
-    assert.equal(existsSync(`/proc/${processRecord.piPid}`), false, "自有阶段进程不得残留");
+    assert.equal(isProcessAlive(processRecord.piPid), false, "自有阶段进程不得残留");
   } finally {
     if (previous === undefined) delete process.env.KNIT_FAKE_IGNORE_ABORT;
     else process.env.KNIT_FAKE_IGNORE_ABORT = previous;
@@ -1115,17 +1116,17 @@ test("SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有
     const stage = new RunStore(dir).readStageProcess(prepared.request.runId);
     assert.notEqual(stage?.piPid, null);
     // 假 Pi 可能在 worker 死后自行退出；存在时清理整个进程组，不存在时同样断言无残留。
-    if (existsSync(`/proc/${stage.piPid}`)) {
+    if (isProcessAlive(stage.piPid)) {
       try {
         process.kill(-stage.piPid, "SIGKILL");
       } catch (error) {
         if (error.code !== "ESRCH") throw error;
       }
-      for (let attempt = 0; attempt < 100 && existsSync(`/proc/${stage.piPid}`); attempt += 1) {
+      for (let attempt = 0; attempt < 100 && isProcessAlive(stage.piPid); attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
-    assert.equal(existsSync(`/proc/${stage.piPid}`), false, "先清理自有 Pi 进程组");
+    assert.equal(isProcessAlive(stage.piPid), false, "先清理自有 Pi 进程组");
     const locked = s.locks.list().filter((entry) => entry.processVerdict !== "alive");
     assert.ok(locked.some((entry) => entry.scope === "project"));
     assert.ok(locked.some((entry) => entry.scope === "session"), "被强杀 worker 的 Session 锁也是残留");

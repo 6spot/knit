@@ -11,7 +11,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
+  mkdtempSync, realpathSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -43,7 +43,7 @@ function git(dir, args) {
 }
 
 function project(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), `knit-012-${prefix}-`));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), `knit-012-${prefix}-`)));
   git(dir, ["init", "-q", "-b", "main"]);
   git(dir, ["config", "user.email", "t@example.com"]);
   git(dir, ["config", "user.name", "t"]);

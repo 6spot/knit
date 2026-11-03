@@ -105,6 +105,9 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 055 | 用户决定的工作流 | completed | [用户决定任务创建与按范围验证](tasks/055-user-controlled-task-intake-and-scoped-verification.md)；已实现 verification=none/self/independent、用户建任务入口、无任务限制与范围验证；隔离测试见 validation/per-task-closeout/ |
 | 056 | 完成语义与缺陷修复 | completed | [分离业务完成与Git收尾并修复完成守卫](tasks/056-business-completion-and-validity-guards.md)；B007已补完成资格守卫，完成凭据独立于Git；多个任务可完成未提交 |
 | 057 | 逐任务Git收尾 | completed | [任务资料与业务产物分开提交及多任务逐项收尾](tasks/057-per-task-artifact-and-metadata-commits.md)；产物／资料／归档分提交，支持批量、只读计划和冲突停止；Trellis证据见 validation/per-task-closeout/ |
+| 058 | 遗留锁缺陷修复 | completed | [修复成功混合重入锁的逐键释放与心跳](tasks/058-mixed-lock-owner-credentials.md)；B004已修复，针对性14项及历史47＋8项锁探针通过；基础设施发现的进程失败交059定位，未启动真机验收 |
+| 059 | 并行测试稳定性 | completed | [定位并修复并行测试偶发失败](tasks/059-parallel-test-failure-investigation.md)；等待竞态、进程身份及夹具问题已定位修复，全量265/265及pack检查通过，独立复核通过；新发现的资料安全缺口交060 |
+| 060 | 独立复核缺口修复 | completed | [补齐必需资料加载与任务元数据暂存保护](tasks/060-required-material-and-metadata-index-guards.md)；B005必需加载与B008资料index缺口已修复，相关48/48、全量273/273及最终pack检查通过，独立复核闭合 |
 
 ## 阶段验收门槛
 

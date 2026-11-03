@@ -1,0 +1,48 @@
+{
+ "case": "044-lock-reentry-consequence",
+ "total": 8,
+ "failed": 0,
+ "results": [
+  {
+   "name": "混合请求真实遇 busy",
+   "ok": true
+  },
+  {
+   "name": "失败后外层锁保护保留",
+   "ok": true
+  },
+  {
+   "name": "真实内层重入沿用 token",
+   "ok": true
+  },
+  {
+   "name": "释放内层后外层 owner 保留",
+   "ok": true
+  },
+  {
+   "name": "真实外层释放后目录消失",
+   "ok": true
+  },
+  {
+   "name": "外层释放后 rival 有真实 owner",
+   "ok": true
+  },
+  {
+   "name": "原实例可正常重新获取",
+   "ok": true
+  },
+  {
+   "name": "release 不删除已变更 token 的 owner",
+   "ok": true
+  }
+ ]
+}
+✔ validation/audit-fix-verification/lock-reentry-consequence.mjs (153.602875ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 157.431541
