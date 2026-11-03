@@ -50,4 +50,10 @@ Trellis 借鉴点（来源 validation/trellis-prompts-and-roles/sources.md，固
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-clarify-before-task-creation-and-split-complex-work
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-bed479b99c4f -->
+- 任务资料提交: abfc20af16c5165c32622173c1a2488c6c6f419c
+- 归档目标: .knit/tasks/archive/2026-11/11-03-clarify-before-task-creation-and-split-complex-work
+
 <!-- knit:progress:end -->
