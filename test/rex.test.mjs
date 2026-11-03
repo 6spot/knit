@@ -481,7 +481,7 @@ test("RexLauncher：创建浮层、写入 rex.json、bridge 等待与 steer", as
   }
 });
 
-test("RexLauncher：bridge 断开时进程兑底节流与退出读取", async () => {
+test("RexLauncher：bridge 断开时进程兜底节流与退出读取", async () => {
   const dir = tempWorkspace("fallback");
   const { runId, runDirectory } = makeRun(dir);
   const manifest = manifestFor(dir, runId, runDirectory);
@@ -540,16 +540,16 @@ test("RexLauncher：bridge 断开时进程兑底节流与退出读取", async ()
     pollIntervalMs: 20,
     cancelGraceMs: 60_000,
     startupTimeoutMs: 60_000,
-    // socket 不存在：bridge 连接短超时后进入兑底路径。
+    // socket 不存在：bridge 连接短超时后进入兜底路径。
     bridgeConnectTimeoutMs: 100,
   });
-  // 进程退出前先在体外确定结果写盘时机；execute 里的节流兑底只负责观察退出。
+  // 进程退出前先在体外确定结果写盘时机；execute 里的节流兜底只负责观察退出。
   const executionPromise = launcher.execute();
   let execution;
   try {
     // 节流：约 2 秒（pollIntervalMs 20ms × 100）一次，3 秒内只有个位数调用。
     await waitUntil(() => processCalls.length >= 2, 10_000);
-    assert.ok(processCalls.length < 60, `兑底查询未节流：${processCalls.length} 次`);
+    assert.ok(processCalls.length < 60, `兜底查询未节流：${processCalls.length} 次`);
     // 进程退出后先读结果文件，不直接按 exited 失败收敛。
     exited = true;
     writeRexWorkerResult(rexDirectory(runDirectory), {
@@ -571,7 +571,7 @@ test("RexLauncher：bridge 断开时进程兑底节流与退出读取", async ()
     assert.equal(execution.text, "fallback done");
     assert.equal(execution.failure, null);
   } catch (error) {
-    // 兑底等待的 promise 不能悬挂测试进程；异常路径同样先终止 launcher。
+    // 兜底等待的 promise 不能悬挂测试进程；异常路径同样先终止 launcher。
     exited = true;
     writeRexWorkerResult(rexDirectory(runDirectory), {
       schemaVersion: 1,
