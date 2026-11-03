@@ -45,4 +45,10 @@ title: 快照：HEAD 基线引用与内容去重
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-snapshot-head-baseline-deduplication
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-7e4e829bf91d -->
+- 任务资料提交: 52dec8adea7092dbf79bf195604691c7011584a9
+- 归档目标: .knit/tasks/archive/2026-11/11-03-snapshot-head-baseline-deduplication
+
 <!-- knit:progress:end -->
