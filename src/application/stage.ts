@@ -10,7 +10,7 @@ import { researchDigestSummary } from "./task-materials.js";
 import type { RunPhase } from "../contracts/run.js";
 import { StageReportSchema, type StageReport } from "../contracts/run.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
-import { Value } from "typebox/value";
+import { checkSchema, schemaErrors } from "../contracts/schema.js";
 
 export type SectionContents = Record<string, string>;
 
@@ -49,11 +49,11 @@ function fenceCandidates(text: string): string[] {
   return candidates;
 }
 
-/** 取 schema 校验失败的前几条根因细节（含 instancePath），用于 failureReason 诊断。 */
+/** 取 schema 校验失败的前几条根因细节（含 JSON Pointer 路径），用于 failureReason 诊断。 */
 function schemaErrorDetail(raw: unknown): string {
-  return [...Value.Errors(StageReportSchema, raw)]
+  return [...schemaErrors(StageReportSchema, raw)]
     .slice(0, 3)
-    .map((error) => `${error.instancePath || "/"}: ${error.message}`)
+    .map((error) => `${error.path || "/"}: ${error.message}`)
     .join("; ");
 }
 
@@ -107,7 +107,7 @@ export function parseStageReport(text: string): { report: StageReport | null; er
       parseError ??= String(error);
       continue;
     }
-    if (Value.Check(StageReportSchema, raw)) return { report: raw as StageReport, error: null };
+    if (checkSchema(StageReportSchema, raw)) return { report: raw as StageReport, error: null };
     schemaDetail ??= schemaErrorDetail(raw);
   }
   if (schemaDetail !== null) return { report: null, error: `report_schema_invalid:${schemaDetail}` };

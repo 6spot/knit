@@ -4,7 +4,7 @@
  * 正文按记录区标记分区，输入区与记录区所有权分离。
  */
 import { Document, parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import { TaskFrontmatterSchema, PROGRESS_START, PROGRESS_END, type TaskFrontmatter } from "../contracts/task-inputs.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 
@@ -40,7 +40,7 @@ export function parseTaskDocument(markdown: string, pathForErrors = "task.md"): 
   for (const key of ["id", "status", "phase", "outcome", "branch", "createdAt", "title"]) {
     if (!(key in frontmatter)) throw yamlError(pathForErrors, `缺少字段 ${key}`);
   }
-  if (!Value.Check(TaskFrontmatterSchema, frontmatter)) {
+  if (!checkSchema(TaskFrontmatterSchema, frontmatter)) {
     throw yamlError(pathForErrors, "frontmatter 字段值不符合 schema");
   }
   const rest = markdown.slice(match[0].length);

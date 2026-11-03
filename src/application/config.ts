@@ -2,42 +2,49 @@
  * 项目配置 `.knit/config.json`（DESIGN.md 第13节）。
  * schemaVersion 未知版本阻塞写入；数值校验正数容量、非负修复轮次、心跳可疑阈值大于间隔。
  */
-import { Type, type Static } from "typebox";
-import { Value } from "typebox/value";
+import { int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { checkSchema, schemaErrors } from "../contracts/schema.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 
 export const PROJECT_SCHEMA_VERSION = 1;
 
-export const ProjectConfigSchema = Type.Object(
+export const ProjectConfigSchema = obj(
   {
-    schemaVersion: Type.Integer({ minimum: 1 }),
-    client: Type.Object({ default: Type.String() }),
-    agent: Type.Object({ runtime: Type.String(), resume: Type.Union([Type.Literal("prefer"), Type.Literal("new")]) }),
-    execution: Type.Object({ host: Type.String() }),
-    delivery: Type.Object({
-      mode: Type.String(),
-      /** 可选完整本地 refs/heads/...；只作默认分支候选，不授权、不切分支。 */
-      defaultBranch: Type.Optional(Type.String({ pattern: "^refs/heads/.+" })),
-    }),
-    workflow: Type.Object({ maxRepairRounds: Type.Integer({ minimum: 0 }) }),
-    limits: Type.Object({
-      heartbeatIntervalMs: Type.Integer({ minimum: 1 }),
-      heartbeatStaleMs: Type.Integer({ minimum: 1 }),
-      cancelGraceMs: Type.Integer({ minimum: 1 }),
-      snapshotsMaxBytes: Type.Integer({ minimum: 1 }),
-      storageWarnBytes: Type.Integer({ minimum: 1 }),
-    }),
-    phases: Type.Optional(
-      Type.Record(
-        Type.String(),
-        Type.Object({
-          runtime: Type.Optional(Type.String()),
-          model: Type.Optional(Type.String()),
-        }),
+    schemaVersion: int({ minimum: 1 }),
+    client: obj({ default: str() }, { open: true }),
+    agent: obj({ runtime: str(), resume: union([lit("prefer"), lit("new")]) }, { open: true }),
+    execution: obj({ host: str() }, { open: true }),
+    delivery: obj(
+      {
+        mode: str(),
+        /** 可选完整本地 refs/heads/...；只作默认分支候选，不授权、不切分支。 */
+        defaultBranch: opt(str({ pattern: "^refs/heads/.+" })),
+      },
+      { open: true },
+    ),
+    workflow: obj({ maxRepairRounds: int({ minimum: 0 }) }, { open: true }),
+    limits: obj(
+      {
+        heartbeatIntervalMs: int({ minimum: 1 }),
+        heartbeatStaleMs: int({ minimum: 1 }),
+        cancelGraceMs: int({ minimum: 1 }),
+        snapshotsMaxBytes: int({ minimum: 1 }),
+        storageWarnBytes: int({ minimum: 1 }),
+      },
+      { open: true },
+    ),
+    phases: opt(
+      map(
+        obj(
+          {
+            runtime: opt(str()),
+            model: opt(str()),
+          },
+          { open: true },
+        ),
       ),
     ),
   },
-  { additionalProperties: false },
 );
 
 export type ProjectConfig = Static<typeof ProjectConfigSchema>;
@@ -78,8 +85,8 @@ export function parseConfig(raw: string): ProjectConfig {
       found: (data as { schemaVersion?: unknown }).schemaVersion,
     });
   }
-  const errors = [...Value.Errors(ProjectConfigSchema, data)];
-  if (errors.length > 0 || !Value.Check(ProjectConfigSchema, data)) {
+  const errors = [...schemaErrors(ProjectConfigSchema, data)];
+  if (errors.length > 0 || !checkSchema(ProjectConfigSchema, data)) {
     throw new InfrastructureError("io_error", "config.json 结构不符合约定", { errors: errors.slice(0, 5).map((e) => e.message) });
   }
   const config = data as ProjectConfig;

@@ -1,225 +1,212 @@
-import { Type, type Static } from "typebox";
+import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { ProtocolVersionSchema } from "./protocol.js";
 
 /** 阶段执行；advisory 只产出建议，不推进 Task。 */
-export const RunPhaseSchema = Type.Union([
-  Type.Literal("implement"),
-  Type.Literal("check"),
-  Type.Literal("advisory"),
+export const RunPhaseSchema = union([
+  lit("implement"),
+  lit("check"),
+  lit("advisory"),
 ]);
 export type RunPhase = Static<typeof RunPhaseSchema>;
 
 /** run 执行状态（STATES.md 第5节转移图）。 */
-export const RunStateSchema = Type.Union([
-  Type.Literal("claimed"),
-  Type.Literal("preparing"),
-  Type.Literal("running"),
-  Type.Literal("completed"),
-  Type.Literal("cancelled"),
-  Type.Literal("failed"),
+export const RunStateSchema = union([
+  lit("claimed"),
+  lit("preparing"),
+  lit("running"),
+  lit("completed"),
+  lit("cancelled"),
+  lit("failed"),
 ]);
 export type RunState = Static<typeof RunStateSchema>;
 
 /** launch 定位状态；starting 响应丢失先查匹配 claim，不重启。 */
-export const RunLaunchStateSchema = Type.Union([
-  Type.Literal("planned"),
-  Type.Literal("starting"),
-  Type.Literal("confirmed"),
-  Type.Literal("failed"),
+export const RunLaunchStateSchema = union([
+  lit("planned"),
+  lit("starting"),
+  lit("confirmed"),
+  lit("failed"),
 ]);
 export type RunLaunchState = Static<typeof RunLaunchStateSchema>;
 
 /** 派发请求；先持久化 run ID／owner token 再执行，准备未确认时无模型副作用。 */
-export const RunRequestSchema = Type.Object(
+export const RunRequestSchema = obj(
   {
-    taskId: Type.String({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
   },
-  { additionalProperties: false },
 );
 export type RunRequest = Static<typeof RunRequestSchema>;
 
 /** prepare 回执：ID 已持久化、可被同 ID 认领，尚未启动模型。 */
-export const RunPrepareResultSchema = Type.Object(
+export const RunPrepareResultSchema = obj(
   {
     protocolVersion: ProtocolVersionSchema,
-    runId: Type.String({ minLength: 1 }),
-    state: Type.Literal("claimed"),
+    runId: str({ minLength: 1 }),
+    state: lit("claimed"),
   },
-  { additionalProperties: false },
 );
 export type RunPrepareResult = Static<typeof RunPrepareResultSchema>;
 
 /** 原生条目范围；取不到的端点如实 null，不填零不冒充。 */
-export const NativeEntryRangeSchema = Type.Object(
+export const NativeEntryRangeSchema = obj(
   {
-    startEntryId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    leafEntryId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    startEntryId: union([str({ minLength: 1 }), nul()]),
+    leafEntryId: union([str({ minLength: 1 }), nul()]),
   },
-  { additionalProperties: false },
 );
 export type NativeEntryRange = Static<typeof NativeEntryRangeSchema>;
 
 /** 本 run 增量用量；不可取得如实 null。 */
-export const RunUsageSchema = Type.Object(
+export const RunUsageSchema = obj(
   {
-    inputTokens: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
-    outputTokens: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    inputTokens: union([int({ minimum: 0 }), nul()]),
+    outputTokens: union([int({ minimum: 0 }), nul()]),
   },
-  { additionalProperties: false },
 );
 export type RunUsage = Static<typeof RunUsageSchema>;
 
 /** 取消意图：按 run 与执行 token 落盘；旧 run 的取消不影响新 run。 */
-export const RunCancelSchema = Type.Object(
+export const RunCancelSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    operationId: Type.String({ minLength: 1 }),
-    token: Type.String({ minLength: 1 }),
-    requestedAt: Type.String({ minLength: 1 }),
-    reason: Type.Union([Type.String(), Type.Null()]),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    operationId: str({ minLength: 1 }),
+    token: str({ minLength: 1 }),
+    requestedAt: str({ minLength: 1 }),
+    reason: union([str(), nul()]),
   },
-  { additionalProperties: false },
 );
 export type RunCancel = Static<typeof RunCancelSchema>;
 
 /** 阶段报告（DESIGN.md 5.1、5.5）；字段按 phase 校验，模型自报不直接改 Task。 */
-export const StageReportSchema = Type.Object(
+export const StageReportSchema = obj(
   {
-    summary: Type.String(),
+    summary: str(),
     /** implement：实际改动的项目相对路径。 */
-    changedPaths: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    changedPaths: opt(arr(str({ minLength: 1 }))),
     /** check：pass / changes_requested / blocked。 */
-    verdict: Type.Optional(
-      Type.Union([Type.Literal("pass"), Type.Literal("changes_requested"), Type.Literal("blocked")]),
+    verdict: opt(
+      union([lit("pass"), lit("changes_requested"), lit("blocked")]),
     ),
     /** check：实际核对过的路径或完成条件。 */
-    coverage: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    findings: Type.Optional(Type.Array(Type.String())),
-    unverified: Type.Optional(Type.Array(Type.String())),
+    coverage: opt(arr(str({ minLength: 1 }))),
+    findings: opt(arr(str())),
+    unverified: opt(arr(str())),
     /** discuss：建议是否 ready；advisory 不推进业务。 */
-    ready: Type.Optional(Type.Boolean()),
+    ready: opt(bool()),
   },
-  { additionalProperties: false },
 );
 export type StageReport = Static<typeof StageReportSchema>;
 
 /** 阶段使用的原生会话事实；原生引用不可恢复与执行结果分开报告。 */
-export const RunSessionRecordSchema = Type.Object(
+export const RunSessionRecordSchema = obj(
   {
-    knitSessionId: Type.String({ minLength: 1 }),
-    nativeSessionId: Type.String({ minLength: 1 }),
-    sessionFile: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    role: Type.String({ minLength: 1 }),
-    status: Type.String({ minLength: 1 }),
-    resumeAction: Type.Union([Type.Literal("resume"), Type.Literal("create_new")]),
-    resumeReason: Type.Union([Type.String(), Type.Null()]),
-    nativeReadable: Type.Boolean(),
+    knitSessionId: str({ minLength: 1 }),
+    nativeSessionId: str({ minLength: 1 }),
+    sessionFile: union([str({ minLength: 1 }), nul()]),
+    role: str({ minLength: 1 }),
+    status: str({ minLength: 1 }),
+    resumeAction: union([lit("resume"), lit("create_new")]),
+    resumeReason: union([str(), nul()]),
+    nativeReadable: bool(),
   },
-  { additionalProperties: false },
 );
 export type RunSessionRecord = Static<typeof RunSessionRecordSchema>;
 
 /** 不可变 run 结果；先写 result 再收敛 state，接收由固定 operation 复核。 */
-export const RunResultFileSchema = Type.Object(
+export const RunResultFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    state: Type.Union([Type.Literal("completed"), Type.Literal("cancelled"), Type.Literal("failed")]),
-    report: Type.Union([StageReportSchema, Type.Null()]),
-    reportSummary: Type.Union([Type.String(), Type.Null()]),
+    state: union([lit("completed"), lit("cancelled"), lit("failed")]),
+    report: union([StageReportSchema, nul()]),
+    reportSummary: union([str(), nul()]),
     nativeEntries: NativeEntryRangeSchema,
     usage: RunUsageSchema,
-    session: Type.Union([RunSessionRecordSchema, Type.Null()]),
+    session: union([RunSessionRecordSchema, nul()]),
     /** 实际观察到的改动路径；check 时为空。 */
-    actualChangedPaths: Type.Array(Type.String({ minLength: 1 })),
+    actualChangedPaths: arr(str({ minLength: 1 })),
     /** 发布结果时的路径指纹；接收时据此发现后来改动。旧结果可缺省。 */
-    actualEntries: Type.Optional(
-      Type.Array(
-        Type.Object(
+    actualEntries: opt(
+      arr(
+        obj(
           {
-            path: Type.String({ minLength: 1 }),
-            digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-            absent: Type.Boolean(),
+            path: str({ minLength: 1 }),
+            digest: union([str({ minLength: 1 }), nul()]),
+            absent: bool(),
             /** 指纹种类；旧结果缺省视为 file，只核内容（任务027）。 */
-            factsKind: Type.Optional(Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("absent")])),
+            factsKind: opt(union([lit("file"), lit("directory"), lit("link"), lit("absent")])),
             /** 八进制模式；目录／缺失为 null。 */
-            mode: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+            mode: opt(union([str({ minLength: 1 }), nul()])),
           },
-          { additionalProperties: false },
         ),
       ),
     ),
-    acceptanceOperationId: Type.String({ minLength: 1 }),
-    recordedAt: Type.String({ minLength: 1 }),
-    failureReason: Type.Union([Type.String(), Type.Null()]),
+    acceptanceOperationId: str({ minLength: 1 }),
+    recordedAt: str({ minLength: 1 }),
+    failureReason: union([str(), nul()]),
   },
-  { additionalProperties: false },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;
 
 /** 终态回执；result 先持久化、state 再收敛，终态不覆写。 */
-export const RunResultSchema = Type.Object(
+export const RunResultSchema = obj(
   {
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    state: Type.Union([
-      Type.Literal("completed"),
-      Type.Literal("cancelled"),
-      Type.Literal("failed"),
+    state: union([
+      lit("completed"),
+      lit("cancelled"),
+      lit("failed"),
     ]),
-    reportSummary: Type.Union([Type.String(), Type.Null()]),
-    nativeEntries: Type.Optional(NativeEntryRangeSchema),
-    usage: Type.Optional(RunUsageSchema),
-    report: Type.Optional(Type.Union([StageReportSchema, Type.Null()])),
-    acceptance: Type.Optional(
-      Type.Union([
-        Type.Object(
+    reportSummary: union([str(), nul()]),
+    nativeEntries: opt(NativeEntryRangeSchema),
+    usage: opt(RunUsageSchema),
+    report: opt(union([StageReportSchema, nul()])),
+    acceptance: opt(
+      union([
+        obj(
           {
-            operationId: Type.String({ minLength: 1 }),
-            state: Type.String({ minLength: 1 }),
-            reason: Type.Union([Type.String(), Type.Null()]),
+            operationId: str({ minLength: 1 }),
+            state: str({ minLength: 1 }),
+            reason: union([str(), nul()]),
           },
-          { additionalProperties: false },
         ),
-        Type.Null(),
+        nul(),
       ]),
     ),
   },
-  { additionalProperties: false },
 );
 export type RunResult = Static<typeof RunResultSchema>;
 
 /** 只读 status 投影；时间取不到为 null，心跳与诊断事件不算业务活动。 */
-export const RunStatusSchema = Type.Object(
+export const RunStatusSchema = obj(
   {
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
     state: RunStateSchema,
-    launchState: Type.Optional(RunLaunchStateSchema),
-    startedAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-    lastActivityAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-    result: Type.Optional(Type.Union([RunResultFileSchema, Type.Null()])),
-    acceptance: Type.Optional(
-      Type.Union([
-        Type.Object(
+    launchState: opt(RunLaunchStateSchema),
+    startedAt: opt(union([str(), nul()])),
+    lastActivityAt: opt(union([str(), nul()])),
+    result: opt(union([RunResultFileSchema, nul()])),
+    acceptance: opt(
+      union([
+        obj(
           {
-            operationId: Type.String({ minLength: 1 }),
-            state: Type.String({ minLength: 1 }),
-            reason: Type.Union([Type.String(), Type.Null()]),
+            operationId: str({ minLength: 1 }),
+            state: str({ minLength: 1 }),
+            reason: union([str(), nul()]),
           },
-          { additionalProperties: false },
         ),
-        Type.Null(),
+        nul(),
       ]),
     ),
   },
-  { additionalProperties: false },
 );
 export type RunStatus = Static<typeof RunStatusSchema>;
 
@@ -229,370 +216,342 @@ export type RunStatus = Static<typeof RunStatusSchema>;
  * 文件保存跨进程事实；SQLite 只做可查询投影，不能替代 request 与操作记录。
  */
 
-export const RunPurposeSchema = Type.Union([Type.Literal("stage"), Type.Literal("assist")]);
+export const RunPurposeSchema = union([lit("stage"), lit("assist")]);
 export type RunPurpose = Static<typeof RunPurposeSchema>;
 
-export const RunInitiatorSchema = Type.Object(
+export const RunInitiatorSchema = obj(
   {
-    client: Type.Union([Type.Literal("pi"), Type.Literal("cli")]),
-    knitSessionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    nativeSessionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    cwd: Type.String({ minLength: 1 }),
+    client: union([lit("pi"), lit("cli")]),
+    knitSessionId: union([str({ minLength: 1 }), nul()]),
+    nativeSessionId: union([str({ minLength: 1 }), nul()]),
+    cwd: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type RunInitiator = Static<typeof RunInitiatorSchema>;
 
 /** 发布后不改的预期身份与需求；worker 认领后重新核实。 */
-export const RunExpectationSchema = Type.Object(
+export const RunExpectationSchema = obj(
   {
-    branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    inputsDigest: Type.String({ minLength: 1 }),
-    standardsDigest: Type.String({ minLength: 1 }),
-    effectiveInputsDigest: Type.String({ minLength: 1 }),
-    planId: Type.String({ minLength: 1 }),
+    branch: union([str({ minLength: 1 }), nul()]),
+    inputsDigest: str({ minLength: 1 }),
+    standardsDigest: str({ minLength: 1 }),
+    effectiveInputsDigest: str({ minLength: 1 }),
+    planId: str({ minLength: 1 }),
     /** 检查启动时绑定的成果范围摘要；旧任务可为 null。 */
-    scopeDigest: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+    scopeDigest: opt(union([str({ minLength: 1 }), nul()])),
     /** 本任务明确授权为成果的正式规范及冻结旧版本；空表示无授权（任务037）。 */
-    authorizedStandardOutputs: Type.Optional(
-      Type.Array(
-        Type.Object(
+    authorizedStandardOutputs: opt(
+      arr(
+        obj(
           {
-            path: Type.String({ minLength: 1 }),
-            frozenDigest: Type.String({ minLength: 1 }),
-            frozenContent: Type.String(),
+            path: str({ minLength: 1 }),
+            frozenDigest: str({ minLength: 1 }),
+            frozenContent: str(),
           },
-          { additionalProperties: false },
         ),
       ),
     ),
   },
-  { additionalProperties: false },
 );
 export type RunExpectation = Static<typeof RunExpectationSchema>;
 
 /** 按 Task 累积的成果范围；路径带当前指纹，检查据此判断目标版本。 */
-export const ScopeFileSchema = Type.Object(
+export const ScopeFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    taskId: Type.String({ minLength: 1 }),
-    runIds: Type.Array(Type.String({ minLength: 1 })),
-    entries: Type.Array(
-      Type.Object(
+    schemaVersion: lit(1),
+    taskId: str({ minLength: 1 }),
+    runIds: arr(str({ minLength: 1 })),
+    entries: arr(
+      obj(
         {
-          path: Type.String({ minLength: 1 }),
-          digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          absent: Type.Boolean(),
+          path: str({ minLength: 1 }),
+          digest: union([str({ minLength: 1 }), nul()]),
+          absent: bool(),
           /** 指纹种类；旧记录缺省视为 file（DESIGN §5.3 类型核 smoked，任务027）。 */
-          factsKind: Type.Optional(Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("link"), Type.Literal("absent")])),
+          factsKind: opt(union([lit("file"), lit("directory"), lit("link"), lit("absent")])),
           /** 八进制模式；目录／缺失为 null。 */
-          mode: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+          mode: opt(union([str({ minLength: 1 }), nul()])),
         },
-        { additionalProperties: false },
       ),
     ),
-    digest: Type.String({ minLength: 1 }),
-    updatedAt: Type.String({ minLength: 1 }),
+    digest: str({ minLength: 1 }),
+    updatedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type ScopeFile = Static<typeof ScopeFileSchema>;
 
 /** 检查凭据；发布后不改，当前资格由输入／scope 版本另行推导。 */
-export const CheckFileSchema = Type.Object(
+export const CheckFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    taskId: Type.String({ minLength: 1 }),
-    runId: Type.String({ minLength: 1 }),
-    branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    verdict: Type.Union([Type.Literal("pass"), Type.Literal("changes_requested"), Type.Literal("blocked")]),
+    schemaVersion: lit(1),
+    taskId: str({ minLength: 1 }),
+    runId: str({ minLength: 1 }),
+    branch: union([str({ minLength: 1 }), nul()]),
+    verdict: union([lit("pass"), lit("changes_requested"), lit("blocked")]),
     report: StageReportSchema,
-    inputsDigest: Type.String({ minLength: 1 }),
-    standardsDigest: Type.String({ minLength: 1 }),
-    effectiveInputsDigest: Type.String({ minLength: 1 }),
-    scopeDigest: Type.String({ minLength: 1 }),
-    recordedAt: Type.String({ minLength: 1 }),
+    inputsDigest: str({ minLength: 1 }),
+    standardsDigest: str({ minLength: 1 }),
+    effectiveInputsDigest: str({ minLength: 1 }),
+    scopeDigest: str({ minLength: 1 }),
+    recordedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type CheckFile = Static<typeof CheckFileSchema>;
 
-export const RunRequestFileSchema = Type.Object(
+export const RunRequestFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
+    schemaVersion: lit(1),
     protocolVersion: ProtocolVersionSchema,
-    runId: Type.String({ minLength: 1, pattern: "^run-[0-9a-f]{12}$" }),
-    taskId: Type.String({ minLength: 1 }),
+    runId: str({ minLength: 1, pattern: "^run-[0-9a-f]{12}$" }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
     purpose: RunPurposeSchema,
     initiator: RunInitiatorSchema,
-    createdAt: Type.String({ minLength: 1 }),
+    createdAt: str({ minLength: 1 }),
     expected: RunExpectationSchema,
-    model: Type.Object(
+    model: obj(
       {
-        runtime: Type.String({ minLength: 1 }),
-        provider: Type.String({ minLength: 1 }),
-        model: Type.String({ minLength: 1 }),
+        runtime: str({ minLength: 1 }),
+        provider: str({ minLength: 1 }),
+        model: str({ minLength: 1 }),
       },
-      { additionalProperties: false },
     ),
-    toolPolicy: Type.Object(
+    toolPolicy: obj(
       {
-        mode: Type.Union([Type.Literal("write"), Type.Literal("read")]),
-        allow: Type.Array(Type.String()),
-        deny: Type.Array(Type.String()),
+        mode: union([lit("write"), lit("read")]),
+        allow: arr(str()),
+        deny: arr(str()),
       },
-      { additionalProperties: false },
     ),
-    recovery: Type.Object(
+    recovery: obj(
       {
-        nativeSessionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-        resume: Type.Union([Type.Literal("prefer"), Type.Literal("new")]),
+        nativeSessionId: union([str({ minLength: 1 }), nul()]),
+        resume: union([lit("prefer"), lit("new")]),
       },
-      { additionalProperties: false },
     ),
-    acceptanceOperationId: Type.String({ minLength: 1 }),
-    diagnostics: Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false }),
+    acceptanceOperationId: str({ minLength: 1 }),
+    diagnostics: obj({ enabled: bool() }),
   },
-  { additionalProperties: false },
 );
 export type RunRequestFile = Static<typeof RunRequestFileSchema>;
 
 /** 启动句柄：PID 与启动标识必须同时匹配才算同一实例。 */
-export const RunHandleSchema = Type.Object(
+export const RunHandleSchema = obj(
   {
-    pid: Type.Integer({ minimum: 1 }),
-    bootId: Type.String({ minLength: 1 }),
-    procStartTicks: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    hostname: Type.String({ minLength: 1 }),
-    recordedAt: Type.String({ minLength: 1 }),
+    pid: int({ minimum: 1 }),
+    bootId: str({ minLength: 1 }),
+    procStartTicks: union([str({ minLength: 1 }), nul()]),
+    hostname: str({ minLength: 1 }),
+    recordedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type RunHandle = Static<typeof RunHandleSchema>;
 
-export const LaunchRecordSchema = Type.Object(
+export const LaunchRecordSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
     state: RunLaunchStateSchema,
-    attempts: Type.Integer({ minimum: 0 }),
-    requestedAt: Type.String({ minLength: 1 }),
-    updatedAt: Type.String({ minLength: 1 }),
-    handle: Type.Union([RunHandleSchema, Type.Null()]),
+    attempts: int({ minimum: 0 }),
+    requestedAt: str({ minLength: 1 }),
+    updatedAt: str({ minLength: 1 }),
+    handle: union([RunHandleSchema, nul()]),
     /** worker 认领后的实例证据；未认领为 null。 */
-    instance: Type.Union([
-      Type.Object(
+    instance: union([
+      obj(
         {
-          workerId: Type.String({ minLength: 1 }),
-          pid: Type.Integer({ minimum: 1 }),
-          bootId: Type.String({ minLength: 1 }),
-          procStartTicks: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          claimedAt: Type.String({ minLength: 1 }),
+          workerId: str({ minLength: 1 }),
+          pid: int({ minimum: 1 }),
+          bootId: str({ minLength: 1 }),
+          procStartTicks: union([str({ minLength: 1 }), nul()]),
+          claimedAt: str({ minLength: 1 }),
         },
-        { additionalProperties: false },
       ),
-      Type.Null(),
+      nul(),
     ]),
-    lastError: Type.Union([Type.String(), Type.Null()]),
+    lastError: union([str(), nul()]),
   },
-  { additionalProperties: false },
 );
 export type LaunchRecord = Static<typeof LaunchRecordSchema>;
 
-export const FrozenInputsSchema = Type.Object(
+export const FrozenInputsSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    frozenAt: Type.String({ minLength: 1 }),
-    planId: Type.String({ minLength: 1 }),
-    inputsDigest: Type.String({ minLength: 1 }),
-    standardsDigest: Type.String({ minLength: 1 }),
-    effectiveInputsDigest: Type.String({ minLength: 1 }),
-    taskDocumentDigest: Type.String({ minLength: 1 }),
-    sections: Type.Array(
-      Type.Object(
+    frozenAt: str({ minLength: 1 }),
+    planId: str({ minLength: 1 }),
+    inputsDigest: str({ minLength: 1 }),
+    standardsDigest: str({ minLength: 1 }),
+    effectiveInputsDigest: str({ minLength: 1 }),
+    taskDocumentDigest: str({ minLength: 1 }),
+    sections: arr(
+      obj(
         {
-          sourceId: Type.String({ minLength: 1 }),
-          kind: Type.String({ minLength: 1 }),
-          path: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          mode: Type.String({ minLength: 1 }),
-          countsTowardInputs: Type.Boolean(),
+          sourceId: str({ minLength: 1 }),
+          kind: str({ minLength: 1 }),
+          path: union([str({ minLength: 1 }), nul()]),
+          digest: union([str({ minLength: 1 }), nul()]),
+          mode: str({ minLength: 1 }),
+          countsTowardInputs: bool(),
         },
-        { additionalProperties: false },
       ),
     ),
-    excluded: Type.Array(
-      Type.Object(
+    excluded: arr(
+      obj(
         {
-          sourceId: Type.String({ minLength: 1 }),
-          reason: Type.String({ minLength: 1 }),
+          sourceId: str({ minLength: 1 }),
+          reason: str({ minLength: 1 }),
         },
-        { additionalProperties: false },
       ),
     ),
-    toolPolicy: Type.Object(
+    toolPolicy: obj(
       {
-        mode: Type.Union([Type.Literal("write"), Type.Literal("read")]),
-        allow: Type.Array(Type.String()),
-        deny: Type.Array(Type.String()),
+        mode: union([lit("write"), lit("read")]),
+        allow: arr(str()),
+        deny: arr(str()),
       },
-      { additionalProperties: false },
     ),
   },
-  { additionalProperties: false },
 );
 export type FrozenInputs = Static<typeof FrozenInputsSchema>;
 
-export const InstructionsFileSchema = Type.Object(
+export const InstructionsFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    preparedAt: Type.String({ minLength: 1 }),
-    entries: Type.Array(
-      Type.Object(
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    preparedAt: str({ minLength: 1 }),
+    entries: arr(
+      obj(
         {
-          sourceId: Type.String({ minLength: 1 }),
-          scope: Type.String({ minLength: 1 }),
-          digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          injection: Type.String({ minLength: 1 }),
-          path: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          version: Type.String({ minLength: 1 }),
+          sourceId: str({ minLength: 1 }),
+          scope: str({ minLength: 1 }),
+          digest: union([str({ minLength: 1 }), nul()]),
+          injection: str({ minLength: 1 }),
+          path: union([str({ minLength: 1 }), nul()]),
+          version: str({ minLength: 1 }),
         },
-        { additionalProperties: false },
       ),
     ),
   },
-  { additionalProperties: false },
 );
 export type InstructionsFile = Static<typeof InstructionsFileSchema>;
 
-export const SnapshotEntrySchema = Type.Object(
+export const SnapshotEntrySchema = obj(
   {
-    path: Type.String({ minLength: 1 }),
-    layer: Type.Union([Type.Literal("tracked"), Type.Literal("untracked")]),
-    kind: Type.Union([Type.Literal("file"), Type.Literal("symlink"), Type.Literal("submodule")]),
+    path: str({ minLength: 1 }),
+    layer: union([lit("tracked"), lit("untracked")]),
+    kind: union([lit("file"), lit("symlink"), lit("submodule")]),
     /** Git 索引模式；未跟踪文件按实际执行位取 100644／100755。 */
-    mode: Type.Integer({ minimum: 0 }),
-    size: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
-    digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    mode: int({ minimum: 0 }),
+    size: union([int({ minimum: 0 }), nul()]),
+    digest: union([str({ minLength: 1 }), nul()]),
     /** 符号链接目标；非链接为 null。 */
-    linkTarget: Type.Union([Type.String(), Type.Null()]),
+    linkTarget: union([str(), nul()]),
     /** 基线存在但工作区缺失：恢复时删除。 */
-    absent: Type.Boolean(),
+    absent: bool(),
     /** 索引层中该路径的 blob OID；未跟踪为 null。 */
-    indexOid: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    indexOid: union([str({ minLength: 1 }), nul()]),
     /** 索引层内容的 SHA-256；旧快照可缺省（此时 --index 恢复拒绝）。 */
-    indexDigest: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+    indexDigest: opt(union([str({ minLength: 1 }), nul()])),
   },
-  { additionalProperties: false },
 );
 export type SnapshotEntry = Static<typeof SnapshotEntrySchema>;
 
-export const SnapshotManifestSchema = Type.Object(
+export const SnapshotManifestSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    state: Type.Union([Type.Literal("preparing"), Type.Literal("ready"), Type.Literal("failed")]),
-    createdAt: Type.String({ minLength: 1 }),
-    base: Type.Object(
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    state: union([lit("preparing"), lit("ready"), lit("failed")]),
+    createdAt: str({ minLength: 1 }),
+    base: obj(
       {
-        head: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-        branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+        head: union([str({ minLength: 1 }), nul()]),
+        branch: union([str({ minLength: 1 }), nul()]),
         /** 无 HEAD 的空仓库：不存在起点，恢复不假定旧树。 */
-        absent: Type.Boolean(),
+        absent: bool(),
       },
-      { additionalProperties: false },
     ),
-    coverage: Type.Object(
+    coverage: obj(
       {
-        tracked: Type.Boolean(),
-        index: Type.Boolean(),
-        untracked: Type.Boolean(),
-        worktree: Type.Boolean(),
+        tracked: bool(),
+        index: bool(),
+        untracked: bool(),
+        worktree: bool(),
       },
-      { additionalProperties: false },
     ),
-    entries: Type.Array(SnapshotEntrySchema),
-    counts: Type.Object(
+    entries: arr(SnapshotEntrySchema),
+    counts: obj(
       {
-        tracked: Type.Integer({ minimum: 0 }),
-        untracked: Type.Integer({ minimum: 0 }),
-        absent: Type.Integer({ minimum: 0 }),
+        tracked: int({ minimum: 0 }),
+        untracked: int({ minimum: 0 }),
+        absent: int({ minimum: 0 }),
       },
-      { additionalProperties: false },
     ),
-    bytes: Type.Integer({ minimum: 0 }),
-    maxBytes: Type.Integer({ minimum: 1 }),
-    digest: Type.String({ minLength: 1 }),
-    reason: Type.Union([Type.String(), Type.Null()]),
+    bytes: int({ minimum: 0 }),
+    maxBytes: int({ minimum: 1 }),
+    digest: str({ minLength: 1 }),
+    reason: union([str(), nul()]),
   },
-  { additionalProperties: false },
 );
 export type SnapshotManifest = Static<typeof SnapshotManifestSchema>;
 
-export const RunStateFileSchema = Type.Object(
+export const RunStateFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
     state: RunStateSchema,
-    worker: Type.Object(
+    worker: obj(
       {
-        workerId: Type.String({ minLength: 1 }),
-        pid: Type.Integer({ minimum: 1 }),
-        bootId: Type.String({ minLength: 1 }),
-        procStartTicks: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-        hostname: Type.String({ minLength: 1 }),
+        workerId: str({ minLength: 1 }),
+        pid: int({ minimum: 1 }),
+        bootId: str({ minLength: 1 }),
+        procStartTicks: union([str({ minLength: 1 }), nul()]),
+        hostname: str({ minLength: 1 }),
       },
-      { additionalProperties: false },
     ),
-    claimedAt: Type.String({ minLength: 1 }),
-    updatedAt: Type.String({ minLength: 1 }),
+    claimedAt: str({ minLength: 1 }),
+    updatedAt: str({ minLength: 1 }),
     /** 输入与正式实施快照已就绪；正式代码与模型调用仍由 013 从该点继续。 */
-    prepared: Type.Boolean(),
-    preparedAt: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    snapshot: Type.Union([
-      Type.Object(
+    prepared: bool(),
+    preparedAt: union([str({ minLength: 1 }), nul()]),
+    snapshot: union([
+      obj(
         {
-          state: Type.String({ minLength: 1 }),
-          digest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-          entries: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
-          reason: Type.Union([Type.String(), Type.Null()]),
+          state: str({ minLength: 1 }),
+          digest: union([str({ minLength: 1 }), nul()]),
+          entries: union([int({ minimum: 0 }), nul()]),
+          reason: union([str(), nul()]),
         },
-        { additionalProperties: false },
       ),
-      Type.Null(),
+      nul(),
     ]),
-    reason: Type.Union([Type.String(), Type.Null()]),
+    reason: union([str(), nul()]),
   },
-  { additionalProperties: false },
 );
 export type RunStateFile = Static<typeof RunStateFileSchema>;
 
 /** 阶段 Pi 进程句柄：worker 被杀后仍可核实旧工具是否存活，避免新会话绕过。 */
-export const RunStageProcessSchema = Type.Object(
+export const RunStageProcessSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    state: Type.Union([Type.Literal("starting"), Type.Literal("running"), Type.Literal("exited")]),
-    workerPid: Type.Integer({ minimum: 1 }),
-    piPid: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
-    bootId: Type.String({ minLength: 1 }),
-    procStartTicks: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-    hostname: Type.String({ minLength: 1 }),
-    nativeSessionId: Type.String({ minLength: 1 }),
-    knitSessionId: Type.String({ minLength: 1 }),
-    startedAt: Type.String({ minLength: 1 }),
-    recordedAt: Type.String({ minLength: 1 }),
+    state: union([lit("starting"), lit("running"), lit("exited")]),
+    workerPid: int({ minimum: 1 }),
+    piPid: union([int({ minimum: 1 }), nul()]),
+    bootId: str({ minLength: 1 }),
+    procStartTicks: union([str({ minLength: 1 }), nul()]),
+    hostname: str({ minLength: 1 }),
+    nativeSessionId: str({ minLength: 1 }),
+    knitSessionId: str({ minLength: 1 }),
+    startedAt: str({ minLength: 1 }),
+    recordedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type RunStageProcess = Static<typeof RunStageProcessSchema>;
 
@@ -600,20 +559,19 @@ export type RunStageProcess = Static<typeof RunStageProcessSchema>;
  * 启动失败诊断（DESIGN.md 5.6）；只作失败原因的辅助证据，不作权威回执、不参与状态机。
  * stderrTail 是阶段 Pi 自身 stderr 的尾部（启动发生在任何 prompt 之前，不含消息正文）；超长只留尾部并如实标记。
  */
-export const RunDiagnosticsFileSchema = Type.Object(
+export const RunDiagnosticsFileSchema = obj(
   {
-    schemaVersion: Type.Literal(1),
-    runId: Type.String({ minLength: 1 }),
-    taskId: Type.String({ minLength: 1 }),
+    schemaVersion: lit(1),
+    runId: str({ minLength: 1 }),
+    taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    kind: Type.Literal("runtime_start_failed"),
+    kind: lit("runtime_start_failed"),
     /** RuntimeStartCheck.failure 代码；语义不变，诊断不参与状态机。 */
-    failure: Type.String({ minLength: 1 }),
-    detail: Type.String(),
-    stderrTail: Type.String(),
-    truncated: Type.Boolean(),
-    recordedAt: Type.String({ minLength: 1 }),
+    failure: str({ minLength: 1 }),
+    detail: str(),
+    stderrTail: str(),
+    truncated: bool(),
+    recordedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type RunDiagnosticsFile = Static<typeof RunDiagnosticsFileSchema>;

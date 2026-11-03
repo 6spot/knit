@@ -85,13 +85,13 @@ async function loadBridge(dir) {
   // 编译产物放进测试项目的 .pi/extensions/.bridge-build/，与安装布局同构（root 推导 = 项目根）。
   const buildDir = join(dir, ".pi", "extensions");
   mkdirSync(buildDir, { recursive: true });
-  // 让 bridge-stub.ts 解析 typebox：项目 node_modules 链接到测试项目根（编译后移除）。
+  // 让 bridge-stub.ts 的 tsc 解析 @types/node：项目 node_modules 链接到测试项目根（编译后移除）。
   symlinkSync(join(import.meta.dirname, "..", "node_modules"), join(dir, "node_modules"), "dir");
   const sourcePath = join(buildDir, "bridge-stub.ts");
   writeFileSync(sourcePath, source);
   const compiled = spawnSync(tsc, ["--ignoreConfig", "--skipLibCheck", "--types", "node", "--target", "es2022", "--module", "es2022", "--moduleResolution", "node10", "--ignoreDeprecations", "6.0", "--outDir", buildDir, sourcePath], { encoding: "utf8", cwd: import.meta.dirname });
   if (compiled.status !== 0) throw new Error(`桥接模板编译失败: ${compiled.stderr || compiled.stdout}`);
-  // 模板 import typebox —— 解析到项目 node_modules；bridge-out 内相对引用需重定位。typebox 由测试进程的 node_modules 提供。
+  // 模板只依赖 node 内建模块；编译产物写入 .pi/extensions，项目根推导保持同构。
   const module = await import(pathToFileURL(join(buildDir, "bridge-stub.js")).href);
   const host = makeHostStub();
   module.default(host.pi);

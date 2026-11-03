@@ -16,7 +16,7 @@ import {
   type RunStageProcess,
   type RunStateFile,
 } from "../contracts/run.js";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { machineBootId, procStartTicks, processTable, processTreePids, signalProcessTree } from "../infrastructure/process.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
@@ -231,7 +231,7 @@ export class RunCoordinator {
       acceptanceOperationId,
       diagnostics: { enabled: input.diagnostics ?? false },
     };
-    if (!Value.Check(RunRequestFileSchema, request)) {
+    if (!checkSchema(RunRequestFileSchema, request)) {
       throw new InfrastructureError("io_error", "run request 结构不符");
     }
     await this.store.operations.save({
@@ -340,7 +340,7 @@ export class RunCoordinator {
       recordedAt: this.now().toISOString(),
     };
     const launched: LaunchRecord = { ...starting, handle, updatedAt: this.now().toISOString() };
-    if (!Value.Check(LaunchRecordSchema, launched)) throw new InfrastructureError("io_error", "launch handle 结构不符");
+    if (!checkSchema(LaunchRecordSchema, launched)) throw new InfrastructureError("io_error", "launch handle 结构不符");
     runs.writeLaunch(input.runId, launched);
     // 读取 stdout/stderr 只用于防止管道背压；内容不进入业务证据。
     void managed.stdout.pipeTo(new WritableStream());

@@ -5,8 +5,8 @@
  */
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { TSchema } from "typebox";
-import { Value } from "typebox/value";
+import type { JsonSchema } from "@earendil-works/pi-schema";
+import { checkSchema } from "../contracts/schema.js";
 import {
   FrozenInputsSchema,
   InstructionsFileSchema,
@@ -62,7 +62,7 @@ function privateDir(path: string): void {
   chmodSync(path, 0o700);
 }
 
-function parseJson<T>(path: string, schema: TSchema, label: string): T | null {
+function parseJson<T>(path: string, schema: JsonSchema, label: string): T | null {
   const version = readWithVersion(path);
   if (version === null) return null;
   let raw: unknown;
@@ -71,7 +71,7 @@ function parseJson<T>(path: string, schema: TSchema, label: string): T | null {
   } catch {
     throw new InfrastructureError("io_error", `${label} 不是合法 JSON：${path}`);
   }
-  if (!Value.Check(schema, raw)) {
+  if (!checkSchema(schema, raw)) {
     throw new InfrastructureError("io_error", `${label} 结构不符：${path}`);
   }
   return raw as T;
@@ -99,7 +99,7 @@ export class RunStore {
 
   /** 发布不可变 request 与 planned launch；同 runId 重入只返回既有事实。 */
   create(request: RunRequestFile): { created: boolean; request: RunRequestFile } {
-    if (!Value.Check(RunRequestFileSchema, request)) {
+    if (!checkSchema(RunRequestFileSchema, request)) {
       throw new InfrastructureError("io_error", "run request 结构不符");
     }
     const dir = this.runDir(request.runId);
@@ -142,7 +142,7 @@ export class RunStore {
   }
 
   writeLaunch(runId: string, launch: LaunchRecord): void {
-    if (!Value.Check(LaunchRecordSchema, launch)) {
+    if (!checkSchema(LaunchRecordSchema, launch)) {
       throw new InfrastructureError("io_error", "launch 结构不符");
     }
     const path = join(this.runDir(runId), "launch.json");
@@ -160,7 +160,7 @@ export class RunStore {
   }
 
   writeState(runId: string, state: RunStateFile): void {
-    if (!Value.Check(RunStateFileSchema, state)) {
+    if (!checkSchema(RunStateFileSchema, state)) {
       throw new InfrastructureError("io_error", "state 结构不符");
     }
     const path = join(this.runDir(runId), "state.json");
@@ -178,7 +178,7 @@ export class RunStore {
   }
 
   writeStageProcess(runId: string, process: RunStageProcess): void {
-    if (!Value.Check(RunStageProcessSchema, process)) {
+    if (!checkSchema(RunStageProcessSchema, process)) {
       throw new InfrastructureError("io_error", "stage-process 结构不符");
     }
     const path = join(this.runDir(runId), "stage-process.json");
@@ -196,7 +196,7 @@ export class RunStore {
 
   /** 辅助证据：写入失败由调用方决定是否忽略，不影响终态判定。 */
   writeDiagnostics(runId: string, diagnostics: RunDiagnosticsFile): void {
-    if (!Value.Check(RunDiagnosticsFileSchema, diagnostics)) throw new InfrastructureError("io_error", "diagnostics 结构不符");
+    if (!checkSchema(RunDiagnosticsFileSchema, diagnostics)) throw new InfrastructureError("io_error", "diagnostics 结构不符");
     const path = join(this.runDir(runId), "diagnostics.json");
     atomicWrite({ path, data: Buffer.from(JSON.stringify(diagnostics, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
   }
@@ -206,7 +206,7 @@ export class RunStore {
   }
 
   writeInputs(runId: string, inputs: FrozenInputs): void {
-    if (!Value.Check(FrozenInputsSchema, inputs)) throw new InfrastructureError("io_error", "inputs 结构不符");
+    if (!checkSchema(FrozenInputsSchema, inputs)) throw new InfrastructureError("io_error", "inputs 结构不符");
     const path = join(this.runDir(runId), "inputs.json");
     atomicWrite({
       path,
@@ -221,7 +221,7 @@ export class RunStore {
   }
 
   writeInstructions(runId: string, instructions: InstructionsFile): void {
-    if (!Value.Check(InstructionsFileSchema, instructions)) {
+    if (!checkSchema(InstructionsFileSchema, instructions)) {
       throw new InfrastructureError("io_error", "instructions 结构不符");
     }
     const path = join(this.runDir(runId), "instructions.json");
@@ -238,7 +238,7 @@ export class RunStore {
   }
 
   writeCancel(runId: string, cancel: RunCancel): void {
-    if (!Value.Check(RunCancelSchema, cancel)) throw new InfrastructureError("io_error", "cancel 结构不符");
+    if (!checkSchema(RunCancelSchema, cancel)) throw new InfrastructureError("io_error", "cancel 结构不符");
     const path = join(this.runDir(runId), "cancel.json");
     if (existsSync(path)) return;
     atomicWrite({ path, data: Buffer.from(JSON.stringify(cancel, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
@@ -250,7 +250,7 @@ export class RunStore {
 
   /** 不可变结果：已存在时拒绝覆盖，终态不重写。 */
   writeResult(runId: string, result: RunResultFile): void {
-    if (!Value.Check(RunResultFileSchema, result)) throw new InfrastructureError("io_error", "result 结构不符");
+    if (!checkSchema(RunResultFileSchema, result)) throw new InfrastructureError("io_error", "result 结构不符");
     const path = join(this.runDir(runId), "result.json");
     if (existsSync(path)) throw new InfrastructureError("version_conflict", `run 结果已存在: ${runId}`);
     atomicWrite({ path, data: Buffer.from(JSON.stringify(result, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
@@ -265,7 +265,7 @@ export class RunStore {
   }
 
   writeScope(taskId: string, scope: ScopeFile): void {
-    if (!Value.Check(ScopeFileSchema, scope)) throw new InfrastructureError("io_error", "scope 结构不符");
+    if (!checkSchema(ScopeFileSchema, scope)) throw new InfrastructureError("io_error", "scope 结构不符");
     const path = this.scopePath(taskId);
     privateDir(join(this.root, ".knit", ".runtime", "tasks", taskId));
     atomicWrite({
@@ -287,7 +287,7 @@ export class RunStore {
 
   /** 完成凭据可被重新完成覆盖；旧凭据不得用于当前输入／成果。 */
   writeCompletion(taskId: string, completion: CompletionFile): void {
-    if (!Value.Check(CompletionFileSchema, completion)) throw new InfrastructureError("io_error", "completion 结构不符");
+    if (!checkSchema(CompletionFileSchema, completion)) throw new InfrastructureError("io_error", "completion 结构不符");
     const path = this.completionPath(taskId);
     privateDir(join(this.root, ".knit", ".runtime", "completions"));
     atomicWrite({
@@ -315,7 +315,7 @@ export class RunStore {
   }
 
   writeAcceptanceJournal(runId: string, journal: AcceptanceJournal): void {
-    if (!Value.Check(AcceptanceJournalSchema, journal)) {
+    if (!checkSchema(AcceptanceJournalSchema, journal)) {
       throw new InfrastructureError("io_error", "acceptance.json 结构不符");
     }
     const path = this.acceptanceJournalPath(runId);
@@ -337,7 +337,7 @@ export class RunStore {
 
   /** 检查凭据不可变：同一 run 只发布一次。 */
   writeCheck(runId: string, check: CheckFile): void {
-    if (!Value.Check(CheckFileSchema, check)) throw new InfrastructureError("io_error", "check 结构不符");
+    if (!checkSchema(CheckFileSchema, check)) throw new InfrastructureError("io_error", "check 结构不符");
     const path = this.checkPath(runId);
     if (existsSync(path)) throw new InfrastructureError("version_conflict", `检查凭据已存在: ${runId}`);
     privateDir(join(this.root, ".knit", ".runtime", "checks"));
@@ -353,7 +353,7 @@ export class RunStore {
   }
 
   writeSnapshotManifest(runId: string, manifest: SnapshotManifest, directory = join(this.runDir(runId), "snapshot")): void {
-    if (!Value.Check(SnapshotManifestSchema, manifest)) {
+    if (!checkSchema(SnapshotManifestSchema, manifest)) {
       throw new InfrastructureError("io_error", "snapshot manifest 结构不符");
     }
     atomicWrite({

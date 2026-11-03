@@ -3,142 +3,134 @@
  * 构建时由 scripts/build-bridge-schema.mjs 派生为 dist/contracts/bridge-tools.json；
  * 桥接只读取派生 JSON，不依赖用户项目 node_modules 中的 Knit 依赖。
  */
-import { Type } from "typebox";
+import { arr, bool, lit, map, obj, opt, str, union } from "@earendil-works/pi-schema";
 
-export const TaskToolSchema = Type.Object(
+export const TaskToolSchema = obj(
   {
-    action: Type.Union([
-      Type.Literal("list"),
-      Type.Literal("new"),
-      Type.Literal("rename"),
-      Type.Literal("ready"),
-      Type.Literal("update"),
-      Type.Literal("record"),
-      Type.Literal("close"),
-      Type.Literal("adopt"),
-      Type.Literal("verification"),
-      Type.Literal("use"),
-      Type.Literal("clear"),
+    action: union([
+      lit("list"),
+      lit("new"),
+      lit("rename"),
+      lit("ready"),
+      lit("update"),
+      lit("record"),
+      lit("close"),
+      lit("adopt"),
+      lit("verification"),
+      lit("use"),
+      lit("clear"),
     ]),
-    taskId: Type.Optional(Type.String({ minLength: 1 })),
-    title: Type.Optional(Type.String()),
-    slug: Type.Optional(Type.String()),
-    newSlug: Type.Optional(Type.String()),
-    branch: Type.Optional(Type.String()),
-    kind: Type.Optional(Type.Union([Type.Literal("clarify"), Type.Literal("change")])),
-    body: Type.Optional(Type.String()),
-    reason: Type.Optional(Type.String()),
-    outcome: Type.Optional(Type.Union([Type.Literal("completed"), Type.Literal("cancelled"), Type.Literal("superseded")])),
-    runsSettled: Type.Optional(Type.Boolean()),
-    applyPending: Type.Optional(Type.Boolean()),
-    withdrawPending: Type.Optional(Type.Boolean()),
-    expectPending: Type.Optional(Type.String()),
-    nonEquivalent: Type.Optional(Type.Boolean()),
+    taskId: opt(str({ minLength: 1 })),
+    title: opt(str()),
+    slug: opt(str()),
+    newSlug: opt(str()),
+    branch: opt(str()),
+    kind: opt(union([lit("clarify"), lit("change")])),
+    body: opt(str()),
+    reason: opt(str()),
+    outcome: opt(union([lit("completed"), lit("cancelled"), lit("superseded")])),
+    runsSettled: opt(bool()),
+    applyPending: opt(bool()),
+    withdrawPending: opt(bool()),
+    expectPending: opt(str()),
+    nonEquivalent: opt(bool()),
   },
-  { additionalProperties: false },
 );
 
-export const ContextToolSchema = Type.Object(
+export const ContextToolSchema = obj(
   {
-    taskId: Type.String({ minLength: 1 }),
-    role: Type.Optional(Type.Union([Type.Literal("implement"), Type.Literal("check"), Type.Literal("advisory")])),
+    taskId: str({ minLength: 1 }),
+    role: opt(union([lit("implement"), lit("check"), lit("advisory")])),
   },
-  { additionalProperties: false },
 );
 
-export const RunToolSchema = Type.Object(
+export const RunToolSchema = obj(
   {
-    action: Type.Union([
-      Type.Literal("implement"),
-      Type.Literal("check"),
-      Type.Literal("advisory"),
-      Type.Literal("status"),
-      Type.Literal("list"),
-      Type.Literal("resume"),
-      Type.Literal("cancel"),
+    action: union([
+      lit("implement"),
+      lit("check"),
+      lit("advisory"),
+      lit("status"),
+      lit("list"),
+      lit("resume"),
+      lit("cancel"),
     ]),
-    taskId: Type.Optional(Type.String({ minLength: 1 })),
-    runId: Type.Optional(Type.String({ minLength: 1 })),
-    mode: Type.Optional(Type.Union([Type.Literal("discuss"), Type.Literal("deliver")])),
-    scope: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    provider: Type.Optional(Type.String({ minLength: 1 })),
-    model: Type.Optional(Type.String({ minLength: 1 })),
-    resumeSession: Type.Optional(Type.String({ minLength: 1 })),
-    newRepairCycle: Type.Optional(Type.Boolean()),
-    wait: Type.Optional(Type.Boolean()),
-    reason: Type.Optional(Type.String()),
+    taskId: opt(str({ minLength: 1 })),
+    runId: opt(str({ minLength: 1 })),
+    mode: opt(union([lit("discuss"), lit("deliver")])),
+    scope: opt(arr(str({ minLength: 1 }))),
+    provider: opt(str({ minLength: 1 })),
+    model: opt(str({ minLength: 1 })),
+    resumeSession: opt(str({ minLength: 1 })),
+    newRepairCycle: opt(bool()),
+    wait: opt(bool()),
+    reason: opt(str()),
   },
-  { additionalProperties: false },
 );
 
-export const DeliverToolSchema = Type.Object(
+export const DeliverToolSchema = obj(
   {
-    action: Type.Union([Type.Literal("deliver"), Type.Literal("archive"), Type.Literal("plan")]),
-    taskId: Type.Optional(Type.String({ minLength: 1 })),
-    taskIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
-    branch: Type.String({ pattern: "^refs/heads/.+" }),
-    authorizationRef: Type.Optional(Type.String()),
-    retry: Type.Optional(Type.Boolean()),
+    action: union([lit("deliver"), lit("archive"), lit("plan")]),
+    taskId: opt(str({ minLength: 1 })),
+    taskIds: opt(arr(str({ minLength: 1 }), { minItems: 1 })),
+    branch: str({ pattern: "^refs/heads/.+" }),
+    authorizationRef: opt(str()),
+    retry: opt(bool()),
   },
-  { additionalProperties: false },
 );
 
-export const StandardsToolSchema = Type.Object(
+export const StandardsToolSchema = obj(
   {
-    action: Type.Union([
-      Type.Literal("list"),
-      Type.Literal("propose"),
-      Type.Literal("review"),
-      Type.Literal("apply"),
-      Type.Literal("pending"),
+    action: union([
+      lit("list"),
+      lit("propose"),
+      lit("review"),
+      lit("apply"),
+      lit("pending"),
     ]),
-    taskId: Type.Optional(Type.String({ minLength: 1 })),
-    title: Type.Optional(Type.String()),
-    problem: Type.Optional(Type.String()),
-    evidence: Type.Optional(Type.String()),
-    scope: Type.Optional(Type.String()),
-    rule: Type.Optional(Type.String()),
-    verification: Type.Optional(Type.String()),
-    decision: Type.Optional(Type.Union([Type.Literal("applied"), Type.Literal("deferred"), Type.Literal("rejected"), Type.Literal("mixed")])),
-    reason: Type.Optional(Type.String()),
-    target: Type.Optional(Type.String()),
-    targets: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    candidateId: Type.Optional(Type.String()),
+    taskId: opt(str({ minLength: 1 })),
+    title: opt(str()),
+    problem: opt(str()),
+    evidence: opt(str()),
+    scope: opt(str()),
+    rule: opt(str()),
+    verification: opt(str()),
+    decision: opt(union([lit("applied"), lit("deferred"), lit("rejected"), lit("mixed")])),
+    reason: opt(str()),
+    target: opt(str()),
+    targets: opt(arr(str({ minLength: 1 }))),
+    candidateId: opt(str()),
   },
-  { additionalProperties: false },
 );
 
-export const SnapshotToolSchema = Type.Object(
+export const SnapshotToolSchema = obj(
   {
-    action: Type.Union([Type.Literal("show"), Type.Literal("restore")]),
-    runId: Type.String({ minLength: 1 }),
-    path: Type.Optional(Type.String({ minLength: 1 })),
-    paths: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    expect: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String({ minLength: 1 }))),
-    index: Type.Optional(Type.Boolean()),
-    removeCreated: Type.Optional(Type.Boolean()),
+    action: union([lit("show"), lit("restore")]),
+    runId: str({ minLength: 1 }),
+    path: opt(str({ minLength: 1 })),
+    paths: opt(arr(str({ minLength: 1 }))),
+    expect: opt(map(str({ minLength: 1 }))),
+    index: opt(bool()),
+    removeCreated: opt(bool()),
   },
-  { additionalProperties: false },
 );
 
-export const StatusToolSchema = Type.Object(
+export const StatusToolSchema = obj(
   {
-    taskId: Type.Optional(Type.String({ minLength: 1 })),
-    runId: Type.Optional(Type.String({ minLength: 1 })),
+    taskId: opt(str({ minLength: 1 })),
+    runId: opt(str({ minLength: 1 })),
   },
-  { additionalProperties: false },
 );
 
 /** 任务规划资料工具（DESIGN §3.4，任务045/048）：要求性内容变化仍须走 task update。 */
-export const MaterialToolSchema = Type.Object(
+export const MaterialToolSchema = obj(
   {
-    action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save"), Type.Literal("delete")]),
-    taskId: Type.String({ minLength: 1 }),
-    path: Type.Optional(Type.String({ minLength: 1 })),
-    content: Type.Optional(Type.String()),
-    expectDigest: Type.Optional(Type.String()),
+    action: union([lit("list"), lit("read"), lit("save"), lit("delete")]),
+    taskId: str({ minLength: 1 }),
+    path: opt(str({ minLength: 1 })),
+    content: opt(str()),
+    expectDigest: opt(str()),
   },
-  { additionalProperties: false },
 );
 
 export const BRIDGE_TOOL_SCHEMAS = {

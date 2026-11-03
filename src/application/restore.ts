@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, chmodSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import type { SnapshotEntry, SnapshotManifest } from "../contracts/run.js";
 import { RestoreRecordSchema, type RestorePathPlan, type RestorePathState, type RestoreRecord, type RestoreIndexState } from "../contracts/restore.js";
@@ -777,7 +777,7 @@ export class RestoreService {
   }
 
   private writeRecord(path: string, record: RestoreRecord): void {
-    if (!Value.Check(RestoreRecordSchema, record)) throw new InfrastructureError("io_error", "restore 记录结构不符");
+    if (!checkSchema(RestoreRecordSchema, record)) throw new InfrastructureError("io_error", "restore 记录结构不符");
     const version = readWithVersion(path);
     atomicWrite({
       path,

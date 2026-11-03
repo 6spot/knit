@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { randomBytes } from "node:crypto";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import { StageReportSchema, type StageReport } from "../contracts/run.js";
 import { PiAgentRuntime, isolatedEnv } from "../adapters/pi/runtime.js";
 import { parseStageReport } from "./stage.js";
@@ -204,7 +204,7 @@ export async function runInformalCheck(input: {
       const afterScope = scopeFingerprint(root, expanded.files.map((file) => file.path));
       let failureReason: string | null = null;
       if (!settled.settled) failureReason = "not_settled";
-      else if (parsed.error !== null || report === null || !Value.Check(StageReportSchema, report)) failureReason = "report_invalid";
+      else if (parsed.error !== null || report === null || !checkSchema(StageReportSchema, report)) failureReason = "report_invalid";
       else if (afterWorktree !== null && beforeWorktree !== null && afterWorktree.digest !== beforeWorktree.digest) failureReason = "check_side_effect";
       else if (JSON.stringify(afterScope) !== JSON.stringify(beforeScope)) failureReason = "check_scope_changed";
       const usage = usageDelta(before, after);

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { RunStateFileSchema, type RunResultFile, type RunStateFile } from "../contracts/run.js";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { LockManager, type AcquiredLock } from "../infrastructure/locks.js";
@@ -125,7 +125,7 @@ async function main(): Promise<number> {
   };
   const writeState = (next: RunStateFile): void => {
     const updated = { ...next, updatedAt: now() };
-    if (!Value.Check(RunStateFileSchema, updated)) {
+    if (!checkSchema(RunStateFileSchema, updated)) {
       throw new InfrastructureError("io_error", "worker state 结构不符");
     }
     state = updated;

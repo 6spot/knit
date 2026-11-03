@@ -2,7 +2,7 @@
  * 初始化清单 `.knit/.runtime/init-manifest.json`（OPERATIONS.md 第1节）。
  * preparing → ready/failed；逐项结果留证据；中断按清单继续；未知版本不降级。
  */
-import { Type, type Static } from "typebox";
+import { arr, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 
 export const MANIFEST_SCHEMA_VERSION = 1;
 
@@ -22,34 +22,36 @@ export interface ManifestItem {
   error?: string | null;
 }
 
-export const InitManifestSchema = Type.Object(
+export const InitManifestSchema = obj(
   {
-    schemaVersion: Type.Integer({ minimum: 1 }),
-    state: Type.Union([Type.Literal("preparing"), Type.Literal("ready"), Type.Literal("failed")]),
-    client: Type.String(),
+    schemaVersion: int({ minimum: 1 }),
+    state: union([lit("preparing"), lit("ready"), lit("failed")]),
+    client: str(),
     /** 模板基线版本（包版本）。 */
-    templateVersion: Type.String(),
-    startedAt: Type.String(),
-    updatedAt: Type.String(),
-    items: Type.Array(
-      Type.Object({
-        path: Type.String(),
-        ownership: Type.Union([Type.Literal("project"), Type.Literal("managed")]),
-        state: Type.Union([
-          Type.Literal("created"),
-          Type.Literal("kept"),
-          Type.Literal("updated"),
-          Type.Literal("conflict"),
-          Type.Literal("failed"),
-          Type.Literal("pending"),
-        ]),
-        currentSha256: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-        baselineSha256: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-        error: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-      }),
+    templateVersion: str(),
+    startedAt: str(),
+    updatedAt: str(),
+    items: arr(
+      obj(
+        {
+          path: str(),
+          ownership: union([lit("project"), lit("managed")]),
+          state: union([
+            lit("created"),
+            lit("kept"),
+            lit("updated"),
+            lit("conflict"),
+            lit("failed"),
+            lit("pending"),
+          ]),
+          currentSha256: opt(union([str(), nul()])),
+          baselineSha256: opt(union([str(), nul()])),
+          error: opt(union([str(), nul()])),
+        },
+        { open: true },
+      ),
     ),
   },
-  { additionalProperties: false },
 );
 
 export type InitManifest = Static<typeof InitManifestSchema>;

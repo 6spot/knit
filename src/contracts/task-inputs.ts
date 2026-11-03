@@ -3,35 +3,35 @@
  * schema 供 CLI 参数与文件结构校验；摘要函数供应用层核对本与草案。
  * 域转移裁决在 domain/task.ts，本模块不裁决业务允许性。
  */
-import { Type, type Static } from "typebox";
+import { lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { sha256Text } from "./digest.js";
 
-export const UpdateKindSchema = Type.Union([Type.Literal("clarify"), Type.Literal("change")]);
+export const UpdateKindSchema = union([lit("clarify"), lit("change")]);
 export type UpdateKind = Static<typeof UpdateKindSchema>;
 
-export const TaskStatusSchema = Type.Union([Type.Literal("open"), Type.Literal("closed")]);
+export const TaskStatusSchema = union([lit("open"), lit("closed")]);
 export type TaskStatus = Static<typeof TaskStatusSchema>;
 
-export const TaskPhaseSchema = Type.Union([
-  Type.Literal("discuss"),
-  Type.Literal("implement"),
-  Type.Literal("check"),
-  Type.Literal("deliver"),
+export const TaskPhaseSchema = union([
+  lit("discuss"),
+  lit("implement"),
+  lit("check"),
+  lit("deliver"),
 ]);
 export type TaskPhase = Static<typeof TaskPhaseSchema>;
 
-export const TaskOutcomeSchema = Type.Union([
-  Type.Literal("completed"),
-  Type.Literal("cancelled"),
-  Type.Literal("superseded"),
+export const TaskOutcomeSchema = union([
+  lit("completed"),
+  lit("cancelled"),
+  lit("superseded"),
 ]);
 export type TaskOutcome = Static<typeof TaskOutcomeSchema>;
 
 /** 任务完成所需的验证强度；none 只可由用户明确选择。 */
-export const VerificationModeSchema = Type.Union([
-  Type.Literal("none"),
-  Type.Literal("self"),
-  Type.Literal("independent"),
+export const VerificationModeSchema = union([
+  lit("none"),
+  lit("self"),
+  lit("independent"),
 ]);
 export type VerificationMode = Static<typeof VerificationModeSchema>;
 
@@ -43,19 +43,18 @@ export function verificationModeOf(frontmatter: { verification?: VerificationMod
 }
 
 /** frontmatter：最小元信息（DESIGN.md 第3.1节）；branch 为完整本地引用或 null。 */
-export const TaskFrontmatterSchema = Type.Object(
+export const TaskFrontmatterSchema = obj(
   {
-    id: Type.String({ pattern: "^k-[0-9a-f]{12}$" }),
+    id: str({ pattern: "^k-[0-9a-f]{12}$" }),
     status: TaskStatusSchema,
     phase: TaskPhaseSchema,
-    outcome: Type.Union([TaskOutcomeSchema, Type.Null()]),
-    branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    outcome: union([TaskOutcomeSchema, nul()]),
+    branch: union([str({ minLength: 1 }), nul()]),
     /** 完成验证要求；旧记录缺省按 independent 兼容。 */
-    verification: Type.Optional(VerificationModeSchema),
-    createdAt: Type.String({ minLength: 1 }),
-    title: Type.String({ minLength: 1 }),
+    verification: opt(VerificationModeSchema),
+    createdAt: str({ minLength: 1 }),
+    title: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type TaskFrontmatter = Static<typeof TaskFrontmatterSchema>;
 

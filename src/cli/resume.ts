@@ -8,7 +8,7 @@ import { RunAcceptanceService } from "../application/run-acceptance.js";
 import { DeliveryService } from "../application/delivery-service.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { DeliveryRecordSchema, type DeliveryRecord } from "../contracts/delivery.js";
-import { Value } from "typebox/value";
+import { checkSchema } from "../contracts/schema.js";
 import { GuardError } from "../application/guard-error.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
@@ -49,7 +49,7 @@ export function registerResumeCommands(program: Command): void {
           if (operation === null) throw new GuardError("unknown_operation", `操作不存在: ${operationId}`);
           if (operation.kind === "delivery.deliver" || operation.kind === "delivery.archive") {
             const record = operation as DeliveryRecord;
-            if (!Value.Check(DeliveryRecordSchema, record)) throw new GuardError("operation_unsupported", "交付操作记录不完整，不能自动恢复");
+            if (!checkSchema(DeliveryRecordSchema, record)) throw new GuardError("operation_unsupported", "交付操作记录不完整，不能自动恢复");
             const service = new DeliveryService({ store, locks: new LockManager(options.locks === undefined ? {} : { root: options.locks }) });
             const result = record.mode === "deliver"
               ? await service.deliver({ dir: options.dir, taskId: record.taskId, branch: record.branch, authorizationRef: record.authorizationRef, caller: record.caller, retry: true })

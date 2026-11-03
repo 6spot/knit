@@ -7,12 +7,12 @@
 | 层面 | 首版选择 | 原因与约束 |
 | --- | --- | --- |
 | 运行时 | Node.js 24 LTS 的维护补丁版 | Knit 自身的长期基线；Pi 为独立已安装进程，按客户端自身支持环境运行；本机 Node25 实验不算 Node24 验收 |
-| 语言与模块 | TypeScript 6.0.3，strict，ESM／NodeNext | Knit 自身的类型与构建选择，协议从 schema 推导；不由 Pi 内部 TypeBox／编译器版本决定 |
+| 语言与模块 | TypeScript 6.0.3，strict，ESM／NodeNext | Knit 自身的类型与构建选择，协议从 schema 推导；不随 Pi 内部依赖与编译器版本切换 |
 | 打包形态 | 单 npm 包，bin 为 knit，CLI 与 worker 两个内部入口 | 不拆多包、守护进程或服务；运行所需代码随自身安装 |
 | 构建 | tsc 输出 JS 和声明，模板作为包资源 | 不打包或导入 Pi 运行时；不要求用户项目装编译器 |
 | 包管理 | npm + package-lock，CI 用 npm ci | 单包足够，锁定可复现依赖，不增加 workspace 管理工具 |
 | CLI | Commander 15.0.0 | 子命令、参数、help 和错误输出复用成熟实现；不自行写整套参数解析器 |
-| 协议／schema | typebox 1.3.27 | 同源类型、JSON schema 和运行时校验，已有内存往返实验；选择独立于 Pi 的依赖，不混入 0.34.x 旧 API |
+| 协议／schema | @earendil-works/pi-schema 1.5.0 | 构建器产出纯 JSON schema，`Static` 推导类型，`compile` 提供无 eval 运行时校验；与 Pi 1.5 使用同一 schema 包，但按 Knit 自身锁文件固定版本 |
 | Markdown 数据 | YAML 2.9.0 Document + 受管区解析 | 保留未知业务字段与注释；只编辑明确区域，不引整套 Markdown 渲染框架 |
 | 本机存储 | M0 选定 SQLite（WAL + 短事务）；文件仓储仅作比较实验 | 重点比较 Session/binding/operation 的事务与恢复成本；Markdown、原生历史与大产物仍按各自边界保存 |
 | 状态实现 | 判别联合、纯决定函数、显式效果执行器 | 以持久事实为准；文档状态表与转移测试逐项对应 |
@@ -41,7 +41,7 @@ schema 采用上述精确版本，其他直接依赖在 M0 建立 lockfile 时�
 
 领域类型使用判别联合并穷尽匹配。命令／文件先由同源 schema 检验，再进入状态守卫，不能把 TypeScript 编译通过当作外部 JSON 已可信。
 
-使用 typebox 包的锁定版本导出，M0 验证 Compile 与 JSON 序列化 schema；不照抄旧 @sinclair/typebox 0.34 或未来文档的子路径。桥接内嵌同源 JSON schema，仅用宿主公开类型／基础 API，不解析用户项目 node_modules 中的 Knit 依赖。核心重新校验，不能只信任原生工具验证。
+schema 统一由 @earendil-works/pi-schema 的锁定版本构建，产物是纯 JSON Schema，可直接序列化给桥接、CLI 或测试；不照抄其它 schema 库的旧 API 或子路径。pi-schema 的 `obj()` 默认关闭对象，迁移前开放的契约对象显式 `open: true`，显式关闭的保持关闭，避免校验行为随库的默认值改变。桥接内嵌安装包生成的同源 JSON schema，仅用宿主公开类型／基础 API，不解析用户项目 node_modules 中的 Knit 依赖。核心重新校验，不能只信任原生工具验证。
 
 配置 schema 拒绝未知执行选项和任意代码路径；Task 允许已约定的扩展业务字段，但不允许重复 YAML 键、自定义可执行标签或不受限别名展开。解析错误时只读报告，不能写回损坏文档。保留原有正文／注释是目标，不能声称 YAML 重序列化可做到字节完全不变。
 
@@ -92,7 +92,7 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 | 验证 | 必须观察到的结果 |
 | --- | --- |
 | 项目扩展加载／reload | init 产物能加载与重载，工具及真实 Session／有效路径可读，旧监听不重复、未 ready 不处理操作；宿主准入已验证（受信自动加载、reload 不重复、发现只认 .ts/.js），见 [host-admission](../../validation/host-admission/README.md) |
-| 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；TypeBox 自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](../../validation/host-admission/README.md) |
+| 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；schema 构建与自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](../../validation/host-admission/README.md) |
 | 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品桥接链路已在 015 验收，见 [host-admission](../../validation/host-admission/README.md) |
 | 当前模型与子 worker | 获取原生实际模型，受控子资源配置仍能解析所选模型／鉴权；不可用显式阻塞，不静默换模型 |
 | 回合之外投递 | 完成回调发生在原调用回合之外，消息真正到达匹配的原 Session／路径，不能投给后来切换的上下文 |
@@ -106,7 +106,7 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 
 ## 7. 已核查与未验证
 
-本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](../../validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](../../validation/host-admission/README.md)。TypeBox1.3.27 的 JSON 往返内存实验仍只证明 schema 校验，不决定 Pi 的接入方式。
+本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](../../validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](../../validation/host-admission/README.md)。迁移前的 schema JSON 往返内存实验（历史记录保留 typebox 原值）仍只证明 schema 校验，不决定 Pi 的接入方式。
 
 本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](../history/tasks/001-engineering-baseline.md)）；后续 006–025 已补齐 init、Task、阶段、数据保护、交付与查询并通过 Linux 候选验收。上述 Pi CLI 1.4.0 实验本身不替代完整业务链路验收；存储对比已完成（[任务004](../history/tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](../../validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
 

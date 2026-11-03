@@ -320,13 +320,14 @@ test("--dev：stdout 仍是单一协议响应，诊断只写 stderr 且白名单
   }
 });
 
-test("桥接 schema 由同源 TypeBox 定义派生，模板读取安装包内 JSON", () => {
+test("桥接 schema 由同源 pi-schema 定义派生，模板读取安装包内 JSON", () => {
   const derived = JSON.parse(readFileSync(join(ROOT, "dist", "contracts", "bridge-tools.json"), "utf8"));
   for (const [name, schema] of Object.entries(BRIDGE_TOOL_SCHEMAS)) {
     assert.deepEqual(derived[name], JSON.parse(JSON.stringify(schema)), `schema 同源: ${name}`);
   }
   const template = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
   assert.match(template, /bridge-tools\.json/);
+  assert.doesNotMatch(template, /typebox/i);
   assert.match(template, /knit_task/);
   assert.match(template, /knit_run/);
   assert.match(template, /knit_deliver/);

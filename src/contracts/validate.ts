@@ -1,5 +1,5 @@
 import { CliResponseSchema } from "./protocol.js";
-import { Value } from "typebox/value";
+import { checkSchema, schemaErrors } from "./schema.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 
 /**
@@ -20,14 +20,12 @@ export function validateCliResponse(value: unknown): ResponseValidation {
   ) {
     return { ok: false, reason: "incompatible_version" };
   }
-  if (Value.Check(CliResponseSchema, value)) {
+  if (checkSchema(CliResponseSchema, value)) {
     return { ok: true };
   }
   return {
     ok: false,
     reason: "invalid_request",
-    problems: [...Value.Errors(CliResponseSchema, value)].map(
-      (e) => `${("path" in e && typeof e.path === "string" ? e.path : "") || "(root)"}: ${e.message}`,
-    ),
+    problems: [...schemaErrors(CliResponseSchema, value)].map((e) => `${e.path || "(root)"}: ${e.message}`),
   };
 }

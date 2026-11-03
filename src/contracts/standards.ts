@@ -3,7 +3,7 @@
  * 候选保存为任务辅助资料 standards.md 的标记块；回执保存于元数据短事务。
  * 程序只机械核对候选摘要、分支与决定，不判断规则语义。
  */
-import { Type, type Static } from "typebox";
+import { arr, lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
 import { sha256Text } from "./digest.js";
 
 export const CANDIDATE_START_PREFIX = "<!-- knit:candidate:start id=";
@@ -11,50 +11,48 @@ export const CANDIDATE_END = "<!-- knit:candidate:end -->";
 
 const CANDIDATE_ID = /^c-[0-9a-f]{12}$/;
 
-export const StandardsCandidateSchema = Type.Object(
+export const StandardsCandidateSchema = obj(
   {
-    candidateId: Type.String({ pattern: "^c-[0-9a-f]{12}$" }),
-    title: Type.String({ minLength: 1 }),
+    candidateId: str({ pattern: "^c-[0-9a-f]{12}$" }),
+    title: str({ minLength: 1 }),
     /** 发现的问题／缺口。 */
-    problem: Type.String({ minLength: 1 }),
-    evidence: Type.String(),
-    scope: Type.String(),
+    problem: str({ minLength: 1 }),
+    evidence: str(),
+    scope: str(),
     /** 建议规则正文；采纳时按此机械追加到目标规范。 */
-    rule: Type.String({ minLength: 1 }),
-    verification: Type.String(),
+    rule: str({ minLength: 1 }),
+    verification: str(),
     /** 本候选块的版本摘要；正文变化即变化。 */
-    digest: Type.String({ minLength: 1 }),
+    digest: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type StandardsCandidate = Static<typeof StandardsCandidateSchema>;
 
-export const StandardsReviewDecisionSchema = Type.Union([
-  Type.Literal("applied"),
-  Type.Literal("deferred"),
-  Type.Literal("rejected"),
-  Type.Literal("mixed"),
+export const StandardsReviewDecisionSchema = union([
+  lit("applied"),
+  lit("deferred"),
+  lit("rejected"),
+  lit("mixed"),
 ]);
 export type StandardsReviewDecision = Static<typeof StandardsReviewDecisionSchema>;
 
-export const StandardsReviewSchema = Type.Object(
+export const StandardsReviewSchema = obj(
   {
-    reviewId: Type.String({ pattern: "^r-[0-9a-f]{12}$" }),
-    taskId: Type.String({ minLength: 1 }),
+    reviewId: str({ pattern: "^r-[0-9a-f]{12}$" }),
+    taskId: str({ minLength: 1 }),
     /** 审阅时的任务分支；null 与 null 匹配。 */
-    branch: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    branch: union([str({ minLength: 1 }), nul()]),
     /** 候选集合摘要：按候选 ID 排序的 id:digest。 */
-    candidateDigest: Type.String({ minLength: 1 }),
+    candidateDigest: str({ minLength: 1 }),
     decision: StandardsReviewDecisionSchema,
-    reason: Type.String({ minLength: 1 }),
+    reason: str({ minLength: 1 }),
     /** 采纳／混合时指向的正式规范路径（项目相对，正斜杠）。 */
-    targets: Type.Array(Type.String({ minLength: 1 })),
+    targets: arr(str({ minLength: 1 })),
     /** 本次审阅覆盖的候选 ID。 */
-    candidateIds: Type.Array(Type.String({ minLength: 1 })),
-    operationId: Type.String({ minLength: 1 }),
-    recordedAt: Type.String({ minLength: 1 }),
+    candidateIds: arr(str({ minLength: 1 })),
+    operationId: str({ minLength: 1 }),
+    recordedAt: str({ minLength: 1 }),
   },
-  { additionalProperties: false },
 );
 export type StandardsReview = Static<typeof StandardsReviewSchema>;
 

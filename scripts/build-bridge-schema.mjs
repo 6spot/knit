@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 从编译后的同源 TypeBox schema 派生桥接 JSON schema；不手写第二份定义。 */
+/** 从编译后的同源 pi-schema 定义派生桥接 JSON schema；不手写第二份定义。 */
 import { chmodSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
