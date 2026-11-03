@@ -9,7 +9,6 @@ import {
   chmodSync,
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync, realpathSync,
   readdirSync,
@@ -225,7 +224,13 @@ test("快照保存 tracked/index/untracked、模式与缺失起点，排除 igno
     const snapshotFile = join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "snapshot", "files");
     assert.equal(readFileSync(join(snapshotFile, "README.md"), "utf8"), "# changed\n");
     assert.equal(readFileSync(join(snapshotFile, "untracked.txt"), "utf8"), "untracked\n");
-    assert.equal(lstatSync(join(snapshotFile, "symlink")).isSymbolicLink(), true);
+    // 与 HEAD 同内容的 tracked 文件／链接只记基线引用，不再复制副本。
+    assert.equal(result.manifest.schemaVersion, 2);
+    assert.equal(byPath.get("symlink").source, "head");
+    assert.equal(existsSync(join(snapshotFile, "symlink")), false);
+    assert.equal(byPath.get("script.sh").source, "head");
+    assert.equal(existsSync(join(snapshotFile, "script.sh")), false);
+    assert.ok(result.manifest.savedBytes > 0);
     assert.equal(result.manifest.counts.absent, 1);
     // 重复创建幂等，不重建。
     const again = new SnapshotService().create({ root: dir, runId: prepared.request.runId });
@@ -243,6 +248,8 @@ test("快照超限或 Git 覆盖未知时 failed，不产生 ready", async () =>
     writeFileSync(join(dir, "big.txt"), "x".repeat(4096));
     git(dir, ["add", "big.txt"]);
     git(dir, ["commit", "-q", "-m", "big"]);
+    // 与 HEAD 不同才按实际字节计费；同内容引用基线不受上限影响。
+    writeFileSync(join(dir, "big.txt"), "y".repeat(4096));
     const task = await readyTask(dir, s, "limit task");
     const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId));
     const tooLarge = new SnapshotService().create({ root: dir, runId: prepared.request.runId, maxBytes: 100 });

@@ -2,10 +2,16 @@
  * 实施前快照（DESIGN.md 第5.6节；M1 基本完整，逐路径恢复强化归 016）。
  * 保存 tracked 工作区与 index 层、未忽略 untracked、模式与指纹、缺失路径。
  * 覆盖不完整或超限时 manifest 置 failed，不能当作 ready。
+ *
+ * HEAD 基线去重：tracked 文件／符号链接的内容若与 `HEAD:<path>` 的 blob 字节完全一致
+ * （git blob SHA-1 相同），只记 `source:"head"` 与 `headOid`，不写 files/ 副本；
+ * index blob 与 HEAD 树 OID 相同时记 `indexSource:"head"` 与 `indexHeadOid`。
+ * 引用按记录时的 OID 恢复，不依赖恢复时的 HEAD。约束：快照只引用 Git 对象，
+ * 这些 blob 被 GC／prune 清除后恢复必须报 snapshot_baseline_unavailable；
+ * 不得在仍需恢复的快照上执行 reflog expire／gc --prune=now。本任务不自动 GC。
  */
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -18,7 +24,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { SnapshotEntry, SnapshotManifest } from "../contracts/run.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { gitBufferSync, gitSync } from "../infrastructure/process.js";
@@ -26,8 +32,9 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 
 /**
- * 快照内容总量上限（tracked 工作区文件＋与工作区不同的 index blob＋未忽略 untracked 文件），
- * 不是单文件上限；超出即 snapshot_too_large，不悄悄降级。
+ * 快照内容总量上限（实际写入快照目录的 tracked 工作区内容＋与工作区不同的 index blob＋
+ * 未忽略 untracked 文件），不是单文件上限；引用 HEAD 基线的字节不计费，记入 savedBytes。
+ * 超出即 snapshot_too_large，不悄悄降级。
  */
 export const DEFAULT_MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 const RUNTIME_PREFIX = ".knit/.runtime/";
@@ -53,6 +60,39 @@ interface IndexEntry {
   mode: number;
   oid: string;
   path: string;
+}
+
+interface HeadEntry {
+  mode: number;
+  kind: "file" | "symlink" | "submodule";
+  oid: string;
+}
+
+/** git blob 对象 ID：`sha1("blob " + len + "\0" + bytes)`，与工作区／index 字节直接比较。 */
+function gitBlobSha1(data: Buffer): string {
+  return createHash("sha1").update(`blob ${data.length}\0`).update(data).digest("hex");
+}
+
+function headKind(mode: number): HeadEntry["kind"] {
+  if (mode === 0o120000) return "symlink";
+  if (mode === 0o160000) return "submodule";
+  return "file";
+}
+
+/** `git ls-tree -r -z HEAD`：路径 → 基线 blob。解析失败或路径异常时保守地不引用基线。 */
+function parseHeadTree(stdout: string): Map<string, HeadEntry> {
+  const result = new Map<string, HeadEntry>();
+  for (const record of stdout.split("\0")) {
+    if (record === "") continue;
+    const tab = record.indexOf("\t");
+    if (tab < 0) continue;
+    const [rawMode, type, oid] = record.slice(0, tab).split(" ");
+    if (rawMode === undefined || type === undefined || oid === undefined) continue;
+    if (type !== "blob" && type !== "commit") continue;
+    const mode = Number.parseInt(rawMode, 8);
+    result.set(record.slice(tab + 1), { mode, kind: headKind(mode), oid });
+  }
+  return result;
 }
 
 function parseIndex(stdout: string): { entries: IndexEntry[]; unmerged: boolean } {
@@ -121,7 +161,7 @@ export class SnapshotService {
 
     const finish = (state: "ready" | "failed", reason: string | null, manifest: Omit<SnapshotManifest, "state" | "reason" | "createdAt" | "runId" | "schemaVersion" | "maxBytes" | "digest"> & { digest?: string }): SnapshotResult => {
       const base = {
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         runId: input.runId,
         state,
         createdAt,
@@ -145,6 +185,12 @@ export class SnapshotService {
     const branch = this.git(["symbolic-ref", "--short", "-q", "HEAD"], root);
     const baseAbsent = head.code !== 0;
     const baseHead = head.code === 0 ? head.stdout.trim() : null;
+    // 一次读取 HEAD 树作为基线映射；无 HEAD 或读取失败时只做全量副本（保守降级，不影响可恢复性）。
+    let headTree = new Map<string, HeadEntry>();
+    if (!baseAbsent) {
+      const tree = this.git(["ls-tree", "-r", "-z", "HEAD"], root);
+      if (tree.code === 0) headTree = parseHeadTree(tree.stdout);
+    }
 
     const index = this.git(["ls-files", "-s", "-z"], root);
     if (index.code !== 0) {
@@ -171,7 +217,9 @@ export class SnapshotService {
 
     const entries: SnapshotEntry[] = [];
     const indexBytes = new Map<string, Buffer>();
+    const indexOids = new Map<string, string>();
     let bytes = 0;
+    let savedBytes = 0;
     let worktreeOk = true;
     const sortedIndex = [...parsedIndex.entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     for (const item of sortedIndex) {
@@ -188,6 +236,7 @@ export class SnapshotService {
           });
         }
         indexBytes.set(item.path, blob.stdout);
+        indexOids.set(item.path, item.oid);
       }
     }
     for (const item of sortedIndex) {
@@ -212,23 +261,40 @@ export class SnapshotService {
       }
       if (stat.isSymbolicLink()) {
         const linkTarget = readlinkSync(absolute);
+        const data = Buffer.from(linkTarget, "utf8");
         const digest = sha256Text(linkTarget);
-        this.copySymlink(tmp, item.path, linkTarget);
-        entries.push({ path: item.path, layer: "tracked", kind: "symlink", mode: 0o120000, size: stat.size, digest, linkTarget, absent: false, indexOid: item.oid });
-      } else if (stat.isFile()) {
-        bytes += stat.size;
-        if (bytes > maxBytes) {
-          return finish("failed", "snapshot_too_large", {
-            base: { head: baseHead, branch: branch.code === 0 ? branch.stdout.trim() : null, absent: baseAbsent },
-            coverage: { tracked: true, index: true, untracked: untracked.code === 0, worktree: true },
-            entries,
-            counts: { tracked: entries.length, untracked: 0, absent: entries.filter((entry) => entry.absent).length },
-            bytes,
-          });
+        const base = headTree.get(item.path);
+        const referenced = base !== undefined && base.kind === "symlink" && gitBlobSha1(data) === base.oid;
+        if (referenced) {
+          // 符号链接原本不按内容字节计费，引用只省略副本，不增加 savedBytes。
+          entries.push({ path: item.path, layer: "tracked", kind: "symlink", mode: 0o120000, size: stat.size, digest, linkTarget, absent: false, indexOid: item.oid, source: "head", headOid: base.oid });
+        } else {
+          this.copySymlink(tmp, item.path, linkTarget);
+          entries.push({ path: item.path, layer: "tracked", kind: "symlink", mode: 0o120000, size: stat.size, digest, linkTarget, absent: false, indexOid: item.oid });
         }
-        const digest = sha256Bytes(readFileSync(absolute));
-        this.copyFile(tmp, item.path, absolute, stat.mode & 0o111 ? 0o100755 : 0o100644);
-        entries.push({ path: item.path, layer: "tracked", kind: "file", mode: modeOf("file", (stat.mode & 0o111) !== 0), size: stat.size, digest, linkTarget: null, absent: false, indexOid: item.oid });
+      } else if (stat.isFile()) {
+        const data = readFileSync(absolute);
+        const digest = sha256Bytes(data);
+        const base = headTree.get(item.path);
+        const referenced = base !== undefined && base.kind === "file" && gitBlobSha1(data) === base.oid;
+        if (referenced) {
+          savedBytes += data.length;
+          entries.push({ path: item.path, layer: "tracked", kind: "file", mode: modeOf("file", (stat.mode & 0o111) !== 0), size: stat.size, digest, linkTarget: null, absent: false, indexOid: item.oid, source: "head", headOid: base.oid });
+        } else {
+          bytes += data.length;
+          if (bytes > maxBytes) {
+            return finish("failed", "snapshot_too_large", {
+              base: { head: baseHead, branch: branch.code === 0 ? branch.stdout.trim() : null, absent: baseAbsent },
+              coverage: { tracked: true, index: true, untracked: untracked.code === 0, worktree: true },
+              entries,
+              counts: { tracked: entries.length, untracked: 0, absent: entries.filter((entry) => entry.absent).length },
+              bytes,
+              savedBytes,
+            });
+          }
+          this.copyFile(tmp, item.path, data);
+          entries.push({ path: item.path, layer: "tracked", kind: "file", mode: modeOf("file", (stat.mode & 0o111) !== 0), size: stat.size, digest, linkTarget: null, absent: false, indexOid: item.oid });
+        }
       } else if (stat.isDirectory()) {
         entries.push({ path: item.path, layer: "tracked", kind: "submodule", mode: 0o160000, size: null, digest: null, linkTarget: null, absent: false, indexOid: item.oid });
       } else {
@@ -249,6 +315,16 @@ export class SnapshotService {
       }
       const indexDigest = sha256Bytes(bytesForIndex);
       entry.indexDigest = indexDigest;
+      const indexOid = indexOids.get(entry.path);
+      const base = headTree.get(entry.path);
+      if (base !== undefined && base.kind !== "submodule" && indexOid !== undefined && base.oid === indexOid) {
+        // index blob 与 HEAD 树对象相同：按 OID 引用，不写 index/ 副本。
+        entry.indexSource = "head";
+        entry.indexHeadOid = indexOid;
+        // 与工作区副本同字节时旧实现也不另存 index；否则这些字节本应计入 bytes。
+        if (!(indexDigest === entry.digest && entry.kind === "file")) savedBytes += bytesForIndex.length;
+        continue;
+      }
       if (indexDigest === entry.digest && entry.kind === "file") continue;
       bytes += bytesForIndex.length;
       if (bytes > maxBytes) {
@@ -258,6 +334,7 @@ export class SnapshotService {
           entries,
           counts: { tracked: entries.length, untracked: 0, absent: entries.filter((item) => item.absent).length },
           bytes,
+          savedBytes,
         });
       }
       this.copyIndexFile(tmp, entry.path, bytesForIndex);
@@ -278,7 +355,8 @@ export class SnapshotService {
         this.copySymlink(tmp, path, linkTarget);
         untrackedEntries.push({ path, layer: "untracked", kind: "symlink", mode: 0o120000, size: stat.size, digest: sha256Text(linkTarget), linkTarget, absent: false, indexOid: null, indexDigest: null });
       } else if (stat.isFile()) {
-        bytes += stat.size;
+        const data = readFileSync(absolute);
+        bytes += data.length;
         if (bytes > maxBytes) {
           return finish("failed", "snapshot_too_large", {
             base: { head: baseHead, branch: branch.code === 0 ? branch.stdout.trim() : null, absent: baseAbsent },
@@ -286,10 +364,11 @@ export class SnapshotService {
             entries: [...entries, ...untrackedEntries],
             counts: { tracked: entries.length, untracked: untrackedEntries.length, absent: entries.filter((entry) => entry.absent).length },
             bytes,
+            savedBytes,
           });
         }
-        this.copyFile(tmp, path, absolute, (stat.mode & 0o111) !== 0 ? 0o100755 : 0o100644);
-        untrackedEntries.push({ path, layer: "untracked", kind: "file", mode: modeOf("file", (stat.mode & 0o111) !== 0), size: stat.size, digest: sha256Bytes(readFileSync(absolute)), linkTarget: null, absent: false, indexOid: null, indexDigest: null });
+        this.copyFile(tmp, path, data);
+        untrackedEntries.push({ path, layer: "untracked", kind: "file", mode: modeOf("file", (stat.mode & 0o111) !== 0), size: stat.size, digest: sha256Bytes(data), linkTarget: null, absent: false, indexOid: null, indexDigest: null });
       }
     }
 
@@ -307,6 +386,7 @@ export class SnapshotService {
       entries: all,
       counts: { tracked: entries.length, untracked: untrackedEntries.length, absent: entries.filter((entry) => entry.absent).length },
       bytes,
+      savedBytes,
       digest: sha256Text(
         JSON.stringify({
           base: baseHead,
@@ -317,12 +397,10 @@ export class SnapshotService {
     });
   }
 
-  private copyFile(tmp: string, path: string, source: string, mode: number): void {
+  private copyFile(tmp: string, path: string, data: Buffer): void {
     const destination = join(tmp, "files", path);
     mkdirSync(join(destination, ".."), { recursive: true, mode: 0o700 });
-    copyFileSync(source, destination);
-    chmodSync(destination, 0o600);
-    void mode; // 模式保存在 manifest；快照副本自身保持私有可读。
+    writeFileSync(destination, data, { mode: 0o600 });
   }
 
   private copySymlink(tmp: string, path: string, target: string): void {

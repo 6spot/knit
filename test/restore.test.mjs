@@ -67,8 +67,9 @@ function project(prefix) {
   return dir;
 }
 
-async function snapshotFixture(prefix) {
+async function snapshotFixture(prefix, setup) {
   const dir = project(prefix);
+  if (setup !== undefined) setup(dir);
   const store = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
   const locks = new LockManager({ root: join(dir, ".locks") });
   const tasks = new TaskService({ store, locks, randomHex });
@@ -92,6 +93,36 @@ async function snapshotFixture(prefix) {
 function cleanup(fixture) {
   fixture.store.close();
   rmSync(fixture.dir, { recursive: true, force: true });
+}
+
+/** 把 v2 manifest 降级成 v1 形状：补全副本、去除引用字段，模拟旧版快照。 */
+function downgradeToV1(dir, runId) {
+  const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+  const manifestPath = join(snapshotDir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  for (const entry of manifest.entries) {
+    if (entry.source === "head") {
+      const data = execFileSync("git", ["cat-file", "blob", entry.headOid], { cwd: dir });
+      const destination = join(snapshotDir, "files", entry.path);
+      mkdirSync(join(destination, ".."), { recursive: true });
+      if (entry.kind === "symlink") symlinkSync(data.toString("utf8"), destination);
+      else writeFileSync(destination, data);
+      delete entry.source;
+      delete entry.headOid;
+    }
+    if (entry.indexSource === "head") {
+      const data = execFileSync("git", ["cat-file", "blob", entry.indexHeadOid], { cwd: dir });
+      const destination = join(snapshotDir, "index", entry.path);
+      mkdirSync(join(destination, ".."), { recursive: true });
+      writeFileSync(destination, data);
+      delete entry.indexSource;
+      delete entry.indexHeadOid;
+    }
+  }
+  manifest.schemaVersion = 1;
+  delete manifest.savedBytes;
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  return manifest;
 }
 
 function fingerprint(dir, path) {
@@ -343,6 +374,175 @@ test("snapshot CLI：show／预览／--expect 执行保持 stdout 协议", async
     const bad = run(["snapshot", "restore", runId, "--path", "text.txt", "--expect", "file:bad"]);
     assert.equal(bad.code, 1);
     assert.equal(JSON.parse(bad.stdout).outcome, "error");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("HEAD 基线引用恢复：内容、模式与 index 均按记录 OID 还原", async () => {
+  const fixture = await snapshotFixture("baseline");
+  const { dir, restores, runId } = fixture;
+  try {
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    const manifest = JSON.parse(readFileSync(join(snapshotDir, "manifest.json"), "utf8"));
+    const readme = manifest.entries.find((entry) => entry.path === "README.md");
+    const text = manifest.entries.find((entry) => entry.path === "text.txt");
+    assert.equal(readme.source, "head");
+    assert.equal(readme.indexSource, "head");
+    assert.equal(existsSync(join(snapshotDir, "files", "README.md")), false, "HEAD 同内容不写 worktree 副本");
+    assert.equal(existsSync(join(snapshotDir, "index", "README.md")), false, "HEAD 同 OID 不写 index 副本");
+    assert.equal(text.source, "head", "工作区 text.txt 与 HEAD 同字节");
+    assert.equal(text.indexSource, undefined, "暂存内容与 HEAD 不同必须复制");
+    assert.equal(existsSync(join(snapshotDir, "index", "text.txt")), true);
+
+    writeFileSync(join(dir, "README.md"), "# later\n");
+    writeFileSync(join(dir, "text.txt"), "later worktree\n");
+    git(dir, ["add", "text.txt"]);
+    writeFileSync(join(dir, "text.txt"), "later worktree 2\n");
+    chmodSync(join(dir, "bin.sh"), 0o644);
+
+    const preview = restores.preview({ dir, runId, paths: ["README.md", "text.txt", "bin.sh"], index: true });
+    const expect = Object.fromEntries(preview.plans.map((item) => [item.path, item.current.fingerprint]));
+    const result = await restores.restore({ dir, runId, paths: ["README.md", "text.txt", "bin.sh"], index: true, expect });
+    assert.equal(result.state, "completed");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+    assert.equal(readFileSync(join(dir, "text.txt"), "utf8"), "base\n");
+    assert.equal(lstatSync(join(dir, "bin.sh")).mode & 0o111, 0o111, "模式来自 manifest，不依赖副本");
+    assert.equal(lstatSync(join(dir, "README.md")).mode & 0o111, 0);
+    const indexOid = (path) => git(dir, ["ls-files", "-s", "--", path]).trim().split(/\s+/)[1];
+    assert.equal(indexOid("README.md"), readme.indexOid);
+    assert.equal(indexOid("text.txt"), text.indexOid);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("amend 后 HEAD 变化但对象仍在：按快照记录 OID 恢复成功", async () => {
+  const fixture = await snapshotFixture("amend");
+  const { dir, restores, runId } = fixture;
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "runs", runId, "snapshot", "manifest.json"), "utf8"));
+    const readme = manifest.entries.find((entry) => entry.path === "README.md");
+    writeFileSync(join(dir, "README.md"), "# amended\n");
+    git(dir, ["add", "README.md"]);
+    git(dir, ["commit", "-q", "--amend", "--no-edit"]);
+    assert.notEqual(git(dir, ["rev-parse", "HEAD"]).trim(), manifest.base.head, "HEAD 必须已变化");
+    assert.equal(spawnSync("git", ["cat-file", "-e", readme.headOid], { cwd: dir }).status, 0, "旧 blob 仍存在");
+
+    writeFileSync(join(dir, "README.md"), "broken\n");
+    const preview = restores.preview({ dir, runId, paths: ["README.md"] });
+    const result = await restores.restore({
+      dir,
+      runId,
+      paths: ["README.md"],
+      expect: { "README.md": preview.plans[0].current.fingerprint },
+    });
+    assert.equal(result.state, "completed");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("基线对象被 reflog expire + gc 清除：报 snapshot_baseline_unavailable 且不部分恢复", async () => {
+  const fixture = await snapshotFixture("gc");
+  const { dir, restores, runId } = fixture;
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "runs", runId, "snapshot", "manifest.json"), "utf8"));
+    const readme = manifest.entries.find((entry) => entry.path === "README.md");
+    writeFileSync(join(dir, "README.md"), "# amended for gc\n");
+    git(dir, ["add", "README.md"]);
+    git(dir, ["commit", "-q", "--amend", "--no-edit"]);
+    git(dir, ["reflog", "expire", "--expire=now", "--all"]);
+    git(dir, ["gc", "--prune=now"]);
+    assert.notEqual(
+      spawnSync("git", ["cat-file", "-e", readme.headOid], { cwd: dir }).status,
+      0,
+      "旧 blob 必须已被清除",
+    );
+
+    writeFileSync(join(dir, "README.md"), "broken\n");
+    const preview = restores.preview({ dir, runId, paths: ["README.md"] });
+    await assert.rejects(
+      () =>
+        restores.restore({
+          dir,
+          runId,
+          paths: ["README.md"],
+          expect: { "README.md": preview.plans[0].current.fingerprint },
+        }),
+      (error) =>
+        error.details?.guardReason === "snapshot_baseline_unavailable" &&
+        error.message.includes("README.md"),
+    );
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "broken\n", "失败不留下部分恢复");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("v1 manifest（无 source 字段）按全量副本恢复，行为不变", async () => {
+  const fixture = await snapshotFixture("v1");
+  const { dir, restores, runId } = fixture;
+  try {
+    const manifest = downgradeToV1(dir, runId);
+    assert.equal(manifest.schemaVersion, 1);
+    assert.equal(manifest.savedBytes, undefined);
+    assert.equal(manifest.entries.some((entry) => "source" in entry || "indexSource" in entry), false);
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    assert.equal(existsSync(join(snapshotDir, "files", "README.md")), true);
+    assert.equal(existsSync(join(snapshotDir, "index", "README.md")), true);
+    assert.equal(new RunStore(dir).readSnapshot(runId).schemaVersion, 1);
+
+    writeFileSync(join(dir, "README.md"), "# later\n");
+    writeFileSync(join(dir, "text.txt"), "later index\n");
+    git(dir, ["add", "text.txt"]);
+    writeFileSync(join(dir, "text.txt"), "later worktree\n");
+    const preview = restores.preview({ dir, runId, paths: ["README.md", "text.txt"], index: true });
+    const expect = Object.fromEntries(preview.plans.map((item) => [item.path, item.current.fingerprint]));
+    const result = await restores.restore({ dir, runId, paths: ["README.md", "text.txt"], index: true, expect });
+    assert.equal(result.state, "completed");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+    assert.equal(readFileSync(join(dir, "text.txt"), "utf8"), "base\n");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("file↔symlink 类型变化不跨类型引用基线，恢复原类型", async () => {
+  const fixture = await snapshotFixture("types", (dir) => {
+    writeFileSync(join(dir, "switch"), "README.md");
+    symlinkSync("README.md", join(dir, "reverse"));
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-q", "-m", "types"]);
+    // 字节相同但类型对调：不能被误判为 HEAD 同类型基线。
+    rmSync(join(dir, "switch"));
+    symlinkSync("README.md", join(dir, "switch"));
+    rmSync(join(dir, "reverse"));
+    writeFileSync(join(dir, "reverse"), "README.md");
+  });
+  const { dir, restores, runId } = fixture;
+  try {
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    const manifest = JSON.parse(readFileSync(join(snapshotDir, "manifest.json"), "utf8"));
+    const byPath = new Map(manifest.entries.map((entry) => [entry.path, entry]));
+    assert.equal(byPath.get("switch").source, undefined);
+    assert.equal(byPath.get("reverse").source, undefined);
+    assert.equal(lstatSync(join(snapshotDir, "files", "switch")).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(snapshotDir, "files", "reverse")).isFile(), true);
+
+    rmSync(join(dir, "switch"));
+    writeFileSync(join(dir, "switch"), "broken\n");
+    rmSync(join(dir, "reverse"));
+    symlinkSync("elsewhere", join(dir, "reverse"));
+    const preview = restores.preview({ dir, runId, paths: ["switch", "reverse"] });
+    const expect = Object.fromEntries(preview.plans.map((item) => [item.path, item.current.fingerprint]));
+    const result = await restores.restore({ dir, runId, paths: ["switch", "reverse"], expect });
+    assert.equal(result.state, "completed");
+    assert.equal(lstatSync(join(dir, "switch")).isSymbolicLink(), true);
+    assert.equal(readlinkSync(join(dir, "switch")), "README.md");
+    assert.equal(lstatSync(join(dir, "reverse")).isFile(), true);
+    assert.equal(readFileSync(join(dir, "reverse"), "utf8"), "README.md");
   } finally {
     cleanup(fixture);
   }

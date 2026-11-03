@@ -58,6 +58,7 @@ export function reasonForError(error: unknown): ReasonCode {
     if (
       guard === "snapshot_not_ready" ||
       guard === "snapshot_index_unavailable" ||
+      guard === "snapshot_baseline_unavailable" ||
       guard === "remove_created_required" ||
       guard === "unsupported_path" ||
       guard === "task_closed" ||

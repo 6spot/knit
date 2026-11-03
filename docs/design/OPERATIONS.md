@@ -70,7 +70,9 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 每次正式 implement 的可信 worker 程序取得执行占用后，在 `.knit/.runtime/runs/<run-id>/snapshot/` 建立 preparing 对照，ready 后才调用阶段模型／写代码，失败保留 failed。占用由该执行者一直持有，不从 CLI 交接。保存仓库／分支、HEAD、index、脏路径、类型／模式、工作和暂存内容、未忽略的未跟踪内容及指纹；新增路径起点为不存在。前后核对源码、有效输入、HEAD 与 index，变化即重核。Task 记录在短锁内捕捉版本，后来的合法纯记录不会使快照准备反复失败。
 
-快照按文件完整拷贝：tracked 工作区内容、与工作区版本不同的 index blob 和未忽略的未跟踪内容都复制到 run 私有目录，不从 HEAD 去重，也不创建 `refs/knit/bases` 基线引用；与 HEAD 相同的内容引用基线、只存差异的 HEAD 策略是后续能力，尚未实现。快照不通过自动 stash 写入新的 Git 快照对象。快照默认上限 64 MiB 按快照内容总量计（tracked 工作区文件＋与工作区不同的 index blob＋未忽略 untracked 文件的字节数总和），不是单文件上限；超出或保存失败时阻塞实施并列出路径与处理选择，不悄悄降级为不完整快照。大仓库在缩减内容或调高 `limits.snapshotsMaxBytes` 前无法开始正式实施。快照先写入 `snapshot.tmp-*` 临时目录，完成后原子改名；重建（failed 或半成品重试）时先回收同 run 中断残留的临时目录。
+快照写入按内容去重（manifest schemaVersion 2）：tracked 工作区文件／符号链接的字节与 `HEAD:<path>` 的 blob 完全一致（Git blob SHA-1 相同）时只记 `source:"head"` 与 `headOid`，不复制到 `snapshot/files/`；index blob 与 HEAD 树 OID 相同时记 `indexSource:"head"` 与 `indexHeadOid`，不复制到 `snapshot/index/`。引用省略的字节记入 `savedBytes`，不计入 `bytes` 与上限。submodule、类型变化（file↔symlink）与未忽略 untracked 不引用，仍完整复制；没有 HEAD 的仓库也全量复制。manifest 兼容读取 schemaVersion 1：缺少这些字段即全量副本语义，恢复行为不变。快照不通过自动 stash 写入新的 Git 快照对象，也不创建 `refs/knit/bases` 基线引用；不隐式 stash，不改写工作区／index。快照默认上限 64 MiB 按实际保存内容计（tracked 工作区副本＋独立 index blob＋未忽略 untracked 文件），不是单文件上限；引用 HEAD 的字节不计费。超出或保存失败时阻塞实施并列出路径与处理选择，不悄悄降级为不完整快照。大仓库在缩减内容或调高 `limits.snapshotsMaxBytes` 前无法开始正式实施。快照先写入 `snapshot.tmp-*` 临时目录，完成后原子改名；重建（failed 或半成品重试）时先回收同 run 中断残留的临时目录。
+
+恢复 HEAD 基线引用时按 manifest 记录时的 OID 执行 `git cat-file blob` 并用原有 SHA-256 核对字节，不依赖恢复时的 HEAD（amend 后对象仍存在即可恢复）。`cat-file` 失败（例如对象已被 `git reflog expire`＋`gc --prune=now` 清除）报 `snapshot_baseline_unavailable`（含路径），不静默跳过、不部分恢复。因此快照只引用 blob OID：仍需恢复的快照不得 prune 其引用对象；本任务不开启自动 GC，清理策略归后续存储能力。
 
 任务源文件的直接修改默认排除 ignored 路径和嵌套仓库；确需修改的 ignored 文件先明确路径并纳入快照。已授权命令生成的缓存、依赖和构建输出记录为副作用，不承诺文件快照覆盖。子模块按独立项目处理，数据库和网络服务同样不在文件回退范围。运行目录使用本用户私有权限（目录 0700、文件 0600，或平台等价 ACL），快照、请求和原生记录不入 Git。
 

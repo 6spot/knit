@@ -207,31 +207,51 @@ function isTaskPath(path: string): boolean {
   return /^\.knit\/tasks\/(?:archive\/[0-9]{4}-[0-9]{2}\/)?[^/]+\/task\.md$/.test(path);
 }
 
+/** 不跟随符号链接的存在性检查：快照中的链接可能指向未复制的同目录文件（如 HEAD 引用）。 */
+function existsNoFollow(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readSnapshotEntryFile(snapshotDir: string, entry: SnapshotEntry): Buffer {
   if (entry.kind === "symlink") {
     const path = join(snapshotDir, "files", entry.path);
-    if (!existsSync(path)) throw new InfrastructureError("io_error", `快照符号链接缺失: ${entry.path}`);
+    if (!existsNoFollow(path)) throw new InfrastructureError("io_error", `快照符号链接缺失: ${entry.path}`);
     return Buffer.from(readlinkSync(path), "utf8");
   }
   const path = join(snapshotDir, "files", entry.path);
-  if (!existsSync(path)) throw new InfrastructureError("io_error", `快照文件缺失: ${entry.path}`);
+  if (!existsNoFollow(path)) throw new InfrastructureError("io_error", `快照文件缺失: ${entry.path}`);
   return readFileSync(path);
 }
 
-function validatedWorktreeBytes(snapshotDir: string, entry: SnapshotEntry): Buffer {
-  const data = readSnapshotEntryFile(snapshotDir, entry);
+/** 恢复 HEAD 基线引用：按记录时的 OID 取字节；对象被 GC 后必须报明确守卫错误。 */
+type BaselineReader = (oid: string, path: string) => Buffer;
+
+function baselineBytes(entry: SnapshotEntry, oid: string | undefined, readBaseline: BaselineReader): Buffer {
+  if (oid === undefined) throw new InfrastructureError("io_error", `快照基线引用缺少 OID: ${entry.path}`);
+  return readBaseline(oid, entry.path);
+}
+
+function validatedWorktreeBytes(snapshotDir: string, entry: SnapshotEntry, readBaseline: BaselineReader): Buffer {
+  const data = entry.source === "head" ? baselineBytes(entry, entry.headOid, readBaseline) : readSnapshotEntryFile(snapshotDir, entry);
   const digest = entry.kind === "symlink" ? sha256Text(data.toString("utf8")) : sha256Bytes(data);
   if (entry.digest !== digest) throw new InfrastructureError("io_error", `快照内容摘要不符: ${entry.path}`);
   return data;
 }
 
-function validatedIndexBytes(snapshotDir: string, entry: SnapshotEntry): Buffer {
+function validatedIndexBytes(snapshotDir: string, entry: SnapshotEntry, readBaseline: BaselineReader): Buffer {
   if (entry.indexDigest === undefined || entry.indexDigest === null) {
     throw new GuardError("snapshot_index_unavailable", `快照没有索引层内容: ${entry.path}`);
   }
   let data: Buffer;
-  if (entry.kind === "file" && entry.indexDigest === entry.digest) {
-    data = readSnapshotEntryFile(snapshotDir, entry);
+  if (entry.indexSource === "head") {
+    data = baselineBytes(entry, entry.indexHeadOid, readBaseline);
+  } else if (entry.kind === "file" && entry.indexDigest === entry.digest) {
+    data = validatedWorktreeBytes(snapshotDir, entry, readBaseline);
   } else if (entry.kind === "symlink" && entry.indexDigest === entry.digest) {
     data = Buffer.from(entry.linkTarget ?? "", "utf8");
   } else {
@@ -469,6 +489,15 @@ export class RestoreService {
     return result.code === 0 ? result.stdout.trim() : null;
   }
 
+  /** 恢复按快照记录的 OID 取基线内容；对象已被 GC 时明确失败，不静默跳过或部分恢复。 */
+  private readBaseline(root: string, oid: string, path: string): Buffer {
+    const result = this.gitBuffer(["cat-file", "blob", oid], root);
+    if (result.code !== 0) {
+      throw new GuardError("snapshot_baseline_unavailable", `快照基线 blob 不可用（对象可能已被 GC 清理）: ${path}`);
+    }
+    return result.stdout;
+  }
+
   private assertRepoAndBranch(root: string, manifest: SnapshotManifest, branch: string | null): void {
     const top = this.git(["rev-parse", "--show-toplevel"], root);
     if (top.code !== 0) throw new GuardError("git_unavailable", "当前目录不是 Git 仓库");
@@ -603,9 +632,10 @@ export class RestoreService {
     }
     const current = worktreeState(root, path);
     if (current.kind === "directory") throw new GuardError("unsupported_path", `当前路径是目录，不能覆盖: ${path}`);
+    const snapshotDir = join(new RunStore(root).runDir(manifest.runId), "snapshot");
+    const data = validatedWorktreeBytes(snapshotDir, entry, (oid, entryPath) => this.readBaseline(root, oid, entryPath));
     if (entry.kind === "symlink") {
-      const targetValue = entry.linkTarget ?? "";
-      if (sha256Text(targetValue) !== entry.digest) throw new InfrastructureError("io_error", `快照链接目标摘要不符: ${path}`);
+      const targetValue = data.toString("utf8");
       const temp = join(parent, `.knit-restore-${process.pid}-${this.randomHex(4)}`);
       try {
         symlinkSync(targetValue, temp);
@@ -615,7 +645,6 @@ export class RestoreService {
       }
       return;
     }
-    const data = validatedWorktreeBytes(join(new RunStore(root).runDir(manifest.runId), "snapshot"), entry);
     const mode = (entry.mode & 0o111) !== 0 ? 0o755 : 0o644;
     const currentSha = current.kind === "file" ? sha256Bytes(readFileSync(target)) : null;
     if (current.kind === "file") {
@@ -642,7 +671,7 @@ export class RestoreService {
       if (remove.code !== 0) throw new InfrastructureError("io_error", `移除 index 路径失败: ${remove.stderr.trim()}`);
       return;
     }
-    const data = validatedIndexBytes(join(new RunStore(root).runDir(manifest.runId), "snapshot"), entry);
+    const data = validatedIndexBytes(join(new RunStore(root).runDir(manifest.runId), "snapshot"), entry, (oid, entryPath) => this.readBaseline(root, oid, entryPath));
     const hashed = this.gitBuffer(["hash-object", "-w", "--stdin"], root, data);
     if (hashed.code !== 0) throw new InfrastructureError("io_error", `写入 index blob 失败: ${hashed.stderr.trim()}`);
     const oid = hashed.stdout.toString("utf8").trim();
@@ -661,7 +690,7 @@ export class RestoreService {
   ): Promise<RestoreExecuteResult> {
     const entry = entryMap(manifest).get(plan.path);
     if (entry === undefined || entry.absent || entry.kind !== "file") throw new GuardError("task_input_missing", `快照没有任务输入: ${plan.path}`);
-    const data = validatedWorktreeBytes(join(store.runDir(manifest.runId), "snapshot"), entry);
+    const data = validatedWorktreeBytes(join(store.runDir(manifest.runId), "snapshot"), entry, (oid, entryPath) => this.readBaseline(root, oid, entryPath));
     const snapshotText = data.toString("utf8");
     const snapshotDoc = parseTaskDocument(snapshotText, plan.path);
     if (snapshotDoc.frontmatter.id !== taskId) throw new GuardError("task_identity_changed", "快照任务身份与 run 任务不一致");

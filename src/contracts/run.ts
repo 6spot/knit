@@ -455,13 +455,22 @@ export const SnapshotEntrySchema = obj(
     indexOid: union([str({ minLength: 1 }), nul()]),
     /** 索引层内容的 SHA-256；旧快照可缺省（此时 --index 恢复拒绝）。 */
     indexDigest: opt(union([str({ minLength: 1 }), nul()])),
+    /** 内容与 HEAD 树中同一路径的 blob 相同：不存 files/ 副本，恢复时按 OID 取字节。 */
+    source: opt(lit("head")),
+    /** 引用的 HEAD blob OID；source 为 head 时使用。 */
+    headOid: opt(str({ minLength: 1 })),
+    /** index blob 与 HEAD 树同一路径的 blob 相同：不存 index/ 副本。 */
+    indexSource: opt(lit("head")),
+    /** 引用的 HEAD index blob OID；indexSource 为 head 时使用。 */
+    indexHeadOid: opt(str({ minLength: 1 })),
   },
 );
 export type SnapshotEntry = Static<typeof SnapshotEntrySchema>;
 
 export const SnapshotManifestSchema = obj(
   {
-    schemaVersion: lit(1),
+    /** v2 增加 HEAD 基线引用与 savedBytes；v1 无这些字段，按全量副本语义读取。 */
+    schemaVersion: union([lit(1), lit(2)]),
     runId: str({ minLength: 1 }),
     state: union([lit("preparing"), lit("ready"), lit("failed")]),
     createdAt: str({ minLength: 1 }),
@@ -490,6 +499,8 @@ export const SnapshotManifestSchema = obj(
       },
     ),
     bytes: int({ minimum: 0 }),
+    /** 因引用 HEAD 基线而未写入快照目录的内容字节；不计入 bytes／maxBytes。 */
+    savedBytes: opt(int({ minimum: 0 })),
     maxBytes: int({ minimum: 1 }),
     digest: str({ minLength: 1 }),
     reason: union([str(), nul()]),
