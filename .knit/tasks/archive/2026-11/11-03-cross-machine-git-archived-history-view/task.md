@@ -45,4 +45,10 @@ title: 跨机历史：Git 已归档任务的只读展示
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-cross-machine-git-archived-history-view
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8da27165065a -->
+- 任务资料提交: 0d41b8018f8f8f149dc01f65b11b1a2de4208f0d
+- 归档目标: .knit/tasks/archive/2026-11/11-03-cross-machine-git-archived-history-view
+
 <!-- knit:progress:end -->
