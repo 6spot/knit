@@ -40,6 +40,8 @@ const { registerSnapshotCommands } = await import("./snapshot.js");
 registerSnapshotCommands(program);
 const { registerLockCommands } = await import("./locks.js");
 registerLockCommands(program);
+const { registerGcCommands } = await import("./gc.js");
+registerGcCommands(program);
 
 // 无参数：直接输出帮助，不经 parseAsync（commander 15 对已注册子命令的裸调用以 missing command 退出）
 if (process.argv.length <= 2) {

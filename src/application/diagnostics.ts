@@ -2,7 +2,6 @@
  * 只读诊断与存储统计（DESIGN.md 第4.1节、TECHNOLOGY.md 第8节）。
  * 不创建目录、不迁移数据库、不写日志；容量只作提示。
  */
-import { DatabaseSync } from "node:sqlite";
 import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,6 +10,8 @@ import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { PROTOCOL_VERSION } from "../contracts/protocol.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { LockManager } from "../infrastructure/locks.js";
+import { withReadOnlyDatabase } from "../infrastructure/sqlite-readonly.js";
+import { countGcCandidates } from "./gc.js";
 
 const RUNTIME = ".knit/.runtime";
 const DB = join(RUNTIME, "metadata.db");
@@ -46,6 +47,8 @@ export interface StorageResult {
   /** Git 基线引用只报数量，不与共享对象字节相加。 */
   baselines: { count: number };
   locks: { entries: number; bytes: number };
+  /** 引用核验后仍可回收的候选数；只读摘要，不自动清理。 */
+  gcCandidates: number;
   limits: { storageWarnBytes: number };
   warnings: string[];
 }
@@ -112,8 +115,7 @@ function metadataCounts(path: string): Record<string, number> {
   const counts: Record<string, number> = {};
   if (!existsSync(path)) return counts;
   try {
-    const db = new DatabaseSync(path, { readOnly: true });
-    try {
+    return withReadOnlyDatabase(path, (db) => {
       for (const table of ["sessions", "bindings", "operations", "standards_reviews"]) {
         try {
           const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n?: unknown };
@@ -122,13 +124,12 @@ function metadataCounts(path: string): Record<string, number> {
           counts[table] = -1;
         }
       }
-    } finally {
-      db.close();
-    }
+      return counts;
+    });
   } catch {
     counts.unavailable = -1;
+    return counts;
   }
-  return counts;
 }
 
 export function doctor(input: { dir: string; piBin?: string; locksRoot?: string }): DoctorResult {
@@ -288,6 +289,7 @@ export function storage(input: { dir: string; locksRoot?: string }): StorageResu
     diagnostics: { bytes: diagnosticsBytes },
     baselines: { count: baselines },
     locks: { entries: lockStats.files, bytes: lockStats.bytes },
+    gcCandidates: countGcCandidates({ dir: root, ...(input.locksRoot === undefined ? {} : { locksRoot: input.locksRoot }) }),
     limits: { storageWarnBytes: config.limits.storageWarnBytes },
     warnings,
   };

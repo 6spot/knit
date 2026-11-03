@@ -159,6 +159,7 @@ export function registerStatusCommands(program: Command): void {
           console.log(`记录: ${Object.entries(result.database.counts).map(([key, value]) => `${key}=${value}`).join(" ") || "无"}`);
           console.log(`任务: 活动 ${result.tasks.active}，归档 ${result.tasks.archived}`);
           console.log(`run: ${result.runs.count} 个 / ${result.runs.bytes} B；快照 ${result.snapshots.count} 个 / ${result.snapshots.bytes} B`);
+          console.log(`gc 候选: ${result.gcCandidates} 个（只读摘要；用 knit gc 预览）`);
           console.log(`锁: ${result.locks.entries} 个文件 / ${result.locks.bytes} B`);
           for (const warning of result.warnings) console.log(`提示: ${warning}`);
         }
