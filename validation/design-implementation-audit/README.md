@@ -1,6 +1,6 @@
 # 设计、任务与实现一致性复核（2026-11-02）
 
-本轮发现 **16 项独立偏差：8 项 P1、7 项 P2、1 项 P3**。已建立 [027–042 修复任务](../../TASKS.md)及 [043 独立复验任务](../../tasks/043-audit-independent-regression.md)。001–026 的历史 completed 保留，但其历史验收不能作为当前不存在缺口的证据；在这些发现收敛前，不沿用“首版已无未处理数据保护／实现缺口”的就绪结论。
+本轮发现 **16 项独立偏差：8 项 P1、7 项 P2、1 项 P3**。已建立 [027–042 修复任务](../../docs/history/TASKS.md)及 [043 独立复验任务](../../docs/history/tasks/043-audit-independent-regression.md)。001–026 的历史 completed 保留，但其历史验收不能作为当前不存在缺口的证据；在这些发现收敛前，不沿用“首版已无未处理数据保护／实现缺口”的就绪结论。
 
 本次交付是审计报告、可复现证据和后续排程，**尚未修复这些产品缺陷**。状态仅记入根 TASKS.md，不在本报告或任务文件另建一份状态机。
 
@@ -19,22 +19,22 @@ P1 表示能破坏检查／输入／写入／执行关键约束，应优先修�
 
 | 发现／任务 | 优先级 | 偏差 | 证据等级 |
 | --- | --- | --- | --- |
-| [F027／027](../../tasks/027-revalidate-check-artifacts.md) | P1 | 按当前成果指纹核实检查与交付资格 | 动态复现 + 源码核实 |
-| [F028／028](../../tasks/028-verify-live-run-branch.md) | P1 | 在运行边界核对实际 Git 分支 | 动态复现 + 源码核实 |
-| [F029／029](../../tasks/029-allow-active-input-drafts.md) | P1 | 允许真实活动运行期间保存与撤回输入草案 | 动态复现 + 源码核实 |
-| [F030／030](../../tasks/030-persist-pending-transitions.md) | P1 | 持久化应用草案后的业务状态转移 | 动态复现 + 源码核实 |
-| [F031／031](../../tasks/031-include-effective-instructions.md) | P1 | 将全部生效指令版本纳入检查身份 | 动态复现 + 源码核实 |
-| [F032／032](../../tasks/032-scan-credential-boundaries.md) | P1 | 落实规定的写入与限定提交凭据扫描 | 动态复现 + 源码核实 |
-| [F033／033](../../tasks/033-contain-standards-writes.md) | P1 | 阻止规范采纳沿符号链接越出项目 | 动态复现 + 源码核实 |
-| [F034／034](../../tasks/034-remove-fixed-stage-deadline.md) | P1 | 取消违背首版规则的固定阶段总时限 | 源码核实，未动态复现 |
-| [F035／035](../../tasks/035-repair-prefer-session-fallback.md) | P2 | 补齐 prefer 恢复的身份核对与新会话切换 | 源码核实，未动态复现 |
-| [F036／036](../../tasks/036-reopen-unarchived-completed.md) | P2 | 允许更新尚未完整归档的 completed 任务 | 领域动态复现 + 应用层源码核实 |
-| [F037／037](../../tasks/037-authorize-standard-artifacts.md) | P2 | 实现正式规范作为明确授权成果的路径 | 源码核实，未动态复现 |
-| [F038／038](../../tasks/038-verify-standard-adoption-effects.md) | P2 | 按候选版本与实际效果恢复规范采纳 | 动态复现 + 源码核实 |
-| [F039／039](../../tasks/039-retain-init-upgrade-baselines.md) | P2 | 保留初始化升级中断时的旧受管基线 | 源码核实，未动态复现 |
-| [F040／040](../../tasks/040-enforce-runtime-private-modes.md) | P2 | 收紧既有运行目录及 SQLite 文件权限 | 动态复现 + 源码核实 |
-| [F041／041](../../tasks/041-include-archive-status.md) | P2 | 在项目状态概览中列出按月归档任务 | 动态复现 + 源码核实 |
-| [F042／042](../../tasks/042-show-bridge-query-results.md) | P3 | 在 Pi 命令中展示结构化查询结果 | 源码核实，需修复时宿主验证 |
+| [F027／027](../../docs/history/tasks/027-revalidate-check-artifacts.md) | P1 | 按当前成果指纹核实检查与交付资格 | 动态复现 + 源码核实 |
+| [F028／028](../../docs/history/tasks/028-verify-live-run-branch.md) | P1 | 在运行边界核对实际 Git 分支 | 动态复现 + 源码核实 |
+| [F029／029](../../docs/history/tasks/029-allow-active-input-drafts.md) | P1 | 允许真实活动运行期间保存与撤回输入草案 | 动态复现 + 源码核实 |
+| [F030／030](../../docs/history/tasks/030-persist-pending-transitions.md) | P1 | 持久化应用草案后的业务状态转移 | 动态复现 + 源码核实 |
+| [F031／031](../../docs/history/tasks/031-include-effective-instructions.md) | P1 | 将全部生效指令版本纳入检查身份 | 动态复现 + 源码核实 |
+| [F032／032](../../docs/history/tasks/032-scan-credential-boundaries.md) | P1 | 落实规定的写入与限定提交凭据扫描 | 动态复现 + 源码核实 |
+| [F033／033](../../docs/history/tasks/033-contain-standards-writes.md) | P1 | 阻止规范采纳沿符号链接越出项目 | 动态复现 + 源码核实 |
+| [F034／034](../../docs/history/tasks/034-remove-fixed-stage-deadline.md) | P1 | 取消违背首版规则的固定阶段总时限 | 源码核实，未动态复现 |
+| [F035／035](../../docs/history/tasks/035-repair-prefer-session-fallback.md) | P2 | 补齐 prefer 恢复的身份核对与新会话切换 | 源码核实，未动态复现 |
+| [F036／036](../../docs/history/tasks/036-reopen-unarchived-completed.md) | P2 | 允许更新尚未完整归档的 completed 任务 | 领域动态复现 + 应用层源码核实 |
+| [F037／037](../../docs/history/tasks/037-authorize-standard-artifacts.md) | P2 | 实现正式规范作为明确授权成果的路径 | 源码核实，未动态复现 |
+| [F038／038](../../docs/history/tasks/038-verify-standard-adoption-effects.md) | P2 | 按候选版本与实际效果恢复规范采纳 | 动态复现 + 源码核实 |
+| [F039／039](../../docs/history/tasks/039-retain-init-upgrade-baselines.md) | P2 | 保留初始化升级中断时的旧受管基线 | 源码核实，未动态复现 |
+| [F040／040](../../docs/history/tasks/040-enforce-runtime-private-modes.md) | P2 | 收紧既有运行目录及 SQLite 文件权限 | 动态复现 + 源码核实 |
+| [F041／041](../../docs/history/tasks/041-include-archive-status.md) | P2 | 在项目状态概览中列出按月归档任务 | 动态复现 + 源码核实 |
+| [F042／042](../../docs/history/tasks/042-show-bridge-query-results.md) | P3 | 在 Pi 命令中展示结构化查询结果 | 源码核实，需修复时宿主验证 |
 
 ### F027 按当前成果指纹核实检查与交付资格
 
@@ -43,7 +43,7 @@ P1 表示能破坏检查／输入／写入／执行关键约束，应优先修�
 - 依据：DESIGN §5.3、§5.6、§11；STATES §8（成果变化使检查过期）。
 - 位置：`src/application/run-acceptance.ts:191、src/application/delivery-service.ts:911–936、src/application/scope.ts:24–65、src/infrastructure/fingerprint.ts`。
 - 实际证据：data-probes.log：scope-current-content-validation.acceptedAfterExternalEdit=true；probes.json：scope-mode-change.fingerprintChanged=false。
-- 场景、修复边界与完成验收见 [027](../../tasks/027-revalidate-check-artifacts.md)。
+- 场景、修复边界与完成验收见 [027](../../docs/history/tasks/027-revalidate-check-artifacts.md)。
 
 ### F028 在运行边界核对实际 Git 分支
 
@@ -52,7 +52,7 @@ request.expected.branch 来源于任务文件；worker 与接收只比较两份�
 - 依据：DESIGN §3.5、§14.1；STATES 的分支接管与运行身份约束。
 - 位置：`src/application/run-coordinator.ts:204、src/worker/knit-worker.ts:199、src/application/run-acceptance.ts:187`。
 - 实际证据：stage-probes.log：task-run-branch.started=true、taskBranch=main、head=unrelated。
-- 场景、修复边界与完成验收见 [028](../../tasks/028-verify-live-run-branch.md)。
+- 场景、修复边界与完成验收见 [028](../../docs/history/tasks/028-verify-live-run-branch.md)。
 
 ### F029 允许真实活动运行期间保存与撤回输入草案
 
@@ -61,7 +61,7 @@ update／withdraw 在草案分支之前取得项目执行锁。真实 worker 持
 - 依据：DESIGN §3.6；STATES §3 InputsUpdateProposed；项目长占用与任务短锁约定。
 - 位置：`src/application/task-service.ts:685–688、838–843；src/worker/knit-worker.ts:172`。
 - 实际证据：stage-probes.log：active-run-input-draft.saved=false、reason=lock_busy。
-- 场景、修复边界与完成验收见 [029](../../tasks/029-allow-active-input-drafts.md)。
+- 场景、修复边界与完成验收见 [029](../../docs/history/tasks/029-allow-active-input-drafts.md)。
 
 ### F030 持久化应用草案后的业务状态转移
 
@@ -70,7 +70,7 @@ applyPending 计算了 transition，却渲染仅合并正文的 merged，未把 
 - 依据：DESIGN §3.6；STATES §3 输入应用后的 phase／status 转移。
 - 位置：`src/application/task-service.ts:814–815；src/domain/task.ts:onPendingResolved`。
 - 实际证据：probes.json：pending-phase-persistence.responsePhase=discuss、diskPhase=implement、pendingCleared=true。
-- 场景、修复边界与完成验收见 [030](../../tasks/030-persist-pending-transitions.md)。
+- 场景、修复边界与完成验收见 [030](../../docs/history/tasks/030-persist-pending-transitions.md)。
 
 ### F031 将全部生效指令版本纳入检查身份
 
@@ -79,7 +79,7 @@ workflow、role、runtime 分节带摘要并标 countsTowardInputs，但 effecti
 - 依据：DESIGN §5.3、§8.1；ARCHITECTURE 上下文计划与恢复指令生效清单。
 - 位置：`src/application/context-planner.ts:140–190、306；src/application/delivery-service.ts:923`。
 - 实际证据：probes.json：role-instructions-digest.roleDigestChanged=true、effectiveDigestChanged=false。
-- 场景、修复边界与完成验收见 [031](../../tasks/031-include-effective-instructions.md)。
+- 场景、修复边界与完成验收见 [031](../../docs/history/tasks/031-include-effective-instructions.md)。
 
 ### F032 落实规定的写入与限定提交凭据扫描
 
@@ -88,7 +88,7 @@ workflow、role、runtime 分节带摘要并标 countsTowardInputs，但 effecti
 - 依据：DESIGN §5.6（约346行）及 §15.1 第6项；规定的 token／私钥模式扫描。
 - 位置：`src/application/task-service.ts:402、src/application/standards-service.ts:337、src/application/delivery-service.ts:655；相关配置写入入口`。
 - 实际证据：data-probes.log：synthetic-credential-boundaries.taskWritten=true、deliveryState=completed、workCommitCreated=true；内容全部为审计合成标记。
-- 场景、修复边界与完成验收见 [032](../../tasks/032-scan-credential-boundaries.md)。
+- 场景、修复边界与完成验收见 [032](../../docs/history/tasks/032-scan-credential-boundaries.md)。
 
 ### F033 阻止规范采纳沿符号链接越出项目
 
@@ -97,7 +97,7 @@ workflow、role、runtime 分节带摘要并标 countsTowardInputs，但 effecti
 - 依据：DESIGN §14.1；ARCHITECTURE §6；规范目标必须位于项目内。
 - 位置：`src/application/standards-service.ts:318、337；src/application/standards.ts:110；src/infrastructure/atomic.ts`。
 - 实际证据：data-probes.log：standards-parent-symlink.applied=true、outsideChanged=true。
-- 场景、修复边界与完成验收见 [033](../../tasks/033-contain-standards-writes.md)。
+- 场景、修复边界与完成验收见 [033](../../docs/history/tasks/033-contain-standards-writes.md)。
 
 ### F034 取消违背首版规则的固定阶段总时限
 
@@ -106,7 +106,7 @@ StageRunner 默认 promptTimeoutMs=900000。该值限制整个阶段；到期 ru
 - 依据：DESIGN §5.9；OPERATIONS §4（约91行）：只观测，不按固定运行总时长自动取消。
 - 位置：`src/application/stage-runner.ts:147、238、314；src/adapters/pi/runtime.ts:223、237；dispose 路径`。
 - 实际证据：源码调用链核实；本轮未等待15分钟，未将缩短时限的建议场景当作已运行证据。
-- 场景、修复边界与完成验收见 [034](../../tasks/034-remove-fixed-stage-deadline.md)。
+- 场景、修复边界与完成验收见 [034](../../docs/history/tasks/034-remove-fixed-stage-deadline.md)。
 
 ### F035 补齐 prefer 恢复的身份核对与新会话切换
 
@@ -115,7 +115,7 @@ runtime 仅要求 sessionId 非空，未与恢复目标／预分配身份比较�
 - 依据：DESIGN §9.4 第3–5项；STATES §7 的原生恢复／fallback。
 - 位置：`src/adapters/pi/runtime.ts:156；src/application/stage-runner.ts:178、225、452、464；src/infrastructure/sqlite-metadata-store.ts:138`。
 - 实际证据：源码调用链核实；本轮未动态执行身份不符、启动失败和文件缺失三种 RPC stub 场景。
-- 场景、修复边界与完成验收见 [035](../../tasks/035-repair-prefer-session-fallback.md)。
+- 场景、修复边界与完成验收见 [035](../../docs/history/tasks/035-repair-prefer-session-fallback.md)。
 
 ### F036 允许更新尚未完整归档的 completed 任务
 
@@ -124,7 +124,7 @@ closedGuard 对全部 completed 返回 outcome_completed，onInputsUpdated 与�
 - 依据：DESIGN §3.6（约164行）；STATES §3：未完整归档且非 cancelled/superseded 的输入更新。
 - 位置：`src/domain/task.ts:68–71、103；src/application/task-service.ts:736`。
 - 实际证据：probes.json：completed-input-update-domain.decision.allowed=false、reason=outcome_completed；应用层归档条件由源码核实。
-- 场景、修复边界与完成验收见 [036](../../tasks/036-reopen-unarchived-completed.md)。
+- 场景、修复边界与完成验收见 [036](../../docs/history/tasks/036-reopen-unarchived-completed.md)。
 
 ### F037 实现正式规范作为明确授权成果的路径
 
@@ -133,7 +133,7 @@ runner 无条件拒绝 .knit 下修改，含正式规范；上下文没有授权
 - 依据：DESIGN §5.3；STATES §8（约133行）；ARCHITECTURE §8（约140行）：旧规范作输入、新规范作授权成果。
 - 位置：`src/application/stage-runner.ts:331–333；src/application/run-acceptance.ts:174 附近；src/contracts/context-plan.ts`。
 - 实际证据：源码及原任务范围交叉核实；本轮未执行授权规范输出 fake runtime 场景。
-- 场景、修复边界与完成验收见 [037](../../tasks/037-authorize-standard-artifacts.md)。
+- 场景、修复边界与完成验收见 [037](../../docs/history/tasks/037-authorize-standard-artifacts.md)。
 
 ### F038 按候选版本与实际效果恢复规范采纳
 
@@ -142,7 +142,7 @@ runner 无条件拒绝 .knit 下修改，含正式规范；上下文没有授权
 - 依据：DESIGN §8.2；STATES §9–10；OPERATIONS 规范正文／索引更新与幂等要求。
 - 位置：`src/application/standards-service.ts:321–349；src/application/delivery-service.ts:951–955`。
 - 实际证据：data-probes.log：adoption-index-recovery.alreadyApplied=true、indexRepaired=false；adoption-candidate-version.alreadyApplied=true、containsV2=false。
-- 场景、修复边界与完成验收见 [038](../../tasks/038-verify-standard-adoption-effects.md)。
+- 场景、修复边界与完成验收见 [038](../../docs/history/tasks/038-verify-standard-adoption-effects.md)。
 
 ### F039 保留初始化升级中断时的旧受管基线
 
@@ -151,7 +151,7 @@ runner 无条件拒绝 .knit 下修改，含正式规范；上下文没有授权
 - 依据：DESIGN §14.1（约640行）：按旧基线升级，中断按逐项清单继续。
 - 位置：`src/application/initialization.ts:240、289、350`。
 - 实际证据：初始化清单发布顺序的源码核实；本轮未注入中断或构造 preparing 清单重试。
-- 场景、修复边界与完成验收见 [039](../../tasks/039-retain-init-upgrade-baselines.md)。
+- 场景、修复边界与完成验收见 [039](../../docs/history/tasks/039-retain-init-upgrade-baselines.md)。
 
 ### F040 收紧既有运行目录及 SQLite 文件权限
 
@@ -160,7 +160,7 @@ mkdir(mode) 不会修正既有目录；SQLite 仓储未指定／修正数据库�
 - 依据：OPERATIONS §3（约75行）：目录0700／文件0600；ARCHITECTURE 私有本机索引与运行资料。
 - 位置：`src/infrastructure/sqlite-metadata-store.ts:47；src/application/initialization.ts:263；WAL／SHM 创建与现有目录路径`。
 - 实际证据：probes.json：preexisting-runtime-permissions.runtimeMode=755、databaseMode=644、walMode=644。
-- 场景、修复边界与完成验收见 [040](../../tasks/040-enforce-runtime-private-modes.md)。
+- 场景、修复边界与完成验收见 [040](../../docs/history/tasks/040-enforce-runtime-private-modes.md)。
 
 ### F041 在项目状态概览中列出按月归档任务
 
@@ -169,7 +169,7 @@ status 枚举 archive 后不会继续递归年月目录下的任务，只检查�
 - 依据：DESIGN §12 的项目／任务状态查询与归档可追溯要求；CLI status 既有 tasks 概览契约。
 - 位置：`src/application/status-service.ts:174 附近 listTasks；对照 src/application/task-service.ts:taskDirectories`。
 - 实际证据：probes.json：archived-task-status.listedByTasks=true、listedByStatus=false、taskStatus 可返回同一ID。
-- 场景、修复边界与完成验收见 [041](../../tasks/041-include-archive-status.md)。
+- 场景、修复边界与完成验收见 [041](../../docs/history/tasks/041-include-archive-status.md)。
 
 ### F042 在 Pi 命令中展示结构化查询结果
 
@@ -178,7 +178,7 @@ status 枚举 archive 后不会继续递归年月目录下的任务，只检查�
 - 依据：DESIGN §3 的当前任务选择与 §12 的查询入口；首版 Pi 桥接使用约定；具体显示按现有CLI数据契约。
 - 位置：`assets/templates/pi/extensions/knit.ts:290–346；src/cli/status.ts、src/cli/output.ts`。
 - 实际证据：桥接 handler、core JSON返回与通知分支源码核实；本轮未执行真实宿主显示验证。
-- 场景、修复边界与完成验收见 [042](../../tasks/042-show-bridge-query-results.md)。
+- 场景、修复边界与完成验收见 [042](../../docs/history/tasks/042-show-bridge-query-results.md)。
 
 ## 原任务逐项对照
 
@@ -186,32 +186,32 @@ status 枚举 archive 后不会继续递归年月目录下的任务，只检查�
 
 | 原任务 | 主题 | 本轮核对与后续 |
 | --- | --- | --- |
-| [001](../../tasks/001-engineering-baseline.md) | 工程工具链与包边界 | typecheck、build、pack-check 通过；未新增确定偏差。 |
-| [002](../../tasks/002-contracts-and-ports.md) | 协议与内部端口 | 契约与消费链交叉核对；规范成果及指令身份需随031／037补齐。 |
-| [003](../../tasks/003-pi-cli-runtime.md) | 本机Pi适配 | 固定阶段总时限、恢复身份／fallback：034／035。 |
-| [004](../../tasks/004-metadata-storage-decision.md) | 元数据仓储 | SQLite选型及唯一仓储保留；私有模式遗漏：040。 |
-| [005](../../tasks/005-pi-host-admission.md) | 宿主桥接准入 | 只读核对公开API路径；slash成功查询不展示data：042。本轮未重跑真实宿主准入。 |
-| [006](../../tasks/006-domain-rules.md) | 领域规则 | 草案持久化、检查过期、completed更新：027／030／036。 |
-| [007](../../tasks/007-local-infrastructure.md) | 文件／锁／检查点 | 活动草案长锁、路径边界、私有权限：029／033／040。 |
-| [008](../../tasks/008-project-initialization.md) | 初始化／所有权 | 升级中断清单丢基线、既有runtime权限：039／040。 |
-| [009](../../tasks/009-task-files-and-inputs.md) | 任务文件／输入 | 草案长锁、状态未落盘、凭据写入、completed更新：029／030／032／036。 |
-| [010](../../tasks/010-session-context.md) | Session／上下文 | 有效指令摘要、恢复身份：031／035；当前查询展示归042。 |
-| [011](../../tasks/011-standards-evolution.md) | 规范闭环 | 越界写、授权规范成果、采纳版本／索引恢复：033／037／038；扫描归032。 |
-| [012](../../tasks/012-snapshots-and-workers.md) | 快照／worker | 实际分支身份未核实：028；成果指纹类型／执行位归027。 |
-| [013](../../tasks/013-stage-execution-and-recovery.md) | 阶段执行／恢复 | 检查身份、分支、指令、停止、恢复：027／028／031／034／035／037。 |
-| [014](../../tasks/014-delivery-and-archive.md) | 交付／归档 | 旧scope资格、凭据扫描、completed更新、采纳效果、归档概览：027／032／036／038／041。 |
-| [015](../../tasks/015-cli-bridge-m1-gate.md) | CLI／桥接M1验收 | 历史真实Pi证据保留；当前桥接显示缺口042，需043重新综合验收。 |
-| [016](../../tasks/016-path-restore-and-fingerprints.md) | 路径／恢复／指纹 | scope模式／类型与规范父链接边界：027／033；不把已修恢复任务重复登记。 |
-| [017](../../tasks/017-cancellation-and-lock-failures.md) | 取消／锁／中断 | 活动草案被长锁挡住、固定总时限、恢复切换：029／034／035。 |
-| [018](../../tasks/018-acceptance-and-state-races.md) | 接收／状态竞争 | 真实活动草案、落盘转移、过期资格、completed分支：027／029／030／036。 |
-| [019](../../tasks/019-git-and-seal-failures.md) | Git／封存故障 | 当前成果版本、提交扫描、采纳部分效果核实：027／032／038。 |
-| [020](../../tasks/020-m2-independent-gate.md) | M2独立门槛 | 历史通过保留；新增数据保护问题使当前结论需按027–040修复后重验。 |
-| [021](../../tasks/021-adopt-tree-and-sessions.md) | adopt／树／多会话 | adopt本身不替代真实分支核实；028／035。 |
-| [022](../../tasks/022-upgrades-and-instructions.md) | 升级／指令 | 旧基线中断恢复与生效指令整体身份：031／039。 |
-| [023](../../tasks/023-usage-history-and-diagnostics.md) | 用量／查询／诊断 | 按月归档任务概览遗漏041；slash查询显示042。用量／只读诊断未新增确定偏差。 |
-| [024](../../tasks/024-developer-mode-m3a-gate.md) | 开发者模式M3A验收 | 白名单诊断实现保留；runtime／SQLite权限040影响私有性声明，043复验。 |
-| [025](../../tasks/025-packaging-and-platform-ci.md) | 打包／平台 | 基线包检查通过；Linux实际环境见下，macOS已由B001延期，本轮不补造平台结果。 |
-| [026](../../tasks/026-release-independent-gate.md) | 独立发布就绪审查 | 历史completed保留；新增16项推翻当前“无未处理缺口”的外推，需043独立重新给出结论。 |
+| [001](../../docs/history/tasks/001-engineering-baseline.md) | 工程工具链与包边界 | typecheck、build、pack-check 通过；未新增确定偏差。 |
+| [002](../../docs/history/tasks/002-contracts-and-ports.md) | 协议与内部端口 | 契约与消费链交叉核对；规范成果及指令身份需随031／037补齐。 |
+| [003](../../docs/history/tasks/003-pi-cli-runtime.md) | 本机Pi适配 | 固定阶段总时限、恢复身份／fallback：034／035。 |
+| [004](../../docs/history/tasks/004-metadata-storage-decision.md) | 元数据仓储 | SQLite选型及唯一仓储保留；私有模式遗漏：040。 |
+| [005](../../docs/history/tasks/005-pi-host-admission.md) | 宿主桥接准入 | 只读核对公开API路径；slash成功查询不展示data：042。本轮未重跑真实宿主准入。 |
+| [006](../../docs/history/tasks/006-domain-rules.md) | 领域规则 | 草案持久化、检查过期、completed更新：027／030／036。 |
+| [007](../../docs/history/tasks/007-local-infrastructure.md) | 文件／锁／检查点 | 活动草案长锁、路径边界、私有权限：029／033／040。 |
+| [008](../../docs/history/tasks/008-project-initialization.md) | 初始化／所有权 | 升级中断清单丢基线、既有runtime权限：039／040。 |
+| [009](../../docs/history/tasks/009-task-files-and-inputs.md) | 任务文件／输入 | 草案长锁、状态未落盘、凭据写入、completed更新：029／030／032／036。 |
+| [010](../../docs/history/tasks/010-session-context.md) | Session／上下文 | 有效指令摘要、恢复身份：031／035；当前查询展示归042。 |
+| [011](../../docs/history/tasks/011-standards-evolution.md) | 规范闭环 | 越界写、授权规范成果、采纳版本／索引恢复：033／037／038；扫描归032。 |
+| [012](../../docs/history/tasks/012-snapshots-and-workers.md) | 快照／worker | 实际分支身份未核实：028；成果指纹类型／执行位归027。 |
+| [013](../../docs/history/tasks/013-stage-execution-and-recovery.md) | 阶段执行／恢复 | 检查身份、分支、指令、停止、恢复：027／028／031／034／035／037。 |
+| [014](../../docs/history/tasks/014-delivery-and-archive.md) | 交付／归档 | 旧scope资格、凭据扫描、completed更新、采纳效果、归档概览：027／032／036／038／041。 |
+| [015](../../docs/history/tasks/015-cli-bridge-m1-gate.md) | CLI／桥接M1验收 | 历史真实Pi证据保留；当前桥接显示缺口042，需043重新综合验收。 |
+| [016](../../docs/history/tasks/016-path-restore-and-fingerprints.md) | 路径／恢复／指纹 | scope模式／类型与规范父链接边界：027／033；不把已修恢复任务重复登记。 |
+| [017](../../docs/history/tasks/017-cancellation-and-lock-failures.md) | 取消／锁／中断 | 活动草案被长锁挡住、固定总时限、恢复切换：029／034／035。 |
+| [018](../../docs/history/tasks/018-acceptance-and-state-races.md) | 接收／状态竞争 | 真实活动草案、落盘转移、过期资格、completed分支：027／029／030／036。 |
+| [019](../../docs/history/tasks/019-git-and-seal-failures.md) | Git／封存故障 | 当前成果版本、提交扫描、采纳部分效果核实：027／032／038。 |
+| [020](../../docs/history/tasks/020-m2-independent-gate.md) | M2独立门槛 | 历史通过保留；新增数据保护问题使当前结论需按027–040修复后重验。 |
+| [021](../../docs/history/tasks/021-adopt-tree-and-sessions.md) | adopt／树／多会话 | adopt本身不替代真实分支核实；028／035。 |
+| [022](../../docs/history/tasks/022-upgrades-and-instructions.md) | 升级／指令 | 旧基线中断恢复与生效指令整体身份：031／039。 |
+| [023](../../docs/history/tasks/023-usage-history-and-diagnostics.md) | 用量／查询／诊断 | 按月归档任务概览遗漏041；slash查询显示042。用量／只读诊断未新增确定偏差。 |
+| [024](../../docs/history/tasks/024-developer-mode-m3a-gate.md) | 开发者模式M3A验收 | 白名单诊断实现保留；runtime／SQLite权限040影响私有性声明，043复验。 |
+| [025](../../docs/history/tasks/025-packaging-and-platform-ci.md) | 打包／平台 | 基线包检查通过；Linux实际环境见下，macOS已由B001延期，本轮不补造平台结果。 |
+| [026](../../docs/history/tasks/026-release-independent-gate.md) | 独立发布就绪审查 | 历史completed保留；新增16项推翻当前“无未处理缺口”的外推，需043独立重新给出结论。 |
 
 ## 实际验证
 

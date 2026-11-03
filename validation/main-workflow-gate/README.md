@@ -2,7 +2,7 @@
 
 ## 结论速览
 
-- **确定性链路**：8 场景 85 断言，80 通过 / 5 不通过；5 项不通过全部集中于实施交接的 worker 实际装配，已登记 **[B005](../../BLOCKERS.md)**（规划资料分节 path 错误 + stage 提示不渲染 planning 分节）。
+- **确定性链路**：8 场景 85 断言，80 通过 / 5 不通过；5 项不通过全部集中于实施交接的 worker 实际装配，已登记 **[B005](../../docs/history/BLOCKERS.md)**（规划资料分节 path 错误 + stage 提示不渲染 planning 分节）。
 - **真实宿主最小验证**：21/21 通过（pi 1.5.0 + 真实桥接 + 真实模型 magpie/group/openai，真实模型轮共 3 次）。
 - **验收状态**：051 保持 **in_progress**。除 B005 涉及的"实施／检查角色实际读取规划资料"一项外，其余验收项全部通过；B005 修复后需复验确定性探针场景7（并建议补一次真实 worker 提示抽查）。
 - 本报告不替代 043 的 16 项审计修复复验结论，也不替代 052 的 Pi 1.5.0 兼容结论；三者分别成立。
@@ -31,7 +31,7 @@
 | 4 | 进度勾选（material save）不改 task.md/inputsDigest、不产生草案、不改变阶段（检查资格保持）；修改目标走 change 回 discuss 且摘要变化；clarify 保持当前阶段 | 通过 | S4 9/9：勾选后 task.md 字节不变、pendingDraft=null、phase=implement、inputsDigest 不变；change 后 digestChanged=true、phase=discuss、重新 ready 摘要不同；clarify 保持 implement / discuss 各得验证 |
 | 5 | 实施前结构核对：简单任务无 plan.md 直接 ready；空 plan.md 阻止（ready_plan_incomplete）；有内容后通过 | 通过 | S5 3/3：CLI 错误信息"plan.md 为空；复杂任务的实施计划未完成" |
 | 6 | 跨会话接续：同原生会话重启同 knitSessionId 且 resolve 恢复选择；新会话新 ID 默认无选择不复活旧任务；接续后注入同一任务不串任务；资料随任务目录读取（改名后按稳定 ID 定位） | 通过 | S6 13/13：resolve 返回 `source=native/effective=true`；新会话 resolve `taskId=null/effective=false`；task use 后恢复；rename 后 material read 仍命中 |
-| 7 | 实施交接：ready 后实施／检查上下文含规划资料分节 | **部分不通过（B005）** | S7 12/16：ContextPlan 分节本身齐备（plan/design 全文 digest 与磁盘一致、research 仅入口摘要）；但分节 `path` 为 `.knit/tasks/tasks/<dir>/…`（错），`loadSectionContents` 据此载入 0 个规划分节，实施提示不含 plan/design 正文（`buildUserPrompt`/`buildSystemPrompt` 均不渲染 `planning-material`）→ 见 [B005](../../BLOCKERS.md) |
+| 7 | 实施交接：ready 后实施／检查上下文含规划资料分节 | **部分不通过（B005）** | S7 12/16：ContextPlan 分节本身齐备（plan/design 全文 digest 与磁盘一致、research 仅入口摘要）；但分节 `path` 为 `.knit/tasks/tasks/<dir>/…`（错），`loadSectionContents` 据此载入 0 个规划分节，实施提示不含 plan/design 正文（`buildUserPrompt`/`buildSystemPrompt` 均不渲染 `planning-material`）→ 见 [B005](../../docs/history/BLOCKERS.md) |
 | 8 | 每轮注入刷新：随任务选择/阶段/资料更新刷新，不堆叠、不串任务；custom 轮不注入 | 通过 | S8 12/12：discuss→implement 阶段刷新、新增 design.md 后列表刷新、重复轮内容稳定、切换任务后旧任务 ID 与资料不再出现、custom 轮分节为空 |
 | 9 | 真实宿主：真实模型经 knit_task 创建+选择并落盘 | 通过 | R1：knit_task new（title/slug 与请求一致）+ use；任务落盘、选择 persisted、`session resolve` effective=true |
 | 10 | 真实宿主：真实模型经 knit_material 写 plan.md 并正确读回 | 通过 | R2：save+read 调用；plan.md 落盘含"## 未完成"与两个未勾选步骤；模型回复"# 实施计划"（读回数据正确） |
@@ -54,5 +54,5 @@ S1–S8 对应 [deterministic-probe-output.txt](deterministic-probe-output.txt)�
 
 ## 遗留
 
-- **B005**（[BLOCKERS.md](../../BLOCKERS.md)）：`src/application/context-planner.ts:282` 任务目录名切片含多余 `tasks` 段 → planning 分节 `path` 错误；`src/application/stage.ts:59-77` 按错误 path 读取失败静默跳过，且 `buildSystemPrompt`（120 行）/`buildUserPrompt`（140 行）不渲染 `planning-material` 分节。digest/冻结摘要语义未受污染（planning 分节 countsTowardInputs=false）。
+- **B005**（[BLOCKERS.md](../../docs/history/BLOCKERS.md)）：`src/application/context-planner.ts:282` 任务目录名切片含多余 `tasks` 段 → planning 分节 `path` 错误；`src/application/stage.ts:59-77` 按错误 path 读取失败静默跳过，且 `buildSystemPrompt`（120 行）/`buildUserPrompt`（140 行）不渲染 `planning-material` 分节。digest/冻结摘要语义未受污染（planning 分节 countsTowardInputs=false）。
 - B005 修复后的复验入口：`node validation/main-workflow-gate/deterministic-probe.mjs`（场景7 五项转 PASS，脚本其余 80 项应保持通过）；建议另补一次真实 worker run 提示抽查后，将 051 标记 completed。

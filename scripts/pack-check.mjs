@@ -40,7 +40,7 @@ for (const path of required) {
   check(paths.includes(path), `包含 ${path}`);
 }
 
-const forbiddenPrefixes = ["src/", "test/", "tasks/", "validation/", "scripts/", "node_modules/", ".git/"];
+const forbiddenPrefixes = ["src/", "test/", "docs/", "tasks/", "validation/", "scripts/", "node_modules/", ".git/"];
 const forbiddenSuffixes = [".tsbuildinfo", ".tgz"];
 const isTsSource = (p) => p.endsWith(".ts") && !p.endsWith(".d.ts");
 /** 模板资产中的 .ts 是随包发布的生成模板，不是编译源码。 */

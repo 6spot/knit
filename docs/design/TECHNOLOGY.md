@@ -1,0 +1,131 @@
+# Knit 技术选型
+
+本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。package.json、锁文件、工具链与业务命令已建立，001–060 实现与复核事实见[开发历史](../history/TASKS.md)。后续正式任务由本仓库的 Knit 管理，当前入口见 [AGENTS.md](../../AGENTS.md)。版本事实与来源见 [技术核查](../research/RESEARCH.md#1712-技术约束核查)。
+
+## 1. 选择结果
+
+| 层面 | 首版选择 | 原因与约束 |
+| --- | --- | --- |
+| 运行时 | Node.js 24 LTS 的维护补丁版 | Knit 自身的长期基线；Pi 为独立已安装进程，按客户端自身支持环境运行；本机 Node25 实验不算 Node24 验收 |
+| 语言与模块 | TypeScript 6.0.3，strict，ESM／NodeNext | Knit 自身的类型与构建选择，协议从 schema 推导；不由 Pi 内部 TypeBox／编译器版本决定 |
+| 打包形态 | 单 npm 包，bin 为 knit，CLI 与 worker 两个内部入口 | 不拆多包、守护进程或服务；运行所需代码随自身安装 |
+| 构建 | tsc 输出 JS 和声明，模板作为包资源 | 不打包或导入 Pi 运行时；不要求用户项目装编译器 |
+| 包管理 | npm + package-lock，CI 用 npm ci | 单包足够，锁定可复现依赖，不增加 workspace 管理工具 |
+| CLI | Commander 15.0.0 | 子命令、参数、help 和错误输出复用成熟实现；不自行写整套参数解析器 |
+| 协议／schema | typebox 1.3.27 | 同源类型、JSON schema 和运行时校验，已有内存往返实验；选择独立于 Pi 的依赖，不混入 0.34.x 旧 API |
+| Markdown 数据 | YAML 2.9.0 Document + 受管区解析 | 保留未知业务字段与注释；只编辑明确区域，不引整套 Markdown 渲染框架 |
+| 本机存储 | M0 选定 SQLite（WAL + 短事务）；文件仓储仅作比较实验 | 重点比较 Session/binding/operation 的事务与恢复成本；Markdown、原生历史与大产物仍按各自边界保存 |
+| 状态实现 | 判别联合、纯决定函数、显式效果执行器 | 以持久事实为准；文档状态表与转移测试逐项对应 |
+| Git | 原生 Git CLI，argv，不经 shell 拼接路径 | 保留 index、hook、过滤器和真实树语义；不使用 JS 重实现 Git |
+| Pi 阶段执行 | 本机已安装 Pi CLI；验证版本 1.5.0（兼容报告见 validation/pi-1.5.0-compat/），历史基线 1.4.0（validation/pi-cli-1.4.0/） | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
+| 进程／文件 | Node child_process、fs、crypto、os | 集中封装、可替换；原子写、进程身份与锁规则见下文 |
+| 测试 | node:test、node:assert/strict、fake runtime、临时仓库 | 通过端口注入时钟／进程／故障，不依赖真实模型或全局模块 mock |
+| 支持目标 | 首版 Linux + Node24 已通过本地候选验证；macOS 后续验证（B001） | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
+
+schema 采用上述精确版本，其他直接依赖在 M0 建立 lockfile 时固定补丁；Pi CLI 独立安装，不进入 Knit 的依赖。启动时探测客户端版本和必要能力，升级按协议、取消、原生恢复与新会话续做验证，不盲随 latest，也不只凭主版本判兼容。
+
+## 2. 替代方案与待验证选择
+
+| 备选 | 取舍 |
+| --- | --- |
+| SQLite／文件仓储 | M0 已选 SQLite：内部关联数据用短事务减少恢复分支，Git／Markdown 外部效果仍需日志；文件仓储保留为比较实验，ORM 不在首版 |
+| XState 等状态机运行时 | 能表达状态图，但本版用持久文件、纯规则和效果日志即可满足；避免同时维护解释器实例和磁盘状态。不是否定该工具能力 |
+| Bun/Deno | 首版沿 Node 标准库与 npm 分发，不增加另一套构建和平台验证；Pi CLI 独立进程不构成 Knit 必须同运行时的理由 |
+| bundler／单文件二进制 | 首版采用普通 npm 分发和模板资源；Pi CLI 独立安装，不为单文件产物增加打包复杂度 |
+| 自建 HTTP/RPC 常驻服务、Web/TUI 前端 | 日常界面已有 Pi，不另建服务／鉴权；复用 Pi 子进程 stdin/stdout RPC 不属于自建服务 |
+| 公共插件 SDK／动态模块安装 | 需求是内部可替换模块，额外协议和授信平台无首版价值 |
+| Vitest/Vite 测试栈 | 可以使用，但 Node runner 加注入端口已能覆盖本项目，不为测试再维护构建框架 |
+| 通用 Markdown AST | 目前只需 YAML、明确记录区和受管入口；将来需要复杂结构变换再增加解析器 |
+
+## 3. 类型、校验与错误
+
+领域类型使用判别联合并穷尽匹配。命令／文件先由同源 schema 检验，再进入状态守卫，不能把 TypeScript 编译通过当作外部 JSON 已可信。
+
+使用 typebox 包的锁定版本导出，M0 验证 Compile 与 JSON 序列化 schema；不照抄旧 @sinclair/typebox 0.34 或未来文档的子路径。桥接内嵌同源 JSON schema，仅用宿主公开类型／基础 API，不解析用户项目 node_modules 中的 Knit 依赖。核心重新校验，不能只信任原生工具验证。
+
+配置 schema 拒绝未知执行选项和任意代码路径；Task 允许已约定的扩展业务字段，但不允许重复 YAML 键、自定义可执行标签或不受限别名展开。解析错误时只读报告，不能写回损坏文档。保留原有正文／注释是目标，不能声称 YAML 重序列化可做到字节完全不变。
+
+JSON 协议区分 invalid_request、incompatible_version、busy、needs_context、stale_input、needs_review、unknown_run、external_effect_unknown、io_error 等原因。outcome 与 reasonCode 分离；退出码不是阶段或任务完成证明。
+
+## 4. 文件、占用与日志
+
+以下原子写规则用于项目文件、运行产物和外部效果；SQLite 由数据库事务提交内部元数据，不额外伪装成分文件写入。
+
+受控写入采用锁内读取预期版本、准备新内容、写临时文件、同步文件、原子 rename、同步目录，再记录核验结果。临时内容在本机私有 runtime 中，同文件系统才发布；跨文件系统不降级为无保护 copy。源码工具的普通写入不因此获得原子保证，由快照和阶段核实覆盖。
+
+原子 rename 仅解决单文件可见性，多文件一致性由操作意图和恢复检查点解决。原文件既非 before 也非 after 时停止；不能用重新渲染覆盖后来输入。记录区写入使用稳定 Task 键短锁，输入／代码／Git 用执行占用。锁目录要求本地文件系统。
+
+文件字节 SHA-256 用于冲突／快照；版本化业务摘要区分输入与记录。clarify/change 由主 Agent 声明，不做 NLP 判定。开发诊断标志、耗时与事件不纳业务摘要。Git 内容用其树／blob OID 核实，不拿工作区 CRLF 字节冒充 Git 树。
+
+落盘的 events／诊断 JSONL 只作脱敏观察，尾部半行可忽略，不当权威状态。Pi RPC 与 Knit `--events` 则是传输协议：使用增量 UTF-8 解码，只按 LF 切帧，不用会误切 U+2028/U+2029 的通用 splitlines，也不将每个字节块独立解码。畸形帧、截断响应或 EOF 不当成功，按已知对象核实；命令接受响应不等于执行终态。完整对话和工具原文留在原生 Session；阶段记录放稳定 native-sessions 目录，run 只保存原生起止条目引用和本次用量，避免第二套聊天库。机器路径、请求和快照保持私有权限，Git 只收项目资料与生成桥接。
+
+## 5. Git 与进程适配
+
+以 Git 2.30+ 的已有基础命令为目标，M0 验证所用选项，当前仅在本机 Git 2.52.0 做过部分行为实验。命令统一使用参数数组、项目 cwd、固定必要环境，解析 NUL 分隔结果；不从分支名或文件路径拼 shell 字符串。不会因最低目标声明而声称旧版本全测试通过。
+
+保留项目 hook，不默认 --no-verify。准备目标路径／树后提交并核实真实结果；hook 改变内容、额外路径或用户 index 时记录真实效果并进入 needs_attention，不自动 amend/reset。诊断禁用外部 diff/textconv、pager 与 fsmonitor hook。
+
+local 使用独立 worker 与可追踪的进程组；观察命令结束不杀 worker。进程身份含机器／启动标识、PID 开始时间和本次实例信息，旧 PID 不足以判断存活。正常取消向自己启动的 Pi CLI 发送 `clear_queue`／`abort` 并等待公开工具事件及稳定终态；不注入 BashOperations 等 SDK 包装器。外层只追踪自身 worker／CLI 进程组，强杀 CLI 不保证工具结束。无法证明旧工具结束就不能恢复或新开写入执行。
+
+实际进程不匹配或网络盘条件不足时只读诊断并给出恢复入口，不隐藏降低保护。Knit 不提供系统沙箱，也不承诺回滚数据库、远程服务或自行 daemonize 的进程。
+
+Pi RPC 的 prompt 响应仅表示接受／排队／命令处理，不是阶段完成。以 `agent_settled` 及工具终态为稳定边界，不能在客户端自动重试之间的 `agent_end` 就发布结果。公开事件按 `toolCallId` 关联，不凭全局 currentTool 指针或虚构的工具 PID 认定副作用结束。JSONL 只按 LF 分帧，保留 U+2028/U+2029 等合法内容。 所选模型解析为明确 provider/id，分别传 CLI 参数并核对实际状态；子进程清除仅描述来源的 PI_SESSION_ID／PI_SESSION_FILE 等观察变量，鉴权仍复用客户端自身配置和合法环境，不复制凭据。主会话历史通过运行中桥接 API 只读取得，离线只读解析已文档化格式；历史查询不通过 set_model／prompt 或打开可写会话触发原文件变化。
+
+`resume: prefer` 先核实旧执行终止并恢复原记录，加载后验证实际 ID／历史；历史缺失、损坏或不兼容时沿原客户端自动新建会话，从任务、正式规范、进度、既有事实与当前代码续做。准备结果记录来源和原因，可用后更新阶段引用；新建失败不递归重建。会话更换不重置阶段、修复次数或 scope。模型不可用与旧工具未知不属于这项兜底。
+
+## 6. 构建与交付验证
+
+工程命令 typecheck、build、test、pack 检查已落实并在 Linux 候选验证；不能把 Linux 结果外推为 macOS 兼容。
+
+- M0 按第 6.1 节真实加载项目桥接，验证 reload、模型、轮外投递与触发回合、agent_settled、受控工具取消和新进程恢复；存储另按第 8 节对比，不能用类型核查替代。
+- M1 用同一契约、fake 和临时仓库跑闭环，含真实 Pi 冒烟与本地安装；开发诊断只做 --dev 结构化 stderr、脱敏和一个等价冒烟。
+- M2 注入进程中断、磁盘／原子写失败、取消、hook 与 index 冲突，断言恢复不重复副作用。 同时验证草案应用／撤回的旧摘要与基线冲突、任务关闭与迟到结果竞争、Session opening／available 不阻塞首轮且不伪称可恢复。
+- M3A 完善 adopt、树、提醒边界、升级与查询，并加入私有诊断 JSONL 和 Pi 会话开关；M3B 做安装平台矩阵。取消／恢复／数据关键故障仍归 M2。
+- npm pack 检查包含编译入口、模板和协议资源，排除测试私有资料、原生历史与运行目录；在临时项目执行 init/start/CLI 的安装冒烟。
+
+CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安装与候选验证，macOS 后续验证（B001）。Node26 为后续兼容验证，本机 Node25 不能替代 LTS 验收。
+
+### 6.1 M0 前置验证
+
+以下是产品主体验的放行条件，使用临时项目、本机 Pi CLI 和宿主公开扩展 API，不以 mock sendMessage、读取类型或接口存在替代。CLI／宿主基础行为、init 产物、实际桥接与核心链路已由 005／008／015 及后续任务按同表验收。
+
+| 验证 | 必须观察到的结果 |
+| --- | --- |
+| 项目扩展加载／reload | init 产物能加载与重载，工具及真实 Session／有效路径可读，旧监听不重复、未 ready 不处理操作；宿主准入已验证（受信自动加载、reload 不重复、发现只认 .ts/.js），见 [host-admission](../../validation/host-admission/README.md) |
+| 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；TypeBox 自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](../../validation/host-admission/README.md) |
+| 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品桥接链路已在 015 验收，见 [host-admission](../../validation/host-admission/README.md) |
+| 当前模型与子 worker | 获取原生实际模型，受控子资源配置仍能解析所选模型／鉴权；不可用显式阻塞，不静默换模型 |
+| 回合之外投递 | 完成回调发生在原调用回合之外，消息真正到达匹配的原 Session／路径，不能投给后来切换的上下文 |
+| 投递是否触发回合 | 分别测不触发／触发模式并计数实际模型回合，确认不是仅 UI 文本；进度不自动触发轮次 |
+| 忙时与上下文变化 | 公开 API 能安全排队／唤醒，不抢新输入，不误投；会话关闭只留状态待恢复 |
+| agent_settled 边界 | 自动重试／工具未完时不能因 agent_end 提前终结，观察 prompt 稳定完成与实际工具终态 |
+| 受控工具取消 | 通过公开接口转到受控 shell／已知子进程，确认真实结束；仅停止等待不算成功取消 |
+| 新进程原生恢复／兜底 | 原工具终态后，本机 CLI 加载并核对旧原生 ID／历史；旧记录不可用则自动沿原客户端新建会话读任务文件续做，保留来源，不重置任务状态 |
+
+记录 Pi CLI／Node 版本、调用位置、触发／排队选项、原生上下文、回合数与工具终态。主动投递／唤醒或安全排队若不成立，必须报告能力限制并调整交互，不把桥接能力问题伪装成会话历史失败。仅旧原生记录无法恢复时按已授权规则自动新建，并明确报告兜底事实。
+
+## 7. 已核查与未验证
+
+本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](../../validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](../../validation/host-admission/README.md)。TypeBox1.3.27 的 JSON 往返内存实验仍只证明 schema 校验，不决定 Pi 的接入方式。
+
+本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](../history/tasks/001-engineering-baseline.md)）；后续 006–025 已补齐 init、Task、阶段、数据保护、交付与查询并通过 Linux 候选验收。上述 Pi CLI 1.4.0 实验本身不替代完整业务链路验收；存储对比已完成（[任务004](../history/tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](../../validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
+
+## 8. M0 存储对比与开发诊断
+
+该比较已在 Node24.21.0 实际执行（[任务004](../history/tasks/004-metadata-storage-decision.md)）。结论如下：
+
+- 内置 node:sqlite 在本机 v24.21.0 无 ExperimentalWarning（稳定于 Node24 版本线），文件库 WAL、BEGIN IMMEDIATE、busy timeout、readOnly 打开、崩溃后自动恢复均实测可用，不需外部驱动。
+- 同一共享场景脚本（关联事务、重复接收幂等、两进程竞争、取消／完成竞争、Git 回执丢失补记、只读不写、崩溃恢复、schema 校验）对原子文件实现与 SQLite 实现各执行一遍，全部通过；两实现的差异在故障处理复杂度：文件方案需根级锁文件 + 过期接管（持有者死亡后须等过期窗口），SQLite 由 WAL 与写锁即时释放，恢复路径无需额外状态。
+- 选定 SQLite 为唯一元数据权威：同事务覆盖 Session/binding/operation 关联更新，竞争由单写者保证，不引外部驱动；文件版实现仅保留在比较夹具，不参与产品。
+- run 证据、快照与 Task Markdown、Git、原生历史仍按各自核验路径，不入库、不镜像。
+
+| 真实写路径 | 验证重点 |
+| --- | --- |
+| 接收检查结果 | 同时更新 Session 关联、binding 最新检查／范围和修复计数、operation 完成信息，重复接收不多计 |
+| 两进程竞争与取消完成 | 短事务／CAS、owner token、忙冲突、终态只裁定一次，不持事务等模型／工具 |
+| Git 成功后元数据未完成 | 临时 Git 提交后中断，核实实际 OID 和 Task 文件再恢复，不重复 commit |
+| 纯只读查询 | 不触发模型、项目脚本、修复或开发日志落盘 |
+
+记录实现与恢复分支的复杂度、原子性、诊断可读性、跨进程失败处理、安装维护成本；性能只作辅助。实际比较结论已写入第 8 节与任务004：SQLite 显著减少恢复分支复杂度（无需锁过期接管）且满足平台与只读要求，已定为唯一生产元数据权威；文件版只保留在比较夹具。
+
+M0 通过脚本 stderr 收集稳定 stepKey、reasonCode、摘要及可观察仓储／事务计数即可；比较先去时间、随机 ID 与 token 指纹，不等待 M3A 的持久 JSONL 或 Pi 会话开关。诊断不参与业务守卫，不作第二套状态库，分期见 [OPERATIONS](OPERATIONS.md#7-开发者模式)。
