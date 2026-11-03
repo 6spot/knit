@@ -44,4 +44,10 @@ title: 格式演进：版本迁移说明与校验器
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-versioned-format-migration-validation
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b29fed09cd69 -->
+- 任务资料提交: 64af3e418b8f3c10ecdea429779676f09253d2da
+- 归档目标: .knit/tasks/archive/2026-11/11-03-versioned-format-migration-validation
+
 <!-- knit:progress:end -->
