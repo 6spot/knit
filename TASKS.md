@@ -101,6 +101,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 051 | 首版工作流验收 | completed | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md)；确定性链路 85/85、真实宿主 3 模型轮全过（[validation/main-workflow-gate/](validation/main-workflow-gate/README.md)）；复验发现的 B005 已当轮修复并复验（探针复跑全过），验收通过 |
 | 052 | 首版运行时兼容 | completed | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md)；兼容验证见 validation/pi-1.5.0-compat/ |
 | 053 | 复验缺陷修复 | completed | [修复锁混合重入失败的对称回滚](tasks/053-lock-reentry-rollback.md)；独立 worker 实施及规定验证完成（基础设施31、主探针47、后果探针8、全量236项全过），主 Agent 已复核代码与验证证据，B003已修复；另记范围外B004 |
+| 054 | 提示词与角色改进 | pending | [参考 Trellis 审视提示词、角色职责与任务分流](tasks/054-trellis-prompts-and-role-review.md)；对照实际提示词与调用链，形成只读调研／正式任务分流、角色职责、文案草案及后续实施／验收清单，本轮仅登记 |
 
 ## 阶段验收门槛
 
