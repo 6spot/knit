@@ -65,6 +65,21 @@ export const TaskBindingSchema = obj(
       ),
       nul(),
     ]),
+    /** 本机 Worktree 登记（任务 k-248eafc8fb31）；主检出 binding 主字段不变。 */
+    worktree: opt(
+      obj(
+        {
+          layout: union([lit("project"), lit("global")]),
+          /** 项目内为绝对路径，project 布局同时记 relativePath 线索。 */
+          path: str({ minLength: 1 }),
+          relativePath: opt(str({ minLength: 1 })),
+          branch: str({ minLength: 1 }),
+          baseline: str({ minLength: 1 }),
+          createdAt: str({ minLength: 1 }),
+          registeredAt: str({ minLength: 1 }),
+        },
+      ),
+    ),
   },
 );
 export type TaskBinding = Static<typeof TaskBindingSchema>;

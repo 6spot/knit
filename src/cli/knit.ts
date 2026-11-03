@@ -30,6 +30,8 @@ const { registerStandardsCommands } = await import("./standards.js");
 registerStandardsCommands(program);
 const { registerRunCommands } = await import("./run.js");
 registerRunCommands(program);
+const { registerWorktreeCommands } = await import("./worktree.js");
+registerWorktreeCommands(program);
 const { registerDeliveryCommands } = await import("./deliver.js");
 registerDeliveryCommands(program);
 const { registerStatusCommands } = await import("./status.js");

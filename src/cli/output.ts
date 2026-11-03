@@ -56,6 +56,17 @@ export function reasonForError(error: unknown): ReasonCode {
       return "stale_input";
     }
     if (
+      guard === "worktree_mismatch" ||
+      guard === "git_occupied" ||
+      guard === "path_occupied" ||
+      guard === "branch_mismatch" ||
+      guard === "task_archived" ||
+      guard === "unknown_binding" ||
+      guard === "gitignore_rule_unavailable"
+    ) {
+      return "needs_review";
+    }
+    if (
       guard === "snapshot_not_ready" ||
       guard === "snapshot_index_unavailable" ||
       guard === "snapshot_baseline_unavailable" ||
