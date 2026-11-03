@@ -53,4 +53,10 @@ title: 集成 Rex 交互式 Pi Worker（浮窗、双向通信与恢复）
 - 结果: 正常交付；检查 run-41ef865d2079 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-03-rex-interactive-pi-worker
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d63f792e3c33 -->
+- 任务资料提交: f353de60b104049338fbf96fd173123f9b02e7ad
+- 归档目标: .knit/tasks/archive/2026-11/11-03-rex-interactive-pi-worker
+
 <!-- knit:progress:end -->
