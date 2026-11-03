@@ -1,56 +1,27 @@
 ---
 id: k-cbe6ad49560d
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T15:14:12.964Z
 title: 存储清理：引用核验与可恢复资料回收
 ---
 
-# 存储清理：引用核验与可恢复资料回收
+需求冻结（主会话核查 diagnostics.ts storage 统计、run-store claim/snapshot 原子语义、DESIGN §7/§12/§15.2 后决策）：
 
-## 目标与边界
+原则：引用核验判定候选，不用目录年龄或日志静默判无用；未选策略时全部现有命令行为不变；doctor 保持不动。
 
-补充设计预留的自动清理／GC，在明确保留策略与用户选择下回收可安全删除的资料，保持恢复链和历史证据完整。
-
-这是用户要求盘点并拆分的设计后续能力，属于后续规划。本轮仅登记任务和边界，保持 open／discuss；不开始技术实施，不调用模型、Rex 或真实项目操作，不改变首版范围。具体方案和完成条件按下述设计来源及待验证事项继续澄清，不把规划建议或尚未核查的能力当作事实。
-
-### 本任务的交付范围
-
-- 从当前只读 storage／doctor 出发，确定候选、引用关系、预览和授权／策略入口；登记任务不自动启用清理。
-- 核对存活／未知执行、Session、run、快照、操作检查点及共享引用，不用目录年龄或日志静默判断无用。
-- 与 Worktree 清理、快照基线及新客户端的引用协议协同；这些能力尚未实现时不能声称已覆盖其引用。
-
-## 完成条件
-
-以下是依据现行设计拟定的可验证交付方向；Planner 在实施前对照真实方案复核，范围变化按 Knit 输入更新规则处理。本轮没有执行这些验收。
-
-- 按最终策略验证活引用、孤儿候选、未知状态、共享对象和清理中断，结果可诊断且不误删恢复必需资料。
-- 现有只读命令不被隐式变成清理操作，未选择策略时保留原行为。
-
-保留 Task／Run／Session 的既有权威、授权和恢复规则；按影响范围选择实际检查。历史真机／真实模型验收继续沿用用户的延期决定，何时进行由后续授权安排，不能以隔离测试冒充真实验收。业务完成、Git 提交、归档、push 和发布分别处理，本轮不进行这些操作。
-
-## 输入引用
-
-- 用户要求：把设计预留的 Worktree、Rex 等后续实现盘点并合理拆分；本轮不实施。
-- [仓库规范](../../../AGENTS.md)、[文档索引](../../../docs/README.md)、[工作流](../../workflow.md)。
-- [docs/design/DESIGN.md](../../../docs/design/DESIGN.md) 第 7、12、15.2 节
-- [docs/design/OPERATIONS.md](../../../docs/design/OPERATIONS.md) 第 5 节
-- [docs/design/ARCHITECTURE.md](../../../docs/design/ARCHITECTURE.md) 的恢复约定
-
-## 依赖与交接
-
-- 无其它新规划任务的硬前置；实施前仍须阅读当前架构、任务状态及适用规范。
-
-依赖描述是规划交接关系，不新增调度字段或状态机。各任务只带自身需要的上游结果；研究若证明依赖或粒度应调整，先说明并更新任务，不因任务已登记而自动派发。
-
-## 待讨论与待验证事项
-
-- 保留周期、自动触发、软／硬删除、用户确认及跨目录引用覆盖范围均需需求澄清，不能凭本任务登记自行选择默认值。
-
-后续 Planner 把本任务的必要方案及可执行步骤保存在本任务目录，继续识别可独立验收的拆分边界；任务登记不替代需求澄清或实施授权。
+1. 新增只读预览 `knit gc`（默认无 --apply 即只读）：扫描并按类列出候选，每项含 kind、路径、大小、判定理由与被引用证据。只读不改任何文件；storage 保持现有字段并新增 gcCandidates 计数摘要（不改变既有输出结构）。
+2. 候选类与核验规则：
+   a) snapshot 临时目录：run 目录下 `snapshot.tmp-*`（中断遗留）；仅当该 run 无进行中快照（manifest 非 preparing 且项目快照锁未持有）才为候选。
+   b) 孤儿原生会话目录：`.knit/.runtime/pi-sessions/` 下未被 session 索引（SQLite sessions 表）任何行引用的目录；有行引用即保留，索引不可读视为未知不收集。
+   c) 孤儿 run 目录：runs/ 下无任何任务资料引用（扫描活动区+归档任务 task.md 记录区、metadata operations/bindings 表引用）且运行状态为终态的 run；状态非终态或不可判定一律跳过并报告"未知/活跃，不收集"。
+   d) 其余一律不碰：活动任务、被引用 run（含归档任务恢复引用，终态但被引用不收集）、快照 manifest、diagnostics、locks、metadata.db、claim 目录。
+3. 执行 `knit gc --apply`：全程持有项目写锁；执行时逐项重新核验（预览后状态可能变化），仅收集仍满足条件的项；逐项记录 removed/skipped+原因，中断时已完成项保留、未处理项原样；结果写入 `.knit/.runtime/gc/last.json`（含时间、策略、逐项结果）供诊断。--json 输出与其他命令一致。
+4. 不自动启用：无 --apply 永不删除；不含年龄策略与 diagnostics 清理（范围外）。
+5. 测试（test/gc.test.mjs）：a) 中断快照 tmp 目录被识别且 --apply 后清除、run 主数据完整；b) 被索引引用的会话目录保留，孤儿会话清除；c) 被活动/归档任务引用的终态 run 保留，无引用终态 run 清除，非终态孤儿 run 跳过并报告；d) 预览与 storage gcCandidates 计数一致且只读（前后字节/条目不变）；e) --apply 中途注入失败→部分完成、last.json 可诊断、其余候选原样；f) 默认 storage 输出既有字段不变。全量 npm test 绿。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -62,5 +33,18 @@ title: 存储清理：引用核验与可恢复资料回收
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-f6543aa6a2ea，已接收 implementation_accepted）：新增 src/application/gc.ts + src/cli/gc.ts——`knit gc` 只读预览（snapshot.tmp-* 需 manifest 非 preparing 且快照锁未持有；pi-sessions 孤儿目录需未被 SQLite sessions 表引用、索引不可读视为未知；孤儿 run 需无任务资料/operations/bindings 引用且终态；其余一律跳过并报告理由），每项含 kind/路径/大小/理由/证据；`knit gc --apply` 持项目写锁逐项复验后收集，逐项 removed/skipped 记入 .knit/.runtime/gc/last.json，中断保留已完成项；storage 输出新增 gcCandidates 只读摘要（既有字段不变）。验证（self）：npm test 300/300 绿（新增 6 项：tmp 清理且主数据完整、被引用会话保留/孤儿清除、被引用终态 run 保留/孤儿终态清除/非终态跳过、预览只读且计数一致、apply 中断部分完成可诊断、storage 默认输出不变）。
+
+### 交付记录
+
+<!-- knit:delivery:op-88ec41576633 -->
+- 操作: op-88ec41576633
+- 时间: 2026-11-03T17:31:48.372Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: c6bdfecec2379344c79ffae344d4b8c996b75789
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-storage-reference-aware-garbage-collection
 
 <!-- knit:progress:end -->
