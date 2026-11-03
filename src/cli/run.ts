@@ -56,6 +56,7 @@ export function registerRunCommands(program: Command): void {
         dir,
         taskId,
         phase,
+        presentation: options.rex === true ? "rex" : "local",
         initiator: {
           client: options.client === "pi" ? "pi" : "cli",
           knitSessionId: (options.session as string | undefined) ?? null,
@@ -116,6 +117,7 @@ export function registerRunCommands(program: Command): void {
     .description("发布 run 请求与启动意图（不取得执行占用、不写业务资料）")
     .requiredOption("--task <taskId>", "任务 ID")
     .requiredOption("--phase <phase>", "implement、check 或 advisory")
+    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
     .option("--client <client>", "pi 或 cli", "cli")
     .option("--session <knitSessionId>", "发起方 Knit Session")
     .option("--native <nativeSessionId>", "发起方原生 Session")
@@ -200,6 +202,7 @@ export function registerRunCommands(program: Command): void {
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
     .option("--new-repair-cycle", "显式开启新修复周期")
+    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
@@ -218,12 +221,17 @@ export function registerRunCommands(program: Command): void {
     .option("--model <model>", "模型标识")
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
+    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--pi-bin <path>", "非正式检查的 Pi 可执行文件（默认 KNIT_PI_BIN 或 PATH）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       if (Array.isArray(options.scope) && options.scope.length > 0) {
+        if (options.rex === true) {
+          fail("run-check", new GuardError("invalid_request", "非正式检查不支持 --rex；Rex 浮层只用于正式阶段"));
+          return;
+        }
         if (options.task !== undefined) {
           fail("run-check", new GuardError("invalid_request", "--scope 不能与 --task 同时使用"));
           return;
@@ -401,6 +409,7 @@ export function registerRunCommands(program: Command): void {
     .option("--model <model>", "模型标识")
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
+    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
     .option("--wait", "只观察直到终态")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")

@@ -463,6 +463,9 @@ export class RunStore {
     const dir = this.runDir(runId);
     rmSync(join(dir, "claim"), { recursive: true, force: true });
     rmSync(join(dir, "snapshot"), { recursive: true, force: true });
+    // Rex 事实与核心 run 同属一次尝试；显式 retry 不得把旧 worker 结果当成本次结果。
+    rmSync(join(dir, "rex"), { recursive: true, force: true });
+    rmSync(join(dir, "rex.json"), { force: true });
     for (const name of ["state.json", "inputs.json", "instructions.json", "result.json", "check.json", "cancel.json", "diagnostics.json"]) {
       rmSync(join(dir, name), { force: true });
     }

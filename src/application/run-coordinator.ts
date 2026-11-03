@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import type { RunLaunchState, RunPhase } from "../contracts/run.js";
+import type { RunLaunchState, RunPhase, RunPresentation } from "../contracts/run.js";
 import {
   LaunchRecordSchema,
   RunRequestFileSchema,
@@ -50,6 +50,8 @@ export interface PrepareInput {
   dir: string;
   taskId: string;
   phase: RunPhase;
+  /** 缺省 local，保持既有 RPC 链路；rex 才进入浮层分支。 */
+  presentation?: RunPresentation;
   initiator: {
     client: "pi" | "cli";
     knitSessionId: string | null;
@@ -69,6 +71,7 @@ export interface RunStatusProjection {
   runId: string;
   taskId: string;
   phase: RunPhase;
+  presentation: RunPresentation;
   /** 请求冻结时的任务分支；用于观察通知不误投切树后的上下文。 */
   branch: string | null;
   initiator: RunRequestFile["initiator"];
@@ -201,6 +204,14 @@ export class RunCoordinator {
     }
     const active = this.findActive(runs, input.taskId, input.phase);
     if (active !== null) {
+      const activePresentation = active.request.presentation ?? "local";
+      const requestedPresentation = input.presentation ?? "local";
+      if (activePresentation !== requestedPresentation) {
+        throw new GuardError(
+          "invalid_request",
+          `已有活动 run 使用 ${activePresentation} 呈现；先取消或等待其结束后再切换到 ${requestedPresentation}`,
+        );
+      }
       return { request: active.request, launch: active.launch, reused: true };
     }
 
@@ -213,6 +224,7 @@ export class RunCoordinator {
       runId,
       taskId: input.taskId,
       phase: input.phase,
+      presentation: input.presentation ?? "local",
       purpose: input.phase === "advisory" ? "assist" : "stage",
       initiator: input.initiator,
       createdAt,
@@ -385,6 +397,7 @@ export class RunCoordinator {
       runId: request.runId,
       taskId: request.taskId,
       phase: request.phase,
+      presentation: request.presentation ?? "local",
       branch: request.expected.branch,
       initiator: request.initiator,
       createdAt: request.createdAt,
@@ -581,6 +594,7 @@ export class RunCoordinator {
       dir: root,
       taskId: old.taskId,
       phase: old.phase,
+      presentation: old.presentation ?? "local",
       initiator: old.initiator,
       model: old.model,
       recovery: { nativeSessionId, resume: "prefer" },

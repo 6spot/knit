@@ -44,6 +44,7 @@ import {
 } from "./stage.js";
 import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
 import { currentEntry } from "./scope.js";
+import { RexLauncher, type RexExecution, type RexLauncherOptions } from "./rex-launcher.js";
 
 export interface StageRunnerOptions {
   root: string;
@@ -66,6 +67,8 @@ export interface StageRunnerOptions {
   locks?: LockManager;  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
   lostOwnership?: () => string | null;
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
+  /** 测试注入；缺省创建真实 RexLauncher。 */
+  rexLauncherFactory?: (options: RexLauncherOptions) => RexLauncher;
 }
 
 export interface StageExecution {
@@ -139,6 +142,7 @@ export class StageRunner {
   private readonly locks: LockManager | null;
   private readonly lostOwnership: (() => string | null) | null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
+  private readonly rexLauncherFactory: NonNullable<StageRunnerOptions["rexLauncherFactory"]>;
 
   constructor(options: StageRunnerOptions) {
     this.root = options.root;
@@ -157,6 +161,7 @@ export class StageRunner {
     this.locks = options.locks ?? null;
     this.lostOwnership = options.lostOwnership ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
+    this.rexLauncherFactory = options.rexLauncherFactory ?? ((launcherOptions) => new RexLauncher(launcherOptions));
   }
 
   async execute(): Promise<StageExecution> {
@@ -181,18 +186,41 @@ export class StageRunner {
     let processStartedAt: string | null = null;
     let piPid: number | null = null;
     if (this.locks !== null) {
+      const locks = this.locks;
+      const acquireSessionLock = () => locks.acquire({
+        keys: [{ scope: "session", rawKey: `pi:${session.nativeSessionId}` }],
+        action: `stage.${role}`,
+      });
       try {
-        sessionLock = await this.locks.acquire({
-          keys: [{ scope: "session", rawKey: `pi:${session.nativeSessionId}` }],
-          action: `stage.${role}`,
-        });
-      } catch (error) {
-        const reason = error instanceof InfrastructureError && error.code === "lock_busy" ? "session_lock_busy" : "session_lock_unavailable";
-        await this.markSession(session, "opening", reason, false);
-        return this.failure(session, reason, null, null, null);
+        sessionLock = await acquireSessionLock();
+      } catch (firstError) {
+        let failure: unknown = firstError;
+        // 锁根被外部删除时，owner 写入可能落在已消失的目录；短暂重试后由心跳核实占用是否真的丢失。
+        if ((firstError as NodeJS.ErrnoException).code === "ENOENT") {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          try {
+            sessionLock = await acquireSessionLock();
+          } catch (retryError) {
+            failure = retryError;
+          }
+        }
+        if (sessionLock === null) {
+          const lost = this.lostOwnership?.() ?? null;
+          const reason =
+            lost !== null
+              ? `lock_ownership_lost:${lost}`
+              : failure instanceof InfrastructureError && failure.code === "lock_busy"
+                ? "session_lock_busy"
+                : "session_lock_unavailable";
+          await this.markSession(session, "opening", reason, false);
+          return this.failure(session, reason, null, null, null);
+        }
       }
     }
     try {
+    if (this.request.presentation === "rex") {
+      return await this.executeRexStage(session, systemPrompt, userPrompt);
+    }
     const sessionDir = join(this.root, ".knit", ".runtime", "pi-sessions");
     processStartedAt = this.now().toISOString();
     this.writeStageProcess(session, "starting", null, processStartedAt);
@@ -381,56 +409,7 @@ export class StageRunner {
 
     const text = await runtime.getLastAssistantText().catch(() => "");
     await runtime.dispose(3_000);
-    // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
-    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
-      return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
-    }
-    const afterSignature = worktreeSignature(this.root);
-    if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
-    const changedPaths = diffSignatures(beforeSignature, afterSignature);
-    // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
-    const authorizedStandardPaths = new Set((this.request.expected.authorizedStandardOutputs ?? []).map((output) => output.path));
-    const protectedPaths = changedPaths.filter(
-      (path) => path.startsWith(".knit/") && !authorizedStandardPaths.has(path),
-    );
-    if (protectedPaths.length > 0) {
-      return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
-    }
-    if ((this.request.phase === "check" || this.request.phase === "advisory") && changedPaths.length > 0) {
-      return this.failure(
-        session,
-        `${this.request.phase}_side_effects:${changedPaths.join(",")}`,
-        usage,
-        nativeEntries,
-        sessionFile,
-        text,
-      );
-    }
-
-    const parsed = parseStageReport(text);
-    if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
-    const validation = validateReportForPhase(this.request.phase, parsed.report);
-    if (!validation.ok) return this.failure(session, validation.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report);
-
-    if (this.request.phase === "implement") {
-      const reported = new Set((parsed.report.changedPaths ?? []).map(normalizePath));
-      const actual = new Set(changedPaths.map(normalizePath));
-      if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
-        // 失败原因直接带实际 diff 路径清单；零 diff（基线已含改动／重派无改动）显式标注为 zero_diff，
-        // 便于排障时区分「报告路径写错」与「基线未还原导致无法再产生差异」。
-        const actualPaths = [...actual].sort();
-        const reason =
-          actualPaths.length === 0
-            ? "changed_paths_mismatch:zero_diff"
-            : `changed_paths_mismatch:${actualPaths.join(",")}`;
-        return this.failure(session, reason, usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
-      }
-    }
-
-    return {
-      session: this.sessionRecord(session, nativeReadable, sessionFile),
-      result: this.result("completed", parsed.report, usage, nativeEntries, session, text, changedPaths, null),
-    };
+    return this.finalizeCompleted(session, beforeSignature, usage, nativeEntries, sessionFile, text, nativeReadable);
     } finally {
       if (runtime !== null) await runtime.dispose(1_000).catch(() => null);
       if (processStartedAt !== null) {
@@ -658,6 +637,250 @@ export class StageRunner {
       return { summary: result.reportSummary, changedPaths: result.actualChangedPaths };
     }
     return null;
+  }
+
+  /**
+   * Rex 分支：输入/快照已由 worker 冻结；这里只替换运行时呈现，之后仍回到同一
+   * 报告校验、changedPaths 核对与 result 发布路径。不写核心 state/result 之外的事实。
+   */
+  private async executeRexStage(
+    session: PreparedSession,
+    systemPrompt: string,
+    userPrompt: string,
+  ): Promise<StageExecution> {
+    const processStartedAt = this.now().toISOString();
+    this.writeStageProcess(session, "starting", null, processStartedAt);
+    const beforeSignature = worktreeSignature(this.root);
+    if (beforeSignature === null) {
+      await this.markSession(session, "opening", "worktree_unknown", false);
+      return this.failure(session, "worktree_unknown", null, null, null);
+    }
+    if (this.runs.readCancel(this.request.runId) !== null) {
+      return this.cancelled(session, "", { inputTokens: null, outputTokens: null }, { startEntryId: null, leafEntryId: null }, session.sessionFile);
+    }
+    const lostBeforeStart = this.lostOwnership?.() ?? null;
+    if (lostBeforeStart !== null) {
+      await this.markSession(session, "opening", `lock_ownership_lost:${lostBeforeStart}`, false);
+      return this.failure(session, `lock_ownership_lost:${lostBeforeStart}`, null, null, null);
+    }
+    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+      await this.markSession(session, "opening", "branch_mismatch_at_start", false);
+      return this.failure(session, "branch_mismatch_at_start", null, null, null);
+    }
+
+    const sessionDir = join(this.root, ".knit", ".runtime", "pi-sessions");
+    let piPid: number | null = null;
+    const launcher = this.rexLauncherFactory({
+      root: this.root,
+      runId: this.request.runId,
+      taskId: this.request.taskId,
+      phase: this.request.phase,
+      sessionId: session.nativeSessionId,
+      sessionFile: session.sessionFile,
+      provider: this.request.model.provider,
+      modelId: this.request.model.model,
+      tools: toolsFor(this.request, this.plan),
+      systemPrompt,
+      userPrompt,
+      cwd: this.root,
+      sessionDir,
+      executablePath: this.piExecutable,
+      // 不把 StageRunner 的默认目录硬塞给 Rex shell；保留宿主显式配置。
+      agentDir: process.env.PI_CODING_AGENT_DIR ?? undefined,
+      cancelGraceMs: this.cancelGraceMs,
+      onPid: (pid) => {
+        piPid = pid;
+        if (pid !== null) this.writeStageProcess(session, "running", pid, processStartedAt);
+      },
+    });
+    const beforeLeaf = session.sessionFile !== null && existsSync(session.sessionFile)
+      ? await readLeafEntryId(session.sessionFile)
+      : null;
+    let cancelRequested = false;
+    let ownershipLost: string | null = null;
+    const cancelWatch = setInterval(() => {
+      if (cancelRequested) return;
+      if (this.runs.readCancel(this.request.runId) !== null) {
+        cancelRequested = true;
+        void launcher.stop().catch(() => {});
+      }
+    }, 100);
+    const ownershipWatch = setInterval(() => {
+      if (ownershipLost !== null) return;
+      const lost = this.lostOwnership?.() ?? null;
+      if (lost !== null) {
+        ownershipLost = lost;
+        void launcher.stop().catch(() => {});
+      }
+    }, 100);
+
+    let execution: RexExecution | null = null;
+    try {
+      execution = await launcher.execute();
+    } catch (error) {
+      const reason = error instanceof InfrastructureError ? error.code : "rex_launcher_error";
+      await launcher.dispose().catch(() => {});
+      await this.markSession(session, "incompatible", `rex_start_failed:${reason}`, false);
+      return this.failure(session, `rex_start_failed:${reason}`, null, null, null);
+    } finally {
+      clearInterval(cancelWatch);
+      clearInterval(ownershipWatch);
+    }
+
+    try {
+      if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
+      const lostAfter = ownershipLost ?? this.lostOwnership?.() ?? null;
+      if (lostAfter !== null) {
+        await launcher.terminate().catch(() => {});
+        const sessionFileAfter = execution.sessionFile ?? session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
+        await this.markSession(
+          session,
+          sessionFileAfter !== null ? "available" : "opening",
+          `lock_ownership_lost:${lostAfter}`,
+          sessionFileAfter !== null,
+          sessionFileAfter,
+        );
+        return this.failure(
+          session,
+          `lock_ownership_lost:${lostAfter}`,
+          execution.usage,
+          { startEntryId: null, leafEntryId: null },
+          sessionFileAfter,
+          execution.text,
+        );
+      }
+
+      // 与 local 分支一致：先核实原生引用并更新 Session，再按真实终态收敛；
+      // 取消/失败仍保留可读的原生文件引用。
+      const finalSessionFile = execution.sessionFile ?? session.sessionFile;
+      const nativeEntries = { startEntryId: null as string | null, leafEntryId: null as string | null };
+      let nativeReadable = false;
+      if (finalSessionFile !== null) {
+        const check = await checkNativeSessionFile(finalSessionFile, session.nativeSessionId);
+        nativeReadable = check.exists && check.problem === null;
+        if (nativeReadable) {
+          const range = await readEntryRange(finalSessionFile, beforeLeaf);
+          nativeEntries.startEntryId = range.startEntryId;
+          nativeEntries.leafEntryId = range.leafEntryId;
+          await this.markSession(session, "available", null, true, finalSessionFile);
+        } else {
+          await this.markSession(session, "opening", "native_file_not_persisted", false, finalSessionFile);
+        }
+      } else {
+        await this.markSession(session, "opening", "native_file_not_persisted", false, null);
+      }
+
+      if (!execution.settled) {
+        if (cancelRequested || execution.aborted) {
+          return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+        }
+        return this.failure(
+          session,
+          execution.failure ?? "agent_not_settled",
+          execution.usage,
+          nativeEntries,
+          finalSessionFile,
+          execution.text,
+        );
+      }
+      if (execution.aborted || cancelRequested) {
+        return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+      }
+      if (execution.failure !== null && execution.result?.outcome === "error") {
+        return this.failure(
+          session,
+          `rex_worker_error:${execution.failure}`,
+          execution.usage,
+          nativeEntries,
+          finalSessionFile,
+          execution.text,
+        );
+      }
+      if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
+      if (cancelRequested) {
+        return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+      }
+      return this.finalizeCompleted(
+        session,
+        beforeSignature,
+        execution.usage,
+        nativeEntries,
+        finalSessionFile,
+        execution.text,
+        nativeReadable,
+      );
+    } finally {
+      await launcher.dispose().catch(() => {});
+      const pid = execution?.pid ?? piPid;
+      try {
+        const stillAlive = pid !== null && procStartTicks(pid) !== null;
+        this.writeStageProcess(session, stillAlive ? "running" : "exited", pid, processStartedAt);
+      } catch {
+        // 退出记录失败不覆盖已产生的执行结果。
+      }
+    }
+  }
+
+  /** 报告校验与 changedPaths 核对；local 与 Rex 共用，避免两条链路分叉。 */
+  private finalizeCompleted(
+    session: PreparedSession,
+    beforeSignature: WorktreeSignature,
+    usage: RunUsage,
+    nativeEntries: { startEntryId: string | null; leafEntryId: string | null },
+    sessionFile: string | null,
+    text: string,
+    nativeReadable: boolean,
+  ): StageExecution {
+    // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
+    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+      return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
+    }
+    const afterSignature = worktreeSignature(this.root);
+    if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
+    const changedPaths = diffSignatures(beforeSignature, afterSignature);
+    // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
+    const authorizedStandardPaths = new Set((this.request.expected.authorizedStandardOutputs ?? []).map((output) => output.path));
+    const protectedPaths = changedPaths.filter(
+      (path) => path.startsWith(".knit/") && !authorizedStandardPaths.has(path),
+    );
+    if (protectedPaths.length > 0) {
+      return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
+    }
+    if ((this.request.phase === "check" || this.request.phase === "advisory") && changedPaths.length > 0) {
+      return this.failure(
+        session,
+        `${this.request.phase}_side_effects:${changedPaths.join(",")}`,
+        usage,
+        nativeEntries,
+        sessionFile,
+        text,
+      );
+    }
+
+    const parsed = parseStageReport(text);
+    if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
+    const validation = validateReportForPhase(this.request.phase, parsed.report);
+    if (!validation.ok) return this.failure(session, validation.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report);
+
+    if (this.request.phase === "implement") {
+      const reported = new Set((parsed.report.changedPaths ?? []).map(normalizePath));
+      const actual = new Set(changedPaths.map(normalizePath));
+      if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
+        // 失败原因直接带实际 diff 路径清单；零 diff（基线已含改动／重派无改动）显式标注为 zero_diff，
+        // 便于排障时区分「报告路径写错」与「基线未还原导致无法再产生差异」。
+        const actualPaths = [...actual].sort();
+        const reason =
+          actualPaths.length === 0
+            ? "changed_paths_mismatch:zero_diff"
+            : `changed_paths_mismatch:${actualPaths.join(",")}`;
+        return this.failure(session, reason, usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
+      }
+    }
+
+    return {
+      session: this.sessionRecord(session, nativeReadable, sessionFile),
+      result: this.result("completed", parsed.report, usage, nativeEntries, session, text, changedPaths, null),
+    };
   }
 
   private result(

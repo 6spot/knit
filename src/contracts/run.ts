@@ -1,6 +1,13 @@
 import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { ProtocolVersionSchema } from "./protocol.js";
 
+/** 阶段呈现方式：local 为现有 RPC 后台链路；rex 为 Rex 浮层内的 TUI 链路。 */
+export const RunPresentationSchema = union([
+  lit("local"),
+  lit("rex"),
+]);
+export type RunPresentation = Static<typeof RunPresentationSchema>;
+
 /** 阶段执行；advisory 只产出建议，不推进 Task。 */
 export const RunPhaseSchema = union([
   lit("implement"),
@@ -305,6 +312,7 @@ export const RunRequestFileSchema = obj(
     runId: str({ minLength: 1, pattern: "^run-[0-9a-f]{12}$" }),
     taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
+    presentation: opt(RunPresentationSchema),
     purpose: RunPurposeSchema,
     initiator: RunInitiatorSchema,
     createdAt: str({ minLength: 1 }),
