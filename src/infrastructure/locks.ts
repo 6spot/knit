@@ -13,6 +13,9 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { atomicWrite, readWithVersion } from "./atomic.js";
+import { procStartTicks } from "./process.js";
+
+export { procStartTicks } from "./process.js";
 import { hashKey } from "./paths.js";
 import { InfrastructureError } from "./errors.js";
 
@@ -90,19 +93,6 @@ function bootId(): string {
 }
 
 /** /proc/<pid>/stat starttime；空格包裹的 comm 字段内可能含空格，取最后一个 ')' 之后解析。 */
-export function procStartTicks(pid: number): string | null {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
-    const fields = afterComm.split(" ");
-    // stat 全字段第 22 项（1 基）；去掉前两项（pid、comm）后是第 20 项（0 基）。
-    const value = fields[19];
-    return typeof value === "string" && /^\d+$/.test(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
 export function currentIdentity(): ProcessIdentity {
   const pid = process.pid;
   return { pid, procStartTicks: procStartTicks(pid), machineBootId: bootId() };
@@ -393,15 +383,16 @@ export class LockManager {
     if (owner.protocol !== OWNER_PROTOCOL) return "unknown";
     if (owner.machineBootId !== this.identity.machineBootId) return "unknown";
     if (typeof owner.pid !== "number" || !Number.isInteger(owner.pid)) return "unknown";
-    let stats;
+    // 跨平台存活检查：process.kill(pid, 0) 在 Linux／macOS 都可用（任务052-B001 Mac 适配）。
     try {
-      stats = statSync(`/proc/${owner.pid}`);
-    } catch {
-      return "not_alive";
+      process.kill(owner.pid, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") return "not_alive";
+      return "unknown"; // EPERM 等权限情形不冒充结论。
     }
-    if (!stats.isDirectory()) return "unknown";
     const ticks = procStartTicks(owner.pid);
-    if (ticks === null || owner.procStartTicks === null) return "unknown";
+    if (ticks === null || owner.procStartTicks === null) return "alive";
     return ticks === owner.procStartTicks ? "alive" : "not_alive";
   }
 

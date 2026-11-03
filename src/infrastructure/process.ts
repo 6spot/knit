@@ -10,7 +10,22 @@ import { kill as killProcess } from "node:process";
 import type { GitPort, ManagedProcess, ProcessPort } from "../ports/infrastructure.js";
 import { InfrastructureError } from "./errors.js";
 
-export { procStartTicks, currentIdentity } from "./locks.js";
+/** 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的 lstart 文本（同平台自洽，任务052/B001）。 */
+export function procStartTicks(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
+    const fields = afterComm.split(" ");
+    // stat 全字段第 22 项（1 基）；去掉前两项（pid、comm）后是第 20 项（0 基）。
+    const value = fields[19];
+    return typeof value === "string" && /^\d+$/.test(value) ? value : null;
+  } catch {
+    // 非 Linux：/proc 不存在，走 ps 回退。
+    return processTable().get(pid)?.startTicks ?? null;
+  }
+}
+
+export { currentIdentity } from "./locks.js";
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */
 const GIT_ENV: Record<string, string> = {
@@ -174,28 +189,65 @@ export function machineBootId(): string {
   try {
     return readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
   } catch {
+    // 非 Linux（如 macOS）：sysctl -n kern.bootuuid 给出本次启动的稳定 UUID。
+    try {
+      const uuid = spawnSync("sysctl", ["-n", "kern.bootuuid"], { encoding: "utf8" }).stdout?.trim() ?? "";
+      if (uuid !== "") return uuid;
+    } catch {
+      // 继续用主机名兜底。
+    }
     return `unknown-boot-${hostname()}`;
   }
 }
 
-/** 只读 /proc 进程表：pid、ppid、进程组与 starttime；解析失败条目跳过。 */
+/**
+ * 只读进程表：pid、ppid、进程组与启动标识；解析失败条目跳过。
+ * Linux 直接读 /proc；其它平台（macOS 等）回退 `ps -eo`——startTicks 用 lstart 文本，
+ * 只要写入与核对在同一平台就保持一致（跨平台混用同一锁目录不受支持）。
+ */
 export function processTable(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
-  const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    const pid = Number(name);
-    try {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
-      const fields = afterComm.split(" ");
-      const ppid = Number(fields[1]);
-      const pgid = Number(fields[2]);
-      const start = fields[19];
-      if (!Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
-      table.set(pid, { ppid, pgid, startTicks: typeof start === "string" && /^\d+$/.test(start) ? start : null });
-    } catch {
-      // 进程在枚举时退出。
+  try {
+    const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
+    for (const name of readdirSync("/proc")) {
+      if (!/^\d+$/.test(name)) continue;
+      const pid = Number(name);
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+        const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
+        const fields = afterComm.split(" ");
+        const ppid = Number(fields[1]);
+        const pgid = Number(fields[2]);
+        const start = fields[19];
+        if (!Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
+        table.set(pid, { ppid, pgid, startTicks: typeof start === "string" && /^\d+$/.test(start) ? start : null });
+      } catch {
+        // 进程在枚举时退出。
+      }
     }
+    return table;
+  } catch {
+    return processTablePs();
+  }
+}
+
+/** ps 回退进程表（macOS 等）；lstart 文本作为启动标识，同平台自洽。 */
+function processTablePs(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
+  const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
+  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8" });
+  if (result.status !== 0 || !result.stdout) return table;
+  for (const line of result.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(.{25})$/.exec(trimmed);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    const ppidText = match[2];
+    const ppid = Number(ppidText);
+    const pgidText = match[3];
+    const pgid = Number(pgidText);
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
+    const startText = match[4] ?? "";
+    table.set(pid, { ppid, pgid, startTicks: startText.trim() });
   }
   return table;
 }
