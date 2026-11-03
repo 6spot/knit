@@ -1,62 +1,32 @@
 ---
 id: k-248eafc8fb31
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T15:14:06.963Z
 title: Worktree：创建、连接与本机绑定
 ---
 
-# Worktree：创建、连接与本机绑定
+需求冻结（主会话核对 WORKTREE.md §6.1/6.2/6.6、DESIGN §3.5/§3.7/§15.2、TaskBindingSchema（src/contracts/metadata.ts）与 sqlite-metadata-store bindings 表后决策）：
 
-## 目标与边界
+命令设计（新增 `knit worktree` 命令组）：
+1. `knit worktree create --task <id> [--path <dir>] [--branch <refs/heads/…>] [--global]`：默认路径 `.knit/worktrees/<MM-DD>-<slug>/`（slug 取任务目录名去掉日期前缀；日期取任务 createdAt 月日），默认分支 `knit/<MM-DD>-<slug>`；被其它任务占用时 slug 加短序号 `-2/-3…` 后同名的路径与分支一并确定。`--path/--branch` 显式指定时按指定值（仍查占用）。`--global` 或内部路径不可用时用 `~/.knit/worktrees/<project-key>/<MM-DD>-<slug>/`（project-key=主目录 basename+绝对路径 8 位 hash；启动前报告最终路径与原因）。
+2. `knit worktree connect --task <id> --path <dir>`：连接已有目录；核对 `git worktree list --porcelain` 含该路径、仓库归属本项目、分支为 refs/heads/…；不符报错保留现场。
+3. 创建语义：从主检出当前 HEAD（已提交基线）`git worktree add -b <branch> <path> <baseline>`；创建前保证忽略规则生效——查根 .gitignore 与 .knit/.gitignore 是否已有匹配 `.knit/worktrees/` 的规则，无则在根 .gitignore 追加一行（保留现有规则，缺文件则创建）；基线 commit 记入绑定。
 
-实现设计预留的 Worktree 创建与已有目录连接，建立可核实的仓库、分支和本机执行目录关系，为后续交接与执行接入提供基础。
+绑定扩展（TaskBindingSchema opt 字段，SQLite record JSON 序列化自动兼容，无表迁移）：`worktree: opt(obj({ layout: lit("project")|lit("global"), path: str（项目内为绝对路径，project 布局同时记 relativePath 线索）, branch: str, baseline: str（commit sha）, createdAt: str, registeredAt: str }))`。创建/连接成功后写入；binding 的 relativePath/branch 主字段本任务不改（仍指主检出），切换执行位置属任务 11 交接语义。
 
-这是用户要求盘点并拆分的设计后续能力，属于后续规划。本轮仅登记任务和边界，保持 open／discuss；不开始技术实施，不调用模型、Rex 或真实项目操作，不改变首版范围。具体方案和完成条件按下述设计来源及待验证事项继续澄清，不把规划建议或尚未核查的能力当作事实。
+守卫与幂等：
+- 任务已归档拒绝；活动 run 不阻塞创建（不影响主目录执行）；任务锁内串行。
+- 幂等重试：binding.worktree 已存在且路径/分支/基线核实一致（路径存在、porcelain 登记、分支可解析到基线或其后代）→ 直接返回已注册不重建；路径存在但未注册→按 connect 语义核实后登记；分支已被其它 worktree 检出或路径非空且非登记目录→报错保留现场（git_occupied/path_occupied/branch_mismatch）。
+- 连接/创建均不产生 Git 提交、不改主检出分支、不启动模型；失败保留目录与分支并报告实际效果。
+- 元数据不可用（锁/库故障）时如实报错，不写半份绑定。
 
-### 本任务的交付范围
+测试（隔离夹具，合成任务目录符合 frontmatter 与记录区标记）：a) create 默认命名/分支/基线与 binding.worktree 落库；b) 命名占用加序号；c) 显式 path/branch；d) connect 已有 worktree 成功、错误仓库/非 worktree 目录/分支不符拒绝；e) 幂等重试不重建；f) 分支被其它 worktree 占用报错；g) gitignore 规则保证（已有关不动、缺失追加、现有规则保留）；h) global 布局路径与 project-key；i) 创建后主检出分支与任务 binding 主字段不变。全量 npm test 绿。
 
-- 按 Worktree 设计处理现有分支／新分支、路径和可读名称占用；区分稳定任务身份、可读名称及实际执行目录。
-- 核实 Git 仓库关系、目录／分支占用和已存在关联，幂等重试；失败保留可诊断的实际效果。
-- 本任务交付创建／连接基础，不提前把资料尚未交接完的任务切到新目录执行。
-
-## 完成条件
-
-以下是依据现行设计拟定的可验证交付方向；Planner 在实施前对照真实方案复核，范围变化按 Knit 输入更新规则处理。本轮没有执行这些验收。
-
-- 隔离 Git 夹具覆盖创建、连接已有目录、命名占用、错误仓库和失败重试，保留用户原有目录及分支。
-- 绑定资料与真实 Git／目录关系一致；不复制另一套任务身份，也不默认启动模型或切换活动执行位置。
-
-保留 Task／Run／Session 的既有权威、授权和恢复规则；按影响范围选择实际检查。历史真机／真实模型验收继续沿用用户的延期决定，何时进行由后续授权安排，不能以隔离测试冒充真实验收。业务完成、Git 提交、归档、push 和发布分别处理，本轮不进行这些操作。
-
-## 输入引用
-
-- 用户要求：把设计预留的 Worktree、Rex 等后续实现盘点并合理拆分；本轮不实施。
-- [仓库规范](../../../AGENTS.md)、[文档索引](../../../docs/README.md)、[工作流](../../workflow.md)。
-- [docs/research/WORKTREE.md](../../../docs/research/WORKTREE.md) 第 6.2、6.3、6.6 节
-- [docs/design/DESIGN.md](../../../docs/design/DESIGN.md) 第 3.5、15.2、16.3 节
-- [docs/design/ARCHITECTURE.md](../../../docs/design/ARCHITECTURE.md) 的 binding／operation 约定
-
-## 依赖与交接
-
-- 无其它新规划任务的硬前置；实施前仍须阅读当前架构、任务状态及适用规范。
-
-后续使用本任务交付的任务：
-
-- [Worktree：任务资料完整交接与中断恢复](../11-03-worktree-task-material-handoff/task.md)（k-19b5cad5c106）。
-- [Worktree：公共资料白名单复制与环境初始化](../11-03-worktree-material-copy-environment-init/task.md)（k-e48b7df14115）。
-- [Worktree：执行路由、跨目录查询与会话续做](../11-03-worktree-execution-query-session-resume/task.md)（k-1910551e4f50）。
-
-依赖描述是规划交接关系，不新增调度字段或状态机。各任务只带自身需要的上游结果；研究若证明依赖或粒度应调整，先说明并更新任务，不因任务已登记而自动派发。
-
-## 待讨论与待验证事项
-
-- 按现有 binding 仓储实际字段设计最小扩展及迁移；具体命令和参数由后续 Planner 确认。
-
-后续 Planner 把本任务的必要方案及可执行步骤保存在本任务目录，继续识别可独立验收的拆分边界；任务登记不替代需求澄清或实施授权。
+模型说明：deepseek 429 限流至 2026-11-04 15:49，本任务派发显式 --provider magpie --model auto/glm-5.3-flash。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -68,5 +38,18 @@ title: Worktree：创建、连接与本机绑定
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-0032f043cd66，已接收 implementation_accepted；模型 magpie/auto/glm-5.3-flash，deepseek 429 限流期间显式指定）：新增 src/application/worktree-manager.ts（478 行：默认命名 .knit/worktrees/<MM-DD>-<slug>、slug 去日期前缀+短序号占用处理、project-key 推导、gitignore 规则保证——已有关不动/缺失追加/缺文件创建；create 从主检出 HEAD `git worktree add -b` 并记 baseline；connect 核对 porcelain 登记/仓库归属/本地分支；幂等重试与断点恢复——已登记核实一致不重建、路径存在未登记按 connect 语义核实；占用/冲突报错保留现场）+ src/cli/worktree.ts（create/connect 命令）+ TaskBindingSchema.worktree opt 字段（layout/path/relativePath/branch/baseline/createdAt/registeredAt，SQLite record JSON 自动兼容无表迁移）+ CLI 注册与 output 错误映射。验证（self）：npm test 334/334 绿，新增 11 组 worktree 用例覆盖冻结方案 a–i 全部场景（默认命名/序号/显式值/connect 三类拒绝/幂等/断点恢复/分支占用/global 布局/主字段不变/归档拒绝/工具函数）。主检出 binding 主字段与分支本任务未改，切换执行位置留给任务 11 交接语义。
+
+### 交付记录
+
+<!-- knit:delivery:op-288916c025e2 -->
+- 操作: op-288916c025e2
+- 时间: 2026-11-03T21:04:10.342Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: f4ae8315adb3f564706c6ceb1376d91129053f91
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-create-connect-binding
 
 <!-- knit:progress:end -->
