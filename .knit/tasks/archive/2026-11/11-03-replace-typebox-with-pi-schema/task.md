@@ -85,4 +85,10 @@ title: 将 typebox 替换为 pi-schema
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-replace-typebox-with-pi-schema
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-5b5f444b10c8 -->
+- 任务资料提交: edbaf66441da0aecb8468a4994cc4f5f2bdfe4fa
+- 归档目标: .knit/tasks/archive/2026-11/11-03-replace-typebox-with-pi-schema
+
 <!-- knit:progress:end -->
