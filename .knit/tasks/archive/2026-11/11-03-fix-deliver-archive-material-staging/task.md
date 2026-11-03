@@ -35,4 +35,10 @@ title: 修复 deliver 归档遗漏任务同目录材料的旧路径删除
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-fix-deliver-archive-material-staging
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8b601528d310 -->
+- 任务资料提交: f2447b00bcd407bddd7bb60ca0faec2a00e3b821
+- 归档目标: .knit/tasks/archive/2026-11/11-03-fix-deliver-archive-material-staging
+
 <!-- knit:progress:end -->
