@@ -47,4 +47,10 @@ title: 存储清理：引用核验与可恢复资料回收
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-storage-reference-aware-garbage-collection
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-88ec41576633 -->
+- 任务资料提交: d6fea363da9bc95360bcc5d4f1fa3b0b482040b7
+- 归档目标: .knit/tasks/archive/2026-11/11-03-storage-reference-aware-garbage-collection
+
 <!-- knit:progress:end -->
