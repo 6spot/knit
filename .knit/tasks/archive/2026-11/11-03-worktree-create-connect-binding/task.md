@@ -52,4 +52,10 @@ title: Worktree：创建、连接与本机绑定
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-create-connect-binding
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-288916c025e2 -->
+- 任务资料提交: 5712540eb82257cd2de24ae3b0b8ef1c456677a7
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-create-connect-binding
+
 <!-- knit:progress:end -->
