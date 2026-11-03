@@ -5,7 +5,7 @@
  * 业务裁决委托 domain/task.ts；本服务核对事实、执行 IO、写回转移结果。
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
   DEFAULT_VERIFICATION,
@@ -562,6 +562,23 @@ export class TaskService {
       if (previous === branch) {
         if (binding !== null && binding.branch !== branch) {
           await this.store.bindings.save({ ...binding, branch });
+        } else if (binding === null) {
+          // frontmatter 已绑当前分支但运行时绑定行缺失（如历史登记任务）：
+          // adopt 补齐绑定行，使 run/deliver 等运行链路可用；不改变分支，不宣称 adopted。
+          await this.store.bindings.save({
+            taskId: input.taskId,
+            repoRoot: root,
+            relativePath: `${TASKS_DIR}/${basename(located.dir)}/${TASK_FILE}`,
+            branch,
+            lastRunIds: [],
+            lastCheckRunId: null,
+            repairCycleId: null,
+            repairRounds: null,
+            stopReason: null,
+            confirmedInputsDigest: null,
+            confirmedStandardsDigest: null,
+            pendingDraft: null,
+          });
         }
         return {
           taskId: input.taskId,

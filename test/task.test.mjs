@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import {
   TaskService,
@@ -232,6 +233,40 @@ test("task adopt：分支变化保持早期 phase，deliver 回 check，清检�
       () => service.adopt({ dir, taskId: task.taskId, branch: "refs/heads/other" }),
       (error) => error.guardReason === "branch_mismatch",
     );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("task adopt：frontmatter 已绑当前分支但绑定行缺失时补齐绑定行", async () => {
+  const dir = gitProject("adopt-missing-binding");
+  const { store, service } = makeService(dir);
+  try {
+    const task = await service.newTask({ dir, title: "补建绑定", slug: "adopt-missing-binding", verification: "self" });
+    const file = taskFile(dir, task.relativePath);
+    // 模拟历史登记任务：frontmatter 已带当前分支，运行时绑定行缺失。
+    const doc = parseTaskDocument(readFileSync(file, "utf8"), file);
+    writeFileSync(file, renderTaskDocument({
+      ...doc,
+      frontmatter: { ...doc.frontmatter, branch: "refs/heads/main" },
+    }));
+    const raw = new DatabaseSync(join(dir, ".knit", ".runtime", "metadata.db"));
+    raw.prepare("DELETE FROM bindings WHERE task_id = ?").run(task.taskId);
+    raw.close();
+    assert.equal(await store.bindings.get(task.taskId), null);
+    const adopted = await service.adopt({ dir, taskId: task.taskId, branch: "current" });
+    assert.equal(adopted.branch, "refs/heads/main");
+    assert.equal(adopted.adopted, false);
+    assert.equal(adopted.checkInvalidated, false);
+    const binding = await store.bindings.get(task.taskId);
+    assert.equal(binding.branch, "refs/heads/main");
+    assert.equal(binding.repoRoot, dir);
+    assert.equal(binding.relativePath, task.relativePath);
+    // 再跑一次仍幂等，不重复改写。
+    const again = await service.adopt({ dir, taskId: task.taskId, branch: "current" });
+    assert.equal(again.adopted, false);
+    assert.equal((await store.bindings.get(task.taskId)).branch, "refs/heads/main");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
