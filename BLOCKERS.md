@@ -104,6 +104,8 @@
 
 ## B006 正式只读调研的完成路径与免 Git 归档未定
 
+- 当前进展（2026-11-03）：用户决定已明确，待实现，不再等待 A／B／C 选择。无论调研或代码修改，是否建任务均由用户决定；不建任务可直接执行，不强制保存业务任务资料。默认按任务实际范围和风险做必要测试／复核，用户明确要求优先。业务完成与 Git 提交分开，任务资料与业务产物分开提交；单任务或批量收尾都保留各任务自己的提交记录。由 [055](tasks/055-user-controlled-task-intake-and-scoped-verification.md)、[056](tasks/056-business-completion-and-validity-guards.md)、[057](tasks/057-per-task-artifact-and-metadata-commits.md)承接。下列备选、待定和推荐保留为054研究时事实，不代表当前决定；尚未实现或验证，不能标为已解决。
+
 - 关联任务：[054](tasks/054-trellis-prompts-and-role-review.md)（Trellis 提示词／角色审视）；影响：正式研究报告任务是否必须独立检查、能否无 Git 完成／归档。
 - 问题与证据（054，2026-11-03）：真实案例 `knit-demo` 的任务 `k-748f2087202d`（`11-03-eval-pi-rexagents`）只要求静态调研，却以 implement 派发并在接收后进入 check。原因不是单一提示词误读：`assets/templates/.knit/workflow.md` 没有只读调查入口；`onImplementationAccepted` 固定 `implement → check`（`src/domain/task.ts:151-160`）；`run-acceptance.ts:261-270` 允许空 changedPaths 接收；正式任务 deliver／archive 都需要收尾提交，Agent 交付另需授权来源。Trellis 固定提交的 research 角色也依附活动任务、只写 `research/`，其 check 角色会直接修复发现，不能作为免检查先例。
 - 待用户决定：A（推荐）不新增 research 阶段／角色；一次性只读调查不建任务，正式研究报告仍走 implement → check → deliver，拒绝 check／commit 就不建正式任务。B1 允许正式调研 implement 后跳过 check 但仍提交；B2 允许无 Git 标记 completed／归档；C 新增 research phase／role；D 用 advisory 作为研究闭环（不可行：需 taskId；报告只作为 run 结果，不写任务输入／业务资料，也不推进阶段）。
@@ -112,9 +114,11 @@
 - 伪代码／暂定接口：A 方案的提示词草案见 [proposal.md](validation/trellis-prompts-and-roles/proposal.md#4-文案草案)；若选 B／C，须先在任务文件补状态转移、完成结果与归档伪代码，再实现。
 - 推荐与影响：A 只改提示词／注入／文档，保留独立性、状态机与授权边界；B1／B2／C 需新增任务类型／结果／完成守卫、修改 `STATES.md` 与交付路径并补测试，另立任务。
 - 仍可继续：054 报告与 A 方案文案；现有正式代码任务不受影响。
-- 用户决定及来源：尚未决定。
+- 用户决定及来源：2026-11-03 当前会话，用户明确决定任务创建由用户选择、复核按实际范围及用户要求、完成与Git提交分离、资料与业务产物分开提交并逐任务保留提交记录；实现与验证由055–057承接，054推荐A不直接采纳。
 
 ## B007 `task close --outcome completed` 未核对检查与交付资格
+
+- 当前进展（2026-11-03）：用户认可修复完成守卫，同时明确业务完成不要求 Git 提交，多个任务可以先完成后再提交。由 [056](tasks/056-business-completion-and-validity-guards.md)承接，并按055确定的验证要求核对有效成果；不将所有任务强制独立检查，也不将Git回执设为业务完成前提。下列待定项保留为发现时事实，产品方向已明确，缺陷仍未修复。
 
 - 关联任务：054；相关规则：`STATES.md:47`（正常完成须有效检查及主 Agent 完成判断）、`DESIGN.md` 第10节、交付服务。
 - 问题与证据（054 源码核对，2026-11-03）：`TaskService.close`（`src/application/task-service.ts:1052-1093`）只核对 `runsSettled` 与领域状态；`onComplete`（`src/domain/task.ts:209-216`）不核对 `phase`／`lastCheckRunId`／check 通过。直接调用当前构建的 `onComplete` 对 discuss／implement／check／deliver 四个 phase 均返回 `closed/completed/deliver`；因此从 implement 或 check 直接 `task close --outcome completed` 在代码上可行，会得到 `closed/completed/deliver`，但没有有效检查或交付回执。该路径与 `STATES.md` 的正常完成规则不一致，不能作为正式调研跳过检查的合法捷径。
@@ -123,4 +127,4 @@
 - 尚不能完成：是否补守卫、是否允许显式 override 尚未决定；未做 CLI 级 close 夹具。
 - 伪代码／暂定接口：在 `TaskService.close` 的 completed 分支增加“有效检查（`lastCheckRunId` 对应检查 pass 且目标版本匹配）＋主 Agent 明确完成判断”核对；不满足则拒绝并提示先走 deliver 或显式例外。具体字段和 override 语义待用户决定后写入任务。
 - 待用户决定／修复：补守卫（仅有效检查后的 deliver 可 completed，或其他显式、可审计的 override）还是保留为管理操作并在文档中明确例外；推荐补守卫，另立实现任务。
-- 用户决定及来源：尚未决定；054 未修改状态机。
+- 用户决定及来源：2026-11-03 当前会话，认可补齐完成资格核对，明确“完成是完成，提交Git是提交Git”，支持多个已完成未提交任务；055–057记录后续范围，本轮不修改实现。
