@@ -127,8 +127,21 @@ export const StatusToolSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** 任务规划资料工具（DESIGN §3.4，任务045/048）：要求性内容变化仍须走 task update。 */
+export const MaterialToolSchema = Type.Object(
+  {
+    action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save"), Type.Literal("delete")]),
+    taskId: Type.String({ minLength: 1 }),
+    path: Type.Optional(Type.String({ minLength: 1 })),
+    content: Type.Optional(Type.String()),
+    expectDigest: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
 export const BRIDGE_TOOL_SCHEMAS = {
   task: TaskToolSchema,
+  material: MaterialToolSchema,
   context: ContextToolSchema,
   run: RunToolSchema,
   deliver: DeliverToolSchema,

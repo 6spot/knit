@@ -38,3 +38,10 @@
 ## 执行记录
 
 - 本轮：创建任务；资料结构与生命周期尚未实施。
+- 2026-11-02：实现 Agent 完成 044 契约的资料生命周期实现并验证。
+  - 新增 `src/application/task-materials.ts`：路径约束（仅 plan.md／design.md／research/*.md，拒绝 ..、绝对路径、非 Markdown、plan/design 子路径）、list（不创建文件）、read（缺失 exists=false 不抛错）、save（整体覆盖；expectDigest 乐观版本核对，不匹配 version_conflict）、delete（仅 research/）、snapshotTaskMaterials（冻结快照：现存文件 + 路径+digest 稳定摘要）。资料经 `locateTaskDocument` 按稳定 ID 定位，改名／归档后自动重定位读取；不建立第二套状态表。
+  - `src/application/task-service.ts`：暴露 `listMaterials／readMaterial／saveMaterial／deleteMaterial／materialSnapshot` 统一接口（CLI 与桥接同语义）；save/delete 持任务短锁。
+  - `src/cli/task.ts`：`task material list/read/save/delete` 子命令（--json 走同一响应协议）。
+  - 语义对齐 044：进度勾选与证据追加不改 inputsDigest、不产生草案（测试断言）；被输入引用资料的要求性内容变化走 task update --kind（既有 update 语义），活动 run 期间经现有草案机制保存（029/030 产物复用）。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 237 项全过（Linux + Node v24.21.0）。新增用例覆盖：创建不堆空文件、越界／白名单／单文件子路径拒绝、版本核对冲突、改名重定位、research 删除与 plan 保护、归档后读取、冻结快照。安装模板集成归 050；活动 run 多文件草案的真实 worker 验证复用 029/030 机制（既有用例覆盖单文件路径，多文件经同一入口），未重复实现。
+  - 未决：046 角色加载消费这些接口；CLI 人类可读输出后续按 042 模式在桥接展示。

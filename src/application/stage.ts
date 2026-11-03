@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContextPlan, ContextSection } from "../contracts/context-plan.js";
 import { inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
+import { researchDigestSummary } from "./task-materials.js";
 import type { RunPhase } from "../contracts/run.js";
 import { StageReportSchema, type StageReport } from "../contracts/run.js";
 import { Value } from "typebox/value";
@@ -72,6 +73,10 @@ export function loadSectionContents(root: string, plan: ContextPlan, pendingDraf
     }
     if (section.kind === "task-inputs") contents[section.sourceId] = inputsRegionOf(text);
     else if (section.kind === "progress") contents[section.sourceId] = progressRegionOf(text);
+    else if (section.kind === "planning-material" && section.path !== null && section.path.includes("/research/")) {
+      // research 分节按入口摘要注入，全文按需读取（DESIGN §3.4，任务046/051-B005）。
+      contents[section.sourceId] = researchDigestSummary(section.path, text);
+    }
     else contents[section.sourceId] = text;
   }
   return contents;
@@ -122,6 +127,13 @@ export function buildSystemPrompt(plan: ContextPlan, phase: RunPhase, contents: 
   const workflow = sectionText(plan.sections, ["workflow"], contents);
   const runtime = sectionText(plan.sections, ["runtime"], contents);
   const standards = sectionText(plan.sections, ["standard"], contents);
+  // 任务规划资料：plan/design 全文进系统提示（实施按未完成步骤推进，检查按步骤产出核对）；
+  // research 摘要属背景资料，由 backgroundText 注入（任务051）。
+  const planning = sectionText(
+    plan.sections.filter((section) => !(section.path ?? "").includes("/research/")),
+    ["planning-material"],
+    contents,
+  );
   return [
     "你是 Knit 的独立阶段执行器，不是主 Agent。",
     `本次阶段：${phase}。`,
@@ -132,6 +144,7 @@ export function buildSystemPrompt(plan: ContextPlan, phase: RunPhase, contents: 
     workflow,
     runtime,
     standards,
+    planning,
   ]
     .filter((part) => part !== "")
     .join("\n\n");

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -465,6 +465,87 @@ test("task update：apply 按草案 kind 应用；change 草案回 discuss，cla
   }
 });
 
+test("任务规划资料：按需创建读取保存、越界与白名单拒绝、版本核对、改名重定位、归档可读（任务045）", async () => {
+  const dir = gitProject("materials");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const taskDir = join(dir, ".knit", "tasks", relativePath.split("/")[1]);
+    // 创建时不堆空文件。
+    const initial = await service.listMaterials({ dir, taskId });
+    assert.deepEqual(initial, []);
+    assert.equal(existsSync(join(taskDir, "plan.md")), false);
+
+    // 保存 plan（创建）与 research 文档；越界与非白名单拒绝。
+    const savedPlan = await service.saveMaterial({ dir, taskId, path: "plan.md", content: "# 计划\n\n- [ ] 步骤一\n" });
+    assert.equal(savedPlan.created, true);
+    await service.saveMaterial({ dir, taskId, path: "research/notes.md", content: "# 调查\n" });
+    await assert.rejects(
+      () => service.saveMaterial({ dir, taskId, path: "../escape.md", content: "x" }),
+      (error) => error.guardReason === "path_escape",
+    );
+    await assert.rejects(
+      () => service.saveMaterial({ dir, taskId, path: "todo.txt", content: "x" }),
+      (error) => error.guardReason === "invalid_request",
+    );
+    await assert.rejects(
+      () => service.saveMaterial({ dir, taskId, path: "plan/extra.md", content: "x" }),
+      (error) => error.guardReason === "invalid_request",
+    );
+
+    // 读取与列表。
+    const plan = await service.readMaterial({ dir, taskId, path: "plan.md" });
+    assert.equal(plan.exists, true);
+    assert.ok(plan.content?.includes("步骤一"));
+    const entries = await service.listMaterials({ dir, taskId });
+    assert.deepEqual(entries.map((entry) => entry.path), ["plan.md", "research/notes.md"]);
+
+    // 版本核对：expectDigest 不匹配拒绝，匹配则更新。
+    await assert.rejects(
+      () => service.saveMaterial({ dir, taskId, path: "plan.md", content: "# 计划 v2\n", expectDigest: "deadbeef" }),
+      (error) => error.code === "version_conflict",
+    );
+    const updated = await service.saveMaterial({ dir, taskId, path: "plan.md", content: "# 计划 v2\n- [x] 步骤一\n", expectDigest: savedPlan.digest });
+    assert.equal(updated.created, false);
+
+    // 进度勾选不改需求摘要；直接编辑资料不产生草案。
+    const before = await service.readInputs({ dir, taskId });
+    const after = await service.readInputs({ dir, taskId });
+    assert.equal(after.inputsDigest, before.inputsDigest);
+    assert.equal((await store.bindings.get(taskId))?.pendingDraft ?? null, null);
+
+    // 改名后资料随任务目录重定位。
+    await service.rename({ dir, taskId, newSlug: "moved", equivalent: true });
+    const movedPlan = await service.readMaterial({ dir, taskId, path: "plan.md" });
+    assert.equal(movedPlan.exists, true);
+    assert.ok(movedPlan.content?.includes("计划 v2"));
+
+    // research 可删；plan/design 不允许单独删除。
+    const removed = await service.deleteMaterial({ dir, taskId, path: "research/notes.md" });
+    assert.equal(removed.removed, true);
+    await assert.rejects(
+      () => service.deleteMaterial({ dir, taskId, path: "plan.md" }),
+      (error) => error.guardReason === "invalid_request",
+    );
+
+    // 归档后仍可读取。
+    await service.ready({ dir, taskId });
+    const movedName = readdirSync(join(dir, ".knit", "tasks")).find((name) => name.endsWith("-moved"));
+    const doc = parseTaskDocument(readFileSync(taskFile(dir, `tasks/${movedName}/task.md`), "utf8"));
+    writeFileSync(taskFile(dir, `tasks/${movedName}/task.md`), renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+    mkdirSync(join(dir, ".knit", "tasks", "archive", "2026-11"), { recursive: true });
+    renameSync(join(dir, ".knit", "tasks", movedName), join(dir, ".knit", "tasks", "archive", "2026-11", movedName));
+    const archivedPlan = await service.readMaterial({ dir, taskId, path: "plan.md" });
+    assert.equal(archivedPlan.exists, true);
+    const snapshot = await service.materialSnapshot({ dir, taskId });
+    assert.deepEqual(snapshot.files.map((entry) => entry.path), ["plan.md"]);
+    assert.equal(snapshot.digest.length, 64);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("task rename：等价移动不改变输入摘要；路径线索与绑定更新", async () => {
   const dir = gitProject("rename");
   const { store, service } = makeService(dir, { now: fixedDate });
@@ -816,4 +897,39 @@ test("CLI：task update/close 错误路径输出协议错误", async () => {
 
 test("newTaskId 与随机源：k- 前缀稳定身份", () => {
   assert.equal(newTaskId(() => "0123456789ab"), "k-0123456789ab");
+});
+
+test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任务不受阻；进度更新不重置（任务049）", async () => {
+  const dir = gitProject("ready-structural");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const file = taskFile(dir, relativePath);
+    // 1. 模板占位未填：核心不机械拒绝（语义判断属主 Agent）；ready 正常通过（简单任务，无 plan.md）。
+    const ready = await service.ready({ dir, taskId });
+    assert.equal(ready.phase, "implement");
+
+    // 2. 复杂任务承诺 plan.md：空 plan 阻止 ready（change 回 discuss 后再试）。
+    const docForChange = parseTaskDocument(readFileSync(file, "utf8"));
+    await service.update({ dir, taskId, kind: "change", reason: "升级为复杂任务", content: docForChange.inputsBody + "\n", runActive: false });
+    writeFileSync(join(dir, ".knit", "tasks", relativePath.split("/")[1], "plan.md"), "   \n");
+    await assert.rejects(
+      () => service.ready({ dir, taskId }),
+      (error) => error.guardReason === "ready_plan_incomplete",
+    );
+    // 有内容后通过。
+    writeFileSync(join(dir, ".knit", "tasks", relativePath.split("/")[1], "plan.md"), "# 计划\n\n- [ ] 步骤一\n\n## 未完成\n\n- [ ] 步骤一\n");
+    const ready2 = await service.ready({ dir, taskId });
+    assert.equal(ready2.phase, "implement");
+
+    // 3. 进度更新（勾选）不重置阶段、修复计数或产生草案。
+    await service.saveMaterial({ dir, taskId, path: "plan.md", content: "# 计划\n\n- [x] 步骤一\n\n## 未完成\n\n（无）\n" });
+    const after = await store.bindings.get(taskId);
+    assert.equal(after.pendingDraft ?? null, null, "进度更新不产生草案");
+    const docAfter = parseTaskDocument(readFileSync(file, "utf8"));
+    assert.equal(docAfter.frontmatter.phase, "implement", "进度更新不改变阶段");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -157,6 +157,69 @@ export function registerTaskCommands(program: Command): void {
       }, (result) => !result.saved);
     });
 
+  const material = task.command("material").description("任务规划资料：plan/design/research（task.md 仍是业务状态唯一权威）");
+
+  material
+    .command("list <taskId>")
+    .description("列出任务规划资料")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-material-list-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withService(requestId, options.dir, (service) => service.listMaterials({ dir: options.dir, taskId }), (entries) => {
+        if (entries.length === 0) console.log("（无规划资料）");
+        for (const entry of entries) console.log(`${entry.path}  ${entry.digest?.slice(0, 12) ?? ""}  ${entry.bytes ?? 0}B`);
+      });
+    });
+
+  material
+    .command("read <taskId> <path>")
+    .description("读取单个任务规划资料")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, path, options) => {
+      const requestId = `task-material-read-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withService(requestId, options.dir, (service) => service.readMaterial({ dir: options.dir, taskId, path }), (file) => {
+        if (!file.exists) {
+          console.error(`knit: 资料不存在: ${file.path}`);
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write(file.content ?? "");
+      });
+    });
+
+  material
+    .command("save <taskId> <path>")
+    .description("创建或整体覆盖任务规划资料；要求性内容变化须走 task update --kind")
+    .option("--file <path>", "内容文件；缺省读 stdin")
+    .option("--expect-digest <digest>", "乐观版本核对；不匹配报 version_conflict")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, path, options) => {
+      const requestId = `task-material-save-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const content = options.file ? readFileSync(options.file, "utf8") : await readStdin();
+      await withService(
+        requestId,
+        options.dir,
+        (service) => service.saveMaterial({ dir: options.dir, taskId, path, content, expectDigest: options.expectDigest }),
+        (result) => console.log(`${result.created ? "已创建" : "已更新"}: ${result.path} (${result.digest.slice(0, 12)})`),
+      );
+    });
+
+  material
+    .command("delete <taskId> <path>")
+    .description("删除 research/ 下的任务资料；plan/design 不提供单独删除")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, path, options) => {
+      const requestId = `task-material-delete-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withService(requestId, options.dir, (service) => service.deleteMaterial({ dir: options.dir, taskId, path }), (result) => {
+        if (!result.removed) {
+          console.error(`knit: 资料不存在: ${path}`);
+          process.exitCode = 1;
+          return;
+        }
+        console.log(`已删除: ${path}`);
+      });
+    });
+
   task
     .command("ready [taskId]")
     .description("保存讨论确认：discuss → implement，冻结当前输入摘要")

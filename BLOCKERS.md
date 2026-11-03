@@ -83,3 +83,22 @@
 - 尚待处理：选定同一次成功申请的 token 归并／拒绝策略，或调整每键持有凭据契约；需补新键先行、多个既有不同 token 与正常 heartbeat/release 的验收。本轮仅保留证据，不自行选方案。
 - 伪代码／暂定接口：`held A(token1); acquire([new B, A]) -> {token2, keys:[B,A]}; release(handle) -> releases B but not A reference; release(outer) -> A count remains 1`。后续实现须令成功句柄能对称撤销每个实际获取步骤，并同步 heartbeat／release，不可只改失败回滚。
 - 待决定：安排独立修复范围；其它开发与053验收可继续。修复前不新增同动作混合键重入业务路径，避免引入已确认的成功释放缺口。
+
+## B005 任务规划资料分节 path 错误且实施／检查 worker 提示不渲染 planning 分节
+
+- 关联任务：[046](tasks/046-role-aware-task-context.md)（规划资料入上下文的实现）、[049](tasks/049-discussion-planning-readiness.md)（实施交接依赖该链路）、[051](tasks/051-main-workflow-independent-gate.md)（独立验收发现）；下游影响：复杂任务实施／检查 worker 实际收到的阶段上下文。
+- 问题与证据（051 独立验收，2026-11-03）：两处叠加缺陷，使 ContextPlan 中的规划资料分节（046 声称"plan.md／design.md 全文注入"）从未真正进入实施／检查 worker 提示：
+  1. `src/application/context-planner.ts:282` 用 `taskRelative.split("/").slice(1, -1)` 计算任务目录名，而 `taskRelative` 形如 `.knit/tasks/<dir>/task.md`，切出的 `taskIdDirName` 含多余 `tasks` 段，导致 `planning-material` 分节与 excluded 记录的 `path` 为 `.knit/tasks/tasks/<dir>/plan.md`（真实文件在 `.knit/tasks/<dir>/plan.md`）。
+  2. `src/application/stage.ts` 的 `loadSectionContents`（59–77 行）按该错误 path 读文件失败后静默 `continue`（规划分节与 research 分节全部落空）；且 `buildSystemPrompt`／`buildUserPrompt`（120/140 行起）只渲染 role/workflow/runtime/standard/task-inputs/progress/background，从不渲染 `kind: "planning-material"` 分节——即使 path 正确，plan/design 全文也不会出现在 worker 提示中。
+  探针证据：`validation/main-workflow-gate/deterministic-probe.mjs` 场景7（5 项 FAIL：两角色分节 path 不指向真实文件、loadSectionContents 载入 0 个规划分节、实施提示不含 plan/design 正文；分节 sourceId/digest/bytes 本身正确，digest 按正确内容计算，冻结摘要语义未受污染）。
+- 已尝试：核对既有测试（test/session.test.mjs 只断言 planning 分节 sourceId/bytes/digest，未断言 path 与 worker 提示内容，故未拦截）；核对 046 执行记录"plan 注入任务规划资料分节——plan.md／design.md 全文（required、mode=resource）"与 DESIGN §3.4/§4.2 的实施入口要求；验证 digest／冻结 inputs 摘要不受影响（planning 分节 countsTowardInputs=false，inputsDigest 由 task.md 计算）。
+- 尚不能完成：051 的"实施交接：ready 后实施／检查上下文实际含规划资料"项——worker 只能靠角色指令自行用工具读 plan.md（task-inputs 分节头含任务目录路径），规划资料的分节注入在最后一公里失效；`required: true` 的分节加载失败被静默跳过，无 blocker 报告，违背 051"必需资料缺失不会跳过"的核对意图。
+- 仍可继续：051 其余确定性链路（入口规则、创建／拒绝、澄清、进度与需求变更分流、ready 核对、跨会话接续、每轮注入）与真实宿主最小验证均通过；主会话每轮注入（047，桥接侧）不经 stage.ts，不受本缺陷影响。
+- 伪代码／暂定接口：`taskIdDirName = taskRelative.split("/").slice(2, -1).join("/")`（或以 `.knit/tasks/` 前缀剥离）；`buildUserPrompt` 增加规划分节渲染（如 `sectionText(plan.sections, ["planning-material"], contents)` 并按 required/background 分层），`loadSectionContents` 对 required 分节读取失败时返回可核对的缺口而非静默跳过。
+- 待用户决定：修复范围按 046 归属安排（最小改 path + 渲染，或同时为 required 分节补加载失败 blocker）；修复后 051 场景7 五项需复验通过。
+- 参考选项与影响：仅修 path——research 可进 worker 背景，但 plan/design 仍不进提示，046 交付语义打折；修 path + 渲染——与 046 记录声明一致，worker 提示长度增加（plan/design 全文），需确认与"避免复制正文多份权威"的取舍；两者都不改摘要与冻结语义。
+- 用户决定及来源：尚未决定。
+- 恢复与验证：修复后重跑 `validation/main-workflow-gate/deterministic-probe.mjs`（场景7 全过）并抽查一次真实 worker run 的实际提示（或等价 buildUserPrompt 断言）。
+
+- 用户决定及来源：用户授权按任务列表顺序执行全部任务；051 复验发现后由主 Agent 当轮修复（2026-11-03）。
+- 恢复与验证：修复 `context-planner.ts`（目录路径切片改为 `.knit/tasks/<dir>`，去重复前缀）与 `stage.ts`（worker 提示装配 planning 分节：plan/design 全文进系统提示，research 摘要进背景区，不再静默跳过）。`npm run typecheck`／`npm run build` 通过；`node --test test/*.test.mjs` 242 项全过；独立确定性探针复跑 **85/85 全过**（场景7 五项转 PASS）。B005 已解决并关闭。

@@ -37,3 +37,10 @@
 ## 执行记录
 
 - 本轮：创建任务；每轮注入与真实宿主验收尚未实施。
+- 2026-11-02：宿主桥接 Agent 完成注入实现并验证。
+  - `assets/templates/pi/extensions/knit.ts`：注册 Pi 公开 `before_agent_start` 事件（1.5.0 文档核实：模型调用前触发、可返回 message 或改 systemPromptOptions）。实现采用 `systemPromptOptions.sections.knit`——Pi 对分节 diff 后只追加变更，不堆叠历史正文；`messageType !== "user"` 的轮次（含自身通知触发的 custom 轮次）不注入，避免自我叠加。
+  - 注入内容按 DESIGN §9.6：无任务时给入口规则（含授权语义）；有任务时给稳定 ID、title、phase、status／outcome、branch、待应用草案（kind+digest）、活动运行（runs 过滤 running）、任务入口路径、规划资料列表与下一步规则。资料列表经 `task material list`（045 接口）。
+  - 注入失败（初始化缺失／会话 attach 失败／公开能力不可用）记 diag 事件并清除分节，不静默伪装；写动作不经注入，仍由核心核对授权／阶段／锁／版本。
+  - 宿主版本核实：本机 pi 1.5.0（`pi --version`），事件语义与 systemPromptOptions.sections 用法对照官方文档 extensions.md（§before_agent_start）与 examples/extensions/prompt-customizer.ts，留存于本任务与 052。
+  - 测试：`test/bridge-query.test.mjs` 新增每轮注入用例：宿主 stub 触发 `before_agent_start`（挂真实原生会话文件 + knit.selection 条目），断言无任务轮给入口规则、选任务后注入稳定 ID／阶段／入口、规划资料可见、custom 轮次不注入、会话关闭停止观察。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 239 项全过（Linux + Node v24.21.0）。隔离 stub 验证了宿主事件与通知内容；完整真实 Pi 交互链路由 051 按目标版本验收。

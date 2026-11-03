@@ -25,6 +25,14 @@ import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { parseTaskDocument, renderTaskDocument, withRegions, type TaskDocument } from "./task-document.js";
+import { PLAN_FILE } from "./task-materials.js";
+import {
+  listTaskMaterials as listMaterials,
+  readTaskMaterial as readMaterial,
+  saveTaskMaterial as saveMaterial,
+  deleteTaskMaterial as deleteMaterial,
+  snapshotTaskMaterials as snapshotMaterials,
+} from "./task-materials.js";
 import { scanCredentials } from "../contracts/credentials.js";
 
 const TASKS_DIR = "tasks";
@@ -237,6 +245,19 @@ export class TaskGuardError extends GuardError {
 }
 
 type TaskTransition = { status: "open" | "closed"; phase: "discuss" | "implement" | "check" | "deliver"; outcome: "completed" | "cancelled" | "superseded" | null };
+
+/**
+ * ready 结构核对（任务049）：只机械核对已承诺的规划——plan.md 存在（复杂任务已承诺持久规划）
+ * 但内容为空时拒绝。目标占位是否已确认属主 Agent 语义判断（DESIGN §4.2），不由核心机械拒绝；
+ * 可选 design／research 缺失不阻挡。既有 phase 与 ready 入口不变，不新增规划状态机。
+ */
+function assertReadyStructural(document: TaskDocument, taskDir: string): void {
+  void document;
+  const planPath = join(taskDir, PLAN_FILE);
+  if (existsSync(planPath) && readFileSync(planPath, "utf8").trim() === "") {
+    throw new TaskGuardError("ready_plan_incomplete", "plan.md 为空；复杂任务的实施计划未完成");
+  }
+}
 
 function guardRejected(result: TaskTransitionResult, what: string): TaskTransition {
   if ("allowed" in result && result.allowed === false) {
@@ -676,8 +697,49 @@ export class TaskService {
     };
   }
 
+  /** 任务规划资料：列表／读取／保存／删除／冻结快照（DESIGN §3.4–3.6，任务045）。 */
+  async listMaterials(input: { dir: string; taskId: string }) {
+    const root = normalizeRoot(input.dir);
+    this.locate(root, input.taskId);
+    return listMaterials(root, input.taskId);
+  }
+
+  async readMaterial(input: { dir: string; taskId: string; path: string }) {
+    const root = normalizeRoot(input.dir);
+    this.locate(root, input.taskId);
+    return readMaterial(root, input.taskId, input.path);
+  }
+
+  async saveMaterial(input: { dir: string; taskId: string; path: string; content: string; expectDigest?: string | null }) {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.save" });
+    try {
+      this.locate(root, input.taskId);
+      return saveMaterial(root, input.taskId, { path: input.path, content: input.content, expectDigest: input.expectDigest });
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  async deleteMaterial(input: { dir: string; taskId: string; path: string }) {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.delete" });
+    try {
+      this.locate(root, input.taskId);
+      return deleteMaterial(root, input.taskId, input.path);
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  async materialSnapshot(input: { dir: string; taskId: string }) {
+    const root = normalizeRoot(input.dir);
+    this.locate(root, input.taskId);
+    return snapshotMaterials(root, input.taskId);
+  }
+
   /**
-   * task update：直接更新（--kind）或 apply/withdraw-pending（DESIGN.md 第3.6节）。
+   * task update：直接更新（--kind）或 apply/withdraw-pending（DESIGN.md 第3.8节）。
    * 直接更新：项目执行占用内写输入区并转移 phase；活动 run 中只保存草案。
    * apply：草案摘要与基线输入均匹配、旧执行已结束；基线变化不覆盖。
    * withdraw：版本摘要匹配、有撤回理由；不作用于后来草案。
@@ -958,6 +1020,9 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
+      // 实施前结构核对（DESIGN §4.2，任务049）：必需输入齐备；已承诺规划（plan.md 存在）的
+      // 复杂任务须有实际计划内容。可选文件缺失不阻挡简单任务；语义判断属主 Agent。
+      assertReadyStructural(document, located.dir);
       const transition = guardRejected(onReady({
         status: document.frontmatter.status,
         phase: document.frontmatter.phase,

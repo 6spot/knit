@@ -186,6 +186,59 @@ test("session attach：身份不符 incompatible，项目与角色不混淆，�
   }
 });
 
+test("任务规划资料进上下文：plan/design 全文、research 入口摘要；更新后计划版本刷新（任务046）", async () => {
+  const dir = gitProject("planning-context");
+  installTemplates(dir);
+  const { store, planner, tasks } = makeServices(dir);
+  try {
+    const task = await tasks.newTask({ dir, title: "规划上下文", slug: "planning" });
+    // 创建规划资料：plan 全文、design 全文、research 长文。
+    await tasks.saveMaterial({ dir, taskId: task.taskId, path: "plan.md", content: "# 实施计划\n\n## 步骤\n\n- 步骤一：改造登录模块\n- 步骤二：更新会话存储\n\n## 未完成\n\n- [ ] 步骤三\n" });
+    await tasks.saveMaterial({ dir, taskId: task.taskId, path: "design.md", content: "# 取舍\n\n选择独立会话存储，理由：隔离迁移风险。\n" });
+    const longResearch = ["# 调查：会话存储现状", "", ...Array.from({ length: 60 }, (_, i) => `调查条目 ${i + 1}：记录当前会话存储实现的细节与影响范围。`)].join("\n");
+    await tasks.saveMaterial({ dir, taskId: task.taskId, path: "research/storage.md", content: longResearch });
+
+    const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
+    const planningSections = plan.sections.filter((section) => section.kind === "planning-material");
+    assert.deepEqual(planningSections.map((section) => section.sourceId), [
+      "planning:design.md",
+      "planning:plan.md",
+      "planning:research/storage.md",
+    ]);
+    // plan/design 全文注入（bytes 与文件一致）；research 仅入口摘要（bytes 显著小于原文）。
+    const planSection = planningSections.find((section) => section.sourceId === "planning:plan.md");
+    const planFileBytes = Buffer.byteLength(readFileSync(join(dir, ".knit", "tasks", "11-02-planning", "plan.md"), "utf8"), "utf8");
+    assert.equal(planSection.bytes, planFileBytes, "plan 全文注入");
+    assert.notEqual(planSection.digest, null);
+    const researchSection = planningSections.find((section) => section.sourceId === "planning:research/storage.md");
+    assert.equal(researchSection.background, true, "research 是背景资料");
+    const researchFileBytes = Buffer.byteLength(readFileSync(join(dir, ".knit", "tasks", "11-02-planning", "research", "storage.md"), "utf8"), "utf8");
+    assert.ok(researchSection.bytes < researchFileBytes, "research 不整文注入，仅入口摘要");
+
+    // 资料版本入分节 digest；更新 plan 后 digest 与正文都刷新，旧计划不残留。
+    const planDigestBefore = planSection.digest;
+    await tasks.saveMaterial({ dir, taskId: task.taskId, path: "plan.md", content: "# 实施计划 v2\n\n- [x] 步骤一\n" });
+    const planAfter = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
+    const planSectionAfter = planAfter.sections.find((section) => section.sourceId === "planning:plan.md");
+    assert.notEqual(planSectionAfter.digest, planDigestBefore, "计划更新刷新分节版本");
+    assert.ok(planSectionAfter.bytes < planSection.bytes, "旧计划正文不残留（按新文件长度）");
+
+    // 资料删除后从分节中消失（快照按现存文件列举），不残留旧版本。
+    rmSync(join(dir, ".knit", "tasks", "11-02-planning", "design.md"));
+    const afterDelete = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
+    assert.equal(afterDelete.sections.some((section) => section.sourceId === "planning:design.md"), false);
+
+    // 简单任务无规划资料：无 planning 分节，不阻挡。
+    const simple = await tasks.newTask({ dir, title: "简单任务", slug: "simple" });
+    const simplePlan = await planner.plan({ dir, taskId: simple.taskId, role: "implement" });
+    assert.equal(simplePlan.sections.some((section) => section.kind === "planning-material"), false);
+    assert.equal(simplePlan.ready, true, "无可选文件不阻挡简单任务");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("task use/clear：未落盘只待确认，原生有效路径为权威，清除不复活旧选择", async () => {
   const dir = gitProject("selection");
   installTemplates(dir);

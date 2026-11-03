@@ -1,0 +1,103 @@
+
+=== 场景1：无任务轮入口规则；普通查询不建任务 ===
+PASS: S1 无任务轮注入入口规则（无选定任务）
+PASS: S1 注入给出创建提议规则（task new + 授权语义）
+PASS: S1 注入说明普通讨论不建任务
+PASS: S1 注入说明继续已有任务入口（task list）
+PASS: S1 普通查询轮后任务数仍为 0
+PASS: S1 查询轮未写选择条目
+PASS: S1 查询轮无资料写入
+PASS: S1 knit_status 只读成功
+PASS: S1 只读工具调用后仍无任务
+PASS: S1 只读工具调用未写选择条目
+
+=== 场景2：创建授权后 task new；拒绝场景无副作用 ===
+PASS: S2 授权后 knit_task new 成功
+PASS: S2 创建结果如实返回稳定身份
+PASS: S2 创建后任务列表为 1
+PASS: S2 knit_task use 成功 — {"protocolVersion":1,"requestId":"task-use-1793677073185-9ak66g","outcome":"completed","data":{"knitSessionId":"s-32d628e32644","selection":{"taskId":"k-be6d9c75ca62","branch":"refs/heads/main","entryRef":"entry-1","operationId":"sel-mw050mze","recordedAt":"2026-11-03T03:37:53.207Z","persisted":true,"pendingReason":null},"effectiveTaskId":"k-be6d9c75ca62"}}
+PASS: S2 选择写入索引（taskId + 持久化条目引用）
+PASS: S2 原生会话文件含选择条目
+PASS: S2 拒绝（无调用）后任务数不变
+PASS: S2 拒绝后选择条目数不变
+PASS: S2 拒绝后任务目录无资料写入
+PASS: S2 非法资料路径被拒
+PASS: S2 非法写入未产生文件
+PASS: S2 重复创建带选择提醒
+PASS: S2 已有选择不被新任务替换
+
+=== 场景3：多轮澄清与规划资料持久化 ===
+PASS: S3 澄清轮1成功且保持 discuss
+PASS: S3 澄清轮2成功
+PASS: S3 多轮需求累积写入 task.md 输入区
+PASS: S3 knit_material 写入 plan.md 成功 — {"protocolVersion":1,"requestId":"task-material-save-1793677085568-h29n80","outcome":"completed","data":{"path":"plan.md","digest":"9b341ffa310ada4fcdebd22256fd5777ac035c4aa70171d15d085325a2a3a0f3","created":true}}
+PASS: S3 资料列表可见 plan.md
+PASS: S3 plan.md 读回内容一致（含待决项与未完成步骤）
+PASS: S3 新桥接实例按任务目录读取同一 plan.md
+
+=== 场景4：进度更新与需求变更分流 ===
+PASS: S4 复杂任务 ready 成功（进入 implement）
+PASS: S4 进度勾选不改 task.md
+PASS: S4 进度勾选不产生待应用草案
+PASS: S4 进度勾选不改变阶段（implement 保持）
+PASS: S4 进度勾选后 inputsDigest 不变（检查资格保持）
+PASS: S4 change 应用且回 discuss
+PASS: S4 变更后重新 ready 的新摘要不同于旧摘要
+PASS: S4 clarify 保持当前阶段 implement — {"taskId":"k-5f6075554a1a","applied":"direct","phase":"implement","status":"open","outcome":null,"inputsDigest":"45c83aa8150541a454381545d3fbb253d55ec4970b1984f107a21d3cb158b585","digestChanged":true,"pendingDraftDigest":null}
+PASS: S4 discuss 阶段 clarify 保持 discuss
+
+=== 场景5：实施前结构核对 ===
+PASS: S5 简单任务无 plan.md 直接 ready 通过
+PASS: S5 空 plan.md 阻止 ready — {"error":"plan.md 为空；复杂任务的实施计划未完成"}
+PASS: S5 plan.md 有内容后 ready 通过
+
+=== 场景6：跨会话接续 ===
+PASS: S6 会话1选择生效
+PASS: S6 session resolve 恢复选择
+PASS: S6 同原生会话重启返回同一 knitSessionId
+PASS: S6 重启后 resolve 仍恢复同一选择
+PASS: S6 新会话分配新 knitSessionId
+PASS: S6 新会话默认无选择（不复活旧任务）
+PASS: S6 新会话首轮注入为无任务入口规则
+PASS: S6 task list 展示既有任务供接续
+PASS: S6 新会话选择同一任务成功 — {"protocolVersion":1,"requestId":"task-use-1793677125549-8qkntf","outcome":"completed","data":{"knitSessionId":"s-25922c403a83","selection":{"taskId":"k-74e206ddc7b9","branch":"refs/heads/main","entryRef":"entry-1","operationId":"sel-mw051rd2","recordedAt":"2026-11-03T03:38:45.569Z","persisted":true,"pendingReason":null},"effectiveTaskId":"k-74e206ddc7b9"}}
+PASS: S6 新会话 resolve 返回该任务
+PASS: S6 接续后注入显示同一任务（不串任务）
+PASS: S6 任务改名成功
+PASS: S6 改名后按稳定 ID 仍读到同一资料
+
+=== 场景7：实施交接上下文 ===
+PASS: S7 复杂任务 ready 成功
+PASS: S7 implement 上下文生成成功
+PASS: S7 implement: plan.md 分节存在
+PASS: S7 implement: design.md 分节存在
+PASS: S7 implement: research 入口摘要分节存在
+PASS: S7 implement: research 不整文注入（bytes 小于原文）
+PASS: S7 implement: plan 分节 digest 与磁盘内容一致
+FAIL: S7 implement: 分节 path 指向真实文件（B005 核对） — 实际 .knit/tasks/tasks/11-03-handoff/plan.md
+PASS: S7 check 上下文生成成功
+PASS: S7 check: plan.md 分节存在
+PASS: S7 check: design.md 分节存在
+PASS: S7 check: research 入口摘要分节存在
+PASS: S7 check: research 不整文注入（bytes 小于原文）
+PASS: S7 check: plan 分节 digest 与磁盘内容一致
+FAIL: S7 check: 分节 path 指向真实文件（B005 核对） — 实际 .knit/tasks/tasks/11-03-handoff/plan.md
+FAIL: S7 [B005] loadSectionContents 能按分节 path 载入规划资料 — 实际载入 0 个规划分节
+FAIL: S7 [B005] 实施提示含 plan.md 正文
+FAIL: S7 [B005] 实施提示含 design.md 正文
+
+=== 场景8：每轮注入刷新 ===
+PASS: S8 选择后注入当前任务 ID
+PASS: S8 注入含阶段
+PASS: S8 注入含任务入口路径
+PASS: S8 注入含规划资料列表
+PASS: S8 注入不含另一任务
+PASS: S8 ready 后注入阶段刷新为 implement
+PASS: S8 新增资料后注入列表刷新（plan+design）
+PASS: S8 重复轮次注入内容稳定不堆叠
+PASS: S8 切换后注入新任务
+PASS: S8 切换后不再显示旧任务资料（plan.md 属任务一）
+PASS: S8 切换后不含旧任务 ID
+PASS: S8 custom 轮次不注入
+
+===== 确定性探针汇总：80/85 通过 =====

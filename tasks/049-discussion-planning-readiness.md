@@ -39,3 +39,9 @@
 ## 执行记录
 
 - 本轮：创建任务；澄清、持久规划与实施前核对尚未实施。
+- 2026-11-02：讨论／规划工作流 Agent 完成实现并验证。
+  - `src/application/task-service.ts`：`task ready` 增加机械结构核对 `assertReadyStructural`——只拦“已承诺 plan.md 但内容为空”（复杂任务承诺规划未完成）。目标占位是否已确认属主 Agent 语义判断，不由核心机械拒绝（初版曾拦占位，破坏既有夹具与简单任务流，按 DESIGN §4.2“语义判断属主 Agent、结构核对只核机械条件”收缩）；可选 design／research 缺失不阻挡；沿用既有 phase 与 ready 入口，无新状态机。
+  - 澄清与规划行为的主 Agent 规则已在 044 写入 workflow.md 模板（调查事实、只问取舍项、未决不自行选择、复杂任务持久 plan／design／research、进度与需求分流）；`assets/templates/.knit/agents/implement.md`／`check.md` 增补交接要求：实施按 plan 未完成步骤推进（勾选／证据直接更新 plan），检查按目标与实际成果评价、计划勾选不作通过证据。
+  - 实施中补充与范围变化走既有 clarify/change（048 工具与 029/030 草案产物）；活动 run 冻结输入不被资料更新替换（045 已验证 digest 不变）。
+  - 测试：`test/task.test.mjs` 新增实施前核对用例：简单任务占位 ready 通过、空 plan.md 阻止 ready、填内容后通过、进度勾选不产生草案不改变阶段。多轮澄清与真实模型行为归 051。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 242 项（一轮 B002 偶发、单跑通过、复跑全过；Linux + Node v24.21.0）。

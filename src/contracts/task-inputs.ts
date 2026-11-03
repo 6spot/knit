@@ -1,5 +1,5 @@
 /**
- * Task 主文档结构与输入变更契约（DESIGN.md 第3.1–3.3、3.6节）。
+ * Task 主文档结构与输入变更契约（DESIGN.md 第3.1–3.3、3.5、3.8节）。
  * schema 供 CLI 参数与文件结构校验；摘要函数供应用层核对本与草案。
  * 域转移裁决在 domain/task.ts，本模块不裁决业务允许性。
  */
@@ -61,7 +61,7 @@ export function stripStatusFields(region: string): string {
 
 /**
  * 需求摘要不含 status／phase／outcome／branch：这些是执行状态与身份，
- * 阶段转移不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.6节）。
+ * 阶段转移不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.8节）。
  */
 function withoutStatusFields(region: string): string {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(region);

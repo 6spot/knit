@@ -17,7 +17,7 @@
 | 本机存储 | M0 选定 SQLite（WAL + 短事务）；文件仓储仅作比较实验 | 重点比较 Session/binding/operation 的事务与恢复成本；Markdown、原生历史与大产物仍按各自边界保存 |
 | 状态实现 | 判别联合、纯决定函数、显式效果执行器 | 以持久事实为准；文档状态表与转移测试逐项对应 |
 | Git | 原生 Git CLI，argv，不经 shell 拼接路径 | 保留 index、hook、过滤器和真实树语义；不使用 JS 重实现 Git |
-| Pi 阶段执行 | 本机已安装 Pi CLI；当前验证版本 1.4.0 | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
+| Pi 阶段执行 | 本机已安装 Pi CLI；验证版本 1.5.0（兼容报告见 validation/pi-1.5.0-compat/），历史基线 1.4.0（validation/pi-cli-1.4.0/） | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
 | 进程／文件 | Node child_process、fs、crypto、os | 集中封装、可替换；原子写、进程身份与锁规则见下文 |
 | 测试 | node:test、node:assert/strict、fake runtime、临时仓库 | 通过端口注入时钟／进程／故障，不依赖真实模型或全局模块 mock |
 | 支持目标 | 首版 Linux + Node24 已通过本地候选验证；macOS 后续验证（B001） | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
@@ -128,4 +128,4 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 
 记录实现与恢复分支的复杂度、原子性、诊断可读性、跨进程失败处理、安装维护成本；性能只作辅助。实际比较结论已写入第 8 节与任务004：SQLite 显著减少恢复分支复杂度（无需锁过期接管）且满足平台与只读要求，已定为唯一生产元数据权威；文件版只保留在比较夹具。
 
-M0 通过脚本 stderr 收集稳定 stepKey、reasonCode、摘要及可观察仓储／事务计数即可；比较先去时间、随机 ID 与 token 指纹，不等待 M3A 的持久 JSONL 或 Pi 会话开关。诊断不参与业务守卫，不作第二套状态库，分期见 [OPERATIONS](OPERATIONS.md#6-开发者模式)。
+M0 通过脚本 stderr 收集稳定 stepKey、reasonCode、摘要及可观察仓储／事务计数即可；比较先去时间、随机 ID 与 token 指纹，不等待 M3A 的持久 JSONL 或 Pi 会话开关。诊断不参与业务守卫，不作第二套状态库，分期见 [OPERATIONS](OPERATIONS.md#7-开发者模式)。

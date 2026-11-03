@@ -2,7 +2,7 @@
 
 这是开发Knit本身的临时文件式排程，也是本仓库开发任务的唯一状态表。2026-11-02 用户已授权在本工程运行 knit init：`.knit/` 受管元数据与 `.pi/extensions/knit.ts` 桥接已生成，均未提交，去留随下次提交授权一并决定；本队列仍保存在根 tasks/，`.knit/tasks/` 只保存由 Knit 创建的任务。产品元数据已由 M0 选定 SQLite。
 
-初始001–026的执行事实按历史保留，027–043承接一致性审计修复与复验；本轮新增044–051承接主会话与任务规划补齐，052承接Pi 1.5.0兼容与公开能力评估，均设为pending。后续执行进度只以本表为准；各任务文件只存范围、验收和执行事实，不重复维护status。
+初始001–026的执行事实按历史保留，027–043承接一致性审计修复与复验；044–051实现主会话与任务规划补齐（051独立验收通过），052完成Pi 1.5.0兼容验证，053修复复验发现的锁重入回滚缺陷。全部任务已完成，无pending项。后续执行进度只以本表为准；各任务文件只存范围、验收和执行事实，不重复维护status。
 
 ## 当前一致性复核
 
@@ -91,15 +91,15 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 041 | 审计修复 P2 | completed | [在项目状态概览中列出按月归档任务](tasks/041-include-archive-status.md) |
 | 042 | 审计修复 P3 | completed | [在 Pi 命令中展示结构化查询结果](tasks/042-show-bridge-query-results.md) |
 | 043 | 审计复验 | completed | [独立复验一致性审计修复与当前就绪结论](tasks/043-audit-independent-regression.md)；复验发现029锁重入回滚缺口已登记 B003，不推翻修复结论 |
-| 044 | 首版工作流 | pending | [明确主会话工作流与任务规划资料契约](tasks/044-main-agent-workflow-contract.md) |
-| 045 | 首版工作流 | pending | [实现任务规划资料与多文件输入生命周期](tasks/045-task-planning-materials.md) |
-| 046 | 首版工作流 | pending | [按角色加载任务需求设计与实施计划](tasks/046-role-aware-task-context.md) |
-| 047 | 首版工作流 | pending | [实现主会话每轮任务上下文与工作流注入](tasks/047-main-session-context-injection.md) |
-| 048 | 首版工作流 | pending | [实现自然语言任务识别授权与创建衔接](tasks/048-conversation-task-intake.md) |
-| 049 | 首版工作流 | pending | [实现需求澄清持久规划与实施前核对](tasks/049-discussion-planning-readiness.md) |
-| 050 | 首版工作流 | pending | [集成首版工作流模板安装与升级](tasks/050-workflow-template-upgrade-integration.md) |
-| 051 | 首版工作流验收 | pending | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md) |
-| 052 | 首版运行时兼容 | pending | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md) |
+| 044 | 首版工作流 | completed | [明确主会话工作流与任务规划资料契约](tasks/044-main-agent-workflow-contract.md) |
+| 045 | 首版工作流 | completed | [实现任务规划资料与多文件输入生命周期](tasks/045-task-planning-materials.md) |
+| 046 | 首版工作流 | completed | [按角色加载任务需求设计与实施计划](tasks/046-role-aware-task-context.md) |
+| 047 | 首版工作流 | completed | [实现主会话每轮任务上下文与工作流注入](tasks/047-main-session-context-injection.md) |
+| 048 | 首版工作流 | completed | [实现自然语言任务识别授权与创建衔接](tasks/048-conversation-task-intake.md) |
+| 049 | 首版工作流 | completed | [实现需求澄清持久规划与实施前核对](tasks/049-discussion-planning-readiness.md) |
+| 050 | 首版工作流 | completed | [集成首版工作流模板安装与升级](tasks/050-workflow-template-upgrade-integration.md)；集成验证见 validation/workflow-integration/ |
+| 051 | 首版工作流验收 | completed | [独立验收首版自然语言任务与规划全链路](tasks/051-main-workflow-independent-gate.md)；确定性链路 85/85、真实宿主 3 模型轮全过（[validation/main-workflow-gate/](validation/main-workflow-gate/README.md)）；复验发现的 B005 已当轮修复并复验（探针复跑全过），验收通过 |
+| 052 | 首版运行时兼容 | completed | [核对Pi 1.5.0公开接口并完成兼容与能力采用评估](tasks/052-pi-1-5-compatibility-and-capabilities.md)；兼容验证见 validation/pi-1.5.0-compat/ |
 | 053 | 复验缺陷修复 | completed | [修复锁混合重入失败的对称回滚](tasks/053-lock-reentry-rollback.md)；独立 worker 实施及规定验证完成（基础设施31、主探针47、后果探针8、全量236项全过），主 Agent 已复核代码与验证证据，B003已修复；另记范围外B004 |
 
 ## 阶段验收门槛
@@ -112,7 +112,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | M1 | 006–015 | 临时项目可安装闭环：Task／规范／Session／worker／独立检查／限定交付，生成桥接实际验收 |
 | M2 | 016–020 | 历史独立检查通过；027–042修复已由043独立复验通过（2026-11-02，[复验报告](validation/audit-fix-verification/report.md)）；029锁重入失败回滚缺陷B003已由053修复并通过规定验证与主 Agent 代码／证据复核；成功混合申请单token缺口另列B004，未证实主流程可触达，修复前不新增同动作混合键重入业务路径；真实项目使用仍受020原有限制约束 |
 | M3A | 021–024 | 分支／树／多会话、升级与规则、完整查询用量、私有诊断及日常接续 |
-| 首版主会话与规划 | 044–051 | 从自然语言需求进入任务创建／拒绝、澄清、轻重任务规划、实施交接和跨Session接续；实际包内初始化／升级可用，由051独立核实 |
+| 首版主会话与规划 | 044–051 | 从自然语言需求进入任务创建／拒绝、澄清、轻重任务规划、实施交接和跨Session接续；实际包内初始化／升级可用，由051独立核实。051验收通过（2026-11-03）：入口／创建／拒绝、澄清与资料持久化、进度与需求变更分流、ready 核对、跨Session接续、每轮注入、真实宿主（pi 1.5.0，3模型轮）工具链路、worker 规划资料装配（B005 修复后复验）全部通过 |
 | Pi版本兼容 | 052 | 对比已验证基线与Pi 1.5.0公开变化，完成必要适配及CLI／宿主实际验证，给出新能力采用决定；为047–050交接版本化接口约束 |
 | M3B | 025–026、043、051–052 | 保留历史安装／审查证据；027–042修复由043复验，044–050新增工作流由051验收，052确认Pi目标版本兼容，共同核对Linux首版就绪结论；macOS仍按B001延期，不自动发布 |
 

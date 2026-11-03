@@ -23,6 +23,7 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
 import { effectiveIdentityDigest, formalStandardFiles, formalStandardsDigest } from "./standards.js";
+import { readTaskMaterial, researchDigestSummary, snapshotTaskMaterials } from "./task-materials.js";
 
 const TASK_FILE = "task.md";
 
@@ -173,7 +174,7 @@ export class ContextPlanner {
       countsTowardInputs: true,
       priority: 10,
       mode: "system",
-      /** 有效身份不含执行状态字段：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.6，任务031）。 */
+      /** 有效身份不含执行状态字段：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.8，任务031）。 */
       identityContent: stripStatusFields(inputsBody),
     });
 
@@ -270,6 +271,32 @@ export class ContextPlanner {
       });
     }
 
+    // 任务目录的项目相对路径（.knit/tasks/<dir>）；taskRelative 以 task.md 结尾，去掉文件名。
+    const taskIdDirName = taskRelative.split("/").slice(0, -1).join("/");
+    // 任务规划资料（DESIGN §3.4，任务046）：实施读 plan 全文；检查读 plan 与 design；
+    // research 只注入入口摘要，按需读取。资料按当前事实读取，digest 记入分节供版本核对。
+    const planningFiles = snapshotTaskMaterials(root, input.taskId).files;
+    for (const [index, file] of planningFiles.entries()) {
+      const material = readTaskMaterial(root, input.taskId, file.path);
+      if (!material.exists || material.content === null) {
+        excluded.push({ sourceId: `planning:${file.path}`, path: `${taskIdDirName}/${file.path}`, reason: "planning_material_unreadable" });
+        continue;
+      }
+      const isResearch = file.path.startsWith("research/");
+      const body = isResearch ? researchDigestSummary(file.path, material.content) : material.content;
+      sections.push({
+        sourceId: `planning:${file.path}`,
+        kind: "planning-material",
+        path: `${taskIdDirName}/${file.path}`,
+        content: body,
+        required: !isResearch,
+        background: isResearch,
+        countsTowardInputs: false,
+        priority: 60 + index,
+        mode: isResearch ? "resource" : "resource",
+      });
+    }
+
     // 记录区：背景资料，不计入需求摘要（STATES.md 第8节：纯记录不使检查失效）。
     const progressBody = progressRegionOf(rawText);
     sections.push({
@@ -362,7 +389,7 @@ export class ContextPlanner {
       inputsDigest,
       standardsDigest,
       // 整体身份覆盖全部 countsTowardInputs 分节：工作流、角色、运行指令变化同样使旧凭据过期（任务031）。
-      // task-inputs 分节用去状态正文参与身份：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.6）。
+      // task-inputs 分节用去状态正文参与身份：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.8）。
       effectiveInputsDigest: effectiveIdentityDigest(
         inputsDigest,
         standardsDigest,

@@ -49,6 +49,8 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 
+任务规划资料（DESIGN §3.4）：plan.md 步骤勾选与证据追加、research/ 追加为进度更新，不改有效输入、不产生草案、不使检查失效；方案文件中被输入引用的要求性内容变化等同 InputsUpdated，活动 run 期间按 InputsUpdateProposed 保存草案。plan 的未完成步骤与证据不参与业务 phase 推导，不从复选框自动认定业务完成；规划资料不建立独立状态机，业务状态仍只在 task.md frontmatter 与元数据仓储。
+
 核心操作使选定目标的检查 stale 时，若当前 phase=deliver，确定性回 open/check 并清 completed；clarify、adopt、restore 和生效规范变化使用同一规则，不保留不可交付的 deliver。其他阶段不因 clarify 回讨论，摘要未变不迁移。run check 是显式复查入口；非正式 check --scope 不推进正式 Task。已完整归档的资料维护不自动重开。
 
 外部编辑造成的失效在只读查询中报告“应检查、状态待同步”，查询不改 task.md；下一写动作先在占用内收敛 phase，不允许提交。

@@ -37,3 +37,11 @@
 ## 执行记录
 
 - 本轮：创建任务；角色加载与恢复衔接尚未实施。
+- 2026-11-02：上下文 Agent 完成规划资料入上下文并验证。
+  - `src/contracts/context-plan.ts`：新增分节种类 `planning-material`。
+  - `src/application/context-planner.ts`：plan 注入任务规划资料分节——plan.md／design.md 全文（required、mode=resource），research/ 仅入口摘要（标题+前几行+按需读取指引，background=true 不整文注入）；分节带 path／digest／bytes 供版本核对；资料按当前事实读取，更新后 digest／bytes 刷新，删除后分节消失，不残留旧版本、不串任务。指令身份沿用 031（planning 资料不进 inputsDigest，要求性内容变化走 clarify/change），未另建身份算法。
+  - 冻结：worker 冻结 inputs 的 sections 已包含 planning 分节 digest（既有 FrozenInputs 机制），恢复按 035 prefer 规则与新分节核对。
+  - 主会话入口（无任务／待决项摘要）由 047 的每轮注入实现；本项不重复。
+  - 测试：`test/session.test.mjs` 新增用例：三分节注入（plan/design 全文、research 摘要）、版本刷新、删除消失、简单任务无分节且 ready 不受阻、research 不整文注入。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 238 项全过（Linux + Node v24.21.0；B002 偶发口径）。真实宿主注入由 047 验收。
+  - 边界确认：未引入 Trellis 式 JSONL 平台；宿主上下文不足时的能力缺口报告属 047。

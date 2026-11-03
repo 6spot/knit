@@ -64,7 +64,7 @@ const OPEN = (phase: TaskPhase): TaskTransition => ({ status: "open", phase, out
 
 /**
  * 已结束任务的常规业务转移守卫。
- * 取消／替代不可隐式重开；completed 按 DESIGN §3.6 允许输入更新重新打开（是否完整归档由调用方核实），
+ * 取消／替代不可隐式重开；completed 按 DESIGN §3.8 允许输入更新重新打开（是否完整归档由调用方核实），
  * 其余事件（ready、实施、检查、交付、关闭）不作用于已结束任务。
  */
 function closedGuard(task: TaskFacts): Decision<TaskGuardReason> {
@@ -90,7 +90,7 @@ function inputsClosedGuard(task: TaskFacts, archived: boolean): Decision<TaskGua
   return closed.allowed ? { allowed: false, reason: "task_not_open" } : closed;
 }
 
-/** 待应用草案守卫：未应用或未明确撤回时阻止后续代码阶段与交付（DESIGN.md 第3.6节）。 */
+/** 待应用草案守卫：未应用或未明确撤回时阻止后续代码阶段与交付（DESIGN.md 第3.8节）。 */
 function pendingGuard(task: TaskFacts): Decision<TaskGuardReason> {
   return task.pendingKind === null ? { allowed: true } : { allowed: false, reason: "pending_draft_exists" };
 }

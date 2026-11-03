@@ -36,3 +36,8 @@
 ## 执行记录
 
 - 本轮：创建任务；模板安装与升级集成尚未实施。
+- 2026-11-02：初始化／打包集成 Agent 完成集成验证。
+  - 模板清单核对：`TEMPLATE_SPECS` 覆盖 workflow／implement／check／deliver／runtimes／standards index／桥接（managed）；044–049 的产物（workflow 主会话流、AGENTS 受管块、implement/check 交接、桥接注入与 knit_material）都经既有模板通道分发，无第二套规则副本。
+  - `npm pack` 真实包 → 隔离安装 → 验证（脚本与输出留 [validation/workflow-integration/](../../validation/workflow-integration/README.md)）：新 init ready 且含新 workflow／AGENTS 规划资料入口／桥接注入与材料工具；`task material save` 包内可用；升级项目保留自定义 workflow（只补缺）；旧单文件任务可创建并 ready（无 plan.md 不受阻）。
+  - 升级中断恢复沿用 039 持久基线机制，未重复实现；init --check 只读与冲突不覆盖由既有 init 回归覆盖（13 项全过）。
+  - 验证：`npm run typecheck`、`npm run build`、`npm run pack:check`（8 项 PASS）、`node --test test/*.test.mjs` 242 项全过（Linux + Node v24.21.0）。Pi 1.5.0 包内兼容由 052 核对；真实宿主自然语言链路由 051 验收。

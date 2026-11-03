@@ -61,7 +61,7 @@ test("task adopt：接管当前完整分支，纯分支变化改绑并使旧检�
   const dir = project("adopt");
   try {
     const task = newTask(dir);
-    const file = join(dir, ".knit", "tasks", "11-02-m1", "task.md");
+    const file = join(dir, ".knit", task.relativePath);
     writeFileSync(file, readFileSync(file, "utf8").replace(/^branch: .*$/m, "branch: null"));
     const adopted = jsonCli(dir, ["task", "adopt", task.taskId, "--branch", "current"]);
     assert.equal(adopted.parsed.outcome, "completed", adopted.stderr);

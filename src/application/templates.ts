@@ -70,10 +70,12 @@ export function agentsManagedBlock(knitCommand: string): string {
     "",
     "- 任务列表：`.knit/tasks/`（`" + knitCommand + " task list`）",
     `- 四环节工作流：\`.knit/workflow.md\`（讨论 → 实施 → 检查 → 交付；启动用 \`${knitCommand} start\`）`,
+    "- 主会话工作流：普通讨论、小修改、新正式需求、继续或补充已有任务的处理路径见 workflow.md；新任务需用户授权",
+    "- 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md",
     "- 规范索引：`.knit/standards/index.md`",
     "- 阶段角色指令：`.knit/agents/`（implement / check / deliver，runtime 补充在 runtimes/）",
     "",
-    "初始化不要求启动 Pi；桥接 `.pi/extensions/knit.ts` 按宿主项目信任规则加载。",
+    "初始化不要求启动 Pi；桥接 `.pi/extensions/knit.ts` 按宿主项目信任规则加载，每轮提供当前任务与下一步上下文。",
     AGENTS_MANAGED_MARKER_END,
   ];
   return lines.join("\n") + "\n";

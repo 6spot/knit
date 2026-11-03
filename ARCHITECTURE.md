@@ -90,7 +90,8 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 
 | 数据 | 写入方 | 权威用途 |
 | --- | --- | --- |
-| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/phase/outcome/branch，记录短锁保护 |
+| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/phase/outcome/branch，记录短锁保护；业务状态唯一权威，不因文件拆分建立第二套状态表 |
+| plan.md／design.md／research/ | 任务规划资料（045 实现，经核心统一接口） | 实施计划、方案依据与调查材料；随任务目录生命周期，要求性内容变化走 task update |
 | installation/init 清单 | InitializationService | 本机安装、文件所有权、模板与准备状态 |
 | Session 元数据 | SessionService | 身份、角色、关系和原生引用；选择仅作已核实快照 |
 | binding 元数据 | 核心任务／运行服务 | 位置、分支、范围、运行／检查引用、修复 ID／计数／停止原因 |
@@ -180,4 +181,4 @@ CLI JSON 响应含 protocolVersion、requestId、outcome、data、reasonCode、n
 
 M1 本次 --dev 只传给对应调用／worker，结构化 stderr 与业务结果分离。M3A 才实现私有片段日志、Pi /knit dev on/off 当前会话布尔开关及完整通道验证；它不进入状态机。桥接不自动把诊断喂模型，普通终端合并 stderr 的边界见 OPERATIONS。
 
-诊断字段按白名单产生，失败只报告诊断不可用，不改写业务结果。详细格式、保存与对比见 [OPERATIONS](OPERATIONS.md#6-开发者模式)。
+诊断字段按白名单产生，失败只报告诊断不可用，不改写业务结果。详细格式、保存与对比见 [OPERATIONS](OPERATIONS.md#7-开发者模式)。

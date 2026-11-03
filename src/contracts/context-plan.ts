@@ -15,6 +15,7 @@ export const ContextSectionKindSchema = Type.Union([
   Type.Literal("standard"),
   Type.Literal("pending-draft"),
   Type.Literal("standard-candidate"),
+  Type.Literal("planning-material"),
 ]);
 export type ContextSectionKind = Static<typeof ContextSectionKindSchema>;
 

@@ -16,7 +16,7 @@ export const TaskBindingSchema = Type.Object(
     repairCycleId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     repairRounds: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
     stopReason: Type.Union([Type.String(), Type.Null()]),
-    /** 讨论确认时冻结的输入摘要；未确认为 null（DESIGN.md 第3.6节）。 */
+    /** 讨论确认时冻结的输入摘要；未确认为 null（DESIGN.md 第3.8节）。 */
     confirmedInputsDigest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     /** 讨论确认时冻结的正式规范摘要；正式规则变化据此提示检查失效（STATES.md 第8节）。 */
     confirmedStandardsDigest: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
@@ -37,7 +37,7 @@ export const TaskBindingSchema = Type.Object(
     ),
     /** 已进入 scope 的 run；恢复不重置。 */
     scopeRunIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    /** 至多一份待应用输入草案；kind 为空表示无草案（DESIGN.md 第3.6节）。 */
+    /** 至多一份待应用输入草案；kind 为空表示无草案（DESIGN.md 第3.8节）。 */
     pendingDraft: Type.Union([
       Type.Object(
         {

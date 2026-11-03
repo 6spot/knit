@@ -1,0 +1,36 @@
+PASS: R0 init 成功且桥接生成
+PASS: R0 RPC get_state 连接（pi 1.5.0）
+PASS: R0 set_model 真实模型可用
+PASS: R1 真实模型轮收敛（agent_settled）
+PASS: R1 真实模型调用 knit_task（≥2 次：new + use） — ["new","use"]
+PASS: R1 调用含 action=new
+PASS: R1 调用含 action=use
+PASS: R1 任务真实落盘（标题与 slug 与请求一致） — taskId=k-120191caa2f4 active=1
+PASS: R1 真实主会话已登记
+PASS: R1 选择已持久化到索引（taskId + persisted） — {"taskId":"k-120191caa2f4","branch":"refs/heads/main","entryRef":"3d07e7c1","operationId":"sel-mw059hjj","recordedAt":"2026-11-03T03:44:46.090Z","persisted":true,"pendingReason":null}
+PASS: R1 session resolve 从原生会话恢复选择 — {"knitSessionId":"s-1f9a6414a8df","taskId":"k-120191caa2f4","branch":"refs/heads/main","source":"native","effective":true,"entryRef":"3d07e7c1","snapshotMatches":true,"reason":null}
+PASS: R2 真实模型轮收敛（agent_settled）
+PASS: R2 真实模型调用 knit_material（≥2 次：save + read） — ["save","read"]
+PASS: R2 调用含 action=save 且 path=plan.md
+PASS: R2 plan.md 真实落盘且含未完成步骤 — # 实施计划
+
+- [ ] 补充安装说明
+- [ ] 校验文档渲染
+
+## 未完成
+
+- [ ] 补充安装说明
+- [ ] 校验文档渲染
+PASS: R2 工具读回数据正确呈现（模型回复第一行） — # 实施计划
+PASS: R3 真实模型轮收敛（agent_settled）
+PASS: R3 第三轮未调用工具（注入验证不污染） — 新增工具调用 0
+PASS: R3 第三轮真实模型轮完成 — 当前选定任务 ID：k-120191caa2f4
+规划资料列表：plan.md
+PASS: R3 模型回答含当前任务 ID（注入到达） — 当前选定任务 ID：k-120191caa2f4
+规划资料列表：plan.md
+PASS: R3 模型回答含规划资料 plan.md（注入到达） — 当前选定任务 ID：k-120191caa2f4
+规划资料列表：plan.md
+
+===== 真实宿主探针汇总：21/21 通过 =====
+STDERR: Warning: No project session found with id 'knit-gate-051'; creating a new session with that id.
+

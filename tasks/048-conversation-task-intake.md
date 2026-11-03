@@ -37,3 +37,10 @@
 ## 执行记录
 
 - 本轮：创建任务；对话识别、授权和创建衔接尚未实施。
+- 2026-11-02：主 Agent 工作流／桥接 Agent 完成衔接实现并验证。
+  - 主 Agent 规则已在 044 写入 `assets/templates/.knit/workflow.md`（五类请求路径、授权语义）与受管 AGENTS 块；047 的每轮注入告知当前选择与下一步，是防重复创建的第一道引导。
+  - `src/contracts/bridge-tools.ts`：新增 `MaterialToolSchema`（action/taskId/path/content/expectDigest）。
+  - `assets/templates/pi/extensions/knit.ts`：新增 `knit_material` 工具（list/read/save/delete，宿主侧 safeMaterialPath 预检与核心同规则）；`knit_task` action=new 创建后经 `session resolve` 核对当前选择，已有其他任务选择时附加提醒文本（“新任务未自动选择；确认要切换时用 task use”），不自动切换、不阻止显式创建。工具结果经 toolResult 如实呈现错误与部分结果。
+  - 授权语义：无“同意/拒绝”对话框代码——创建提议是主 Agent 对话行为（模型），桥接只在已授权动作发生时执行；拒绝＝无调用＝无副作用（工具层无隐式创建）。
+  - 测试：`test/bridge-query.test.mjs` 新增两个用例：对话任务衔接（显式创建、选择已有任务、拒绝无副作用计数不变、部分结果协议错误如实、需求写入 045 资料）；knit_material 与 knit_task new 提醒（需求写入入口、重复创建带提醒且选择不被替换、非法路径拒绝）。
+  - 验证：`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 241 项（一轮 B002 偶发、单跑通过、复跑全过；Linux + Node v24.21.0）。完整自然语言对话行为由 051 独立验收；本轮不能以回复文案替代行为验证。

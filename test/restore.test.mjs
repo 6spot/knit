@@ -212,7 +212,8 @@ test("Task 输入恢复经 task update，保留 frontmatter、记录与后来记
     });
     const current = readFileSync(taskPath, "utf8");
     assert.notEqual(current, before);
-    const preview = restores.preview({ dir, runId, paths: [".knit/tasks/11-02-restore-task/task.md"] });
+    const taskDirName = task.relativePath.split("/")[1];
+    const preview = restores.preview({ dir, runId, paths: [`.knit/tasks/${taskDirName}/task.md`] });
     assert.equal(preview.plans[0].guard, "task_input");
     const result = await restores.restore({
       dir,

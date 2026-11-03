@@ -1,0 +1,46 @@
+{
+  "piVersion": "1.5.0",
+  "provider": "magpie",
+  "model": "group/openai",
+  "project": "/tmp/knit-051-real-gwdQXk",
+  "turns": 3,
+  "toolCalls": [
+    {
+      "name": "knit_task",
+      "arguments": {
+        "action": "new",
+        "title": "README 安装说明",
+        "slug": "readme-install"
+      }
+    },
+    {
+      "name": "knit_task",
+      "arguments": {
+        "action": "use",
+        "taskId": "k-120191caa2f4"
+      }
+    },
+    {
+      "name": "knit_material",
+      "arguments": {
+        "action": "save",
+        "content": "# 实施计划\n\n- [ ] 补充安装说明\n- [ ] 校验文档渲染\n\n## 未完成\n\n- [ ] 补充安装说明\n- [ ] 校验文档渲染",
+        "path": "plan.md",
+        "taskId": "k-120191caa2f4"
+      }
+    },
+    {
+      "name": "knit_material",
+      "arguments": {
+        "action": "read",
+        "path": "plan.md",
+        "taskId": "k-120191caa2f4"
+      }
+    }
+  ],
+  "finalReplies": {
+    "turn1": "",
+    "turn2": "# 实施计划",
+    "turn3": "当前选定任务 ID：k-120191caa2f4\n规划资料列表：plan.md"
+  }
+}

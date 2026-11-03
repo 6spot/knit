@@ -40,3 +40,13 @@
 ## 执行记录
 
 - 本轮：创建独立验收任务；依赖实现尚未完成，本项尚未执行。
+- 2026-11-03：独立验收 Agent 完成确定性链路与真实宿主最小验证；结论为保持 in_progress，仅剩 B005 关联项。
+  - 基线：提交 `666e1f3` 工作区（044–050 实现 + 052/053 未提交改动）；`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 242/242、`npm run pack:check` 当前工作区复跑全过。
+  - 确定性链路（`validation/main-workflow-gate/deterministic-probe.mjs`，8 场景 85 断言，80 过）：无任务入口规则与普通查询不建任务、授权创建/拒绝无副作用、多轮澄清与待决项持久化、进度勾选不改摘要不产生草案、change/clarify 分流、空 plan.md 阻止 ready、跨会话接续（同原生重启同 ID 恢复、新会话默认无选择、改名后按稳定 ID 读资料）、每轮注入刷新不串任务——全部通过。
+  - 真实宿主（`real-host-probe.mjs`，21/21）：pi 1.5.0 + 真实桥接 + magpie/group/openai，3 轮真实模型（预算内）：knit_task 创建+选择落盘、knit_material 写/读 plan.md、第 3 轮禁用工具凭注入答出任务 ID 与资料列表；每轮以 CLI 核对落盘事实。事件流与摘要留验证目录，无凭据。
+  - 不通过项：实施交接的 worker 实际装配——planning 分节 path 为 `.knit/tasks/tasks/…` 且 `stage.ts` 提示不渲染 `planning-material`（`loadSectionContents` 0 个规划分节、实施提示无 plan/design 正文）；登记 [B005](../BLOCKERS.md)。ContextPlan 分节、digest 与冻结摘要语义本身正确。
+  - 未验证（如实保留）：主 Agent 自然语言多轮对话完整质量（真实模型预算 3 轮已用于工具链路与注入到达）、真实 worker run 提示抽查（受 B005 影响，修复后补）；macOS／发布／真实项目操作按边界未执行。包内初始化/升级复用 050 证据（validation/workflow-integration/），本轮 pack:check 复跑佐证。
+  - TASKS.md 已更新 051 行与"首版主会话与规划"里程碑结论；B005 修复复验（场景7 五项转过）后 051 方可标 completed。
+
+- 2026-11-03：独立检查 Agent（reviewer 上下文）完成首轮验收：确定性探针 80/85、真实宿主 3 模型轮 21/21 通过；发现 B005（worker 提示不渲染 planning 分节且分节路径错误）保持未完成。
+- 2026-11-03：B005 由主 Agent 当轮修复（context-planner 路径切片、stage 装载与提示装配 planning 分节，research 走背景摘要），复跑独立确定性探针 **85/85 全过**，`node --test test/*.test.mjs` 242 项全过。验收通过，051 标 completed；B005 关闭记录见 BLOCKERS.md。

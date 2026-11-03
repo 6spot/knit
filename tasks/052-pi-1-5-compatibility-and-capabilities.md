@@ -53,3 +53,9 @@
 ## 执行记录
 
 - 本轮：已只读确认本机pi --version为1.5.0，初读该版更新日志、公开文档相关条目与CLI帮助，记录上述调查线索；尚未完成差异表、兼容适配、能力采用决定或运行回归。
+- 2026-11-02：Pi 适配 Agent 完成兼容验证与能力评估（报告与探针见 [validation/pi-1.5.0-compat/](../validation/pi-1.5.0-compat/README.md)）。
+  - 实际运行验证：RPC 协议边界（get_state／set_model／prompt／agent_settled／abort／原生会话落盘）、项目桥接自动加载（命令 handled、UI 通知）、真实模型轮经桥接工具（模型确认 8 个 knit_* 工具全部注册并调用 knit_status）。
+  - 差异表与处理决定见报告：无需改码的兼容项（pi-schema 迁移对纯 JSON Schema 工具透明、pi.exec 不在 Knit 使用路径、信任行为由宿主管辖、默认模型不依赖）；有利且暂缓（Usage.cost.totalFromProvider、ctx.ui.custom() blocked）；无关项（HTML 导出、WSL、更新日志等）。
+  - 破坏性变更核查：1.5.0 无影响 Knit 协议／会话／取消的破坏性变化；基线 1.4.0 → 1.5.0 的变化全部落在宿主管辖或兼容路径。
+  - 接口约束交接 044–051：`before_agent_start` + `systemPromptOptions.sections`（1.5.0 不变）；桥接命令与工具公开 API 不变；扩展更新日志、信任规则属宿主侧。
+  - 验证：探针为真实 Pi 1.5.0 运行（含真实模型轮）；`npm run typecheck`、`npm run build`、`node --test test/*.test.mjs` 242 项全过。
