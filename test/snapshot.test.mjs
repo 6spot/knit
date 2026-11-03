@@ -212,3 +212,83 @@ test("maxBytes 下 HEAD 同内容不计费；未引用的大文件仍超限失�
     cleanup(dir);
   }
 });
+
+test("未知较新版本 manifest（v3）：重建快照报 version_conflict 且不删除／覆盖原文件", () => {
+  const dir = project("v3");
+  try {
+    writeFileSync(join(dir, "README.md"), "# demo\n");
+    commitAll(dir);
+    const runId = nextRunId();
+    assert.equal(create(dir, runId).state, "ready", "初始快照应 ready");
+
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    const manifestPath = join(snapshotDir, "manifest.json");
+    const newer = JSON.parse(readFileSync(manifestPath, "utf8"));
+    newer.schemaVersion = 3;
+    newer.addedInLaterVersion = { note: "future format" };
+    writeFileSync(manifestPath, JSON.stringify(newer, null, 2) + "\n");
+    const original = readFileSync(manifestPath);
+    const store = new RunStore(dir);
+
+    assert.throws(
+      () => create(dir, runId),
+      (error) => {
+        assert.equal(error.code, "version_conflict");
+        assert.equal(error.details.found, 3);
+        assert.equal(error.details.expected, 2);
+        assert.match(error.details.path, /snapshot[/\\]manifest\.json$/);
+        return true;
+      },
+      "未知较新版本不得降级为重新快照",
+    );
+    assert.deepEqual(readFileSync(manifestPath), original, "原 manifest 字节必须不变");
+    assert.equal(existsSync(join(snapshotDir, "files")), true, "原快照目录不得被删除");
+
+    assert.throws(() => store.readSnapshot(runId), (error) => error.code === "version_conflict");
+    const candidate = { ...JSON.parse(original.toString("utf8")), schemaVersion: 2 };
+    delete candidate.addedInLaterVersion;
+    assert.throws(
+      () => store.writeSnapshotManifest(runId, candidate),
+      (error) => error.code === "version_conflict",
+      "写入路径同样拒绝覆盖较新版本",
+    );
+    assert.deepEqual(readFileSync(manifestPath), original, "写入失败后原字节仍不变");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("损坏 manifest 维持 io_error：结构不符、缺 schemaVersion 与非法 JSON 都不算格式演进", () => {
+  const dir = project("corrupt");
+  try {
+    writeFileSync(join(dir, "README.md"), "# demo\n");
+    commitAll(dir);
+    const runId = nextRunId();
+    assert.equal(create(dir, runId).state, "ready");
+    const store = new RunStore(dir);
+    const manifestPath = join(dir, ".knit", ".runtime", "runs", runId, "snapshot", "manifest.json");
+
+    writeFileSync(manifestPath, JSON.stringify({ schemaVersion: 2, runId }, null, 2) + "\n");
+    assert.throws(
+      () => store.readSnapshot(runId),
+      (error) => error.code === "io_error",
+      "已知 schemaVersion 但结构不符按损坏处理",
+    );
+
+    writeFileSync(manifestPath, JSON.stringify({ runId }, null, 2) + "\n");
+    assert.throws(
+      () => store.readSnapshot(runId),
+      (error) => error.code === "io_error",
+      "缺 schemaVersion 不猜测旧版",
+    );
+
+    writeFileSync(manifestPath, "{ not json\n");
+    assert.throws(
+      () => store.readSnapshot(runId),
+      (error) => error.code === "io_error",
+      "非法 JSON 仍是 io_error",
+    );
+  } finally {
+    cleanup(dir);
+  }
+});

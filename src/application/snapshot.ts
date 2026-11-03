@@ -138,6 +138,8 @@ export class SnapshotService {
     const store = new RunStore(root);
     const runDir = store.runDir(input.runId);
     const target = join(runDir, "snapshot");
+    // 先读既有 manifest：未知较新版本在此直接报 version_conflict，早于任何删除／重写，
+    // 不吞错降级为重新快照（原 manifest 字节保持不变）。
     const existing = store.readSnapshot(input.runId);
     if (existing !== null && existing.state === "ready") {
       return { state: "ready", reason: null, manifest: existing, directory: target };

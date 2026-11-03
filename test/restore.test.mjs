@@ -28,6 +28,7 @@ import { SnapshotService } from "../dist/application/snapshot.js";
 import { RestoreService } from "../dist/application/restore.js";
 import { RunStore } from "../dist/infrastructure/run-store.js";
 import { readWithVersion } from "../dist/infrastructure/atomic.js";
+import { sha256Text } from "../dist/contracts/digest.js";
 
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
@@ -543,6 +544,130 @@ test("file↔symlink 类型变化不跨类型引用基线，恢复原类型", as
     assert.equal(readlinkSync(join(dir, "switch")), "README.md");
     assert.equal(lstatSync(join(dir, "reverse")).isFile(), true);
     assert.equal(readFileSync(join(dir, "reverse"), "utf8"), "README.md");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("未知较新版本 manifest（v3）：show／preview／restore 只报 version_conflict，不返回内容", async () => {
+  const fixture = await snapshotFixture("v3");
+  const { dir, restores, runId } = fixture;
+  try {
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    const manifestPath = join(snapshotDir, "manifest.json");
+    const newer = JSON.parse(readFileSync(manifestPath, "utf8"));
+    newer.schemaVersion = 3;
+    newer.addedInLaterVersion = true;
+    writeFileSync(manifestPath, JSON.stringify(newer, null, 2) + "\n");
+    const original = readFileSync(manifestPath);
+    const isVersionConflict = (error) => {
+      assert.equal(error.code, "version_conflict");
+      assert.equal(error.details.found, 3);
+      assert.equal(error.details.expected, 2);
+      assert.match(error.details.path, /snapshot[/\\]manifest\.json$/);
+      return true;
+    };
+
+    assert.throws(() => restores.show({ dir, runId }), isVersionConflict, "show 不给内容");
+    assert.throws(() => restores.preview({ dir, runId, paths: ["README.md"] }), isVersionConflict, "preview 不返回计划");
+    await assert.rejects(
+      () => restores.restore({ dir, runId, paths: ["README.md"], expect: { "README.md": "file:deadbeef:100644" } }),
+      isVersionConflict,
+      "restore 不执行写入",
+    );
+    assert.deepEqual(readFileSync(manifestPath), original, "只读报告不覆盖原 manifest");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n", "未尝试恢复工作区");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("手写 v1 manifest（全量副本、无 source 字段）：restore 成功且语义与 v2 前一致", async () => {
+  const fixture = await snapshotFixture("v1-manual");
+  const { dir, restores, runId } = fixture;
+  try {
+    const snapshotDir = join(dir, ".knit", ".runtime", "runs", runId, "snapshot");
+    const manifestPath = join(snapshotDir, "manifest.json");
+    const head = git(dir, ["rev-parse", "HEAD"]).trim();
+    const readme = "# demo\n";
+    const text = "base\n";
+    const untracked = "untracked-base\n";
+    const manifest = {
+      schemaVersion: 1,
+      runId,
+      state: "ready",
+      createdAt: new Date().toISOString(),
+      base: { head, branch: "main", absent: false },
+      coverage: { tracked: true, index: true, untracked: true, worktree: true },
+      entries: [
+        { path: "README.md", layer: "tracked", kind: "file", mode: 0o100644, size: Buffer.byteLength(readme), digest: sha256Text(readme), linkTarget: null, absent: false, indexOid: null },
+        { path: "text.txt", layer: "tracked", kind: "file", mode: 0o100644, size: Buffer.byteLength(text), digest: sha256Text(text), linkTarget: null, absent: false, indexOid: null },
+        { path: "untracked.txt", layer: "untracked", kind: "file", mode: 0o100644, size: Buffer.byteLength(untracked), digest: sha256Text(untracked), linkTarget: null, absent: false, indexOid: null },
+      ],
+      counts: { tracked: 2, untracked: 1, absent: 0 },
+      bytes: Buffer.byteLength(readme) + Buffer.byteLength(text) + Buffer.byteLength(untracked),
+      maxBytes: 67108864,
+      digest: "v1-manual",
+      reason: null,
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    mkdirSync(join(snapshotDir, "files"), { recursive: true });
+    writeFileSync(join(snapshotDir, "files", "README.md"), readme);
+    writeFileSync(join(snapshotDir, "files", "text.txt"), text);
+    writeFileSync(join(snapshotDir, "files", "untracked.txt"), untracked);
+
+    const stored = new RunStore(dir).readSnapshot(runId);
+    assert.equal(stored.schemaVersion, 1);
+    assert.equal(stored.entries.some((entry) => "source" in entry || "indexSource" in entry), false);
+
+    // HEAD 内容改走后，恢复仍必须取快照副本，证明 v1 语义是全量副本。
+    writeFileSync(join(dir, "README.md"), "# head-moved\n");
+    git(dir, ["add", "README.md"]);
+    git(dir, ["commit", "-q", "-m", "head moves"]);
+    writeFileSync(join(dir, "README.md"), "# worktree\n");
+
+    const preview = restores.preview({ dir, runId, paths: ["README.md"] });
+    assert.equal(preview.plans[0].action, "restore");
+    const result = await restores.restore({
+      dir,
+      runId,
+      paths: ["README.md"],
+      expect: { "README.md": preview.plans[0].current.fingerprint },
+    });
+    assert.equal(result.state, "completed");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), readme, "从 snapshot/files 读取，不依赖 HEAD");
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("v1 快照重复 snapshot／restore 幂等：不升级写法、不重复改动", async () => {
+  const fixture = await snapshotFixture("v1-idem");
+  const { dir, restores, runId } = fixture;
+  try {
+    downgradeToV1(dir, runId);
+    const manifestPath = join(dir, ".knit", ".runtime", "runs", runId, "snapshot", "manifest.json");
+    const before = readFileSync(manifestPath);
+    assert.equal(JSON.parse(before.toString("utf8")).schemaVersion, 1);
+
+    const again = new SnapshotService({ randomHex }).create({ root: dir, runId });
+    assert.equal(again.state, "ready");
+    assert.equal(again.manifest.schemaVersion, 1);
+    assert.deepEqual(readFileSync(manifestPath), before, "ready 快照重跑不重写 manifest");
+
+    writeFileSync(join(dir, "README.md"), "# later\n");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const preview = restores.preview({ dir, runId, paths: ["README.md"] });
+      const result = await restores.restore({
+        dir,
+        runId,
+        paths: ["README.md"],
+        expect: { "README.md": preview.plans[0].current.fingerprint },
+      });
+      assert.equal(result.state, "completed");
+      assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+    }
+    assert.deepEqual(readFileSync(manifestPath), before, "恢复不改写 v1 manifest");
   } finally {
     cleanup(fixture);
   }

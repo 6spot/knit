@@ -20,6 +20,8 @@ import {
   ScopeFileSchema,
   CheckFileSchema,
   SnapshotManifestSchema,
+  SNAPSHOT_MANIFEST_VERSION,
+  SNAPSHOT_READABLE_VERSIONS,
   type CheckFile,
   type FrozenInputs,
   type RunCancel,
@@ -75,6 +77,23 @@ function parseJson<T>(path: string, schema: JsonSchema, label: string): T | null
     throw new InfrastructureError("io_error", `${label} 结构不符：${path}`);
   }
   return raw as T;
+}
+
+/** 宽松取出声明版本：只用于区分“未知较新版本”与结构损坏，不解释其他字段。 */
+function declaredVersion(raw: unknown): unknown {
+  return typeof raw === "object" && raw !== null ? (raw as { schemaVersion?: unknown }).schemaVersion : undefined;
+}
+
+/** 数值且高于已知版本的 schemaVersion 属于格式演进：报 version_conflict，不降级读写。 */
+function assertSnapshotManifestVersion(raw: unknown, path: string): void {
+  const found = declaredVersion(raw);
+  if (typeof found === "number" && found > SNAPSHOT_MANIFEST_VERSION) {
+    throw new InfrastructureError(
+      "version_conflict",
+      `不支持的 snapshot manifest schemaVersion ${found}，期望 ${SNAPSHOT_READABLE_VERSIONS.join(" 或 ")}；未知较新版本不降级：${path}`,
+      { found, expected: SNAPSHOT_MANIFEST_VERSION, path },
+    );
+  }
 }
 
 export class RunStore {
@@ -344,20 +363,45 @@ export class RunStore {
     atomicWrite({ path, data: Buffer.from(JSON.stringify(check, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
   }
 
+  /**
+   * 读取快照 manifest：先宽松看 schemaVersion，已知版本（1／2）再按 schema 校验。
+   * 未知较新版本报 version_conflict（带 found／期望与路径）；非法 JSON 或结构不符仍是 io_error。
+   */
   readSnapshot(runId: string): SnapshotManifest | null {
-    return parseJson<SnapshotManifest>(
-      join(this.runDir(runId), "snapshot", "manifest.json"),
-      SnapshotManifestSchema,
-      "snapshot/manifest.json",
-    );
+    const path = join(this.runDir(runId), "snapshot", "manifest.json");
+    const version = readWithVersion(path);
+    if (version === null) return null;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(version.data.toString("utf8"));
+    } catch {
+      throw new InfrastructureError("io_error", `snapshot/manifest.json 不是合法 JSON：${path}`);
+    }
+    assertSnapshotManifestVersion(raw, path);
+    if (!checkSchema(SnapshotManifestSchema, raw)) {
+      throw new InfrastructureError("io_error", `snapshot/manifest.json 结构不符：${path}`);
+    }
+    return raw as SnapshotManifest;
   }
 
   writeSnapshotManifest(runId: string, manifest: SnapshotManifest, directory = join(this.runDir(runId), "snapshot")): void {
     if (!checkSchema(SnapshotManifestSchema, manifest)) {
       throw new InfrastructureError("io_error", "snapshot manifest 结构不符");
     }
+    const path = join(directory, "manifest.json");
+    // 目标已有未知较新版本时拒绝覆盖；损坏内容不属于演进，仍按本次快照重建。
+    const existing = readWithVersion(path);
+    if (existing !== null) {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(existing.data.toString("utf8"));
+      } catch {
+        raw = undefined;
+      }
+      assertSnapshotManifestVersion(raw, path);
+    }
     atomicWrite({
-      path: join(directory, "manifest.json"),
+      path,
       data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n"),
       expectedSha256: null,
       mode: 0o600,

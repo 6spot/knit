@@ -467,10 +467,18 @@ export const SnapshotEntrySchema = obj(
 );
 export type SnapshotEntry = Static<typeof SnapshotEntrySchema>;
 
+/**
+ * 快照 manifest 当前写入版本。读取器兼容 v1：缺少 source／indexSource／savedBytes
+ * 即全量副本语义。声明版本为数值且大于该值时视为未知较新格式，阻塞读写、不降级。
+ */
+export const SNAPSHOT_MANIFEST_VERSION = 2 as const;
+/** 当前读取器可完整解释的快照 manifest 版本。 */
+export const SNAPSHOT_READABLE_VERSIONS = [1, SNAPSHOT_MANIFEST_VERSION] as const;
+
 export const SnapshotManifestSchema = obj(
   {
     /** v2 增加 HEAD 基线引用与 savedBytes；v1 无这些字段，按全量副本语义读取。 */
-    schemaVersion: union([lit(1), lit(2)]),
+    schemaVersion: union([lit(1), lit(SNAPSHOT_MANIFEST_VERSION)]),
     runId: str({ minLength: 1 }),
     state: union([lit("preparing"), lit("ready"), lit("failed")]),
     createdAt: str({ minLength: 1 }),
