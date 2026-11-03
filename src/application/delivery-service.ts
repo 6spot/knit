@@ -418,7 +418,9 @@ export class DeliveryService {
     if (binding.pendingDraft !== null) throw new GuardError("pending_inputs", "存在待应用输入草案，先应用或撤回");
 
     const runsSettled = await this.runsSettled(root, input.taskId);
-    // 限定提交前扫描拟提交路径的当前内容：命中即暂停交付，先于检查资格重核报告（任务032）。
+    // 限定提交前扫描待写内容与本次实际差异（DESIGN.md §15.1）：未跟踪新文件整体扫描，
+    // 已跟踪文件只扫相对 HEAD 的新增行；命中即暂停交付，先于检查资格重核报告（任务032）。
+    // 只扫差异避免既有夹具（如扫描器自身的测试样本）反复阻塞后续交付。
     if (!located.archived && (operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver"))) {
       const scanPaths = new Set<string>([relative(root, taskDir).split("\\").join("/")]);
       const preScope = loadScope(new RunStore(root), input.taskId, this.now().toISOString());
@@ -434,8 +436,10 @@ export class DeliveryService {
         } catch {
           continue; // 不可读内容交由 Git 处理；扫描不阻塞无法读取的路径
         }
-        const hits = scanCredentials(content);
-        if (hits.length > 0) scanFailures.push(`${path}: ${hits.map((hit) => `${hit.type}@行${hit.line}`).join(", ")}`);
+        const tracked = this.git(["ls-files", "--error-unmatch", "--", path], root).code === 0;
+        const text = tracked ? this.addedLinesDiff(root, path) : content;
+        const hits = scanCredentials(text);
+        if (hits.length > 0) scanFailures.push(`${path}: ${hits.map((hit) => `${hit.type}@新增行${hit.line}`).join(", ")}`);
       }
       if (scanFailures.length > 0) {
         throw new GuardError("credential_scan_hit", `限定提交范围命中常见凭据模式，已暂停交付: ${scanFailures.join("; ")}`);
@@ -772,6 +776,17 @@ export class DeliveryService {
   /** 已从 index 删除的路径再次 add 会报 pathspec；它已在暂存区，只需进入 commit pathspec。 */
   private stageable(root: string, paths: string[]): string[] {
     return paths.filter((path) => existsSync(join(root, path)) || this.git(["ls-files", "--error-unmatch", "--", path], root).code === 0);
+  }
+
+  /** 已跟踪路径相对 HEAD 的新增行拼接文本；仅供模式扫描，行号为拼接文本行号。 */
+  private addedLinesDiff(root: string, path: string): string {
+    const result = this.git(["diff", "HEAD", "--unified=0", "--", path], root);
+    if (result.code !== 0) return "";
+    const lines: string[] = [];
+    for (const line of result.stdout.split(/\r?\n/)) {
+      if (line.startsWith("+") && !line.startsWith("+++")) lines.push(line.slice(1));
+    }
+    return lines.join("\n");
   }
 
   private addable(root: string, paths: string[]): string[] {

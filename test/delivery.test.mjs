@@ -720,6 +720,28 @@ test("显式 retry：hook 失败现场清理后核实原提交并继续，不重
   }
 });
 
+test("凭据扫描只覆盖本次差异新增行：既有夹具不阻塞后续交付，新增命中行仍暂停", async () => {
+  const dir = project("scan-diff-only");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    // 动态拼接，避免测试源码自身命中扫描模式。
+    const fakeKey = ["AK", "IA", "IOSFODNN7", "EXAMP", "LE"].join("");
+    const tracked = join(dir, "fixtures.txt");
+    writeFileSync(tracked, `sample=${fakeKey}\n`);
+    execFileSync("git", ["add", "fixtures.txt"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: dir });
+
+    // 只改动该跟踪文件的其它行：既有夹具不再阻塞交付。
+    writeFileSync(tracked, `sample=${fakeKey}\nchanged=unrelated\n`);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("凭据扫描：限定提交命中即暂停、无新提交、结果不回显完整值（任务032）", async () => {
   const dir = project("scan-delivery");
   const s = services(dir);
