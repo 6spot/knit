@@ -1,46 +1,15 @@
 ---
 id: k-ef9e7b1653c3
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T14:45:51.990Z
 title: 修复 deliver 归档遗漏任务同目录材料的旧路径删除
 ---
 
-# 修复 deliver 归档遗漏任务同目录材料的旧路径删除
-
-## 目标与边界
-
-修复 `knit deliver` 归档提交的暂存范围，使任务目录中的辅助材料（如 `plan.md`、`design.md` 和 `research/`）在移动到归档位置后，旧路径删除与新路径新增都被正确纳入本任务的归档提交。
-
-本轮仅创建任务、记录用户报告，不启动实施。以下现象与原因由用户提供，后续实施时结合当前代码和隔离夹具复现核实：
-
-- metadata 提交已纳入任务同目录的材料（如 `plan.md`）。
-- 归档时 `archiveCommit()` 的 `selected` 使用 `op.taskPath`，只选中旧位置的单个 `task.md`，同时选择新归档目录。
-- 任务材料移动后，新归档位置被纳入提交，但旧位置材料的删除未被暂存，归档完成后残留为工作区的未暂存删除。
-- 用户已用提交 `33f84a0` 人工清理本次残留，避免污染工作区。该清理属于既有处理，不要求重新执行或改写历史。
-
-修复应限定于本任务实际归档的原任务目录与归档目录，保留既有暂存保护、逐任务提交隔离、授权及归档恢复语义。
-
-## 完成条件
-
-- 在隔离仓库复现：任务同目录的 `plan.md` 等材料已进入 metadata 提交，随后执行归档，原行为会遗漏旧路径材料的删除。
-- 修复后归档提交完整包含原任务目录内已跟踪材料的删除及归档目录内对应材料的新增；覆盖 `task.md`、同目录材料及嵌套研究材料。
-- 完成交付后，本任务的归档不留下旧路径的未暂存删除；无关路径、其它任务材料和用户既有暂存内容不被意外纳入或覆盖。
-- 核对失败后重试／恢复仍能正确处理原目录与归档目录的暂存范围；如有持久化操作字段或协议变化，同步调用链与文档。
-- 执行相关交付与归档回归，并按实际影响完成必要检查，如实记录结果。本轮创建任务不执行实现或测试。
-
-## 输入引用
-
-- 用户报告：`knit deliver` 归档提交只选择旧 `task.md` 和归档目录，遗漏同目录材料在旧路径的删除。
-- 用户给出的原因定位：`archiveCommit()` 的 `selected` 使用 `op.taskPath`（单个文件），应核对任务目录层级的选择范围。
-- 用户提供的人工清理提交：`33f84a0`。
-- `src/application/delivery-service.ts` 及相关归档、暂存选择和恢复调用链。
-- `test/closeout.test.mjs`、`test/delivery.test.mjs` 及相关交付回归。
-- `docs/design/OPERATIONS.md`、`docs/design/ARCHITECTURE.md` 中的逐任务提交、暂存保护与归档规则。
-- 验证方式：`self`；后续按实际改动确定具体回归范围。
+实施前核实（主会话代码审阅，与用户定位一致）：src/application/delivery-service.ts 中三处以 op.taskPath（单文件）构造归档提交范围 selected——run() 的 archive_commit 恢复核对（约 732 行）、archiveCommit() 的恢复路径 selectedForRecovery（约 952 行）与新增路径 selected（约 999 行）。归档范围应为原任务目录整体（op.taskPath 的父目录，保持 .knit/ 前缀规范化），使被移动的同目录材料（plan.md/design.md/research/ 等）旧路径删除进入归档提交；归档目录不变。selectedPath/dirtyPaths/addable/stageable/treeSnapshot 均支持目录前缀，recovery 的 outside 核对（actual ⊆ selected）与既有操作恢复兼容。classifyPaths 的 metadata 范围本就以任务目录为单位，此修复使归档提交与其一致。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -52,5 +21,18 @@ title: 修复 deliver 归档遗漏任务同目录材料的旧路径删除
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-3bc2a742e89b，已接收 implementation_accepted）：archiveScope(taskPath) 以原任务目录整体作为归档提交范围，替换 run() 恢复核对、archiveCommit() 恢复路径与新增路径三处的单文件 selected；新增隔离夹具测试「归档提交包含任务同目录材料移动后的旧路径删除」，覆盖 task.md/plan.md/design.md/research/notes.md 的旧路径删除与新路径新增、归档后无未暂存删除。另按自修复条款在主会话直接修复阻塞项：task adopt 对 frontmatter 已绑当前分支但绑定行缺失的任务补建绑定行（提交 46914bc，含测试；此前 backlog 任务无法派发 run 的根因），修复后 npm test 278/278 绿。验证方式 self：全量回归通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-8b601528d310 -->
+- 操作: op-8b601528d310
+- 时间: 2026-11-03T16:26:31.390Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: c09a5a59a9c08213fd90b1b62feefe5080b7b685
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-fix-deliver-archive-material-staging
 
 <!-- knit:progress:end -->
