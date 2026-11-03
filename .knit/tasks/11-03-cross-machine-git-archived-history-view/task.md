@@ -1,56 +1,25 @@
 ---
 id: k-f99e069ab0c5
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T15:14:12.158Z
 title: 跨机历史：Git 已归档任务的只读展示
 ---
 
-# 跨机历史：Git 已归档任务的只读展示
+需求冻结（主会话核查 task-service list/computeList、task-document parse 抛错行为、CLI task list 后决策）：
 
-## 目标与边界
+现状：list 已从磁盘读 archive/YYYY-MM 全部 task.md，但不区分"已入库 Git 历史"与"未入库移动"，且单个归档 task.md 结构损坏会让整个 list 抛 io_error；跨机克隆场景缺本机 metadata 回执时无法标注历史属性。
 
-补充设计中明确预留的跨机历史可读能力：缺少原机器的本机回执时，对身份和结束字段有效的已入库档案展示“Git 历史已归档”。
-
-这是用户要求盘点并拆分的设计后续能力，属于后续规划。本轮仅登记任务和边界，保持 open／discuss；不开始技术实施，不调用模型、Rex 或真实项目操作，不改变首版范围。具体方案和完成条件按下述设计来源及待验证事项继续澄清，不把规划建议或尚未核查的能力当作事实。
-
-### 本任务的交付范围
-
-- 从实际 Git／档案内容核实身份、结束信息和可展示来源，明确区分本机验收事实与历史只读信息。
-- 只读展示不自动重开、不补造本机运行或检查回执、不赋予新执行检查资格。
-- 保留无效档案、版本未知及路径冲突的诊断，不把文本看起来完成作为充分证明。
-
-## 完成条件
-
-以下是依据现行设计拟定的可验证交付方向；Planner 在实施前对照真实方案复核，范围变化按 Knit 输入更新规则处理。本轮没有执行这些验收。
-
-- 不同本机元数据的隔离仓库覆盖有效 Git 档案、缺失／非法身份与结束字段、未知版本和重复来源。
-- 查询无业务写入，历史展示不能使新实现或交付绕过当前验收。
-
-保留 Task／Run／Session 的既有权威、授权和恢复规则；按影响范围选择实际检查。历史真机／真实模型验收继续沿用用户的延期决定，何时进行由后续授权安排，不能以隔离测试冒充真实验收。业务完成、Git 提交、归档、push 和发布分别处理，本轮不进行这些操作。
-
-## 输入引用
-
-- 用户要求：把设计预留的 Worktree、Rex 等后续实现盘点并合理拆分；本轮不实施。
-- [仓库规范](../../../AGENTS.md)、[文档索引](../../../docs/README.md)、[工作流](../../workflow.md)。
-- [docs/design/DESIGN.md](../../../docs/design/DESIGN.md) 第 12、16.3 节
-- [docs/design/ARCHITECTURE.md](../../../docs/design/ARCHITECTURE.md) 的权威数据约定
-- [docs/design/STATES.md](../../../docs/design/STATES.md) 的完成与归档约定
-
-## 依赖与交接
-
-- 无其它新规划任务的硬前置；实施前仍须阅读当前架构、任务状态及适用规范。
-
-依赖描述是规划交接关系，不新增调度字段或状态机。各任务只带自身需要的上游结果；研究若证明依赖或粒度应调整，先说明并更新任务，不因任务已登记而自动派发。
-
-## 待讨论与待验证事项
-
-- 具体字段验证、列表／详情呈现和与现有索引的优先关系由 Planner 对照第 12 节确定。
-
-后续 Planner 把本任务的必要方案及可执行步骤保存在本任务目录，继续识别可独立验收的拆分边界；任务登记不替代需求澄清或实施授权。
+交付设计：
+1. TaskListResult 归档条目新增 history 分类：kind ∈ git-history | local-only | invalid，附 problems[]。判定：身份有效（id 合 k- 模式、title/createdAt/branch 非空）且结束有效（status=closed、phase=deliver、outcome∈completed|cancelled）且 task.md 被 Git 跟踪（`git ls-files -- <路径>` 批量一次查询）→ git-history（显示"Git 历史已归档（只读）"）；字段有效但未跟踪 → local-only（显示"未入库"）；身份/结束字段无效 → invalid+问题明细；git 查询失败 → 按未验证处理并附"Git 跟踪状态不可判定"问题，不冒充已入库。
+2. 健壮性：归档 task.md 解析失败不再中断 list——写入新增 result.problems（path+message）；活动区解析失败维持抛错（业务权威必须严格）。重复来源：同一 taskId 同时出现在活动区与归档或多个归档位置 → problems 记"重复来源"诊断；操作定位仍活动区优先，list 不改任何业务状态。
+3. 只读保证：仅文件读取与只读 git ls-files，无写入；git-history 归档不创建绑定、不产生检查资格、不能作为新执行/交付的检查证明（completion 资格链路不变，归档任务本就不可 adopt/close）。
+4. 展示：CLI 文本归档条目追加标注；JSON 输出含 history/problems。list 缓存沿用既有文件指纹：knit 自身流程提交归档必伴随目录结构变化（失效指纹），纯外部 git add 不改文件的情形不做建模，作为已知限制写入文档。
+5. 文档：DESIGN §12 跨机历史段由"首版未实现的后续能力"改为现行行为描述（判定条件、只读属性、不能作为检查证明、已知限制）。
+6. 测试：a) 模拟他机克隆（清空 runtime/metadata）后 list 对已入库有效档案显示 git-history；b) 未跟踪的有效归档 → local-only；c) status=open 的归档 → invalid+问题；d) 损坏归档 task.md → problems 记录且 list 成功返回其余条目；e) 活动+归档同 id → 重复来源诊断；f) list 前后文件系统与 Git 状态零变化；g) git-history 归档不改变 completion/绑定资格。全量 npm test 绿。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -62,5 +31,18 @@ title: 跨机历史：Git 已归档任务的只读展示
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-04920bb21ff7，已接收 implementation_accepted）：新增 src/application/task-history.ts——归档条目按身份（k- 模式 id、title/createdAt/branch 非空）+结束（closed/deliver/completed|cancelled）+Git 跟踪（git ls-files 批量只读查询，失败记"不可判定"不冒充）分类为 git-history／local-only／invalid 附 problems；list 解析损坏归档不再中断（写入 result.problems），活动区维持严格；同 id 多处出现记重复来源诊断；CLI 归档行加只读/未入库/档案异常标注，JSON 含 history/problems；不创建绑定与检查资格，list 零写入。DESIGN §12 改为现行行为描述。验证（self）：npm test 309/309 绿（新增他机克隆模拟、未跟踪归档、status=open 归档、损坏归档隔离、重复 id、零写入、资格不变等用例）。
+
+### 交付记录
+
+<!-- knit:delivery:op-8da27165065a -->
+- 操作: op-8da27165065a
+- 时间: 2026-11-03T17:46:43.874Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: e006d19de3a35bef5539aca66a3ecf1596b28bd8
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-cross-machine-git-archived-history-view
 
 <!-- knit:progress:end -->
