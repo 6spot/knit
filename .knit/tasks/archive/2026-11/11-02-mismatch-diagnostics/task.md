@@ -50,4 +50,10 @@ run-a98bb2a0941e：worker 真实完成实施（git diff 与报告 changedPaths �
 - 结果: 正常交付；检查 run-e345b580d19f 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-02-mismatch-diagnostics
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-91ed9632f691 -->
+- 任务资料提交: 4a5b58637e05a59e51f1c0dd4a3887a8a9e9c6f8
+- 归档目标: .knit/tasks/archive/2026-11/11-02-mismatch-diagnostics
+
 <!-- knit:progress:end -->
