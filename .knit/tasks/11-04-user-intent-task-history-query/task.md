@@ -1,8 +1,8 @@
 ---
 id: k-322284b57ad9
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:10.432Z
@@ -57,5 +57,25 @@ src/application/task-history.ts、task-service.ts 及现有任务/归档/运行�
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-322284b57ad9）
+
+- 新增只读检索 `src/application/history-search.ts`：按 AND 语义检索活动任务（task/plan/design/research）、归档任务、`.knit/.runtime/runs` 与 `.knit/runs`、Git 提交说明；返回 `{kind, taskId, path, line, snippet, ref}`，来源为 `path:line`、`run:<id>` 或 `commit:<sha>`；无匹配返回空，不写索引/缓存/状态。
+- 入口：`knit task search <query...> [--scope] [--limit] [--json]`；桥接 `knit_task` action=search（query/scope/limit，无需 taskId），schema 与两份扩展同步。
+- 主会话规则：仅用户表达查询意愿时检索；未表达不主动检索；相关记录与因果结论分开；规则进入 workflow 模板、AGENTS 受管块与桥接注入；本仓库 `.knit/workflow.md` 已同步。
+- 范围与上限：默认全范围，limit 默认 20、上限 100；跳过二进制/超大文件；Git 只读 `git log --grep`。
+- 文档：DESIGN、OPERATIONS、GLOSSARY、templates 同步。
+- 验证：`npm test` 431/431；`npm run pack:check` 通过；CLI 实测归档命中返回 `path:line` 与任务 ID。
+
+### 交付记录
+
+<!-- knit:delivery:op-b89548f31873 -->
+- 操作: op-b89548f31873
+- 时间: 2026-11-04T19:20:47.858Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: 7bf7f85959fba00d11fcb0a2fde04a7c9f1d8505
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-user-intent-task-history-query
 
 <!-- knit:progress:end -->
