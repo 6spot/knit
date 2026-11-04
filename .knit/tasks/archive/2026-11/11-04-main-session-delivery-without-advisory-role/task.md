@@ -78,4 +78,10 @@ CLI run/assist、桥接 schema 与分发、角色/主会话模板、本仓库入
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-delivery-without-advisory-role
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-9b9a478074a3 -->
+- 任务资料提交: 650922069da57fd4a0ac9f2b9fa8c2d3eb16e069
+- 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-delivery-without-advisory-role
+
 <!-- knit:progress:end -->
