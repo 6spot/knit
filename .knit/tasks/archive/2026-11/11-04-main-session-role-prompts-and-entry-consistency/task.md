@@ -87,4 +87,10 @@ validation/trellis-prompts-and-roles/sources.md、comparison.md（Trellis f089cb
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-role-prompts-and-entry-consistency
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1f542e7f2f06 -->
+- 任务资料提交: bd225c836bbf8acf3dc46188178559d397153e7b
+- 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-role-prompts-and-entry-consistency
+
 <!-- knit:progress:end -->
