@@ -87,4 +87,10 @@ validation 下隔离场景、真实宿主/模型运行证据与对应验证资�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-real-host-model-behavior-acceptance
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1050a0a36aef -->
+- 任务资料提交: a9251106cb59ae35230d35a2bee9dcdd6da7421f
+- 归档目标: .knit/tasks/archive/2026-11/11-04-real-host-model-behavior-acceptance
+
 <!-- knit:progress:end -->
