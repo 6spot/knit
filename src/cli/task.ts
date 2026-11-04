@@ -206,10 +206,10 @@ export function registerTaskCommands(program: Command): void {
   task
     .command("order <taskId>")
     .description("在优先级分组内调整业务执行顺序；不改写原始创建时间")
-    .option("--before <taskId>", "排在指定任务之前")
-    .option("--after <taskId>", "排在指定任务之后")
-    .option("--top", "排到最前")
-    .option("--bottom", "排到最后")
+    .option("--before <taskId>", "排在指定任务之前（须与目标同优先级）")
+    .option("--after <taskId>", "排在指定任务之后（须与目标同优先级）")
+    .option("--top", "排到本优先级分组最前")
+    .option("--bottom", "排到本优先级分组最后")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (taskId, options) => {
       const requestId = `task-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -297,34 +297,22 @@ export function registerTaskCommands(program: Command): void {
           if (history.kind === "invalid") return "  [档案异常]";
           return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
         };
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; blocked: { taskId: string; problem: string }[] }, depth = 0) => {
-          const indent = `  ${depth === 0 ? "" : "  ".repeat(depth - 1) + "↳ "}`;
+        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; parent: string | null; blocked: { taskId: string; problem: string }[] }) => {
+          // 活跃分区按服务层派生的稳定执行顺序逐行展示；父子关系用 ↳ 与父任务 ID 标注，
+          // 不再把子任务重排到父任务之下（DESIGN §3.10、§3.11）。
+          const child = t.parent === null ? "" : "↳ ";
+          const parentRef = t.parent === null ? "" : `  [父任务 ${t.parent}]`;
           const tree = t.children.length > 0
             ? `  [子任务 ${t.children.length - t.openChildren.length}/${t.children.length}]`
             : "";
           const blocked = t.blocked.length > 0
             ? `  ⛔ ${t.blocked.map((entry) => `${entry.taskId}(${entry.problem})`).join(", ")}`
             : "";
-          return `${indent}${t.priority}  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${tree}${blocked}${marker(t.history)}`;
-        };
-        /** 按稳定父链缩进展示；父任务不在活跃列表时子任务仍独立一行。 */
-        const renderTree = (list: typeof result.active) => {
-          const activeIds = new Set(list.map((t) => t.taskId));
-          const rendered = new Set<string>();
-          const emit = (t: (typeof list)[number], depth: number) => {
-            if (rendered.has(t.taskId)) return;
-            rendered.add(t.taskId);
-            console.log(row(t, depth));
-            for (const childId of t.children) {
-              const child = list.find((entry) => entry.taskId === childId);
-              if (child !== undefined) emit(child, depth + 1);
-            }
-          };
-          for (const t of list) if (t.parent === null || !activeIds.has(t.parent)) emit(t, 0);
-          for (const t of list) emit(t, 0);
+          return `  ${child}${t.priority}  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${parentRef}${tree}${blocked}${marker(t.history)}`;
         };
         console.log(`活跃任务（${result.active.length}）:`);
-        renderTree(result.active);
+        // result.active 已按 priority → order → createdAt 排序；直接逐行展示以与 task next 一致。
+        for (const t of result.active) console.log(row(t));
         console.log(`归档任务（${result.archived.length}）:`);
         for (const t of result.archived) {
           console.log(row(t));

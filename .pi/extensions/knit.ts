@@ -543,10 +543,11 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、验证要求、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
+    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
-      if (params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
+      // task next 不读 taskId；只有真正的任务操作才校验它。
+      if (params.action !== "next" && params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
       if (params.action === "use" || params.action === "clear") {
         const session = sessionOf(ctx);
         if (session === null) return failText("无法登记当前主会话；先确认项目已 init 且桥接加载");
@@ -593,7 +594,8 @@ export default function (pi: any) {
         return toolResult(created);
       }
       const args = ["task", params.action];
-      if (params.taskId) args.push(params.taskId);
+      // task next 是项目级只读视图，不接受任务参数；忽略误传的 taskId。
+      if (params.taskId && params.action !== "next") args.push(params.taskId);
       if (params.action === "rename") {
         if (!params.newSlug) return failText("task rename 需要 newSlug");
         args.push(params.newSlug);
@@ -609,13 +611,25 @@ export default function (pi: any) {
         if (!params.priority) return failText("task priority 需要 priority（P0–P3）");
         args.push(params.priority);
       } else if (params.action === "depends") {
-        const ids = (values: unknown): string[] => (Array.isArray(values) ? values : []).map((id) => safeId(String(id), "k-") ?? "").filter((id) => id !== "");
+        const ids = (values: unknown): string[] | null => {
+          if (values === undefined) return [];
+          if (!Array.isArray(values)) return null;
+          const out: string[] = [];
+          for (const value of values) {
+            const id = safeId(String(value), "k-");
+            if (id === null) return null;
+            out.push(id);
+          }
+          return out;
+        };
         const add = ids(params.dependsOn);
         const remove = ids(params.removeDependsOn);
         const set = ids(params.setDependsOn);
-        if (add.length === 0 && remove.length === 0 && set.length === 0 && params.setDependsOn === undefined && params.clearDependsOn !== true) return failText("task depends 需要 dependsOn／removeDependsOn／setDependsOn／clearDependsOn");
-        if (params.clearDependsOn === true) args.push("--clear");
-        else if (set.length > 0 || params.setDependsOn !== undefined) args.push("--set", set.join(","));
+        if (add === null || remove === null || set === null) return failText("task depends 含非法依赖任务 ID");
+        const clear = params.clearDependsOn === true || (Array.isArray(params.setDependsOn) && params.setDependsOn.length === 0);
+        if (add.length === 0 && remove.length === 0 && set.length === 0 && !clear) return failText("task depends 需要 dependsOn／removeDependsOn／setDependsOn／clearDependsOn");
+        if (clear) args.push("--clear");
+        else if (set.length > 0) args.push("--set", set.join(","));
         if (add.length > 0) args.push("--add", add.join(","));
         if (remove.length > 0) args.push("--remove", remove.join(","));
       } else if (params.action === "order") {

@@ -16,6 +16,7 @@ import { parseTaskDocument } from "../dist/application/task-document.js";
 import { inputsDigestOf } from "../dist/contracts/task-inputs.js";
 
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
+const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 let counter = 0;
 const randomHex = () => {
   counter += 1;
@@ -57,6 +58,13 @@ function fileOf(dir, taskId) {
 
 function documentOf(dir, taskId) {
   return parseTaskDocument(readFileSync(fileOf(dir, taskId), "utf8"));
+}
+
+function cli(dir, ...args) {
+  return execFileSync(process.execPath, [CLI, ...args, "--dir", dir], {
+    encoding: "utf8",
+    env: { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") },
+  });
 }
 
 const ids = (list) => list.active.map((task) => task.taskId);
@@ -131,6 +139,65 @@ test("执行顺序：P0→P3、同级按真实创建先后、人工调整与改�
   }
 });
 
+test("人工顺序只作用于同优先级分组：跨级参照拒绝，不改变同级或其它组先后", async () => {
+  const dir = gitProject("order-scope");
+  const { store, service } = makeService(dir);
+  try {
+    const a = await service.newTask({ dir, title: "A", priority: "P1", now: new Date("2026-01-01T00:00:00.000Z") });
+    const b = await service.newTask({ dir, title: "B", priority: "P1", now: new Date("2026-01-02T00:00:00.000Z") });
+    const c = await service.newTask({ dir, title: "C", priority: "P2", now: new Date("2026-01-03T00:00:00.000Z") });
+    const d = await service.newTask({ dir, title: "D", priority: "P2", now: new Date("2026-01-04T00:00:00.000Z") });
+
+    // P1 的 A 已经在 P2 的 D 之前，跨级调整没有可写的业务顺序，必须拒绝而不是把 A 移到 B 之后。
+    await guardRejects(service.reorder({ dir, taskId: a.taskId, position: { before: d.taskId } }), "order_reference_priority_mismatch");
+    assert.deepEqual(ids(service.list({ dir })), [a.taskId, b.taskId, c.taskId, d.taskId]);
+    assert.equal(documentOf(dir, c.taskId).frontmatter.order, null);
+    assert.equal(documentOf(dir, d.taskId).frontmatter.order, null);
+
+    // 同组内调整正常生效，其它优先级完全不写入 order。
+    const moved = await service.reorder({ dir, taskId: b.taskId, position: { top: true } });
+    assert.deepEqual(moved.order, [b.taskId, a.taskId, c.taskId, d.taskId]);
+    assert.deepEqual(ids(service.list({ dir })), [b.taskId, a.taskId, c.taskId, d.taskId]);
+    assert.equal(documentOf(dir, b.taskId).frontmatter.order, 10);
+    assert.equal(documentOf(dir, a.taskId).frontmatter.order, 20);
+    assert.equal(documentOf(dir, c.taskId).frontmatter.order, null);
+    assert.equal(documentOf(dir, d.taskId).frontmatter.order, null);
+
+    // --bottom 是目标分组内的末尾，不是全局末尾，也不翻转其它组。
+    await service.reorder({ dir, taskId: b.taskId, position: { bottom: true } });
+    assert.deepEqual(ids(service.list({ dir })), [a.taskId, b.taskId, c.taskId, d.taskId]);
+    assert.equal(documentOf(dir, c.taskId).frontmatter.order, null);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("列表与执行入口一致：父子优先级不同仍按稳定顺序展示", async () => {
+  const dir = gitProject("list-consistency");
+  const { store, service } = makeService(dir);
+  try {
+    const parent = await service.newTask({ dir, title: "父任务", now: new Date("2026-01-01T00:00:00.000Z") });
+    const child = await service.newTask({ dir, title: "紧急子任务", priority: "P0", parent: parent.taskId, now: new Date("2026-01-02T00:00:00.000Z") });
+
+    // 父子层级不覆盖优先级：子任务 P0 在父任务 P2 之前。
+    assert.deepEqual(ids(service.list({ dir })), [child.taskId, parent.taskId]);
+    assert.deepEqual(service.next({ dir }).entries.map((entry) => entry.taskId), [child.taskId, parent.taskId]);
+
+    const listRows = cli(dir, "task", "list").split("\n").filter((line) => /^\s+(↳ )?P[0-3]\s+k-/.test(line));
+    const listIds = listRows.map((line) => line.match(/k-[0-9a-f]{12}/)?.[0]);
+    assert.deepEqual(listIds, [child.taskId, parent.taskId], "task list 行顺序与 next 相同");
+    assert.match(listRows[0] ?? "", new RegExp(`\\[父任务 ${parent.taskId}\\]`), "子任务行标注父任务稳定 ID");
+    assert.match(listRows[1] ?? "", /\[子任务 0\/1\]/, "父任务行标注子任务进度");
+
+    const nextRows = cli(dir, "task", "next").split("\n").filter((line) => /^P[0-3]\s+k-/.test(line));
+    assert.deepEqual(nextRows.map((line) => line.match(/k-[0-9a-f]{12}/)?.[0]), [child.taskId, parent.taskId]);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("前置依赖：未完成即阻塞 ready，可诊断；完成后放行", async () => {
   const dir = gitProject("depends");
   const { store, service } = makeService(dir);
@@ -148,6 +215,7 @@ test("前置依赖：未完成即阻塞 ready，可诊断；完成后放行", as
       [prerequisite.taskId, true],
       [dependent.taskId, false],
     ]);
+    assert.deepEqual(next.entries.find((entry) => entry.taskId === dependent.taskId).blocked, blocked);
     assert.equal(next.next, prerequisite.taskId);
 
     await service.close({ dir, taskId: prerequisite.taskId, outcome: "completed", runsSettled: true });

@@ -146,11 +146,16 @@ export type ReorderPosition =
   | { top: true }
   | { bottom: true };
 
-export type ReorderProblem = "order_reference_missing" | "order_self_reference" | "order_target_not_open";
+export type ReorderProblem =
+  | "order_reference_missing"
+  | "order_self_reference"
+  | "order_target_not_open"
+  | "order_reference_priority_mismatch";
 
 /**
- * 人工调整业务顺序：在优先级分组内移动目标，并把新的业务顺序分配给全部活跃任务。
- * 返回顺序号（已人工调整的显式落盘，未调整项也获得编号以保持稳定），
+ * 人工调整业务顺序：只在目标任务的优先级分组内移动，不跨越优先级。
+ * before／after 的参照任务必须与目标同优先级；top／bottom 是目标分组内的两端。
+ * 返回该分组的顺序号（已人工调整的显式落盘，未调整项也获得编号以保持稳定），
  * 不修改任何任务的 createdAt；未参与的任务不返回。
  */
 export function planReorder(
@@ -158,21 +163,30 @@ export function planReorder(
   targetId: string,
   position: ReorderPosition,
 ): { orders: Array<{ taskId: string; order: number }> } | { allowed: false; reason: ReorderProblem } {
-  const active = entries.filter((entry) => entry.status === "open").slice().sort(compareSchedule);
-  const target = active.find((entry) => entry.taskId === targetId);
-  if (target === undefined) return { allowed: false, reason: "order_target_not_open" };
-  const rest = active.filter((entry) => entry.taskId !== targetId);
+  const target = entries.find((entry) => entry.taskId === targetId);
+  if (target === undefined || target.status !== "open") return { allowed: false, reason: "order_target_not_open" };
+  // 优先级决定跨组顺序，人工 order 只负责组内先后；因此只重排目标所在分组。
+  const group = entries
+    .filter((entry) => entry.status === "open" && entry.priority === target.priority)
+    .slice()
+    .sort(compareSchedule);
+  const rest = group.filter((entry) => entry.taskId !== targetId);
+  const referenceOf = (referenceId: string): { allowed: false; reason: ReorderProblem } | null => {
+    if (referenceId === targetId) return { allowed: false, reason: "order_self_reference" };
+    const reference = entries.find((entry) => entry.taskId === referenceId);
+    if (reference === undefined || reference.status !== "open") return { allowed: false, reason: "order_reference_missing" };
+    if (reference.priority !== target.priority) return { allowed: false, reason: "order_reference_priority_mismatch" };
+    return null;
+  };
   let index: number;
   if ("before" in position) {
-    if (position.before === targetId) return { allowed: false, reason: "order_self_reference" };
-    const at = rest.findIndex((entry) => entry.taskId === position.before);
-    if (at === -1) return { allowed: false, reason: "order_reference_missing" };
-    index = at;
+    const problem = referenceOf(position.before);
+    if (problem !== null) return problem;
+    index = rest.findIndex((entry) => entry.taskId === position.before);
   } else if ("after" in position) {
-    if (position.after === targetId) return { allowed: false, reason: "order_self_reference" };
-    const at = rest.findIndex((entry) => entry.taskId === position.after);
-    if (at === -1) return { allowed: false, reason: "order_reference_missing" };
-    index = at + 1;
+    const problem = referenceOf(position.after);
+    if (problem !== null) return problem;
+    index = rest.findIndex((entry) => entry.taskId === position.after) + 1;
   } else if ("top" in position) {
     index = 0;
   } else {

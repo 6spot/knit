@@ -72,7 +72,7 @@ export const TaskFrontmatterSchema = obj(
     priority: opt(TaskPrioritySchema),
     /** 前置依赖的稳定任务身份；缺省为空（无依赖）。 */
     dependsOn: opt(arr(str({ pattern: "^k-[0-9a-f]{12}$" }))),
-    /** 人工调整后的业务执行顺序；缺省 null 表示沿用真实创建先后。 */
+    /** 同一优先级内人工调整后的业务执行顺序；缺省 null 表示沿用真实创建先后。 */
     order: opt(union([int(), nul()])),
     createdAt: str({ minLength: 1 }),
     title: str({ minLength: 1 }),

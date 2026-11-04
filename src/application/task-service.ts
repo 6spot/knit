@@ -135,7 +135,7 @@ export interface TaskSummary {
   priority: TaskPriority;
   /** 前置依赖的稳定任务身份。 */
   dependsOn: string[];
-  /** 人工调整后的业务顺序；null 表示沿用真实创建先后。 */
+  /** 同一优先级内人工调整后的业务顺序；null 表示沿用真实创建先后。 */
   order: number | null;
   /** 未满足的前置依赖；可诊断的启动阻塞原因。 */
   blocked: DependencyBlocker[];
@@ -234,7 +234,7 @@ export interface TaskOrderResult {
   taskId: string;
   /** 调整后的业务顺序（按执行顺序排列的稳定任务 ID）。 */
   order: string[];
-  /** 本次实际写入 order 的任务 ID。 */
+  /** 本次实际写入 order 的目标优先级分组任务 ID。 */
   updated: string[];
 }
 
@@ -804,7 +804,7 @@ export class TaskService {
   }
 
   /**
-   * task order：在优先级分组内调整业务顺序；写入全部活跃任务的 order 编号，
+   * task order：只在目标优先级分组内调整业务顺序；写入该分组的 order 编号，
    * 不修改任何 createdAt，目录改名与其它调度事实不变。
    */
   async reorder(input: TaskOrderInput): Promise<TaskOrderResult> {
@@ -814,7 +814,10 @@ export class TaskService {
       const entries = this.scheduleIndex(root);
       const planned = planReorder([...entries.values()], input.taskId, input.position);
       if ("allowed" in planned) {
-        throw new TaskGuardError(planned.reason, `调整执行顺序被拒绝: ${planned.reason}`);
+        const detail = planned.reason === "order_reference_priority_mismatch"
+          ? "参照任务与目标不在同一优先级；跨优先级先后由 priority 决定，不能由 task order 改写"
+          : planned.reason;
+        throw new TaskGuardError(planned.reason, `调整执行顺序被拒绝: ${detail}`);
       }
       const updated: string[] = [];
       for (const { taskId, order } of planned.orders) {
