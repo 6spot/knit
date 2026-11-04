@@ -101,4 +101,10 @@ title: 多任务并行：按执行目录调度与冲突保护
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-multi-task-parallel-execution-coordination
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-72b9b8f27599 -->
+- 任务资料提交: 1704d5a223ad1d4561b34e31d877b2916b11b415
+- 归档目标: .knit/tasks/archive/2026-11/11-03-multi-task-parallel-execution-coordination
+
 <!-- knit:progress:end -->
