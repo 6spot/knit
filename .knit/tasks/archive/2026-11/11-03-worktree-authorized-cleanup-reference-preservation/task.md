@@ -128,4 +128,10 @@ knit worktree cleanup --task <taskId>
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-authorized-cleanup-reference-preservation
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-71ca1d9b38e7 -->
+- 任务资料提交: 8f4e79f8e01ff24dcf5645c7ade018ecc7b19f12
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-authorized-cleanup-reference-preservation
+
 <!-- knit:progress:end -->
