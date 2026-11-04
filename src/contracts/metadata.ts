@@ -77,6 +77,12 @@ export const TaskBindingSchema = obj(
           baseline: str({ minLength: 1 }),
           createdAt: str({ minLength: 1 }),
           registeredAt: str({ minLength: 1 }),
+          /** 任务资料已完整交接并核验（任务 k-19b5cad5c106）；此后权威资料在 worktree。 */
+          active: opt(bool()),
+          /** 最近一次成功交接时间；binding.branch 切换随该次交接生效。 */
+          handoffAt: opt(union([str({ minLength: 1 }), nul()])),
+          /** 最近一次成功交接的操作 ID（transfers/<opId>/ 回执入口）。 */
+          lastHandoffOp: opt(union([str({ minLength: 1 }), nul()])),
         },
       ),
     ),

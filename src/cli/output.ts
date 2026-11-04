@@ -62,7 +62,9 @@ export function reasonForError(error: unknown): ReasonCode {
       guard === "branch_mismatch" ||
       guard === "task_archived" ||
       guard === "unknown_binding" ||
-      guard === "gitignore_rule_unavailable"
+      guard === "gitignore_rule_unavailable" ||
+      guard === "handoff_conflict" ||
+      guard === "handoff_backup_corrupt"
     ) {
       return "needs_review";
     }

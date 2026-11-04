@@ -1,8 +1,10 @@
-/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）。 */
+/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）。 */
 import { Command } from "commander";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { WorktreeService } from "../application/worktree-manager.js";
+import { WorktreeHandoffService } from "../application/worktree-handoff.js";
+import { RunStore } from "../infrastructure/run-store.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
@@ -97,5 +99,49 @@ export function registerWorktreeCommands(program: Command): void {
           printWorktree(result.worktree);
         },
       );
+    });
+
+  worktree
+    .command("handoff")
+    .description("从主检出交接任务资料到已登记 worktree：快照、基线核对、应用、回执与绑定切换")
+    .requiredOption("--task <taskId>", "任务 ID")
+    .option("--to <dir>", "目标 worktree 目录（默认取已登记路径）")
+    .option("--dir <dir>", "项目目录（默认当前目录）", ".")
+    .action(async (options) => {
+      const taskId = options.task;
+      const requestId = `worktree-handoff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const store = openStore(options.dir);
+      try {
+        const service = new WorktreeHandoffService({ store, runs: new RunStore(options.dir) });
+        const result = await service.handoff({
+          dir: options.dir,
+          taskId,
+          ...(options.to === undefined ? {} : { to: options.to }),
+        });
+        if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
+        else {
+          const modeLabel = result.mode === "no_op" ? "已一致（no-op）" : result.mode === "resumed" ? "已从断点续做" : "已交接";
+          console.log(`${modeLabel}: ${result.taskId} → ${result.worktreePath}`);
+          console.log(`操作: ${result.opId}  分支: ${result.branch}`);
+          console.log(`文件: ${result.files}  删除项: ${result.deleted}  未跟踪: ${result.untracked}`);
+          console.log(`目标资料: ${result.targetTaskDir}`);
+          if (result.sourceDisposition === "moved_untracked") {
+            console.log("源目录无跟踪文件，已整体移入 transfers/<opId>/source-original/ 备份");
+          } else if (result.sourceDisposition === "kept_tracked") {
+            console.log("旧副本保留在源目录（含 Git 跟踪文件），待交付/清理任务处置");
+          }
+          if (!result.bindingBranchSwitched) console.log("绑定分支未变化");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      } finally {
+        store.close();
+      }
     });
 }
