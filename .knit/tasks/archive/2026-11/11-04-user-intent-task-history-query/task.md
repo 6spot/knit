@@ -78,4 +78,10 @@ src/application/task-history.ts、task-service.ts 及现有任务/归档/运行�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-user-intent-task-history-query
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b89548f31873 -->
+- 任务资料提交: bcde92a3e4e7e92e347e4806c44ce37e3e4f25fc
+- 归档目标: .knit/tasks/archive/2026-11/11-04-user-intent-task-history-query
+
 <!-- knit:progress:end -->
