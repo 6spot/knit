@@ -1,8 +1,8 @@
 ---
 id: k-c5f416d61c3d
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:09.204Z
@@ -57,5 +57,27 @@ Trellis 固定提交 f089cb3286071199e84118dee86b6d76aab032f1：workflow.md 的 
 ## 结果与验证
 
 ## 运行引用
+
+### 实施结果（任务 k-c5f416d61c3d）
+
+- frontmatter 新增可选 `parent`（稳定任务 ID，缺省/null 为顶层）；父子关系只存子任务一侧，父级集合派生。
+- 新增 `task new --parent`、`task parent <id> <parentTaskId>`、`task parent <id> --detach`；项目＋任务锁内核对父任务存在、未归档、未结束、自我挂接与成环。
+- `parent` 不参与需求摘要：挂接／解除既不重写输入，也不使检查 stale。
+- `task list` 按父链缩进并标注子任务结束进度；`knit status <taskId>` 输出父任务与直接子任务结束情况。
+- 父任务完成守卫：直接子任务仍有 open → `children_incomplete`；缺 `--reason` → `parent_acceptance_missing`；验收说明写入完成凭据。子任务完成不自动结束父任务。
+- 旧 task.md 缺 `parent` 字段照常解析；改名后关联不变（按 ID 派生）。
+- 文档：DESIGN 3.1／新增 3.10／4.3 命令面、STATES BusinessClosed、OPERATIONS、GLOSSARY、桥接 schema 与模板同步。
+- 测试：新增 test/task-hierarchy.test.mjs（5 项）；全量 npm test 413/413 通过，typecheck 通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-febaebcab2aa -->
+- 操作: op-febaebcab2aa
+- 时间: 2026-11-04T16:07:18.243Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: aadcc2c6c0ed30f07d50d91629a79eeb28dc82d5
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-task-hierarchy-and-parent-acceptance
 
 <!-- knit:progress:end -->
