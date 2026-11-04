@@ -8,7 +8,7 @@
     "resume": "prefer"
   },
   "execution": {
-    "host": "local"
+    "host": "auto"
   },
   "delivery": {
     "mode": "local"
