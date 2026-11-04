@@ -120,4 +120,10 @@ knit worktree merge --task <taskId> --into <refs/heads/...>
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-cross-directory-authorized-merge-delivery
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-bf15a10bf0af -->
+- 任务资料提交: be43008d6c31d9840d9ae55c013f840dbaf2f754
+- 归档目标: .knit/tasks/archive/2026-11/11-03-cross-directory-authorized-merge-delivery
+
 <!-- knit:progress:end -->
