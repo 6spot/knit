@@ -95,6 +95,8 @@ export function registerStatusCommands(program: Command): void {
         } else if ("runId" in result && "elapsedMs" in result) {
           console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}）`);
           console.log(`任务: ${result.taskId} / ${result.phase}；耗时 ${formatMs(result.elapsedMs)}`);
+          // 执行目录锁是 project 锁的实际键；主检出路由与现在输出等价（任务17）。
+          if (result.executionDir !== cliMainRoot(options.dir)) console.log(`执行目录: ${result.executionDir}`);
           console.log(`准备: ${result.prepared}；快照: ${result.snapshot?.state ?? "无"}`);
           console.log(`最近活动: ${result.lastEvent ?? "无"} @ ${result.lastActivityAt ?? "未知"}`);
           console.log(`心跳: ${result.heartbeat ? `${result.heartbeat.at}（${result.heartbeat.verdict}）` : "无"}`);

@@ -60,14 +60,17 @@ export class RunAcceptanceService {
   }
 
   /**
-   * 接收结果。调用方已持项目执行占用时传 lockHeld=true，避免同进程重复取锁。
+   * 接收结果。调用方已持本 run 的执行目录占用时传 lockHeld=true，避免同进程重复取锁；
+   * lockDir 仅供未取得执行目录锁的失败路径显式改用主检出键。
    * 返回 accepted=false 时 operation 置 needs_attention，保留现场供人工核对。
    */
-  async accept(input: { dir: string; runId: string; lockHeld?: boolean }): Promise<AcceptanceResult> {
+  async accept(input: { dir: string; runId: string; lockHeld?: boolean; lockDir?: string }): Promise<AcceptanceResult> {
     const root = normalizeRoot(input.dir);
     const runs = new RunStore(root);
     const request = runs.readRequest(input.runId);
     if (request === null) throw new InfrastructureError("io_error", `run 不存在: ${input.runId}`);
+    // project 锁按请求冻结的执行目录（任务17）；未取锁的失败路径可显式改用主检出键。
+    const projectLockKey = input.lockDir ?? request.expected.executionDir ?? root;
     let result = null;
     try {
       result = runs.readResult(input.runId);
@@ -100,7 +103,7 @@ export class RunAcceptanceService {
 
     const lock = input.lockHeld === true
       ? null
-      : await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "run.accept" });
+      : await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: projectLockKey }]), action: "run.accept" });
     try {
       // 锁内重读结果与操作：等待期间结果可能才落盘，也可能已被别的接收者完成。
       try {

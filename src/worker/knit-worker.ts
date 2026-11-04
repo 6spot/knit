@@ -1,6 +1,7 @@
 /**
- * local worker 入口（DESIGN.md 第5.6节）。
- * 原子认领 request 后自行取得项目执行占用，重新核实身份与预期输入，
+ * local worker 入口（DESIGN.md 第5.6节、OPERATIONS.md 第2节）。
+ * 原子认领 request 后按任务执行目录取得 project 执行占用（主检出路由为主检出根，
+ * worktree 路由为 worktree 路径；任务17），锁内重新核实绑定路由与预期输入，
  * 冻结 inputs/instructions；implement 在正式代码前建立快照。
  * 阶段模型调用与代码执行由 013 从 prepared 状态继续；本入口不调用模型。
  */
@@ -169,9 +170,33 @@ async function main(): Promise<number> {
   let lock: AcquiredLock | null = null;
   let heartbeat: NodeJS.Timeout | null = null;
   let heartbeatError: string | null = null;
+  /** 任务执行目录（project 锁键）：主检出路由为主检出根，worktree 路由为 worktree 路径。 */
+  let executionDir = root;
+  /** 请求冻结的接收执行目录；接收实现以同一键取 project 锁（缺省回退主检出）。 */
+  const acceptanceDir = request.expected.executionDir ?? root;
+  /**
+   * 接收结果。worker 已持与请求一致的执行目录锁时直接复用（lockHeld）；
+   * 未取得锁的失败路径用主检出键接收失败事实，避免另一执行目录的占用阻塞。
+   */
+  const acceptResult = async () => {
+    const reuse = lock !== null && resolve(executionDir) === resolve(acceptanceDir);
+    return new RunAcceptanceService({ store: metadata, locks }).accept({
+      dir: root,
+      runId: request.runId,
+      lockHeld: reuse,
+      ...(reuse ? {} : { lockDir: root }),
+    });
+  };
+
   try {
+    // 取锁前只读绑定并计算执行目录：不同 worktree 使用不同 project 锁键，可并行；
+    // invalid 路由在取锁前失败，不用主检出键掩盖登记异常。
+    const plannedBinding = await metadata.bindings.get(request.taskId);
+    const plannedRoute = executionRouteOf(plannedBinding, root);
+    if (plannedRoute.state === "invalid") return fail(`worktree_invalid:${plannedRoute.problem ?? "unknown"}`);
+    executionDir = plannedRoute.dir;
     try {
-      lock = await locks.acquire({ keys: [{ scope: "project", rawKey: root }], action: "run.prepare" });
+      lock = await locks.acquire({ keys: [{ scope: "project", rawKey: executionDir }], action: "run.prepare" });
     } catch (error) {
       return fail(error instanceof InfrastructureError && error.code === "lock_busy" ? "lock_busy" : "lock_unavailable");
     }
@@ -188,16 +213,28 @@ async function main(): Promise<number> {
     }, config.limits.heartbeatIntervalMs);
     heartbeat.unref();
 
+    // 锁内重读绑定并重算路由：等待锁期间绑定／执行目录被改动时不在错误目录执行阶段。
     const binding = await metadata.bindings.get(request.taskId);
     if (binding === null) return fail("binding_missing");
     // 工作区路由：worktree 生效时任务资料与阶段 cwd 都在 worktree；失效不回退主检出。
     const route = executionRouteOf(binding, root);
     if (route.state === "invalid") return fail(`worktree_invalid:${route.problem ?? "unknown"}`);
     if (route.state === "worktree" && !route.prepared) return fail("worktree_not_ready");
-    if (request.expected.executionDir !== undefined && request.expected.executionDir !== null) {
-      if (resolve(request.expected.executionDir) !== resolve(route.dir)) return fail("execution_dir_mismatch");
+    if (
+      route.state !== plannedRoute.state ||
+      resolve(route.dir) !== resolve(executionDir) ||
+      route.branch !== plannedRoute.branch
+    ) {
+      return fail("route_changed");
     }
-    const executionDir = route.dir;
+    if (request.expected.executionDir !== undefined && request.expected.executionDir !== null) {
+      if (resolve(request.expected.executionDir) !== resolve(route.dir)) return fail("route_changed");
+    }
+    // 请求冻结的执行分支必须仍是当前路由分支；worktree 路由下 frontmatter 保留源分支，不作否决依据。
+    if (request.expected.branch !== null && route.branch !== null && request.expected.branch !== route.branch) {
+      return fail("route_changed");
+    }
+    executionDir = route.dir;
 
     let located;
     try {
@@ -299,7 +336,7 @@ async function main(): Promise<number> {
     store.appendEvent(request.runId, { event: "prepared", snapshot: snapshot?.state ?? null });
     if (args.prepareOnly) return 0;
 
-    // 阶段执行与接收：保持项目执行占用直到 result 与 Task 接收完成。
+    // 阶段执行与接收：保持执行目录占用直到 result 与 Task 接收完成。
     writeState({ ...state, state: "running" });
     diag("stage_started", { state: state.state });
   store.appendEvent(request.runId, { event: "stage_started", phase: request.phase });
@@ -353,11 +390,7 @@ async function main(): Promise<number> {
       verdict: execution.result.report?.verdict ?? null,
     });
     try {
-      const acceptance = await new RunAcceptanceService({ store: metadata, locks }).accept({
-        dir: root,
-        runId: request.runId,
-        lockHeld: true,
-      });
+      const acceptance = await acceptResult();
       store.appendEvent(request.runId, {
         event: "acceptance",
         accepted: acceptance.accepted,
@@ -382,11 +415,7 @@ async function main(): Promise<number> {
   } finally {
     if (state.state === "failed") {
       try {
-        await new RunAcceptanceService({ store: metadata, locks }).accept({
-          dir: root,
-          runId: request.runId,
-          lockHeld: lock !== null,
-        });
+        await acceptResult();
       } catch {
         // 失败结果已保留；接收失败留给 resume/status 核实，不覆盖原失败事实。
       }

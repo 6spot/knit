@@ -11,6 +11,7 @@ import { parseTaskDocument } from "./task-document.js";
 import { verificationModeOf, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
 import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
+import { executionRouteOf } from "./worktree-routing.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
@@ -24,6 +25,8 @@ export interface RunHeartbeat {
 
 export interface RunStatusView extends RunStatusProjection {
   elapsedMs: number;
+  /** 本 run 的执行目录；主检出路由为主检出根，worktree 路由为 worktree 路径（任务17）。 */
+  executionDir: string;
   lastActivityAt: string | null;
   heartbeat: RunHeartbeat | null;
   /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
@@ -109,11 +112,14 @@ export class StatusService {
       failureReason !== null && failureReason.startsWith("runtime_start_failed")
         ? new RunStore(root).readDiagnostics(runId)
         : null;
+    // 心跳按本 run 的执行目录观察：worktree 路由的 project 锁不再占用主检出键（任务17）。
+    const executionDir = await this.executionDirOf(root, runId);
     return {
       ...projection,
       elapsedMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
+      executionDir,
       lastActivityAt,
-      heartbeat: this.heartbeat(root, locksRoot ?? this.lockRoot),
+      heartbeat: this.heartbeat(locksRoot ?? this.lockRoot, executionDir),
       startupDiagnostics,
     };
   }
@@ -216,10 +222,26 @@ export class StatusService {
     return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  private heartbeat(root: string, locksRoot?: string): RunHeartbeat | null {
+  /** 只读推导 run 的执行目录：优先使用请求冻结的 expected.executionDir（worker 同口径），
+   * 旧请求缺省时按绑定路由回退；都不阻塞状态投影。 */
+  private async executionDirOf(root: string, runId: string): Promise<string> {
+    try {
+      const request = new RunStore(root).readRequest(runId);
+      if (request === null) return root;
+      if (request.expected.executionDir !== undefined && request.expected.executionDir !== null) {
+        return request.expected.executionDir;
+      }
+      const binding = await this.store.bindings.get(request.taskId);
+      return executionRouteOf(binding, root).dir;
+    } catch {
+      return root;
+    }
+  }
+
+  private heartbeat(locksRoot: string | undefined, executionDir: string): RunHeartbeat | null {
     try {
       const manager = new LockManager(locksRoot === undefined ? {} : { root: locksRoot });
-      const status = manager.inspect({ scope: "project", rawKey: root });
+      const status = manager.inspect({ scope: "project", rawKey: executionDir });
       if (status.owner === null) return null;
       return { at: status.owner.heartbeatAt, verdict: status.processVerdict };
     } catch {

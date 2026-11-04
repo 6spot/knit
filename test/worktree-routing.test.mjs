@@ -423,7 +423,7 @@ test("h) 会话续做：cwd 变化 → 新会话（保留阶段／修复轮次�
   }
 });
 
-test("i) 单执行者：主检出与 worktree 派发使用同一主检出锁键，被锁拒绝", async () => {
+test("i) 执行目录锁键：主检出与 worktree 分离，同一执行目录仍互斥", async () => {
   const dir = project("lock");
   const s = services(dir);
   try {
@@ -432,7 +432,7 @@ test("i) 单执行者：主检出与 worktree 派发使用同一主检出锁键�
     const root = resolveProjectStart(wt.path).mainRoot;
     assert.equal(root, dir);
 
-    // 主检出侧取得项目执行占用；worktree 侧按同一键索取被拒。
+    // 主检出侧取得项目执行占用；worktree 执行目录是不同键，可并行（任务17）。
     const mainHolder = new LockManager({ root: join(dir, ".locks") });
     const held = await mainHolder.acquire({
       keys: [{ scope: "project", rawKey: dir }],
@@ -440,16 +440,25 @@ test("i) 单执行者：主检出与 worktree 派发使用同一主检出锁键�
     });
     try {
       const fromWorktree = new LockManager({ root: join(dir, ".locks") });
+      const wtLock = await fromWorktree.acquire({
+        keys: [{ scope: "project", rawKey: wt.path }],
+        action: "run.prepare",
+      });
+      // 同一 worktree 执行目录的第二个占用仍被拒绝。
       await assert.rejects(
-        fromWorktree.acquire({ keys: [{ scope: "project", rawKey: root }], action: "run.prepare" }),
+        new LockManager({ root: join(dir, ".locks") }).acquire({
+          keys: [{ scope: "project", rawKey: wt.path }],
+          action: "run.prepare",
+        }),
         (error) => error.code === "lock_busy",
       );
+      fromWorktree.release(wtLock);
     } finally {
       mainHolder.release(held);
     }
-    // 释放后同一键可再取（派发不被目录改变）。
+    // 释放后同一执行目录键可再取（派发不被目录改变）。
     const after = new LockManager({ root: join(dir, ".locks") });
-    const again = await after.acquire({ keys: [{ scope: "project", rawKey: root }], action: "run.prepare" });
+    const again = await after.acquire({ keys: [{ scope: "project", rawKey: wt.path }], action: "run.prepare" });
     after.release(again);
   } finally {
     s.store.close();
