@@ -52,4 +52,10 @@ title: Worktree：任务资料完整交接与中断恢复
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-task-material-handoff
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-ecef73210e25 -->
+- 任务资料提交: 66854807749934608705e2c21a8230db5dfe4ae7
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-task-material-handoff
+
 <!-- knit:progress:end -->
