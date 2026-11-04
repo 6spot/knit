@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "runId": "run-9b5163cacedb",
+  "taskId": "k-094319db2793",
+  "phase": "check",
+  "presentation": "local",
+  "presentationSource": "explicit",
+  "presentationFallbackReason": null,
+  "purpose": "stage",
+  "initiator": {
+    "client": "cli",
+    "knitSessionId": null,
+    "nativeSessionId": null,
+    "cwd": "/tmp/knit-check"
+  },
+  "createdAt": "2026-11-04T21:02:50.322Z",
+  "expected": {
+    "branch": "refs/heads/master",
+    "executionDir": "/tmp/knit-check",
+    "inputsDigest": "e838d15b5a4323e849ee36080de56f89b14982fdb1516ff800562599901bcd82",
+    "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+    "effectiveInputsDigest": "34366dd2bf734683afe93dd02795ae7798c8799fdf7c88d605ea0b2fe9ba80d4",
+    "planId": "ctx-de88504e8787",
+    "scopeDigest": "65fa74f42243dc92049c2b0c3f11e5da562071ae75c7b45b6d4bcd13bfca71dc",
+    "authorizedStandardOutputs": []
+  },
+  "model": {
+    "runtime": "pi",
+    "provider": "magpie",
+    "model": "group/deepseek"
+  },
+  "toolPolicy": {
+    "mode": "write",
+    "allow": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "task"
+    ],
+    "deny": []
+  },
+  "recovery": {
+    "nativeSessionId": null,
+    "resume": "prefer"
+  },
+  "acceptanceOperationId": "accept-d78f5e0269ef",
+  "diagnostics": {
+    "enabled": false
+  }
+}

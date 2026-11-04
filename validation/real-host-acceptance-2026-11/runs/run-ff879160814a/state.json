@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "runId": "run-ff879160814a",
+  "taskId": "k-3c9f3dae1629",
+  "phase": "implement",
+  "state": "completed",
+  "worker": {
+    "workerId": "w-9540aca6850c",
+    "pid": 1117265,
+    "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+    "procStartTicks": "144927879",
+    "hostname": "instance-20260508-1651"
+  },
+  "claimedAt": "2026-11-04T21:09:01.497Z",
+  "updatedAt": "2026-11-04T21:09:46.230Z",
+  "prepared": true,
+  "preparedAt": "2026-11-04T21:09:01.631Z",
+  "snapshot": {
+    "state": "ready",
+    "digest": "7d14212a1542a7f1e23600cd3c09332f0c79f4efa91aa0e9358a73eeab6b2ae9",
+    "entries": 14,
+    "reason": null
+  },
+  "reason": null
+}

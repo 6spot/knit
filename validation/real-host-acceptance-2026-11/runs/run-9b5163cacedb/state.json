@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "runId": "run-9b5163cacedb",
+  "taskId": "k-094319db2793",
+  "phase": "check",
+  "state": "completed",
+  "worker": {
+    "workerId": "w-100bd956b88d",
+    "pid": 1116011,
+    "bootId": "83dc0a85-8d4c-49c1-89a8-e952af13e42f",
+    "procStartTicks": "144890781",
+    "hostname": "instance-20260508-1651"
+  },
+  "claimedAt": "2026-11-04T21:02:50.507Z",
+  "updatedAt": "2026-11-04T21:03:35.485Z",
+  "prepared": true,
+  "preparedAt": "2026-11-04T21:02:50.566Z",
+  "snapshot": null,
+  "reason": null
+}
