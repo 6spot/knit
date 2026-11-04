@@ -132,6 +132,7 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
 
+实现（任务 k-c5f416d61c3d）：父子关系只写子任务 frontmatter `parent`；`task new --parent` 在创建项目锁内、`task parent`／`--detach` 在项目＋任务锁内按稳定 ID 核对目标存在、未归档、未结束与成环；归档任务关系冻结，不再挂接或解除，归档父任务不接收新子任务；结构变化不使输入摘要或检查资格失效。父任务完成在任务锁内扫描直接子任务：仍有 `open` 子任务返回 `children_incomplete`，缺 `--reason` 返回 `parent_acceptance_missing`，验收说明写入完成凭据。`task list` 按父链缩进并标注子任务结束进度，`knit status <taskId>` 给出父任务与子任务状态。
 实现（任务055–057）：`task close --outcome completed` 在任务锁内按 `verification` 核对当前输入、成果和完成凭据；业务完成不要求 Git 提交、回执或归档，完成凭据写 `.knit/.runtime/completions/<task-id>.json`。`deliver <id...>` 支持批量逐项处理，先以 `--plan` 只读预检业务产物／任务资料分类、已暂存业务路径及任务资料、跨任务同路径冲突；有冲突时不执行。任务资料的用户暂存内容也在服务取得占用后、创建操作与修改Task前重核；拒绝时保留index、HEAD及Task。重试仅接受当前HEAD和预期路径／blob匹配的未完成操作暂存检查点；资料部分暂存始终停止，不能借retry覆盖新改动。每个任务先提交业务产物（`knit: artifact`），再写最终记录并单独提交任务资料（`knit: metadata`），随后封存、移动和归档提交；多个任务不合并为整仓提交。任一项失败保留已生效提交和后续任务现场，按操作 ID 与显式 retry 继续，不重复提交。
 
 ## 6. 数据版本与升级

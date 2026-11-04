@@ -106,6 +106,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 | `branch` | 本任务当前绑定的完整本地分支引用，例如 `refs/heads/feature/login` |
 | `verification` | 完成验证要求：`none`、`self`（默认）或 `independent`；旧记录缺省按 `independent` 兼容 |
 | `outcome` | 结束时填写：`completed`、`cancelled` 或 `superseded` |
+| `parent` | 父任务稳定 ID；顶层任务为 `null` 或缺省。关系只存子任务一侧，见 3.10 |
 
 标题保存在 Markdown 一级标题。任务类型、优先级、负责人、日期等信息按实际需要增加。
 
@@ -211,6 +212,18 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 
 业务 status/phase/outcome、run 生命周期、检查资格、规范审阅、操作与归档展示分别建模。未知实例、无效输入和未核实副作用优先阻止相关后续动作；纯记录与诊断不因代码阶段排他而全部被锁住。
 
+### 3.10 父子任务结构
+
+父子任务以稳定任务身份关联：子任务在 frontmatter 写 `parent`，父任务不保存重复的子任务清单，子任务集合由扫描 `parent` 派生。因此目录改名、归档移动和路径线索变化都不改变关联，也不按目录名称推断层级。
+
+- 创建：`task new --parent <taskId>` 在创建时挂接；也可用 `task parent <taskId> <parentTaskId>` 事后挂接，`task parent <taskId> --detach` 解除。一个任务至多一个父任务，父子层级与执行依赖是两件事——父子关系不构成开始前置。创建子任务仍由用户决定是否登记，挂接 `--parent` 只是结构关系，不等于实施授权。
+- 内容分工：父任务自身 `task.md` 保存总体需求、拆分映射与跨子任务完成条件；子任务各自保存范围、产出与验证要求，不复制父任务总需求。父子关系只影响展示与父任务完成核验，不合并输入、scope 或运行状态。
+- 结构核对：父任务必须存在、未归档且 status 为 `open`；子任务必须未归档且未结束；拒绝自我挂接与成环（沿 parent 链向上核查）。归档任务的关系冻结：已归档任务不能再挂接或解除父任务，归档父任务不再接收新子任务；归档子任务仍计入父任务结束情况。
+- 摘要与资格：`parent` 属于结构身份，与 `id`／`status`／`phase`／`branch` 一样不参与需求摘要，挂接或解除既不改写输入，也不使既有检查 stale。
+- 展示：`task list` 在活跃分区按父链缩进展示，父任务行标注子任务结束进度（`[子任务 2/3]`），子任务行以 `↳` 前缀；`knit status <taskId>` 同时给出父任务与直接子任务的结束情况。
+- 总体验收：子任务完成只表示分项结束，不自动使父任务可完成。父任务 `task close --outcome completed` 要求所有直接子任务都已结束（归档任务视为已结束），并要求主会话给出 `--reason` 作为总体验收依据；该依据写入完成凭据。子任务全部结束后父任务仍按自身目标、成果与验证要求评估完成资格，不能仅凭子任务状态收尾。
+- 取消／替代父任务不自动结束子任务：子任务保持各自状态与资料，仍可独立继续或分别取消。
+
 ## 4. 四环节轻量编排
 
 | 环节 | 职责 | 阶段结果 |
@@ -260,7 +273,8 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | init [--client pi] | 初始化项目资料与客户端入口 |
 | start [--client pi] | 启动原生客户端，不另建聊天 UI |
 | session attach / context | 核实原生上下文，提供讨论输入与下一步，不创建 worker |
-| task new [--verification none/self/independent] | 按用户授权创建；完成验证要求默认 self |
+| task new [--verification none/self/independent] [--parent <id>] | 按用户授权创建；完成验证要求默认 self；可同时挂接已有父任务 |
+| task parent <id> <parentTaskId> / --detach | 挂接或解除父子关系；只改结构身份，不使输入摘要与检查失效 |
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
 | task rename / list / use / clear | 按授权管理身份、位置与当前原生路径选择 |
 | task ready [id] | 保存讨论确认，不自动实施 |
@@ -275,7 +289,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome |
 | deliver [id...] --branch <ref> [--authorization-ref <ref>] [--plan] | 逐任务收尾；业务产物与任务资料分开提交，--plan 只读预检；完整目标 ref 明示，桥接声明授权来源，不默认启动 worker |
 | archive [id] --branch <ref> [--authorization-ref <ref>] | 归档资料／继续步骤；提交同样核实目标及授权，不绕正常交付条件 |
-| task close <id> --outcome <值> [--reason <说明>] | 业务结束并核对完成资格；不要求 Git 提交，不等于已归档 |
+| task close <id> --outcome <值> [--reason <说明>] | 业务结束并核对完成资格；父任务完成还要求子任务全部结束并给出总体验收说明；不要求 Git 提交，不等于已归档 |
 | status [id] [--run <id>] | 耗时、最近模型／工具活动、心跳；--events 仅观察 |
 | session list/history | 查询身份和关系，由所属客户端读原生历史 |
 | standards list/propose/review | 机械发现候选，登记主 Agent 的审阅决定和理由 |

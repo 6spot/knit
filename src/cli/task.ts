@@ -90,6 +90,7 @@ export function registerTaskCommands(program: Command): void {
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .option("--branch <branch>", "绑定完整本地分支引用（默认当前分支）")
     .option("--verification <mode>", "完成验证：none、self 或 independent", "self")
+    .option("--parent <taskId>", "挂接已存在的父任务（稳定身份）")
     .action(async (options) => {
       const requestId = `task-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       if (!VERIFICATIONS.has(options.verification)) {
@@ -101,10 +102,39 @@ export function registerTaskCommands(program: Command): void {
       }
       const current = gitSync(["symbolic-ref", "-q", "HEAD"], options.dir);
       const branch = options.branch ?? (current.code === 0 && current.stdout.trim() !== "" ? current.stdout.trim() : null);
-      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch, verification: options.verification }), (result) => {
+      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch, verification: options.verification, parent: options.parent ?? null }), (result) => {
         console.log(`任务已创建: ${result.taskId}`);
         console.log(`目录: ${result.relativePath}`);
         console.log(`完成验证: ${options.verification}`);
+        if (result.parent !== null) console.log(`父任务: ${result.parent}`);
+      });
+    });
+
+  task
+    .command("parent <taskId> [parentTaskId]")
+    .description("挂接父任务或解除关联：只改结构关系，不使输入摘要失效")
+    .option("--detach", "解除当前父任务关联")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, parentTaskId, options) => {
+      const requestId = `task-parent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (options.detach === true && parentTaskId !== undefined) {
+        const reason = "--detach 与父任务 ID 不能同时提供";
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (options.detach !== true && (typeof parentTaskId !== "string" || parentTaskId === "")) {
+        const reason = "需要父任务 ID，或用 --detach 解除关联";
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      const parentId = options.detach === true ? null : parentTaskId;
+      await withService(requestId, options.dir, (service) => service.setParent({ dir: options.dir, taskId, parentId }), (result) => {
+        console.log(`${result.taskId} 父任务: ${result.previous ?? "无"} → ${result.parent ?? "无"}`);
+        if (result.children.length > 0) console.log(`该父任务子任务: ${result.children.join(", ")}`);
       });
     });
 
@@ -152,10 +182,31 @@ export function registerTaskCommands(program: Command): void {
           if (history.kind === "invalid") return "  [档案异常]";
           return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
         };
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null }) =>
-          `  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${marker(t.history)}`;
+        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[] }, depth = 0) => {
+          const indent = `  ${depth === 0 ? "" : "  ".repeat(depth - 1) + "↳ "}`;
+          const tree = t.children.length > 0
+            ? `  [子任务 ${t.children.length - t.openChildren.length}/${t.children.length}]`
+            : "";
+          return `${indent}${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${tree}${marker(t.history)}`;
+        };
+        /** 按稳定父链缩进展示；父任务不在活跃列表时子任务仍独立一行。 */
+        const renderTree = (list: typeof result.active) => {
+          const activeIds = new Set(list.map((t) => t.taskId));
+          const rendered = new Set<string>();
+          const emit = (t: (typeof list)[number], depth: number) => {
+            if (rendered.has(t.taskId)) return;
+            rendered.add(t.taskId);
+            console.log(row(t, depth));
+            for (const childId of t.children) {
+              const child = list.find((entry) => entry.taskId === childId);
+              if (child !== undefined) emit(child, depth + 1);
+            }
+          };
+          for (const t of list) if (t.parent === null || !activeIds.has(t.parent)) emit(t, 0);
+          for (const t of list) emit(t, 0);
+        };
         console.log(`活跃任务（${result.active.length}）:`);
-        for (const t of result.active) console.log(row(t));
+        renderTree(result.active);
         console.log(`归档任务（${result.archived.length}）:`);
         for (const t of result.archived) {
           console.log(row(t));

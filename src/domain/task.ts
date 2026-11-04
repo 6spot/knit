@@ -305,3 +305,66 @@ export function digestImpact(event: DigestRelevantEvent): "stale" | null {
       return event.equivalent ? null : "stale";
   }
 }
+
+/**
+ * 父子任务结构（DESIGN.md 第3.10节）。
+ * 关系只存子任务一侧的 parent（稳定任务身份），父级的子任务集合由扫描派生；
+ * 目录改名与归档移动不改变关联。层级与执行依赖是两件事：父子不构成开始前置。
+ */
+export type ParentGuardReason =
+  | "child_not_open"
+  | "child_archived"
+  | "parent_missing"
+  | "parent_not_open"
+  | "parent_archived"
+  /* 自我挂接沿链检查同样无解，按 parent_cycle 报告。 */
+  | "parent_cycle";
+
+/**
+ * 沿 parent 链向上查找 target：用于拒绝成环。
+ * parentOf 是当前工程内“任务 ID → 父任务 ID”的快照；未知任务视为链终止。
+ */
+export function parentChainContains(
+  parentOf: ReadonlyMap<string, string | null>,
+  startTaskId: string,
+  targetTaskId: string,
+): boolean {
+  const seen = new Set<string>();
+  let current: string | null | undefined = parentOf.get(startTaskId) ?? null;
+  while (current !== null && !seen.has(current)) {
+    if (current === targetTaskId) return true;
+    seen.add(current);
+    current = parentOf.get(current) ?? null;
+  }
+  return false;
+}
+
+/** 挂接父任务前的结构核对；parentKnown=false 表示父任务不存在。 */
+export function onParentAssigned(input: {
+  child: TaskFacts;
+  childArchived: boolean;
+  parentKnown: boolean;
+  parent: TaskFacts | null;
+  parentArchived: boolean;
+  cycle: boolean;
+}): Decision<ParentGuardReason> {
+  if (input.childArchived) return { allowed: false, reason: "child_archived" };
+  if (input.child.status !== "open") return { allowed: false, reason: "child_not_open" };
+  if (!input.parentKnown || input.parent === null) return { allowed: false, reason: "parent_missing" };
+  if (input.parentArchived) return { allowed: false, reason: "parent_archived" };
+  if (input.parent.status !== "open") return { allowed: false, reason: "parent_not_open" };
+  if (input.cycle) return { allowed: false, reason: "parent_cycle" };
+  return { allowed: true };
+}
+
+/**
+ * 父任务完成资格：所有子任务都已结束，且主会话给出总体验收依据。
+ * 子任务完成只表示分项结束，不自动使父任务完成。
+ */
+export type ParentCompletionReason = "children_incomplete" | "parent_acceptance_missing";
+
+export function onParentCompletion(input: { openChildren: string[]; reason: string | null }): Decision<ParentCompletionReason> {
+  if (input.openChildren.length > 0) return { allowed: false, reason: "children_incomplete" };
+  if (input.reason === null || input.reason.trim() === "") return { allowed: false, reason: "parent_acceptance_missing" };
+  return { allowed: true };
+}

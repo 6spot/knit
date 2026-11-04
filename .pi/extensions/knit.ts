@@ -364,8 +364,13 @@ export default function (pi: any) {
   /** 查询命令的成功 data 转可读文本；失败返回 null 由调用方走错误分支（任务042）。 */
   const describeQuery = (tokens: string[], data: any): string | null => {
     if (data === null || typeof data !== "object") return null;
-    const joinOutcome = (entry: any): string =>
-      `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}`;
+    const joinOutcome = (entry: any): string => {
+      const parent = typeof entry.parent === "string" ? ` · 父:${entry.parent}` : "";
+      const children = Array.isArray(entry.children) && entry.children.length > 0
+        ? ` · 子任务 ${entry.children.length - (Array.isArray(entry.openChildren) ? entry.openChildren.length : 0)}/${entry.children.length}`
+        : "";
+      return `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
+    };
     // task list：{ active: [...], archived: [...] }
     if (Array.isArray(data.active) && Array.isArray(data.archived)) {
       const lines: string[] = [];
@@ -392,6 +397,11 @@ export default function (pi: any) {
         `${data.taskId}「${data.title ?? "无标题"}」`,
         `  状态: ${data.status ?? "?"} · 阶段: ${data.phase ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
       ];
+      if (data.parent) lines.push(`  父任务: ${data.parent}`);
+      if (Array.isArray(data.children) && data.children.length > 0) {
+        const open = data.children.filter((child: any) => child.status === "open").length;
+        lines.push(`  子任务（${data.children.length - open}/${data.children.length} 已结束）：${data.children.map((child: any) => `${child.taskId}[${child.status}${child.outcome ? `/${child.outcome}` : ""}]`).join(", ")}`);
+      }
       if (data.pendingDraft) lines.push(`  待应用草案: ${data.pendingDraft.kind ?? "?"}`);
       lines.push(`  运行（${runs.length}）：`);
       lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
@@ -560,6 +570,11 @@ export default function (pi: any) {
         if (params.slug) args.push("--slug", params.slug);
         if (params.branch) args.push("--branch", params.branch);
         if (params.verification) args.push("--verification", params.verification);
+        if (params.parentId) {
+          const parentId = safeId(params.parentId, "k-");
+          if (parentId === null) return failText(`非法父任务 ID: ${params.parentId}`);
+          args.push("--parent", parentId);
+        }
         args.push("--dir", root);
         const created = core(args);
         if (created.code === 0 && created.response?.data?.taskId) {
@@ -577,6 +592,13 @@ export default function (pi: any) {
         if (!params.newSlug) return failText("task rename 需要 newSlug");
         args.push(params.newSlug);
         if (params.nonEquivalent === true) args.push("--non-equivalent");
+      } else if (params.action === "parent") {
+        if (params.detach === true) args.push("--detach");
+        else if (params.parentId) {
+          const parentId = safeId(params.parentId, "k-");
+          if (parentId === null) return failText(`非法父任务 ID: ${params.parentId}`);
+          args.push(parentId);
+        } else return failText("task parent 需要 parentId，或用 detach 解除关联");
       } else if (params.action === "adopt") {
         args.push("--branch", params.branch ?? "current");
       } else if (params.action === "verification") {

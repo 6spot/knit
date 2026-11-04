@@ -17,7 +17,7 @@ import {
   type VerificationMode,
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
-import { onInputsUpdated, onPendingResolved, onReady, onComplete, onCloseWithOutcome, onRecordWritten, type TaskTransitionResult } from "../domain/task.js";
+import { onInputsUpdated, onPendingResolved, onReady, onComplete, onCloseWithOutcome, onRecordWritten, onParentAssigned, onParentCompletion, parentChainContains, type Decision, type TaskFacts, type TaskTransitionResult } from "../domain/task.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
@@ -111,6 +111,12 @@ export interface TaskSummary {
   archived: boolean;
   /** 仅归档条目：跨机历史分类与判定问题；活跃条目为 null。 */
   history: TaskHistoryInfo | null;
+  /** 父任务稳定身份；顶层任务为 null（DESIGN §3.10）。 */
+  parent: string | null;
+  /** 直接子任务 ID（含已关闭与已归档的子任务）。 */
+  children: string[];
+  /** 尚未结束（status=open）的直接子任务 ID。 */
+  openChildren: string[];
 }
 
 export interface TaskListResult {
@@ -128,6 +134,8 @@ export interface TaskNewInput {
   branch?: string | null;
   /** 创建时确定完成验证要求；缺省 self。 */
   verification?: VerificationMode;
+  /** 同时挂接已存在的父任务（稳定身份）；缺省顶层任务。 */
+  parent?: string | null;
   /** 测试注入；默认本地日期。 */
   now?: Date;
 }
@@ -139,6 +147,22 @@ export interface TaskNewResult {
   title: string;
   branch: string | null;
   verification: VerificationMode;
+  parent: string | null;
+}
+
+export interface TaskParentInput {
+  dir: string;
+  taskId: string;
+  /** 目标父任务 ID；null 表示解除关联。 */
+  parentId: string | null;
+}
+
+export interface TaskParentResult {
+  taskId: string;
+  parent: string | null;
+  previous: string | null;
+  /** 变更后该父任务的直接子任务 ID。 */
+  children: string[];
 }
 
 export interface TaskRenameInput {
@@ -299,11 +323,23 @@ function assertReadyStructural(document: TaskDocument, taskDir: string): void {
   }
 }
 
-function guardRejected(result: TaskTransitionResult, what: string): TaskTransition {
+function guardRejected<R extends string>(result: TaskTransition | Decision<R>, what: string): TaskTransition {
   if ("allowed" in result && result.allowed === false) {
     throw new TaskGuardError(result.reason, `${what}被拒绝: ${result.reason}`);
   }
   return result as TaskTransition;
+}
+
+/** 已解析文档的业务事实投影；pendingKind 由调用方按绑定补齐。 */
+function factsOf(document: TaskDocument): TaskFacts {
+  return {
+    status: document.frontmatter.status,
+    phase: document.frontmatter.phase,
+    outcome: document.frontmatter.outcome,
+    branch: document.frontmatter.branch,
+    pendingKind: null,
+    verification: verificationModeOf(document.frontmatter),
+  };
 }
 
 /** 写入前凭据扫描：命中暂停副作用，只报告类型与位置，不回显敏感值（DESIGN §5.6，任务032）。 */
@@ -488,12 +524,100 @@ export class TaskService {
   }
 
   /**
+   * 全量任务文档索引（DESIGN §3.10）：父子关系与成环检测按稳定 ID，不按目录名推断。
+   * 同一 ID 多个来源时保留首个，重复来源由 list 报告。
+   */
+  private taskIndex(root: string): Map<string, { archived: boolean; dir: string; document: TaskDocument }> {
+    const index = new Map<string, { archived: boolean; dir: string; document: TaskDocument }>();
+    for (const { name, archived } of this.taskDirectories(root)) {
+      const dir = join(this.tasksRoot(root), name);
+      const raw = readWithVersion(join(dir, TASK_FILE));
+      if (raw === null) continue;
+      const document = parseTaskDocument(raw.data.toString("utf8"), join(dir, TASK_FILE));
+      if (!index.has(document.frontmatter.id)) index.set(document.frontmatter.id, { archived, dir, document });
+    }
+    return index;
+  }
+
+  /**
+   * 挂接或解除父任务（DESIGN §3.10）：只改子任务 frontmatter.parent，
+   * 不使输入摘要或检查资格失效；解除关联不需额外授权，挂接需结构核对。
+   */
+  async setParent(input: TaskParentInput): Promise<TaskParentResult> {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({
+      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
+      action: "task.parent",
+    });
+    try {
+      const index = this.taskIndex(root);
+      const located = this.locate(root, input.taskId);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      const previous = document.frontmatter.parent ?? null;
+      // 归档即封存：关系变更只能在活动任务上进行，避免改动已归档资料。
+      if (located.archived) throw new TaskGuardError("child_archived", "已归档任务不能再变更父子关系");
+      if (input.parentId !== null) {
+        const parent = index.get(input.parentId);
+        guardRejected(
+          onParentAssigned({
+            child: factsOf(document),
+            childArchived: located.archived,
+            parentKnown: parent !== undefined,
+            parent: parent === undefined ? null : factsOf(parent.document),
+            parentArchived: parent?.archived ?? false,
+            cycle:
+              input.parentId === input.taskId ||
+              (parent !== undefined && parentChainContains(this.parentMap(index), input.parentId, input.taskId)),
+          }),
+          "task parent",
+        );
+      }
+      if (previous !== input.parentId) {
+        const updated = withRegions(document, { frontmatter: { ...document.frontmatter, parent: input.parentId } });
+        atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      }
+      const children: string[] = [];
+      if (input.parentId !== null) {
+        for (const [entryId, entry] of index) {
+          // 本任务的索引副本仍是旧值；按写入后的关系计算。
+          const effectiveParent: string | null = entryId === input.taskId ? input.parentId : entry.document.frontmatter.parent ?? null;
+          if (effectiveParent === input.parentId) children.push(entryId);
+        }
+      }
+      return { taskId: input.taskId, parent: input.parentId, previous, children };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /** 当前工程内“任务 ID → 父任务 ID”快照；用于沿链拒绝成环。 */
+  private parentMap(index: Map<string, { document: TaskDocument }>): Map<string, string | null> {
+    const map = new Map<string, string | null>();
+    for (const [taskId, entry] of index) map.set(taskId, entry.document.frontmatter.parent ?? null);
+    return map;
+  }
+
+  /**
    * 创建任务：唯一 ID、目录命名冲突短序号、frontmatter + 初始记录、binding 落库。
    * 授权与 Git HEAD／分支核实由调用方（CLI 入口）先行完成（DESIGN.md 第14.1节）。
    */
   async newTask(input: TaskNewInput): Promise<TaskNewResult> {
     const root = normalizeRoot(input.dir);
     assertFormalTaskEnvironment(root);
+    // 与 close／setParent 共用项目锁：创建挂接与父任务完成扫描不交错。
+    const lock = await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "task.new" });
+    try {
+      return await this.createTask(root, input);
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /** newTask 的项目锁内实现；环境核实与授权由调用方先行完成。 */
+  private async createTask(root: string, input: TaskNewInput): Promise<TaskNewResult> {
     const now = input.now ?? this.now();
     const tasksRoot = this.tasksRoot(root);
     if (!existsSync(tasksRoot)) {
@@ -513,6 +637,23 @@ export class TaskService {
     let taskId = nextId();
     while (existingIds.has(taskId)) taskId = nextId();
     const dir = join(tasksRoot, dirName);
+    const parentId = input.parent ?? null;
+    if (parentId !== null) {
+      // 父任务必须已存在、未归档且未结束；创建子任务不改变父任务的内容。
+      const index = this.taskIndex(root);
+      const parent = index.get(parentId);
+      guardRejected(
+        onParentAssigned({
+          child: { status: "open", phase: "discuss", outcome: null, branch: null, pendingKind: null },
+          childArchived: false,
+          parentKnown: parent !== undefined,
+          parent: parent === undefined ? null : factsOf(parent.document),
+          parentArchived: parent?.archived ?? false,
+          cycle: false,
+        }),
+        "task new --parent",
+      );
+    }
     mkdirSync(dir, { recursive: false });
     const { inputsBody, progressBody } = renderInitialTaskBody(input.title);
     // 创建前凭据扫描：标题进入任务正文（任务032）。
@@ -525,6 +666,7 @@ export class TaskService {
       outcome: null,
       branch: input.branch ?? null,
       verification,
+      parent: parentId,
       createdAt: now.toISOString(),
       title: input.title,
     };
@@ -549,7 +691,7 @@ export class TaskService {
       pendingDraft: null,
     };
     await this.store.bindings.save(binding);
-    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification };
+    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification, parent: input.parent ?? null };
   }
 
   /**
@@ -613,6 +755,9 @@ export class TaskService {
         relativePath,
         archived: isArchived,
         history: null,
+        parent: document.frontmatter.parent ?? null,
+        children: [],
+        openChildren: [],
       };
       const prior = firstSource.get(summary.taskId);
       if (prior !== undefined) {
@@ -636,6 +781,22 @@ export class TaskService {
       }
     }
     this.classifyGitHistory(root, archiveEntries, problems);
+    // 父子关系按稳定 ID 派生：子任务记 parent，父任务不存重复清单，目录改名不影响关联。
+    const byId = new Map<string, TaskSummary>();
+    for (const summary of [...active, ...archived]) {
+      if (!byId.has(summary.taskId)) byId.set(summary.taskId, summary);
+    }
+    const childrenOf = new Map<string, string[]>();
+    for (const summary of byId.values()) {
+      if (summary.parent === null) continue;
+      const list = childrenOf.get(summary.parent) ?? [];
+      list.push(summary.taskId);
+      childrenOf.set(summary.parent, list);
+    }
+    for (const summary of byId.values()) {
+      summary.children = childrenOf.get(summary.taskId) ?? [];
+      summary.openChildren = summary.children.filter((childId) => byId.get(childId)?.status === "open");
+    }
     return { root, active, archived, problems };
   }
 
@@ -1338,6 +1499,19 @@ export class TaskService {
       }
       const binding = await this.store.bindings.get(input.taskId);
       if (binding === null) throw new TaskGuardError("binding_missing", "任务绑定缺失，无法核对完成资格");
+      // 父任务总体验收（DESIGN §3.10）：子任务全部结束后仍需主会话给出验收依据，
+      // 子任务完成本身不自动使父任务可完成。
+      if (input.outcome === "completed") {
+        const children = [...this.taskIndex(root).values()].filter(
+          (entry) => entry.document.frontmatter.parent === input.taskId,
+        );
+        if (children.length > 0) {
+          const openChildren = children
+            .filter((entry) => entry.document.frontmatter.status === "open")
+            .map((entry) => entry.document.frontmatter.id);
+          guardRejected(onParentCompletion({ openChildren, reason: input.reason ?? null }), "task close");
+        }
+      }
       const pendingKind = binding.pendingDraft?.kind ?? null;
       const facts = {
         status: document.frontmatter.status,

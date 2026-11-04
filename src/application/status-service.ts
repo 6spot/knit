@@ -11,6 +11,7 @@ import { parseTaskDocument } from "./task-document.js";
 import { verificationModeOf, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
 import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
+import { readWithVersion } from "../infrastructure/atomic.js";
 import { executionRouteOf } from "./worktree-routing.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
@@ -47,6 +48,10 @@ export interface TaskStatusView {
   pendingDraft: TaskBinding["pendingDraft"];
   scopeCount: number;
   verification: VerificationMode;
+  /** 父任务稳定身份；顶层任务为 null（DESIGN §3.10）。 */
+  parent: string | null;
+  /** 直接子任务及其结束情况；父子关系由子任务 frontmatter 派生。 */
+  children: Array<{ taskId: string; status: string; outcome: string | null }>;
   lastCheckRunId: string | null;
   completion: CompletionFile | null;
   runs: RunStatusView[];
@@ -129,6 +134,19 @@ export class StatusService {
     const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
+    const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
+    for (const { name } of listTaskDirectories(root)) {
+      const file = join(root, ".knit", "tasks", name, "task.md");
+      const raw = readWithVersion(file);
+      if (raw === null) continue;
+      try {
+        const child = parseTaskDocument(raw.data.toString("utf8"), file);
+        if ((child.frontmatter.parent ?? null) !== taskId) continue;
+        children.push({ taskId: child.frontmatter.id, status: child.frontmatter.status, outcome: child.frontmatter.outcome });
+      } catch {
+        // 损坏的其它任务不阻塞当前任务状态；doctor 另行报告。
+      }
+    }
     return {
       taskId,
       title: document.frontmatter.title,
@@ -143,6 +161,8 @@ export class StatusService {
       pendingDraft: binding?.pendingDraft ?? null,
       scopeCount: binding?.scope?.length ?? 0,
       verification: verificationModeOf(document.frontmatter),
+      parent: document.frontmatter.parent ?? null,
+      children,
       lastCheckRunId: binding?.lastCheckRunId ?? null,
       completion: new RunStore(root).readCompletion(taskId),
       runs,
