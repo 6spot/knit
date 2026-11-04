@@ -85,6 +85,10 @@ export function registerStatusCommands(program: Command): void {
           console.log(`标题: ${result.title}`);
           console.log(`分支: ${result.branch ?? "未绑定"}；位置: ${result.relativePath}${result.archived ? "（已归档）" : ""}`);
           console.log(`运行: ${result.runs.length} 个（活动 ${result.activeRuns}）；完成验证: ${result.verification}；最近检查: ${result.lastCheckRunId ?? "无"}`);
+          console.log(`优先级: ${result.priority}；前置依赖: ${result.dependsOn.length === 0 ? "无" : result.dependsOn.join(", ")}`);
+          if (result.blocked.length > 0) {
+            console.log(`启动阻塞: ${result.blocked.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ")}`);
+          }
           if (result.parent !== null) console.log(`父任务: ${result.parent}`);
           if (result.children.length > 0) {
             const open = result.children.filter((child) => child.status === "open").length;

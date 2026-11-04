@@ -25,6 +25,7 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { ContextPlanner } from "./context-planner.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
+import { dependencyBlockersOf } from "./task-schedule.js";
 import { assertExecutionRoute, executionRouteOf } from "./worktree-routing.js";
 import { loadScope, scopeDigest } from "./scope.js";
 import { currentBranch } from "./delivery.js";
@@ -195,6 +196,14 @@ export class RunCoordinator {
     }
     if (binding.pendingDraft !== null) {
       throw new GuardError("pending_inputs", "存在待应用输入，先应用或撤回再启动代码阶段");
+    }
+    // 前置依赖铁律（DESIGN §3.11）：未满足依赖时实施入口不启动，优先级与用户指定都不绕过。
+    if (input.phase === "implement") {
+      const blockers = dependencyBlockersOf(executionDir, input.taskId);
+      if (blockers.length > 0) {
+        const detail = blockers.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
+        throw new GuardError("dependency_unmet", `前置依赖未满足，不能启动实施: ${detail}`);
+      }
     }
     const runs = new RunStore(root);
     if (input.phase === "implement") {

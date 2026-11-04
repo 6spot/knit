@@ -12,12 +12,24 @@ import {
   inputsDigestOf,
   pendingDraftDigest,
   newTaskId,
+  priorityOf,
   verificationModeOf,
+  type TaskPriority,
   type UpdateKind,
   type VerificationMode,
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import { onInputsUpdated, onPendingResolved, onReady, onComplete, onCloseWithOutcome, onRecordWritten, onParentAssigned, onParentCompletion, parentChainContains, type Decision, type TaskFacts, type TaskTransitionResult } from "../domain/task.js";
+import {
+  compareSchedule,
+  dependencyBlockers,
+  dependencyCycle,
+  planReorder,
+  priorityOrDefault,
+  type DependencyBlocker,
+  type ReorderPosition,
+  type ScheduleEntry,
+} from "../domain/schedule.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
@@ -111,12 +123,22 @@ export interface TaskSummary {
   archived: boolean;
   /** 仅归档条目：跨机历史分类与判定问题；活跃条目为 null。 */
   history: TaskHistoryInfo | null;
+  /** 原始创建时间；调度排序只读它，调整顺序不改写（DESIGN §3.11）。 */
+  createdAt: string;
   /** 父任务稳定身份；顶层任务为 null（DESIGN §3.10）。 */
   parent: string | null;
   /** 直接子任务 ID（含已关闭与已归档的子任务）。 */
   children: string[];
   /** 尚未结束（status=open）的直接子任务 ID。 */
   openChildren: string[];
+  /** 任务自身优先级；缺省 P2（DESIGN §3.11）。 */
+  priority: TaskPriority;
+  /** 前置依赖的稳定任务身份。 */
+  dependsOn: string[];
+  /** 人工调整后的业务顺序；null 表示沿用真实创建先后。 */
+  order: number | null;
+  /** 未满足的前置依赖；可诊断的启动阻塞原因。 */
+  blocked: DependencyBlocker[];
 }
 
 export interface TaskListResult {
@@ -136,6 +158,10 @@ export interface TaskNewInput {
   verification?: VerificationMode;
   /** 同时挂接已存在的父任务（稳定身份）；缺省顶层任务。 */
   parent?: string | null;
+  /** 任务自身优先级；缺省 P2。 */
+  priority?: TaskPriority;
+  /** 前置依赖的稳定任务身份；缺省无依赖。 */
+  dependsOn?: string[];
   /** 测试注入；默认本地日期。 */
   now?: Date;
 }
@@ -148,6 +174,8 @@ export interface TaskNewResult {
   branch: string | null;
   verification: VerificationMode;
   parent: string | null;
+  priority: TaskPriority;
+  dependsOn: string[];
 }
 
 export interface TaskParentInput {
@@ -163,6 +191,71 @@ export interface TaskParentResult {
   previous: string | null;
   /** 变更后该父任务的直接子任务 ID。 */
   children: string[];
+}
+
+export interface TaskPriorityInput {
+  dir: string;
+  taskId: string;
+  priority: TaskPriority;
+}
+
+export interface TaskPriorityResult {
+  taskId: string;
+  previous: TaskPriority;
+  priority: TaskPriority;
+  changed: boolean;
+}
+
+export interface TaskDependenciesInput {
+  dir: string;
+  taskId: string;
+  /** 整体替换（提供时忽略 add／remove）。 */
+  set?: string[];
+  add?: string[];
+  remove?: string[];
+}
+
+export interface TaskDependenciesResult {
+  taskId: string;
+  dependsOn: string[];
+  previous: string[];
+  changed: boolean;
+  /** 变更后仍未满足的前置依赖（含用户当前选择导致的阻塞）。 */
+  blocked: DependencyBlocker[];
+}
+
+export interface TaskOrderInput {
+  dir: string;
+  taskId: string;
+  position: ReorderPosition;
+}
+
+export interface TaskOrderResult {
+  taskId: string;
+  /** 调整后的业务顺序（按执行顺序排列的稳定任务 ID）。 */
+  order: string[];
+  /** 本次实际写入 order 的任务 ID。 */
+  updated: string[];
+}
+
+export interface TaskNextEntry {
+  taskId: string;
+  title: string;
+  priority: TaskPriority;
+  /** 依赖是否全部满足；false 时 blocked 给出原因。 */
+  executable: boolean;
+  blocked: DependencyBlocker[];
+  parent: string | null;
+  /** 阶段与完成验证，供主会话决定下一步环节。 */
+  phase: string;
+  verification: VerificationMode;
+}
+
+export interface TaskNextResult {
+  /** 按稳定执行顺序排列的活跃任务（P0→P3，同级按业务顺序／真实创建先后）。 */
+  entries: TaskNextEntry[];
+  /** 首个可执行任务；全部被阻塞时为 null。 */
+  next: string | null;
 }
 
 export interface TaskRenameInput {
@@ -339,6 +432,20 @@ function factsOf(document: TaskDocument): TaskFacts {
     branch: document.frontmatter.branch,
     pendingKind: null,
     verification: verificationModeOf(document.frontmatter),
+  };
+}
+
+/** 调度事实投影：优先级缺省 P2，依赖缺省为空，order 缺省沿用创建先后（DESIGN §3.11）。 */
+function scheduleEntryOf(document: TaskDocument, archived: boolean): ScheduleEntry {
+  return {
+    taskId: document.frontmatter.id,
+    priority: priorityOf(document.frontmatter),
+    createdAt: document.frontmatter.createdAt,
+    order: document.frontmatter.order ?? null,
+    dependsOn: document.frontmatter.dependsOn ?? [],
+    status: document.frontmatter.status,
+    outcome: document.frontmatter.outcome,
+    archived,
   };
 }
 
@@ -600,6 +707,165 @@ export class TaskService {
     return map;
   }
 
+  /** 调度事实快照：覆盖活跃与归档任务，按稳定 ID 去重（重复 ID 保留首个）。 */
+  private scheduleIndex(root: string): Map<string, ScheduleEntry> {
+    const out = new Map<string, ScheduleEntry>();
+    for (const [taskId, entry] of this.taskIndex(root)) {
+      out.set(taskId, scheduleEntryOf(entry.document, entry.archived));
+    }
+    return out;
+  }
+
+  /**
+   * 依赖结构核对：引用必须存在、不能依赖自己、不能成环。
+   * 依赖的完成状态不在结构核对里拒绝——未完成或取消属于可诊断的启动阻塞，
+   * 列表、task next 与执行入口给出一致原因（DESIGN §3.11）。
+   */
+  private assertDependencies(taskId: string, dependsOn: readonly string[], index: Map<string, ScheduleEntry>): void {
+    for (const dependencyId of dependsOn) {
+      if (dependencyId === taskId) {
+        throw new TaskGuardError("dependency_self", `任务不能依赖自身: ${taskId}`);
+      }
+      if (!index.has(dependencyId)) {
+        throw new TaskGuardError("dependency_missing", `前置依赖不存在: ${dependencyId}`);
+      }
+    }
+    const graph = new Map<string, readonly string[]>();
+    for (const [id, entry] of index) graph.set(id, entry.dependsOn);
+    graph.set(taskId, dependsOn);
+    const cycle = dependencyCycle(graph, taskId);
+    if (cycle !== null) {
+      throw new TaskGuardError("dependency_cycle", `前置依赖成环: ${cycle.join(" → ")}`);
+    }
+  }
+
+  /** task priority：改任务自身优先级；只动调度事实，不使已确认输入或检查失效。 */
+  async setPriority(input: TaskPriorityInput): Promise<TaskPriorityResult> {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({
+      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
+      action: "task.priority",
+    });
+    try {
+      const located = this.locate(root, input.taskId);
+      if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      const previous = priorityOf(document.frontmatter);
+      if (previous !== input.priority) {
+        const updated = withRegions(document, { frontmatter: { ...document.frontmatter, priority: input.priority } });
+        atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      }
+      return { taskId: input.taskId, previous, priority: input.priority, changed: previous !== input.priority };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /** task depends：设置前置依赖；未完成依赖保留为可诊断阻塞，不在此静默移除。 */
+  async setDependencies(input: TaskDependenciesInput): Promise<TaskDependenciesResult> {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({
+      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
+      action: "task.depends",
+    });
+    try {
+      const located = this.locate(root, input.taskId);
+      if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      const previous = document.frontmatter.dependsOn ?? [];
+      let next: string[];
+      if (input.set !== undefined) {
+        next = input.set;
+      } else {
+        const added = input.add ?? [];
+        const removed = new Set(input.remove ?? []);
+        next = [...previous.filter((id) => !removed.has(id)), ...added.filter((id) => !previous.includes(id))];
+      }
+      next = [...new Set(next)];
+      const index = this.scheduleIndex(root);
+      this.assertDependencies(input.taskId, next, index);
+      const changed = next.length !== previous.length || next.some((id, at) => previous[at] !== id);
+      if (changed) {
+        const updated = withRegions(document, { frontmatter: { ...document.frontmatter, dependsOn: next } });
+        atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+      }
+      index.set(input.taskId, { ...(index.get(input.taskId) ?? scheduleEntryOf(document, false)), dependsOn: next });
+      const blocked = dependencyBlockers(index.get(input.taskId) as ScheduleEntry, index);
+      return { taskId: input.taskId, dependsOn: next, previous, changed, blocked };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /**
+   * task order：在优先级分组内调整业务顺序；写入全部活跃任务的 order 编号，
+   * 不修改任何 createdAt，目录改名与其它调度事实不变。
+   */
+  async reorder(input: TaskOrderInput): Promise<TaskOrderResult> {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "task.order" });
+    try {
+      const entries = this.scheduleIndex(root);
+      const planned = planReorder([...entries.values()], input.taskId, input.position);
+      if ("allowed" in planned) {
+        throw new TaskGuardError(planned.reason, `调整执行顺序被拒绝: ${planned.reason}`);
+      }
+      const updated: string[] = [];
+      for (const { taskId, order } of planned.orders) {
+        const entry = entries.get(taskId);
+        if (entry === undefined || entry.order === order) continue;
+        const located = this.locate(root, taskId);
+        const file = join(located.dir, TASK_FILE);
+        const before = readWithVersion(file);
+        if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+        const document = parseTaskDocument(before.data.toString("utf8"), file);
+        const next = withRegions(document, { frontmatter: { ...document.frontmatter, order } });
+        atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(next), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
+        updated.push(taskId);
+      }
+      // 返回真实执行顺序（优先级 → 业务顺序），而不是写入顺序号时的物理列表。
+      const after = new Map(entries);
+      for (const { taskId, order } of planned.orders) {
+        const entry = after.get(taskId);
+        if (entry !== undefined) after.set(taskId, { ...entry, order });
+      }
+      const order = [...after.values()]
+        .filter((entry) => entry.status === "open")
+        .sort(compareSchedule)
+        .map((entry) => entry.taskId);
+      return { taskId: input.taskId, order, updated };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /**
+   * task next：执行入口的只读视图。列表与主会话派发共用同一排序与阻塞判定，
+   * 已结束或未满足前置依赖的任务不进入可执行集合（DESIGN §3.11）。
+   */
+  next(input: { dir: string }): TaskNextResult {
+    const result = this.list({ dir: input.dir });
+    const entries = result.active
+      .filter((summary) => summary.status === "open")
+      .map((summary) => ({
+        taskId: summary.taskId,
+        title: summary.title,
+        priority: summary.priority,
+        executable: summary.blocked.length === 0,
+        blocked: summary.blocked,
+        parent: summary.parent,
+        phase: summary.phase,
+        verification: summary.verification,
+      }));
+    return { entries, next: entries.find((entry) => entry.executable)?.taskId ?? null };
+  }
+
   /**
    * 创建任务：唯一 ID、目录命名冲突短序号、frontmatter + 初始记录、binding 落库。
    * 授权与 Git HEAD／分支核实由调用方（CLI 入口）先行完成（DESIGN.md 第14.1节）。
@@ -638,6 +904,8 @@ export class TaskService {
     while (existingIds.has(taskId)) taskId = nextId();
     const dir = join(tasksRoot, dirName);
     const parentId = input.parent ?? null;
+    const priority = input.priority ?? "P2";
+    const dependsOn = [...new Set(input.dependsOn ?? [])];
     if (parentId !== null) {
       // 父任务必须已存在、未归档且未结束；创建子任务不改变父任务的内容。
       const index = this.taskIndex(root);
@@ -654,6 +922,10 @@ export class TaskService {
         "task new --parent",
       );
     }
+    if (dependsOn.length > 0) {
+      // 依赖以稳定 ID 引用已存在任务；新建任务只可能成环于自身，仍统一核对。
+      this.assertDependencies(taskId, dependsOn, this.scheduleIndex(root));
+    }
     mkdirSync(dir, { recursive: false });
     const { inputsBody, progressBody } = renderInitialTaskBody(input.title);
     // 创建前凭据扫描：标题进入任务正文（任务032）。
@@ -667,6 +939,9 @@ export class TaskService {
       branch: input.branch ?? null,
       verification,
       parent: parentId,
+      priority,
+      dependsOn,
+      order: null,
       createdAt: now.toISOString(),
       title: input.title,
     };
@@ -691,7 +966,7 @@ export class TaskService {
       pendingDraft: null,
     };
     await this.store.bindings.save(binding);
-    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification, parent: input.parent ?? null };
+    return { taskId, root, relativePath: binding.relativePath, title: input.title, branch: binding.branch, verification, parent: input.parent ?? null, priority, dependsOn };
   }
 
   /**
@@ -755,9 +1030,14 @@ export class TaskService {
         relativePath,
         archived: isArchived,
         history: null,
+        createdAt: document.frontmatter.createdAt,
         parent: document.frontmatter.parent ?? null,
         children: [],
         openChildren: [],
+        priority: priorityOf(document.frontmatter),
+        dependsOn: document.frontmatter.dependsOn ?? [],
+        order: document.frontmatter.order ?? null,
+        blocked: [],
       };
       const prior = firstSource.get(summary.taskId);
       if (prior !== undefined) {
@@ -797,6 +1077,26 @@ export class TaskService {
       summary.children = childrenOf.get(summary.taskId) ?? [];
       summary.openChildren = summary.children.filter((childId) => byId.get(childId)?.status === "open");
     }
+    // 执行顺序与阻塞在服务层统一派生：CLI、桥接与 run 入口读同一事实，
+    // 不从目录名、枚举顺序或各自排序推断（DESIGN §3.11）。
+    const schedule = new Map<string, ScheduleEntry>();
+    for (const summary of byId.values()) {
+      schedule.set(summary.taskId, {
+        taskId: summary.taskId,
+        priority: summary.priority,
+        createdAt: summary.createdAt,
+        order: summary.order,
+        dependsOn: summary.dependsOn,
+        status: summary.status as "open" | "closed",
+        outcome: summary.outcome as "completed" | "cancelled" | "superseded" | null,
+        archived: summary.archived,
+      });
+    }
+    for (const summary of byId.values()) {
+      const entry = schedule.get(summary.taskId) as ScheduleEntry;
+      summary.blocked = dependencyBlockers(entry, schedule);
+    }
+    active.sort((left, right) => compareSchedule(schedule.get(left.taskId) as ScheduleEntry, schedule.get(right.taskId) as ScheduleEntry));
     return { root, active, archived, problems };
   }
 
@@ -1447,6 +1747,14 @@ export class TaskService {
       // 实施前结构核对（DESIGN §4.2，任务049）：必需输入齐备；已承诺规划（plan.md 存在）的
       // 复杂任务须有实际计划内容。可选文件缺失不阻挡简单任务；语义判断属主 Agent。
       assertReadyStructural(document, located.dir);
+      // 前置依赖铁律（DESIGN §3.11）：未满足依赖时不能进入实施，不依赖提示词提醒。
+      const schedule = this.scheduleIndex(root);
+      const entry = schedule.get(input.taskId) ?? scheduleEntryOf(document, false);
+      const blockers = dependencyBlockers(entry, schedule);
+      if (blockers.length > 0) {
+        const detail = blockers.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
+        throw new TaskGuardError("dependency_unmet", `前置依赖未满足，不能进入实施: ${detail}`);
+      }
       const transition = guardRejected(onReady({
         status: document.frontmatter.status,
         phase: document.frontmatter.phase,

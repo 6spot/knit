@@ -107,8 +107,11 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 | `verification` | 完成验证要求：`none`、`self`（默认）或 `independent`；旧记录缺省按 `independent` 兼容 |
 | `outcome` | 结束时填写：`completed`、`cancelled` 或 `superseded` |
 | `parent` | 父任务稳定 ID；顶层任务为 `null` 或缺省。关系只存子任务一侧，见 3.10 |
+| `priority` | 任务自身优先级 `P0`–`P3`；缺省 `P2`，与父子层级无关，见 3.11 |
+| `dependsOn` | 前置依赖的稳定任务 ID 列表；缺省为空，执行前必须全部完成，见 3.11 |
+| `order` | 人工调整后的业务顺序编号；缺省 `null` 表示沿用真实创建先后，见 3.11 |
 
-标题保存在 Markdown 一级标题。任务类型、优先级、负责人、日期等信息按实际需要增加。
+标题保存在 Markdown 一级标题。任务类型、负责人、日期等信息按实际需要增加。
 
 `id` 在改名、迁移和归档后保持不变。关联保存身份与路径线索，路径失效时按身份核对。一个工作目录中出现多个同 ID 文件时报告歧义。后续 Worktree 支持按执行绑定区分同 ID 的当前资料和历史副本。
 
@@ -224,6 +227,23 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 - 总体验收：子任务完成只表示分项结束，不自动使父任务可完成。父任务 `task close --outcome completed` 要求所有直接子任务都已结束（归档任务视为已结束），并要求主会话给出 `--reason` 作为总体验收依据；该依据写入完成凭据。子任务全部结束后父任务仍按自身目标、成果与验证要求评估完成资格，不能仅凭子任务状态收尾。
 - 取消／替代父任务不自动结束子任务：子任务保持各自状态与资料，仍可独立继续或分别取消。
 
+### 3.11 优先级、前置依赖与执行顺序
+
+调度事实只存于 `task.md` frontmatter，独立于父子层级、阶段状态与目录命名：
+
+| 字段 | 含义与规则 |
+| --- | --- |
+| `priority` | `P0` 最高，依次到 `P3`；未指定为 `P2`。"紧急"对应 P0，"可后置"对应 P3；未说紧急不等于可后置 |
+| `dependsOn` | 前置依赖的稳定任务 ID 列表；启动前必须全部 `closed` 且 `completed` |
+| `order` | 人工调整后的业务顺序编号，只由 `task order` 写入；`null` 表示沿用真实创建先后 |
+
+- 稳定顺序：先按 `P0`→`P3`；同优先级内已调整顺序的按 `order`，未调整的排在其后按 `createdAt`（ISO 毫秒）；`createdAt` 相同才用稳定 ID 兜底，不伪造先后。排序不读目录名、文件系统枚举顺序或创建时间之外的线索。
+- 原始创建事实：`createdAt` 在创建时写入，调整优先级、依赖、业务顺序与目录改名都不改写它。`order` 保存新的业务顺序，两者分别可追溯；缺少历史时间的旧资料不被填成猜测值。
+- 依赖铁律：`task ready` 与实施 `run prepare` 在推进／启动前核对直接前置依赖，未满足时分别返回 `dependency_unmet` 并列出未满足项；优先级和用户明确指定任务都不能绕过。检查、交付、记录与只读查询仍可用于已实施任务。
+- 结构核对：依赖必须引用已存在的任务，拒绝自依赖与成环；已取消／替代或已归档但未完成的前置保留为可诊断阻塞（`dependency_not_completed`／`dependency_archived`），由用户显式调整依赖，不静默移除。
+- 摘要与资格：`priority`／`dependsOn`／`order` 是调度事实，不改变工作内容与验收条件，因此不参与需求摘要；调整它们不改写输入，也不使既有检查 stale。
+- 一致性：`task list` 与 `task next` 共用同一排序与阻塞判定，输出优先级、执行顺序与不能启动的原因；主会话按同一视图选择任务，不各自排序。`task next` 只读，不推进阶段、不派发运行。
+
 ## 4. 四环节轻量编排
 
 | 环节 | 职责 | 阶段结果 |
@@ -273,8 +293,12 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | init [--client pi] | 初始化项目资料与客户端入口 |
 | start [--client pi] | 启动原生客户端，不另建聊天 UI |
 | session attach / context | 核实原生上下文，提供讨论输入与下一步，不创建 worker |
-| task new [--verification none/self/independent] [--parent <id>] | 按用户授权创建；完成验证要求默认 self；可同时挂接已有父任务 |
+| task new [--verification none/self/independent] [--parent <id>] [--priority P0-P3] [--depends-on <ids>] | 按用户授权创建；完成验证要求默认 self，优先级默认 P2；可同时挂接父任务与登记前置依赖 |
 | task parent <id> <parentTaskId> / --detach | 挂接或解除父子关系；只改结构身份，不使输入摘要与检查失效 |
+| task priority <id> <P0-P3> | 设置任务自身优先级；只改调度事实，不使输入摘要与检查失效 |
+| task depends <id> --add/--remove/--set <ids> / --clear | 维护前置依赖；拒绝缺失、自依赖与成环，未完成的前置显示为阻塞 |
+| task order <id> --before/--after <id> / --top / --bottom | 调整业务执行顺序；不改写原始创建时间，按稳定 ID 生效 |
+| task next | 按稳定执行顺序列出活跃任务与不能启动的原因；只读，不派发运行 |
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
 | task rename / list / use / clear | 按授权管理身份、位置与当前原生路径选择 |
 | task ready [id] | 保存讨论确认，不自动实施 |
@@ -282,7 +306,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
-| run implement/check --task <id> | 只派发 worker；run check 也用于 deliver 前复查 |
+| run implement/check --task <id> | 只派发 worker；实施入口拒绝未满足的前置依赖；run check 也用于 deliver 前复查 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
 | assist discuss/deliver | 可选 advisory worker，不推进业务或执行 Git |
 | resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |

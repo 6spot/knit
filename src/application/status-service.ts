@@ -8,9 +8,10 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
-import { verificationModeOf, type VerificationMode } from "../contracts/task-inputs.js";
+import { priorityOf, verificationModeOf, type TaskPriority, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
 import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
+import { dependencyBlockersOf } from "./task-schedule.js";
 import { readWithVersion } from "../infrastructure/atomic.js";
 import { executionRouteOf } from "./worktree-routing.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
@@ -52,6 +53,11 @@ export interface TaskStatusView {
   parent: string | null;
   /** 直接子任务及其结束情况；父子关系由子任务 frontmatter 派生。 */
   children: Array<{ taskId: string; status: string; outcome: string | null }>;
+  /** 任务自身优先级；缺省 P2（DESIGN §3.11）。 */
+  priority: TaskPriority;
+  /** 前置依赖与当前阻塞原因；未满足时实施入口不启动。 */
+  dependsOn: string[];
+  blocked: Array<{ taskId: string; problem: string; status: string | null; outcome: string | null }>;
   lastCheckRunId: string | null;
   completion: CompletionFile | null;
   runs: RunStatusView[];
@@ -163,6 +169,9 @@ export class StatusService {
       verification: verificationModeOf(document.frontmatter),
       parent: document.frontmatter.parent ?? null,
       children,
+      priority: priorityOf(document.frontmatter),
+      dependsOn: document.frontmatter.dependsOn ?? [],
+      blocked: dependencyBlockersOf(root, taskId),
       lastCheckRunId: binding?.lastCheckRunId ?? null,
       completion: new RunStore(root).readCompletion(taskId),
       runs,

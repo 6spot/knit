@@ -164,3 +164,4 @@ M3A 才启用 .runtime/diagnostics/<对象ID>/<写入者ID>.jsonl，每进程独
 Pi 会话开关仅影响当前原生会话后续调用，切会话、fork 或 reload 默认关闭，不写项目／用户配置，不改已启动 worker 的请求。CLI --dev 仅本次及其 worker，不继承 Pi 开关。
 
 诊断版本为 diagnosticVersion:1，M3A 按 event/stepKey、输入版本和对象关系对齐，忽略墙钟、耗时、随机 ID、token 指纹与 diagnosticsRef；不另做 compare 命令。完整日志仍不自动进模型上下文，用户明确排查时按需读取。
+实现（任务 k-802d3edc053c）：`priority`／`dependsOn`／`order` 写入 task.md frontmatter，缺省 P2、无依赖、`order=null`；三者不参与需求摘要，调整不改写输入或使检查 stale。`src/domain/schedule.ts` 提供排序、依赖阻塞与重排纯函数；`task list`／`task next` 共用同一排序与阻塞判定，优先级内已调整的按 order、未调整的按 createdAt，创建时间相同才用稳定 ID。`task ready` 与 implement 的 `run prepare` 在推进／启动前核对依赖，未满足返回 `dependency_unmet` 并列出原因；依赖自环、缺失与成环在 `task depends`／`task new --depends-on` 时拒绝。`task order` 在项目锁内把新的顺序号写入全部活跃任务，只改调度事实，不修改 createdAt，改名或目录移动不改顺序。

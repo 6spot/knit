@@ -570,6 +570,12 @@ export default function (pi: any) {
         if (params.slug) args.push("--slug", params.slug);
         if (params.branch) args.push("--branch", params.branch);
         if (params.verification) args.push("--verification", params.verification);
+        if (params.priority) args.push("--priority", params.priority);
+        if (Array.isArray(params.dependsOn) && params.dependsOn.length > 0) {
+          const ids = params.dependsOn.map((id: string) => safeId(id, "k-"));
+          if (ids.some((id: string | null) => id === null)) return failText(`非法依赖任务 ID: ${params.dependsOn.join(", ")}`);
+          args.push("--depends-on", ids.join(","));
+        }
         if (params.parentId) {
           const parentId = safeId(params.parentId, "k-");
           if (parentId === null) return failText(`非法父任务 ID: ${params.parentId}`);
@@ -599,6 +605,28 @@ export default function (pi: any) {
           if (parentId === null) return failText(`非法父任务 ID: ${params.parentId}`);
           args.push(parentId);
         } else return failText("task parent 需要 parentId，或用 detach 解除关联");
+      } else if (params.action === "priority") {
+        if (!params.priority) return failText("task priority 需要 priority（P0–P3）");
+        args.push(params.priority);
+      } else if (params.action === "depends") {
+        const ids = (values: unknown): string[] => (Array.isArray(values) ? values : []).map((id) => safeId(String(id), "k-") ?? "").filter((id) => id !== "");
+        const add = ids(params.dependsOn);
+        const remove = ids(params.removeDependsOn);
+        const set = ids(params.setDependsOn);
+        if (add.length === 0 && remove.length === 0 && set.length === 0 && params.setDependsOn === undefined && params.clearDependsOn !== true) return failText("task depends 需要 dependsOn／removeDependsOn／setDependsOn／clearDependsOn");
+        if (params.clearDependsOn === true) args.push("--clear");
+        else if (set.length > 0 || params.setDependsOn !== undefined) args.push("--set", set.join(","));
+        if (add.length > 0) args.push("--add", add.join(","));
+        if (remove.length > 0) args.push("--remove", remove.join(","));
+      } else if (params.action === "order") {
+        const before = params.beforeId === undefined ? null : safeId(params.beforeId, "k-");
+        const after = params.afterId === undefined ? null : safeId(params.afterId, "k-");
+        if ((params.beforeId !== undefined && before === null) || (params.afterId !== undefined && after === null)) return failText("task order 参照任务 ID 非法");
+        if (before !== null) args.push("--before", before);
+        else if (after !== null) args.push("--after", after);
+        else if (params.position === "top") args.push("--top");
+        else if (params.position === "bottom") args.push("--bottom");
+        else return failText("task order 需要 beforeId／afterId／position=top|bottom");
       } else if (params.action === "adopt") {
         args.push("--branch", params.branch ?? "current");
       } else if (params.action === "verification") {

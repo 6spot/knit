@@ -3,7 +3,7 @@
  * schema 供 CLI 参数与文件结构校验；摘要函数供应用层核对本与草案。
  * 域转移裁决在 domain/task.ts，本模块不裁决业务允许性。
  */
-import { lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { sha256Text } from "./digest.js";
 
 export const UpdateKindSchema = union([lit("clarify"), lit("change")]);
@@ -35,6 +35,17 @@ export const VerificationModeSchema = union([
 ]);
 export type VerificationMode = Static<typeof VerificationModeSchema>;
 
+/** 任务自身优先级：P0 最高；与父子层级无关（DESIGN §3.11）。 */
+export const TaskPrioritySchema = union([lit("P0"), lit("P1"), lit("P2"), lit("P3")]);
+export type TaskPriority = Static<typeof TaskPrioritySchema>;
+
+/** 未指定优先级时按 P2；"紧急"对应 P0，"可后置"对应 P3，二者都不从措辞推断。 */
+export const DEFAULT_PRIORITY: TaskPriority = "P2";
+
+export function priorityOf(frontmatter: { priority?: TaskPriority }): TaskPriority {
+  return frontmatter.priority ?? DEFAULT_PRIORITY;
+}
+
 /** 新任务默认自检＋范围验证；旧记录缺省按 independent 保持既有检查语义。 */
 export const DEFAULT_VERIFICATION: VerificationMode = "self";
 
@@ -57,6 +68,12 @@ export const TaskFrontmatterSchema = obj(
      * 关系只存子任务一侧，父任务通过扫描派生，目录改名不影响关联。
      */
     parent: opt(union([str({ pattern: "^k-[0-9a-f]{12}$" }), nul()])),
+    /** 任务自身优先级；缺省 P2。 */
+    priority: opt(TaskPrioritySchema),
+    /** 前置依赖的稳定任务身份；缺省为空（无依赖）。 */
+    dependsOn: opt(arr(str({ pattern: "^k-[0-9a-f]{12}$" }))),
+    /** 人工调整后的业务执行顺序；缺省 null 表示沿用真实创建先后。 */
+    order: opt(union([int(), nul()])),
     createdAt: str({ minLength: 1 }),
     title: str({ minLength: 1 }),
   },
@@ -81,16 +98,27 @@ export function stripStatusFields(region: string): string {
 }
 
 /**
- * 需求摘要不含 status／phase／outcome／branch／parent：这些是执行状态与结构身份，
- * 阶段转移与挂接父任务不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.8节）。
+ * 需求摘要不含 status／phase／outcome／branch／parent／priority／dependsOn／order：
+ * 这些是执行状态、结构身份与调度事实，阶段转移、挂接父任务、调整优先级、依赖或
+ * 业务顺序都不改变工作内容与验收条件，不能使已确认输入或已通过的检查 stale
+ * （DESIGN.md 第3.8、3.11节）。
  */
 function withoutStatusFields(region: string): string {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(region);
   if (match === null) return region;
-  const body = (match[1] ?? "")
-    .split(/\r?\n/)
-    .filter((line) => !/^(id|status|phase|outcome|branch|parent):/.test(line))
-    .join("\n");
+  const kept: string[] = [];
+  // 调度字段可能是块状列表（dependsOn），其缩进续行随字段一起排除。
+  let skipping = false;
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    if (/^(id|status|phase|outcome|branch|parent|priority|dependsOn|order):/.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && /^(\s+\S|\s+-\s|\s+-$|- )/.test(line)) continue;
+    skipping = false;
+    kept.push(line);
+  }
+  const body = kept.join("\n");
   return `---\n${body}\n---${match[2] ?? ""}${region.slice(match[0].length)}`;
 }
 

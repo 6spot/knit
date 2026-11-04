@@ -34,7 +34,7 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | 事件／入口 | 守卫 | 转移与效果 |
 | --- | --- | --- |
 | TaskCreated：task new | 用户授权、身份唯一、有效 Git HEAD／分支（DESIGN14.1） | open/discuss，不自动实施 |
-| DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备 | discuss → implement，保存确认输入引用 |
+| DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备；前置依赖全部完成 | discuss → implement，保存确认输入引用 |
 | InputsUpdated：task update --kind clarify | 未完整归档且非 cancelled/superseded；原目标、条件和范围不变，主 Agent 提供说明 | discuss/implement/check 保持；摘要变化使检查 stale，原为 deliver 则独立检查任务转 open/check、self／none 转 open/implement 并清 completed |
 | InputsUpdated：task update --kind change | 未完整归档且非 cancelled/superseded；新增、删除或改变目标、条件、范围、业务约束 | 回 open/discuss，清 completed，旧检查失资格 |
 | PendingApplied：task update --apply-pending | 草案摘要与基线输入均匹配，旧执行已结束且结果事实收敛 | 按草案保存的 kind 应用 InputsUpdated，清本份草案，不发模型 |
@@ -46,6 +46,8 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check；discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施 |
 | BusinessClosed：deliver 或 task close | 按 verification 核对当前目标、成果与验证；父任务还要求直接子任务全部结束并给出总体验收说明；不要求 Git 提交／回执／归档 | closed/completed/deliver；完成凭据另存，Git 收尾后做 |
 | TaskEndRequested：task close | 明确取消／替代，无该任务活动／未知 run 或未核实 Git 效果；待接收结果先核实事实并收敛 | closed 及相应 outcome，不默认提交部分源码 |
+
+前置依赖（DESIGN §3.11）：`task ready` 与 implement 的 `run prepare` 在推进／启动前核对 `dependsOn`，未满足时拒绝（`dependency_unmet`，列出未满足项），不改变 phase 与冻结输入；优先级、父子层级与用户明确指定都不绕过。依赖结构错误（缺失／自依赖／成环）在设置依赖时拒绝；已取消、替代或已归档但未完成的前置保留为具体阻塞原因，由用户显式调整。检查、交付、记录与只读查询不受此门禁影响。
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 

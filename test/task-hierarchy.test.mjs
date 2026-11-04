@@ -257,7 +257,7 @@ test("CLI：task new --parent、task parent 与 list 树形展示", async () => 
     execFileSync(process.execPath, [CLI, "task", "parent", childId, parentId, "--dir", dir], { cwd: dir, encoding: "utf8" });
     const listed = execFileSync(process.execPath, [CLI, "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8" });
     assert.match(listed, new RegExp(`${parentId}.*\\[子任务 0/1\\]`));
-    assert.match(listed, new RegExp(`↳ ${childId}`));
+    assert.match(listed, new RegExp(`↳ P2  ${childId}`));
 
     const childStatus = execFileSync(process.execPath, [CLI, "status", childId, "--dir", dir], { cwd: dir, encoding: "utf8" });
     assert.match(childStatus, new RegExp(`父任务: ${parentId}`));

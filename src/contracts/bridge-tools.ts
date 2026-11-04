@@ -12,6 +12,10 @@ export const TaskToolSchema = obj(
       lit("new"),
       lit("rename"),
       lit("parent"),
+      lit("priority"),
+      lit("depends"),
+      lit("order"),
+      lit("next"),
       lit("ready"),
       lit("update"),
       lit("record"),
@@ -28,6 +32,17 @@ export const TaskToolSchema = obj(
     /** 创建或挂接的父任务稳定身份；解除关联用 detach。 */
     parentId: opt(str({ minLength: 1 })),
     detach: opt(bool()),
+    /** 任务自身优先级 P0–P3；缺省 P2。 */
+    priority: opt(union([lit("P0"), lit("P1"), lit("P2"), lit("P3")])),
+    /** 前置依赖的稳定任务身份；add／remove 增量调整，set 整体替换。 */
+    dependsOn: opt(arr(str({ minLength: 1 }))),
+    removeDependsOn: opt(arr(str({ minLength: 1 }))),
+    setDependsOn: opt(arr(str({ minLength: 1 }))),
+    clearDependsOn: opt(bool()),
+    /** 调整业务顺序的参照任务或位置。 */
+    beforeId: opt(str({ minLength: 1 })),
+    afterId: opt(str({ minLength: 1 })),
+    position: opt(union([lit("top"), lit("bottom")])),
     branch: opt(str()),
     kind: opt(union([lit("clarify"), lit("change")])),
     body: opt(str()),

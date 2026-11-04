@@ -12,6 +12,7 @@ import { gitSync } from "../infrastructure/process.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 const VERIFICATIONS = new Set(["none", "self", "independent"]);
+const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 
 function openStore(dir: string): SqliteMetadataStore {
   // 元数据库固定在主检出；worktree 内不新建。
@@ -91,6 +92,8 @@ export function registerTaskCommands(program: Command): void {
     .option("--branch <branch>", "绑定完整本地分支引用（默认当前分支）")
     .option("--verification <mode>", "完成验证：none、self 或 independent", "self")
     .option("--parent <taskId>", "挂接已存在的父任务（稳定身份）")
+    .option("--priority <priority>", "任务自身优先级：P0、P1、P2 或 P3", "P2")
+    .option("--depends-on <ids>", "前置依赖任务 ID（逗号分隔）")
     .action(async (options) => {
       const requestId = `task-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       if (!VERIFICATIONS.has(options.verification)) {
@@ -102,10 +105,21 @@ export function registerTaskCommands(program: Command): void {
       }
       const current = gitSync(["symbolic-ref", "-q", "HEAD"], options.dir);
       const branch = options.branch ?? (current.code === 0 && current.stdout.trim() !== "" ? current.stdout.trim() : null);
-      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch, verification: options.verification, parent: options.parent ?? null }), (result) => {
+      const priority = String(options.priority ?? "P2").toUpperCase();
+      if (!PRIORITIES.has(priority)) {
+        const reason = `未知 --priority "${options.priority}"`;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      const dependsOn = options.dependsOn === undefined ? [] : String(options.dependsOn).split(",").map((id) => id.trim()).filter((id) => id !== "");
+      await withService(requestId, options.dir, (service) => service.newTask({ dir: options.dir, title: options.title, slug: options.slug, branch, verification: options.verification, parent: options.parent ?? null, priority: priority as "P0" | "P1" | "P2" | "P3", dependsOn }), (result) => {
         console.log(`任务已创建: ${result.taskId}`);
         console.log(`目录: ${result.relativePath}`);
         console.log(`完成验证: ${options.verification}`);
+        console.log(`优先级: ${result.priority}`);
+        if (result.dependsOn.length > 0) console.log(`前置依赖: ${result.dependsOn.join(", ")}`);
         if (result.parent !== null) console.log(`父任务: ${result.parent}`);
       });
     });
@@ -135,6 +149,107 @@ export function registerTaskCommands(program: Command): void {
       await withService(requestId, options.dir, (service) => service.setParent({ dir: options.dir, taskId, parentId }), (result) => {
         console.log(`${result.taskId} 父任务: ${result.previous ?? "无"} → ${result.parent ?? "无"}`);
         if (result.children.length > 0) console.log(`该父任务子任务: ${result.children.join(", ")}`);
+      });
+    });
+
+  task
+    .command("priority <taskId> <priority>")
+    .description("设置任务自身优先级：P0 最高，未指定默认 P2")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, priorityArg, options) => {
+      const requestId = `task-priority-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const priority = String(priorityArg ?? "").toUpperCase();
+      if (!PRIORITIES.has(priority)) {
+        const reason = `未知优先级 "${priorityArg}"（P0、P1、P2、P3）`;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      await withService(requestId, options.dir, (service) => service.setPriority({ dir: options.dir, taskId, priority: priority as "P0" | "P1" | "P2" | "P3" }), (result) => {
+        console.log(`${result.taskId} 优先级: ${result.previous} → ${result.priority}${result.changed ? "" : "（未变化）"}`);
+      });
+    });
+
+  const listOf = (values: unknown): string[] =>
+    (Array.isArray(values) ? values : []).flatMap((value) => String(value).split(",")).map((id) => id.trim()).filter((id) => id !== "");
+
+  task
+    .command("depends <taskId>")
+    .description("设置前置依赖：未完成的前置任务阻塞实施启动")
+    .option("--add <ids...>", "新增前置依赖任务 ID")
+    .option("--remove <ids...>", "移除前置依赖任务 ID")
+    .option("--set <ids...>", "整体替换前置依赖")
+    .option("--clear", "清空前置依赖")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-depends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (options.clear !== true && listOf(options.set).length === 0 && listOf(options.add).length === 0 && listOf(options.remove).length === 0) {
+        const reason = "task depends 需要 --add／--remove／--set 或 --clear";
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      await withService(requestId, options.dir, (service) => service.setDependencies({
+        dir: options.dir,
+        taskId,
+        set: options.clear === true ? [] : listOf(options.set).length > 0 ? listOf(options.set) : undefined,
+        add: listOf(options.add),
+        remove: listOf(options.remove),
+      }), (result) => {
+        console.log(`${result.taskId} 前置依赖: ${result.previous.length === 0 ? "无" : result.previous.join(", ")} → ${result.dependsOn.length === 0 ? "无" : result.dependsOn.join(", ")}`);
+        for (const blocker of result.blocked) console.log(`  阻塞: ${blocker.taskId}（${blocker.problem}）`);
+      });
+    });
+
+  task
+    .command("order <taskId>")
+    .description("在优先级分组内调整业务执行顺序；不改写原始创建时间")
+    .option("--before <taskId>", "排在指定任务之前")
+    .option("--after <taskId>", "排在指定任务之后")
+    .option("--top", "排到最前")
+    .option("--bottom", "排到最后")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const choices = [options.before !== undefined, options.after !== undefined, options.top === true, options.bottom === true].filter(Boolean).length;
+      if (choices !== 1) {
+        const reason = "task order 需要 --before/--after/--top/--bottom 之一";
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      const position = options.before !== undefined
+        ? { before: options.before }
+        : options.after !== undefined
+          ? { after: options.after }
+          : options.top === true
+            ? { top: true as const }
+            : { bottom: true as const };
+      await withService(requestId, options.dir, (service) => service.reorder({ dir: options.dir, taskId, position }), (result) => {
+        console.log(`业务执行顺序（${result.order.length}）: ${result.order.join(" → ")}`);
+        console.log(`写入顺序号: ${result.updated.length === 0 ? "无变化" : result.updated.join(", ")}`);
+      });
+    });
+
+  task
+    .command("next")
+    .description("按稳定执行顺序列出活跃任务与不能启动的原因")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (options) => {
+      const requestId = `task-next-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withService(requestId, options.dir, (service) => Promise.resolve(service.next({ dir: options.dir })), (result) => {
+        if (result.entries.length === 0) {
+          console.log("（没有活跃任务）");
+          return;
+        }
+        for (const entry of result.entries) {
+          const blocked = entry.blocked.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
+          console.log(`${entry.priority}  ${entry.taskId}  [${entry.phase}]  ${entry.title}${blocked === "" ? "" : `  ⛔ ${blocked}`}`);
+        }
+        console.log(`下一项: ${result.next ?? "无（全部被前置依赖阻塞）"}`);
       });
     });
 
@@ -182,12 +297,15 @@ export function registerTaskCommands(program: Command): void {
           if (history.kind === "invalid") return "  [档案异常]";
           return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
         };
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[] }, depth = 0) => {
+        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; blocked: { taskId: string; problem: string }[] }, depth = 0) => {
           const indent = `  ${depth === 0 ? "" : "  ".repeat(depth - 1) + "↳ "}`;
           const tree = t.children.length > 0
             ? `  [子任务 ${t.children.length - t.openChildren.length}/${t.children.length}]`
             : "";
-          return `${indent}${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${tree}${marker(t.history)}`;
+          const blocked = t.blocked.length > 0
+            ? `  ⛔ ${t.blocked.map((entry) => `${entry.taskId}(${entry.problem})`).join(", ")}`
+            : "";
+          return `${indent}${t.priority}  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${tree}${blocked}${marker(t.history)}`;
         };
         /** 按稳定父链缩进展示；父任务不在活跃列表时子任务仍独立一行。 */
         const renderTree = (list: typeof result.active) => {
