@@ -6,7 +6,7 @@
 
 开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，用 `npx --no-install knit task list` 查询；用户决定是否建任务，各任务的 `task.md` 保存需求与业务状态。旧编号任务保留为历史档案。
 
-设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
+设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)、[角色契约](https://github.com/6spot/knit/blob/main/docs/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
 
 ```text
 AGENTS.md          本仓库的开发协作入口

@@ -179,10 +179,18 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /需求明确直接登记/);
     assert.match(first, /Agent 建议须标注待确认/);
     assert.match(first, /拆分方案/);
+    assert.match(first, /任务选择：/);
+    assert.match(first, /遗漏选择先补问/);
+    assert.match(first, /创建任务不等于需求确认或实施授权/);
+    assert.match(first, /明确“按这个做”/);
+    assert.match(first, /规范沉淀：/);
+    assert.match(first, /交付：实施与检查结果由主会话接收/);
+    assert.match(first, /完整规则见 \.knit\/workflow\.md/);
     assert.match(first, /历史查询/);
     assert.match(first, /knit_task action=search/);
     assert.match(first, /未表达意愿不主动检索/);
     assert.match(first, /相关记录不等于因果结论/);
+    assert.equal((first.match(/历史查询:/g) ?? []).length, 1, "无任务注入的历史查询只出现一次");
 
     // 创建并选择任务后，下轮注入当前任务状态。
     await host.commands.get("knit").handler("task new --title 注入任务 --slug inject", host.ctx);
@@ -201,6 +209,12 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(second, new RegExp(taskId));
     assert.match(second, /阶段: discuss/);
     assert.match(second, /任务入口: \.knit\//);
+    assert.match(second, /任务选择：/);
+    assert.match(second, /遗漏选择先补问/);
+    assert.match(second, /创建任务不等于需求确认或实施授权/);
+    assert.match(second, /规范沉淀：/);
+    assert.match(second, /交付：实施与检查结果由主会话接收/);
+    assert.equal((second.match(/历史查询:/g) ?? []).length, 1, "任务注入的历史查询只出现一次");
 
     // 规划资料出现在注入。
     execFileSync(process.execPath, [CLI, "--json", "task", "material", "save", taskId, "plan.md", "--dir", dir], { encoding: "utf8", input: "# 计划\n" });

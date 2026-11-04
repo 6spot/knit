@@ -282,6 +282,19 @@ export default function (pi: any) {
   }
 
   /**
+   * 任务与无任务分支共用的主会话行为引导；同一会话每轮只注入一份，历史查询只在此处出现一次。
+   * 注入是行为引导，不替代核心授权、阶段与写动作核对。
+   */
+  const SESSION_BEHAVIOR_GUIDANCE = [
+    "任务选择：是否建任务由用户决定；新事项先问是否建任务再展开需求，不按类型或预估大小跳过；暂不创建可继续讨论，实施前再确认，遗漏选择先补问，不能用“你做吧”代替；明确不创建时同一事项持续有效，不重复追问。",
+    "授权边界：创建任务不等于需求确认或实施授权；用户明确“按这个做”可同时确认范围与实施授权，仅认可思路且实施意愿不明时补问；授权不覆盖提交／发布。",
+    "规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提决定，未明确内容用 standards propose 存项目候选；正常回复末尾告知内容、适用范围与位置。",
+    "历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。",
+    "交付：实施与检查结果由主会话接收、核对完成条件并汇总报告；提交、推送、发布另行授权。",
+    "完整规则见 .knit/workflow.md。",
+  ];
+
+  /**
    * 每轮模型调用前注入当前任务上下文（DESIGN §9.6，任务047）。
    * 通过 Pi 公开 before_agent_start 事件 + systemPromptOptions.sections 实现：
    * Pi 对分节做 diff，只追加变更，不堆叠历史正文。注入是行为引导，
@@ -309,7 +322,6 @@ export default function (pi: any) {
       if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
       else lines.push("规划资料: 无（简单任务可只用 task.md）");
       lines.push("下一步: 按 workflow.md 当前阶段推进；写动作由核心核对授权与状态。");
-      lines.push("历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。");
     } else {
       lines.push("当前无选定任务。");
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
@@ -317,8 +329,8 @@ export default function (pi: any) {
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
       lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
       lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
-      lines.push("历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。");
     }
+    lines.push(...SESSION_BEHAVIOR_GUIDANCE);
     return { text: lines.join("\n"), taskId };
   }
 

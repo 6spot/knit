@@ -75,6 +75,47 @@ test("init：workflow.md 模板含创建前需求澄清门与复杂拆分提示�
     assert.match(workflow, /历史查询意愿/, "历史查询意愿触发规则");
     assert.match(workflow, /knit task search/, "历史检索入口");
     assert.match(workflow, /相关记录不等于证明因果/, "相关性与因果边界");
+    assert.match(workflow, /新事项先问是否建任务/, "先问任务选择");
+    assert.match(workflow, /暂不创建时继续讨论/, "暂不创建可继续讨论");
+    assert.match(workflow, /明确不创建时同一事项持续有效/, "拒绝创建持续有效");
+    assert.match(workflow, /不能用“你做吧”代替/, "实施前补问任务选择");
+    assert.match(workflow, /用户明确“按这个做”等可同时确认范围与授权实施/, "明确实施可合并确认");
+    assert.match(workflow, /归纳问题、范围、完成条件与待决事项/, "讨论可实施时归纳结构");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：角色文件覆盖停止条件、报告字段与工具边界（k-20bdb1709d7e）", async () => {
+  const dir = freshProject("role-contract");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const implement = readFileSync(join(dir, ".knit", "agents", "implement.md"), "utf8");
+    assert.match(implement, /StageReportSchema/, "实施报告字段指向 schema");
+    assert.match(implement, /summary/);
+    assert.match(implement, /changedPaths/, "实施报告必须列实际路径");
+    assert.match(implement, /unverified/);
+    assert.match(implement, /阻塞/, "实施停止条件");
+    assert.match(implement, /不修改 `\.knit\/` 下任何文件/, "实施保护路径");
+    assert.match(implement, /不 git commit／push／rebase/, "实施禁止 Git 操作");
+    assert.match(implement, /由主会话通过核心材料接口写回/, "计划进度不直接写 .knit");
+    assert.doesNotMatch(implement, /直接更新 plan\.md/, "不指示阶段直接改受保护计划");
+    const check = readFileSync(join(dir, ".knit", "agents", "check.md"), "utf8");
+    assert.match(check, /StageReportSchema/);
+    assert.match(check, /verdict/);
+    assert.match(check, /coverage/);
+    assert.match(check, /selfVerified/);
+    assert.match(check, /findings/);
+    assert.match(check, /unverified/);
+    assert.match(check, /可直接修改必要文件/, "检查可在范围内修复");
+    assert.match(check, /不修改 `\.knit\/` 下任何文件/, "检查保护路径");
+    assert.match(check, /changes_requested|blocked/, "检查交回结论");
+    const runtime = readFileSync(join(dir, ".knit", "agents", "runtimes", "pi.md"), "utf8");
+    assert.match(runtime, /--no-extensions/);
+    assert.match(runtime, /implement／check 可写，advisory 只读/, "runtime 工具事实");
+    assert.match(runtime, /changedPaths/);
+    assert.match(runtime, /停止条件/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -151,6 +192,29 @@ test("init：重复执行幂等，AGENTS 标记块只追加一次", async () => 
     );
     assert.equal(readFileSync(join(dir, "AGENTS.md"), "utf8"), once, "AGENTS.md 不变");
     assert.equal(once.split(AGENTS_MANAGED_MARKER_BEGIN).length - 1, 1, "标记块唯一");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：旧项目修改受管块报告差异，--force 显式更新，项目正文保留", async () => {
+  const dir = freshProject("agents-conflict");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const agentsPath = join(dir, "AGENTS.md");
+    const original = readFileSync(agentsPath, "utf8");
+    const modified = `项目自定义规则\n\n${original.replace("本块由 Knit 生成并按基线维护", "人工改写的受管块说明")}`;
+    writeFileSync(agentsPath, modified);
+    const conflict = await init(service, dir);
+    assert.equal(conflict.ready, false);
+    assert.ok(conflict.conflicts.includes("AGENTS.md"), "受管块差异可见");
+    assert.equal(readFileSync(agentsPath, "utf8"), modified, "不静默覆盖人工块");
+    const forced = await init(service, dir, { force: true });
+    assert.equal(forced.ready, true, forced.conflicts.join(","));
+    const updated = readFileSync(agentsPath, "utf8");
+    assert.ok(updated.startsWith("项目自定义规则\n"), "受管块外正文保留");
+    assert.equal(updated.slice(updated.indexOf(AGENTS_MANAGED_MARKER_BEGIN)), agentsManagedBlock("npx --no-install knit"), "force 更新为当前基线");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -395,6 +459,23 @@ test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
   assert.ok(block.trimEnd().endsWith(AGENTS_MANAGED_MARKER_END));
   assert.ok(block.includes(".knit/workflow.md"));
   assert.ok(block.includes("knit task list"));
+  assert.ok(block.includes("主会话入口"));
+  assert.ok(block.includes("规范沉淀："));
+  assert.ok(block.includes("交付：主会话"));
+  assert.ok(block.includes("创建任务不等于需求确认或实施授权"));
+  assert.equal((block.match(/历史查询：/g) ?? []).length, 1, "受管块历史查询只出现一次");
+});
+
+test("模板：角色契约文档覆盖职责、停止条件、报告与 Trellis／GSD 来源", () => {
+  const doc = readFileSync(join(import.meta.dirname, "..", "docs", "design", "ROLE-CONTRACT.md"), "utf8");
+  assert.match(doc, /职责/);
+  assert.match(doc, /停止条件/);
+  assert.match(doc, /StageReportSchema/);
+  assert.match(doc, /工具事实/);
+  assert.match(doc, /f089cb3286071199e84118dee86b6d76aab032f1/);
+  assert.match(doc, /1ec5c812b79dc1cc487d0873d18b03449b11c106/);
+  assert.match(doc, /Trellis 来源映射/);
+  assert.match(doc, /GSD 来源映射/);
 });
 
 test("CLI：init --json 输出协议响应；未知客户端拒绝", async () => {

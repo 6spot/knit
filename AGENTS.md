@@ -19,7 +19,7 @@
 
 ## 文档与目录
 
-- [docs/design/](docs/design/)：现行产品规范、架构、状态、技术选型、运行约定与术语。
+- [docs/design/](docs/design/)：现行产品规范、架构、状态、技术选型、运行约定与术语；角色职责、停止条件、报告字段与工具边界见 [ROLE-CONTRACT.md](docs/design/ROLE-CONTRACT.md)。
 - [docs/research/](docs/research/)：研究依据与 Worktree 后续设计；研究不自动扩大首版范围。
 - [docs/history/](docs/history/)：旧开发队列、阻塞与执行档案。
 - [validation/](validation/)：可追溯的实验、验收、复核材料与夹具。
@@ -55,7 +55,9 @@
 
 - 任务列表：`.knit/tasks/`（`npx --no-install knit task list`）
 - 四环节工作流：`.knit/workflow.md`（讨论 → 实施 → 检查 → 交付；启动用 `npx --no-install knit start`）
-- 主会话工作流：是否建任务由用户决定；关键缺口先讨论再创建待执行任务；不建任务直接执行，正式任务按验证要求推进；普通问答／只读调查不强制记录；详见 workflow.md
+- 主会话入口：是否建任务由用户决定；新事项先问任务选择再展开需求，创建任务不等于需求确认或实施授权；不建任务直接执行，正式任务按验证要求推进；普通问答／只读调查直接完成；详见 workflow.md
+- 规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提决定，未明确内容存项目候选；回复末尾告知内容、适用范围与位置；详见 workflow.md
+- 交付：主会话接收实施／检查结果、核对完成条件并汇总报告；提交、推送、发布另行授权；详见 workflow.md
 - 历史查询：用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时用 `npx --no-install knit task search`（桥接 `knit_task` action=search）只读检索并引用来源；未表达不主动检索；相关记录不等于因果结论；详见 workflow.md
 - 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md
 - 规范索引：`.knit/standards/index.md`
