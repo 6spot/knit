@@ -8,10 +8,12 @@ import { WorktreeHandoffService } from "../application/worktree-handoff.js";
 import { WorktreePrepareService } from "../application/worktree-prepare.js";
 import { WorktreeRepairService, type WorktreeRepairResult } from "../application/worktree-repair.js";
 import { WorktreeCleanupService, cleanupNoopResult, type WorktreeCleanupResult } from "../application/worktree-cleanup.js";
+import { WorktreeMergeService, mergeNoopResult, type WorktreeMergeResult } from "../application/worktree-merge.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { gitSync } from "../infrastructure/process.js";
 import { executionRouteOf, resolveProjectStart, verifyWorktreeRegistration } from "../application/worktree-routing.js";
 import { GuardError } from "../application/guard-error.js";
+import { isFullBranch } from "../application/delivery.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
@@ -387,6 +389,104 @@ export function registerWorktreeCommands(program: Command): void {
         if (result.opId !== null) console.log(`操作: ${result.opId}`);
         if (result.receiptPath !== null) console.log(`回执: ${result.receiptPath}`);
         if (result.journalPath !== null) console.log(`journal: ${result.journalPath}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      }
+    });
+
+  worktree
+    .command("merge")
+    .description("已结束任务 worktree 的授权合入：缺省只读预览，apply 合入后把任务资料与绑定转交到目标")
+    .requiredOption("--task <taskId>", "任务 ID")
+    .requiredOption("--into <ref>", "完整本地目标 refs/heads/...（必须是主检出当前分支）")
+    .option("--authorization-ref <ref>", "授权来源引用（apply 必填；按 delivery.resolveAuthorization 同口径记录）")
+    .option("--apply", "执行合入并转交任务资料／正文 branch／binding；缺省只做只读预览", false)
+    .option("--dir <dir>", "主检出（默认当前目录）", ".")
+    .action(async (options) => {
+      const requestId = `worktree-merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const apply = options.apply === true;
+      const start = resolveProjectStart(options.dir);
+      const authorizationRef = typeof options.authorizationRef === "string" ? options.authorizationRef.trim() : null;
+      try {
+        if (start.linkedWorktree) {
+          throw new GuardError(
+            "main_checkout_required",
+            `main_checkout_required: worktree merge 只在主检出运行；当前 ${start.executionDir} 位于关联 worktree`,
+          );
+        }
+        if (apply && (authorizationRef ?? "") === "") {
+          throw new GuardError("authorization_required", "authorization_required: worktree merge --apply 需要非空 --authorization-ref");
+        }
+        if (!isFullBranch(options.into)) {
+          throw new GuardError("branch_invalid", "branch_invalid: --into 必须是完整本地 refs/heads/...");
+        }
+        const dbPath = join(start.mainRoot, RUNTIME_DIR, "metadata.db");
+        let result: WorktreeMergeResult;
+        if (!existsSync(dbPath)) {
+          result = mergeNoopResult(start.mainRoot, options.task, apply, authorizationRef, "noop", "无本机元数据库，无 worktree 候选");
+        } else {
+          const store = new SqliteMetadataStore(dbPath, { readOnly: !apply });
+          try {
+            const service = new WorktreeMergeService({ store });
+            result = await service.merge({
+              dir: start.mainRoot,
+              taskId: options.task,
+              into: options.into,
+              apply,
+              authorizationRef,
+            });
+          } finally {
+            store.close();
+          }
+        }
+        if (jsonMode()) {
+          const bad = result.status === "partial" || result.status === "conflict" || result.status === "failed" || result.status === "invalid";
+          const blocked = result.status.startsWith("blocked_");
+          emit(jsonResponse(
+            requestId,
+            bad || blocked ? "needs_attention" : "completed",
+            result,
+            bad ? "needs_review" : blocked ? "needs_review" : undefined,
+          ));
+          return;
+        }
+        console.log(`任务: ${result.taskId}  模式: ${result.apply ? "apply" : "只读预览"}`);
+        console.log(`状态: ${result.status}${result.reason === null ? "" : `（${result.reason}）`}`);
+        if (result.source !== null) {
+          console.log(`源 worktree: ${result.source.path}  分支: ${result.source.branch}  基线: ${result.source.baseline}`);
+        }
+        if (result.target !== null) {
+          console.log(`目标: ${result.target.ref}  合入前 HEAD: ${result.target.beforeHead ?? "（不可读）"}`);
+        }
+        console.log(`需要合入: ${result.mergeRequired}`);
+        if (result.mergeKind !== null) {
+          console.log(`合入方式: ${result.mergeKind}  提交: ${result.mergeCommit ?? "（无）"}  合入后 HEAD: ${result.afterHead ?? "（无）"}`);
+        }
+        if (result.material !== null) {
+          const files = result.material.entries.filter((entry) => entry.kind === "file").length;
+          console.log(`任务资料: ${result.material.disposition ?? "（未处理）"} → ${result.material.targetDir ?? "（无）"}（${files} 个文件）`);
+        }
+        if (result.document !== null) {
+          console.log(`任务正文 branch: ${result.document.branchBefore ?? "null"} → ${result.document.branchAfter ?? "null"}${result.document.changed ? "（已更新）" : "（未变化）"}`);
+        }
+        if (result.binding !== null) {
+          console.log(`binding: branch ${result.binding.branchBefore ?? "null"} → ${result.binding.branchAfter ?? "null"}；active ${result.binding.activeBefore} → ${result.binding.activeAfter}`);
+        }
+        if (result.dirty !== null) {
+          console.log(`改动摘要: ${result.dirty.entries} 项${result.dirty.sample.length === 0 ? "" : ` 例如 ${result.dirty.sample.join(", ")}`}`);
+        }
+        if (result.opId !== null) console.log(`操作: ${result.opId}`);
+        if (result.receiptPath !== null) console.log(`回执: ${result.receiptPath}`);
+        if (result.journalPath !== null) console.log(`journal: ${result.journalPath}`);
+        if (result.status === "merged") {
+          console.log(`下一步: knit deliver ${result.taskId} --branch ${result.target?.ref ?? "<target>"}`);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         process.exitCode = 1;

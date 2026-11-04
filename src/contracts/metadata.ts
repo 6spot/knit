@@ -91,6 +91,10 @@ export const TaskBindingSchema = obj(
           repairedAt: opt(union([str({ minLength: 1 }), nul()])),
           /** 最近一次成功修复的操作 ID。 */
           lastRepairOp: opt(union([str({ minLength: 1 }), nul()])),
+          /** 最近一次授权合入完成时间（任务 k-200ec35a4ae0）；旧记录缺省。 */
+          mergedAt: opt(union([str({ minLength: 1 }), nul()])),
+          /** 最近一次合入操作 ID（worktree-merge/<opId>/ 回执入口）。 */
+          lastMergeOp: opt(union([str({ minLength: 1 }), nul()])),
         },
       ),
     ),
