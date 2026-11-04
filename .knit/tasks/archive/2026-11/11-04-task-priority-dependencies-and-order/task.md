@@ -80,4 +80,10 @@ Trellis 固定提交 f089cb3 的 priority 默认 P2 可借鉴；其顶层列表�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-task-priority-dependencies-and-order
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1d9359fe4e07 -->
+- 任务资料提交: 3fcf517c51daee8966a5d29dbd007ce4725bfd17
+- 归档目标: .knit/tasks/archive/2026-11/11-04-task-priority-dependencies-and-order
+
 <!-- knit:progress:end -->
