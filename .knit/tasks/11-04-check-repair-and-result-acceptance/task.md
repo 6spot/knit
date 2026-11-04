@@ -1,8 +1,8 @@
 ---
 id: k-ff7dd090e64b
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:09.945Z
@@ -58,5 +58,25 @@ context-planner、stage-runner、run-acceptance、阶段/报告契约、角色�
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-ff7dd090e64b）
+
+- 检查可写：stage-runner 不再对 check 的改动一律失败；advisory 仍只读。
+- 报告核对：check 有实际改动时 `changedPaths` 必须与 diff 完全一致，否则 `changed_paths_mismatch`；`.knit/` 保护路径仍拒绝。
+- 接收：check pass／changes_requested 的落盘修复并入任务 scope 与检查凭据（`changedPaths`、`selfVerified`），未修改的既有 scope 条目仍按指纹重核；接收中断恢复不误判为外部漂移。
+- 提示词：模板与 runtime 指令说明范围、交回条件与「自检不等于独立检查」；本仓库 `.knit/agents/check.md`、`.knit/workflow.md` 同步。
+- 规范：DESIGN、STATES、OPERATIONS、GLOSSARY 与工具策略同步。
+- 验证：`test/stage.test.mjs`、`test/session.test.mjs` 覆盖检查修复落盘、报告不符、保护路径、advisory 只读；全量 `npm test` 428/428；`npm run pack:check` 通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-cfbfa5c20559 -->
+- 操作: op-cfbfa5c20559
+- 时间: 2026-11-04T17:45:23.828Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: 4e22ba9552cad36d87f26e3bd8831f4220fa331a
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-check-repair-and-result-acceptance
 
 <!-- knit:progress:end -->
