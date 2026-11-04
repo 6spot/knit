@@ -1,8 +1,8 @@
 ---
 id: k-da599e3b5cd4
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:10.921Z
@@ -66,5 +66,25 @@ validation 下隔离场景、真实宿主/模型运行证据与对应验证资�
 ## 结果与验证
 
 ## 运行引用
+
+验收执行完成（任务 k-da599e3b5cd4）
+
+- 真实环境：Pi 1.5.0 + magpie/group/deepseek；隔离项目 `/tmp/knit-accept`（12 轮单会话）与 `/tmp/knit-check`（检查夹具）。
+- 场景与证据：`validation/real-host-acceptance-2026-11/`（README、原始会话 jsonl、run 快照、任务/规范/代码夹具）。
+- 结果：通过 11 项（任务选择先问、暂不建继续讨论、只登记不实施、未闭合需求兜底、合并授权实施、父子关闭阻断、依赖/优先级/顺序、检查范围内修复、检查 blocked 交回、主会话交付、规范采纳与冲突处理、按意愿检索）；部分/未覆盖 3 项（明确不建持续有效、子任务完成后父任务总体验收、规范候选与完全无任务场景），未跑项已列明。
+- 环境问题：前 9 轮桥接调用本机旧版 `knit 0.1.0`，导致一次 run 失败并被模型移到 `/tmp/knit-run-archive/`；后续用 PATH 注入工作区构建完成结构与检查验收。该过程问题与工具链错配已记录，不计为功能通过。
+- 验证：`npm test` 两次全量通过（首次偶发 1 项 stage 失败后复跑通过）、`pack:check` 通过；`npm test` 偶发未定位，不能宣称稳定。
+- 未验收：真实 Rex 浮层 GUI、macOS 安装运行、NPM 发布/外部部署。
+
+### 交付记录
+
+<!-- knit:delivery:op-1050a0a36aef -->
+- 操作: op-1050a0a36aef
+- 时间: 2026-11-04T21:32:12.288Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: 8db93b46f81bde0526efc33ac81569e1fcac3867
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-real-host-model-behavior-acceptance
 
 <!-- knit:progress:end -->
