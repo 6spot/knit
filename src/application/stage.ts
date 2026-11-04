@@ -184,7 +184,7 @@ export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: Se
         : "只给出建议，不修改项目文件，不推进任务阶段。";
   const report =
     phase === "implement"
-      ? '{"summary":"...","changedPaths":["..."]}'
+      ? '{"summary":"...","changedPaths":["..."],"unverified":["..."]}'
       : phase === "check"
         ? '{"summary":"...","verdict":"pass|changes_requested|blocked","coverage":["..."],"findings":["..."],"unverified":["..."]}'
         : '{"summary":"...","ready":true}';
