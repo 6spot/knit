@@ -103,4 +103,10 @@ REX 不再要求调用方（用户、主会话或智能体）手工拼 `--rex`�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-rex-auto-presentation-detection-fallback
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8a45c9ccdb54 -->
+- 任务资料提交: 7bc32ffa14571779f731e461fc29783df38e1a2b
+- 归档目标: .knit/tasks/archive/2026-11/11-04-rex-auto-presentation-detection-fallback
+
 <!-- knit:progress:end -->
