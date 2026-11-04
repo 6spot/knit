@@ -1,4 +1,4 @@
-/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）、prepare（任务 k-e48b7df14115；第6.7节）、repair（任务 k-d10f8d4c2833；第6.5节）。 */
+/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）、prepare（任务 k-e48b7df14115；第6.7节）、repair（任务 k-d10f8d4c2833；第6.5节）、cleanup（任务 k-7e09de42a7a3；第6.4节）。 */
 import { Command } from "commander";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -7,9 +7,11 @@ import { WorktreeService } from "../application/worktree-manager.js";
 import { WorktreeHandoffService } from "../application/worktree-handoff.js";
 import { WorktreePrepareService } from "../application/worktree-prepare.js";
 import { WorktreeRepairService, type WorktreeRepairResult } from "../application/worktree-repair.js";
+import { WorktreeCleanupService, cleanupNoopResult, type WorktreeCleanupResult } from "../application/worktree-cleanup.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { gitSync } from "../infrastructure/process.js";
 import { executionRouteOf, resolveProjectStart, verifyWorktreeRegistration } from "../application/worktree-routing.js";
+import { GuardError } from "../application/guard-error.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
@@ -304,6 +306,83 @@ export function registerWorktreeCommands(program: Command): void {
           if (task.reason !== null) console.log(`  原因: ${task.reason}`);
           for (const action of task.plannedActions) console.log(`  计划: ${action}`);
           for (const action of task.appliedActions) console.log(`  已执行: ${action}`);
+        }
+        if (result.opId !== null) console.log(`操作: ${result.opId}`);
+        if (result.receiptPath !== null) console.log(`回执: ${result.receiptPath}`);
+        if (result.journalPath !== null) console.log(`journal: ${result.journalPath}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      }
+    });
+
+  worktree
+    .command("cleanup")
+    .description("已结束任务的 worktree 授权清理：缺省只读预览，apply 先保全任务资料／Session 引用再删除")
+    .requiredOption("--task <taskId>", "任务 ID")
+    .option("--branch", "同时删除任务 worktree 分支（默认保留）", false)
+    .option("--discard-branch", "分支未合入时仍按授权删除（仅 --branch 下有意义）", false)
+    .option("--discard-changes", "允许删除含未提交／未跟踪／忽略资料的 worktree", false)
+    .option("--apply", "执行清理；需同时提供 --authorization-ref", false)
+    .option("--authorization-ref <ref>", "授权来源引用（apply 必填；按 delivery.resolveAuthorization 同口径记录）")
+    .option("--dir <dir>", "主检出（默认当前目录）", ".")
+    .action(async (options) => {
+      const requestId = `worktree-cleanup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const apply = options.apply === true;
+      const start = resolveProjectStart(options.dir);
+      const authorizationRef = typeof options.authorizationRef === "string" ? options.authorizationRef : null;
+      try {
+        if (apply && (authorizationRef ?? "").trim() === "") {
+          throw new GuardError("authorization_required", "worktree cleanup --apply 需要非空 --authorization-ref");
+        }
+        const dbPath = join(start.mainRoot, RUNTIME_DIR, "metadata.db");
+        let result: WorktreeCleanupResult;
+        if (!existsSync(dbPath)) {
+          result = cleanupNoopResult(start.mainRoot, options.task, apply, authorizationRef, "noop", "无本机元数据库，无 worktree 候选");
+        } else {
+          const store = new SqliteMetadataStore(dbPath, { readOnly: !apply });
+          try {
+            const service = new WorktreeCleanupService({ store });
+            result = await service.cleanup({
+              dir: options.dir,
+              taskId: options.task,
+              branch: options.branch === true,
+              discardBranch: options.discardBranch === true,
+              discardChanges: options.discardChanges === true,
+              apply,
+              authorizationRef,
+            });
+          } finally {
+            store.close();
+          }
+        }
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, "completed", result));
+          return;
+        }
+        console.log(`任务: ${result.taskId}  模式: ${result.apply ? "apply" : "只读预览"}`);
+        console.log(`状态: ${result.status}${result.reason === null ? "" : `（${result.reason}）`}`);
+        if (result.worktree !== null) {
+          console.log(`worktree: ${result.worktree.path}  分支: ${result.worktree.branch}  布局: ${result.worktree.layout}`);
+        }
+        console.log(`任务状态: ${result.taskStatus ?? "（未知）"}  结果: ${result.taskOutcome ?? "（无）"}`);
+        if (result.dirty !== null) {
+          console.log(`工作区: ${result.dirty.entries} 项${result.dirty.sample.length === 0 ? "" : ` 例如 ${result.dirty.sample.join(", ")}`}`);
+        }
+        if (result.branch !== null) {
+          console.log(`分支删除: ${result.branch.result}  合入目标: ${result.branch.target ?? "（未知）"}  证明: ${result.branch.mergeCheck}`);
+        }
+        if (result.preserved !== null) {
+          console.log(`保全任务资料: ${result.preserved.taskMaterialFiles} 个文件 / ${result.preserved.taskMaterialBytes} 字节`);
+          console.log(`保全 Session 文件: ${result.preserved.sessionFiles} 个`);
+        }
+        for (const change of result.sessions) {
+          console.log(`Session ${change.knitSessionId}: cwd ${change.cwdBefore} → ${change.cwdAfter}；文件 ${change.sessionFileBefore ?? "（无）"} → ${change.sessionFileAfter ?? "（无）"}（${change.action}）`);
         }
         if (result.opId !== null) console.log(`操作: ${result.opId}`);
         if (result.receiptPath !== null) console.log(`回执: ${result.receiptPath}`);
