@@ -80,4 +80,10 @@ Trellis 固定提交 f089cb3286071199e84118dee86b6d76aab032f1：workflow.md 的 
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-04-task-hierarchy-and-parent-acceptance
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-febaebcab2aa -->
+- 任务资料提交: 60d7c5352f3cd2ec37282597cc55ae001ad8eafc
+- 归档目标: .knit/tasks/archive/2026-11/11-04-task-hierarchy-and-parent-acceptance
+
 <!-- knit:progress:end -->
