@@ -1,8 +1,8 @@
 ---
 id: k-20bdb1709d7e
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:10.674Z
@@ -65,5 +65,26 @@ validation/trellis-prompts-and-roles/sources.md、comparison.md（Trellis f089cb
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-20bdb1709d7e）
+
+- 模板 workflow：主会话补充任务选择（先问、可暂不建、实施前补问、明确不建持续有效）、创建≠需求确认/授权、讨论归纳；规范沉淀独立成节，位于讨论与实施之间。
+- 角色：implement/check/runtime 模板写清职责、停止条件、StageReportSchema 报告字段与工具边界（check 可写、advisory 只读、`.knit/` 保护、不提交不委派）。
+- 桥接：任务/无任务分支共用一份行为引导，历史查询只出现一次；补充任务选择、授权、规范、交付归主会话与 workflow 指针。
+- AGENTS 受管块：入口与授权要点更新，由 `agentsManagedBlock()` 生成；init 旧项目保留项目文件、受管块差异可见、桥接按基线更新。
+- 新增 `docs/design/ROLE-CONTRACT.md`：角色契约、Trellis/GSD 逐项来源与差异、装配说明、8 类行为场景与不应发生的行为；docs/README、DESIGN、OPERATIONS、GLOSSARY 同步。
+- 本仓库 `.knit/workflow.md`、`.knit/agents/*` 已按模板同步并单独提交（run 内受保护）。
+- 验证：全量 `npm test` 444/444（复跑）与 `npm run pack:check`；init/bridge 回归覆盖新项目同文、旧项目保留、受管块差异；真实宿主行为留 k-da599e3b5cd4。
+
+### 交付记录
+
+<!-- knit:delivery:op-1f542e7f2f06 -->
+- 操作: op-1f542e7f2f06
+- 时间: 2026-11-04T20:36:52.884Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: b9997efe3c64af9c1ec663ef8749c495191ffe11
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-role-prompts-and-entry-consistency
 
 <!-- knit:progress:end -->
