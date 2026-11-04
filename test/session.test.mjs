@@ -391,7 +391,9 @@ test("context：分层输入、规范／角色指纹、草案与候选只作背�
     assert.equal(progress.countsTowardInputs, false);
     assert.equal(before.toolPolicy.mode, "write");
     const checkPlan = await planner.plan({ dir, taskId: task.taskId, role: "check" });
-    assert.equal(checkPlan.toolPolicy.mode, "read");
+    assert.equal(checkPlan.toolPolicy.mode, "write");
+    assert.equal(checkPlan.toolPolicy.allow.includes("write"), true);
+    assert.equal(checkPlan.toolPolicy.allow.includes("edit"), true);
     assert.equal(checkPlan.sections.find((section) => section.kind === "role").path, ".knit/agents/check.md");
 
     // 任务候选规范只作背景，不改变需求摘要（DESIGN.md 第8.2节：任务辅助资料 standards.md）。

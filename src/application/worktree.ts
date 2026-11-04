@@ -1,5 +1,5 @@
 /**
- * 工作区签名：检查前后比对，发现检查者改动代码／文件（DESIGN.md 5.1）。
+ * 工作区签名：阶段前后比对，发现实际改动；检查者新增修复也据此核对。
  * 以 Git 状态列出的路径为范围，逐路径取内容指纹；`.knit/.runtime/` 不计。
  */
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";

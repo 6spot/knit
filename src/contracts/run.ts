@@ -90,7 +90,7 @@ export type RunCancel = Static<typeof RunCancelSchema>;
 export const StageReportSchema = obj(
   {
     summary: str(),
-    /** implement：实际改动的项目相对路径。 */
+    /** implement：实际改动的项目相对路径；check：有实际修改时必填并与实际 diff 完全一致。 */
     changedPaths: opt(arr(str({ minLength: 1 }))),
     /** check：pass / changes_requested / blocked。 */
     verdict: opt(
@@ -98,6 +98,8 @@ export const StageReportSchema = obj(
     ),
     /** check：实际核对过的路径或完成条件。 */
     coverage: opt(arr(str({ minLength: 1 }))),
+    /** check：检查者已自行验证自身修改；不表示另一独立执行者已复核。 */
+    selfVerified: opt(bool()),
     findings: opt(arr(str())),
     unverified: opt(arr(str())),
     /** discuss：建议是否 ready；advisory 不推进业务。 */
@@ -300,6 +302,10 @@ export const CheckFileSchema = obj(
     branch: union([str({ minLength: 1 }), nul()]),
     verdict: union([lit("pass"), lit("changes_requested"), lit("blocked")]),
     report: StageReportSchema,
+    /** 本次检查实际修改的路径；无修改时缺省。 */
+    changedPaths: opt(arr(str({ minLength: 1 }))),
+    /** 检查者自行验证了自身修改；不冒充另一独立执行者复核。 */
+    selfVerified: opt(bool()),
     inputsDigest: str({ minLength: 1 }),
     standardsDigest: str({ minLength: 1 }),
     effectiveInputsDigest: str({ minLength: 1 }),

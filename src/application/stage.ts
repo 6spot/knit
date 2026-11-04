@@ -180,13 +180,13 @@ export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: Se
     phase === "implement"
       ? "完成实现，并运行必要验证。最终报告的 changedPaths 必须与实际改动的项目相对路径完全一致。"
       : phase === "check"
-        ? "独立核对实际内容与完成条件；只读检查，不要修改任何项目文件。覆盖范围应包含当前 scope 的路径。verdict 只能是 pass／changes_requested／blocked。"
+        ? "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；涉及需求解释、取舍、扩大范围或验收变化时不要修改，以 blocked 交回主会话。只改任务范围内必要文件，不修改 .knit/，不提交 Git。有修改时 changedPaths 必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。verdict 只能是 pass／changes_requested／blocked。"
         : "只给出建议，不修改项目文件，不推进任务阶段。";
   const report =
     phase === "implement"
       ? '{"summary":"...","changedPaths":["..."],"unverified":["..."]}'
       : phase === "check"
-        ? '{"summary":"...","verdict":"pass|changes_requested|blocked","coverage":["..."],"findings":["..."],"unverified":["..."]}'
+        ? '{"summary":"...","verdict":"pass|changes_requested|blocked","coverage":["..."],"changedPaths":["..."],"selfVerified":true,"findings":["..."],"unverified":["..."]}'
         : '{"summary":"...","ready":true}';
   return [
     `任务 ID：${context.taskId}`,
@@ -221,12 +221,16 @@ export interface ReportValidation {
 }
 
 /** 按 phase 校验报告必填字段；实际改动路径另由核心比对。 */
-export function validateReportForPhase(phase: RunPhase, report: StageReport): ReportValidation {
+export function validateReportForPhase(phase: RunPhase, report: StageReport, actualChangedPaths: string[] = []): ReportValidation {
   if (phase === "implement") {
     if (!Array.isArray(report.changedPaths)) return { ok: false, reason: "report_changed_paths_missing" };
   } else if (phase === "check") {
     if (report.verdict === undefined) return { ok: false, reason: "report_verdict_missing" };
     if (!Array.isArray(report.coverage)) return { ok: false, reason: "report_coverage_missing" };
+    // 检查者直接修复时，实际改动必须由报告逐条列明；无修改时 changedPaths 可缺省。
+    if (actualChangedPaths.length > 0 && !Array.isArray(report.changedPaths)) {
+      return { ok: false, reason: "report_changed_paths_missing" };
+    }
   }
   return { ok: true, reason: null };
 }

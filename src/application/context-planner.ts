@@ -60,7 +60,8 @@ interface SectionInput {
 }
 
 function toolPolicyFor(role: SessionRole): ToolPolicy {
-  if (role === "implement") {
+  if (role === "implement" || role === "check") {
+    // 检查可在既定范围内直接修复；advisory 仍只读。
     return { mode: "write", allow: ["read", "write", "edit", "bash", "task"], deny: [] };
   }
   return { mode: "read", allow: ["read", "bash", "task"], deny: ["write", "edit"] };

@@ -59,7 +59,7 @@ export const ContextExclusionSchema = obj(
 );
 export type ContextExclusion = Static<typeof ContextExclusionSchema>;
 
-/** 工具策略按角色给出；首版实施可写，检查与 advisory 只读。 */
+/** 工具策略按角色给出；实施与检查可写（检查限既定范围内修复），advisory 只读。 */
 export const ToolPolicySchema = obj(
   {
     mode: union([lit("write"), lit("read")]),

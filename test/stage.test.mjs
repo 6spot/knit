@@ -285,6 +285,75 @@ test("接收检查点：Task 已写而 binding 失败时重入收敛，不重复
   }
 });
 
+test("检查修复的接收检查点可重入：scope 并入与检查凭据不重复写", async () => {
+  const dir = project("check-repair-journal");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "check"));
+    await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
+    // 检查者落盘修复后再发布结果，模拟接收前实际改动。
+    writeFileSync(join(dir, "README.md"), "# checked repair\n");
+    const runs = new RunStore(dir);
+    runs.writeResult(prepared.request.runId, resultFixture(prepared.request, "completed", {
+      summary: "检查修复",
+      verdict: "pass",
+      coverage: ["README.md"],
+      changedPaths: ["README.md"],
+      selfVerified: true,
+    }, ["README.md"]));
+
+    let bindingFailed = false;
+    const bindings = {
+      ...s.store.bindings,
+      save: async (binding) => {
+        if (!bindingFailed) {
+          bindingFailed = true;
+          throw new Error("injected check repair binding failure");
+        }
+        return s.store.bindings.save(binding);
+      },
+    };
+    const store = new Proxy(s.store, {
+      get(target, property, receiver) {
+        if (property === "bindings") return bindings;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const first = await new RunAcceptanceService({ store, locks: s.locks, randomHex }).accept({
+      dir,
+      runId: prepared.request.runId,
+    });
+    assert.equal(first.accepted, false);
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "acceptance.json")), true);
+    // 检查点已含并入后的 scope；重入不应清空既有条目或重复写 check。
+    const scopeAfterFailure = runs.readScope(task.taskId);
+    assert.deepEqual(scopeAfterFailure?.entries.map((entry) => entry.path), ["README.md"]);
+    assert.ok(scopeAfterFailure?.runIds.includes(impl.runId));
+    assert.ok(scopeAfterFailure?.runIds.includes(prepared.request.runId));
+
+    const recovered = await s.acceptance.accept({ dir, runId: prepared.request.runId });
+    assert.equal(recovered.accepted, true, recovered.reason ?? "");
+    assert.equal(recovered.phase, "deliver");
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual((binding.scope ?? []).map((entry) => entry.path), ["README.md"]);
+    assert.ok(binding.scopeRunIds?.includes(prepared.request.runId));
+    const scope = runs.readScope(task.taskId);
+    const checkFile = runs.readCheck(prepared.request.runId);
+    assert.equal(checkFile?.scopeDigest, scope?.digest);
+    assert.equal(binding.lastCheckRunId, prepared.request.runId);
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "acceptance.json")), false);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("任务关闭后迟到结果只保留事实，不隐式重开", async () => {
   const dir = project("late-result");
   const s = services(dir);
@@ -355,8 +424,8 @@ test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓�
   }
 });
 
-test("检查改动文件时该次结果失败，Task 不被推进", async () => {
-  const dir = project("check-side");
+test("检查可在既定范围内修复：改动落盘、接收并入 scope，完成资格仍有效", async () => {
+  const dir = project("check-repair");
   const s = services(dir);
   try {
     const task = await readyTask(dir, s);
@@ -365,17 +434,157 @@ test("检查改动文件时该次结果失败，Task 不被推进", async () => 
       report: { summary: "实现", changedPaths: ["README.md"] },
     });
     await waitTerminal(s, dir, impl.runId);
+    const runs = new RunStore(dir);
     const check = await startRun(s, dir, task.taskId, "check", {
-      writes: [{ path: "README.md", content: "# changed by checker\n" }],
+      writes: [
+        { path: "README.md", content: "# fixed by checker\n" },
+        { path: "src/fix.txt", content: "fix\n" },
+      ],
+      report: {
+        summary: "修复范围内缺陷",
+        verdict: "pass",
+        coverage: ["README.md"],
+        changedPaths: ["README.md", "src/fix.txt"],
+        selfVerified: true,
+        findings: ["README 说明与实际不符"],
+        unverified: [],
+      },
+    });
+    const status = await waitTerminal(s, dir, check.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.acceptance.reason, "check_pass");
+    assert.deepEqual(status.result.actualChangedPaths, ["README.md", "src/fix.txt"]);
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# fixed by checker\n");
+
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual((binding.scope ?? []).map((entry) => entry.path), ["README.md", "src/fix.txt"]);
+    assert.ok(binding.scopeRunIds?.includes(check.runId));
+    const scope = runs.readScope(task.taskId);
+    assert.equal(scope?.entries.find((entry) => entry.path === "README.md")?.digest?.length, 64);
+    const checkFile = runs.readCheck(check.runId);
+    assert.deepEqual(checkFile?.changedPaths, ["README.md", "src/fix.txt"]);
+    assert.equal(checkFile?.selfVerified, true);
+    assert.equal(checkFile?.scopeDigest, scope?.digest, "检查凭据绑定并入后的 scope 摘要");
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "deliver");
+
+    // independent 完成资格仍由最新 pass 检查支撑，修复后的 scope 指纹已纳入。
+    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+    assert.equal(closed.status, "closed");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("检查 changes_requested 的落盘修复也并入 scope，避免后续指纹漂移", async () => {
+  const dir = project("check-repair-partial");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const runs = new RunStore(dir);
+    const check = await startRun(s, dir, task.taskId, "check", {
+      writes: [{ path: "README.md", content: "# partial fix\n" }],
+      report: {
+        summary: "已修复一部分，仍需实施调整",
+        verdict: "changes_requested",
+        coverage: ["README.md"],
+        changedPaths: ["README.md"],
+        selfVerified: true,
+      },
+    });
+    const status = await waitTerminal(s, dir, check.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.acceptance.reason, "check_changes_requested");
+    const scope = runs.readScope(task.taskId);
+    assert.equal(scope?.entries.find((entry) => entry.path === "README.md")?.digest?.length, 64);
+    const checkFile = runs.readCheck(check.runId);
+    assert.equal(checkFile?.scopeDigest, scope?.digest);
+    assert.deepEqual(checkFile?.changedPaths, ["README.md"]);
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("检查报告 changedPaths 缺失或与实际不符时拒绝，Task 不被推进", async () => {
+  const dir = project("check-paths");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+
+    const mismatch = await startRun(s, dir, task.taskId, "check", {
+      writes: [{ path: "README.md", content: "# checked\n" }],
+      report: { summary: "检查", verdict: "pass", coverage: ["README.md"], changedPaths: ["other.txt"] },
+    });
+    const mismatchStatus = await waitTerminal(s, dir, mismatch.runId);
+    assert.equal(mismatchStatus.state, "failed");
+    assert.equal(mismatchStatus.result.failureReason, "changed_paths_mismatch:README.md");
+    assert.deepEqual(mismatchStatus.result.actualChangedPaths, ["README.md"]);
+
+    // 恢复检查前内容，验证有实际修改但漏报 changedPaths 也被拒绝。
+    writeFileSync(join(dir, "README.md"), "# impl\n");
+    const missing = await startRun(s, dir, task.taskId, "check", {
+      writes: [{ path: "README.md", content: "# checked-2\n" }],
       report: { summary: "检查", verdict: "pass", coverage: ["README.md"] },
+    });
+    const missingStatus = await waitTerminal(s, dir, missing.runId);
+    assert.equal(missingStatus.state, "failed");
+    assert.equal(missingStatus.result.failureReason, "report_changed_paths_missing");
+
+    const runs = new RunStore(dir);
+    assert.equal(runs.readCheck(mismatch.runId), null);
+    assert.equal(runs.readCheck(missing.runId), null);
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.lastCheckRunId, null);
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("检查修改 .knit 元数据仍被拒绝；advisory 仍只读", async () => {
+  const dir = project("check-protected");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# impl\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const protectedPath = ".knit/standards/release.md";
+    const check = await startRun(s, dir, task.taskId, "check", {
+      writes: [{ path: protectedPath, content: "# 检查者改规范\n" }],
+      report: { summary: "检查", verdict: "pass", coverage: ["README.md"], changedPaths: [protectedPath] },
     });
     const status = await waitTerminal(s, dir, check.runId);
     assert.equal(status.state, "failed");
-    assert.match(status.result.failureReason, /^check_side_effects:/);
-    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
-    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "cancelled", runsSettled: true });
-    assert.equal(closed.status, "closed", "失败的终态 run 与 needs_attention 接收不应永久阻塞关闭");
+    assert.equal(status.result.failureReason, `protected_path_modified:${protectedPath}`);
+    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.phase, "check");
+
+    const discuss = await s.tasks.newTask({ dir, title: "讨论", slug: "advisory-side" });
+    const advisory = await startRun(s, dir, discuss.taskId, "advisory", {
+      writes: [{ path: "README.md", content: "# advisory write\n" }],
+      report: { summary: "建议", ready: false },
+    });
+    const advisoryStatus = await waitTerminal(s, dir, advisory.runId);
+    assert.equal(advisoryStatus.state, "failed");
+    assert.match(advisoryStatus.result.failureReason, /^advisory_side_effects:/);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

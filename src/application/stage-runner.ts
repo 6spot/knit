@@ -99,7 +99,8 @@ function sameDir(a: string, b: string): boolean {
 
 function toolsFor(request: RunRequestFile, plan: ContextPlan): string[] {
   const allowed = plan.toolPolicy.allow.filter((name) => PI_TOOL_NAMES.includes(name));
-  if (request.phase === "check" || request.phase === "advisory") {
+  // 正式检查可在既定范围内直接修复；advisory 仍只读。
+  if (request.phase === "advisory") {
     return allowed.filter((name) => !["write", "edit"].includes(name));
   }
   return allowed;
@@ -869,10 +870,10 @@ export class StageRunner {
     if (protectedPaths.length > 0) {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
-    if ((this.request.phase === "check" || this.request.phase === "advisory") && changedPaths.length > 0) {
+    if (this.request.phase === "advisory" && changedPaths.length > 0) {
       return this.failure(
         session,
-        `${this.request.phase}_side_effects:${changedPaths.join(",")}`,
+        `advisory_side_effects:${changedPaths.join(",")}`,
         usage,
         nativeEntries,
         sessionFile,
@@ -882,13 +883,16 @@ export class StageRunner {
 
     const parsed = parseStageReport(text);
     if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
-    const validation = validateReportForPhase(this.request.phase, parsed.report);
+    const validation = validateReportForPhase(this.request.phase, parsed.report, changedPaths);
     if (!validation.ok) return this.failure(session, validation.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report);
 
-    if (this.request.phase === "implement") {
-      const reported = new Set((parsed.report.changedPaths ?? []).map(normalizePath));
+    if (this.request.phase === "implement" || this.request.phase === "check") {
+      const reportedPaths = parsed.report.changedPaths ?? [];
+      const reported = new Set(reportedPaths.map(normalizePath));
       const actual = new Set(changedPaths.map(normalizePath));
-      if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
+      // check 无修改时可缺省 changedPaths；一旦任一侧有路径，就必须与实际 diff 完全一致。
+      const compare = this.request.phase === "implement" || actual.size > 0 || reported.size > 0;
+      if (compare && (reported.size !== actual.size || [...actual].some((path) => !reported.has(path)))) {
         // 失败原因直接带实际 diff 路径清单；零 diff（基线已含改动／重派无改动）显式标注为 zero_diff，
         // 便于排障时区分「报告路径写错」与「基线未还原导致无法再产生差异」。
         const actualPaths = [...actual].sort();

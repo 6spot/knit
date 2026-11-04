@@ -14,7 +14,7 @@ import type { TaskBinding } from "../contracts/metadata.js";
 import { parseTaskDocument, renderTaskDocument } from "./task-document.js";
 import { inputsDigestOf } from "../contracts/task-inputs.js";
 import { locateTaskDocument } from "./task-service.js";
-import { entryDrifts, loadScope, mergeScope, scopeDigest, scopeEntriesCurrent } from "./scope.js";
+import { entryDrifts, loadScope, mergeScope, scopeEntriesCurrent } from "./scope.js";
 import { currentBranch } from "./delivery.js";
 import { executionRouteOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
@@ -213,7 +213,17 @@ export class RunAcceptanceService {
 
     const scope = loadScope(runs, request.taskId, this.now().toISOString());
     if (request.expected.scopeDigest !== undefined && request.expected.scopeDigest !== null) {
-      if (scope.digest !== request.expected.scopeDigest) return this.attention(operationId, request, "stale_scope", result);
+      if (scope.digest !== request.expected.scopeDigest) {
+        // 接收检查点可能已写入并入后的 scope，但 binding 等后续步骤失败；
+        // 恢复时允许当前 scope 与同一操作的 scopeAfter 吻合，不把半写入误判为外部漂移。
+        const journal = runs.readAcceptanceJournal(request.runId);
+        const scopeAlreadyApplied =
+          journal !== null &&
+          journal.operationId === operationId &&
+          journal.taskId === request.taskId &&
+          journal.scopeAfter.digest === scope.digest;
+        if (!scopeAlreadyApplied) return this.attention(operationId, request, "stale_scope", result);
+      }
     }
 
     const report = result.report;
@@ -342,6 +352,17 @@ export class RunAcceptanceService {
     // check
     const verdict = report.verdict;
     if (verdict === undefined) return this.attention(operationId, request, "report_verdict_missing", result);
+    const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
+    const reportedChangedPaths = (report.changedPaths ?? []).map(normalizePath);
+    const reportedSet = new Set(reportedChangedPaths);
+    const actualSet = new Set(actualChangedPaths);
+    /* 检查者直接修复时报告必须与实际改动一致；无修改时可缺省 changedPaths。 */
+    if (
+      (actualSet.size > 0 || reportedSet.size > 0) &&
+      (reportedSet.size !== actualSet.size || [...actualSet].some((path) => !reportedSet.has(path)))
+    ) {
+      return this.attention(operationId, request, "changed_paths_mismatch", result);
+    }
     const coverage = (report.coverage ?? []).map(normalizePath);
     // 检查报告常用“路径：说明”形式；路径前缀命中即视为覆盖，不要求逐字相等。
     const uncovered = scope.entries
@@ -362,10 +383,29 @@ export class RunAcceptanceService {
     }
     if (!("phase" in transition)) return this.attention(operationId, request, "transition_invalid", result);
 
-    // 检查接收前按当前事实重核 scope 路径；检查者改动成果文件时结果不接收（STATES.md 第8节）。
-    if (!scopeEntriesCurrent(executionDir, scope.entries)) {
+    // 检查者可在既定范围内修复；先重核发布时指纹，再允许已声明路径变化。
+    // 未被检查修改的既有 scope 路径仍须与当前事实一致，外部改动转 scope_changed（STATES.md 第8节）。
+    if (result.actualEntries !== undefined) {
+      for (const entry of result.actualEntries) {
+        if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
+      }
+    }
+    const untouched = scope.entries.filter((entry) => !actualSet.has(normalizePath(entry.path)));
+    if (!scopeEntriesCurrent(executionDir, untouched)) {
       return this.attention(operationId, request, "scope_changed", result);
     }
+    // 检查者有实际修改时并入 scope；append 语义保留既有条目与历史 run。
+    // 即使结论为 changes_requested，落盘修复仍是真实成果，不能让后续检查看到过期指纹。
+    const nextScope =
+      actualChangedPaths.length > 0
+        ? mergeScope(scope, {
+            runId: request.runId,
+            taskId: request.taskId,
+            paths: actualChangedPaths,
+            root: executionDir,
+            now: this.now().toISOString(),
+          })
+        : scope;
     const check: CheckFile = {
       schemaVersion: 1,
       taskId: request.taskId,
@@ -373,10 +413,12 @@ export class RunAcceptanceService {
       branch: request.expected.branch,
       verdict,
       report,
+      ...(actualChangedPaths.length > 0 ? { changedPaths: actualChangedPaths } : {}),
+      ...(report.selfVerified !== undefined ? { selfVerified: report.selfVerified } : {}),
       inputsDigest: inputs.inputsDigest,
       standardsDigest: inputs.standardsDigest,
       effectiveInputsDigest: inputs.effectiveInputsDigest,
-      scopeDigest: scope.digest,
+      scopeDigest: nextScope.digest,
       recordedAt: this.now().toISOString(),
     };
 
@@ -384,6 +426,9 @@ export class RunAcceptanceService {
       ...binding,
       lastRunIds: appendUnique(binding.lastRunIds, request.runId),
       lastCheckRunId: request.runId,
+      ...(nextScope.digest !== scope.digest
+        ? { scope: nextScope.entries, scopeRunIds: nextScope.runIds }
+        : {}),
     };
     if (verdict === "changes_requested") {
       if (nextBinding.repairCycleId === null) {
@@ -439,7 +484,7 @@ export class RunAcceptanceService {
       bindingBefore: binding,
       bindingAfter: nextBinding,
       scopeBefore: scope,
-      scopeAfter: scope,
+      scopeAfter: nextScope,
       check,
       reason: `check_${verdict}`,
       verdict,
