@@ -1,8 +1,8 @@
 ---
 id: k-5dd19bb9b84c
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:09.698Z
@@ -60,5 +60,26 @@ docs/design/DESIGN.md 第 8.2 节；src/application/standards-service.ts、stand
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-5dd19bb9b84c）
+
+- 作用域：候选、审阅、采纳改为项目级；`.knit/standards/candidates.md` 保存候选，回执以 `project` 键存 `standards_reviews`，`taskId` 不再必填。
+- 兼容：旧任务 `standards.md` 只读可列；新增幂等 `standards migrate` 迁入项目候选并保留 candidateId 与来源，原文件不改写。
+- 交付：移除交付前规范候选门禁，`standards_review_required`／`standards_apply_required` 不再由 deliver 触发；`standards apply` 仍核对规则实际写入正式规范。
+- 接口：CLI `standards list/propose/review/apply/pending/migrate`，`--task` 仅作来源标注或旧资料过滤；桥接 `knit_standards` 同步，taskId 可选。
+- 指令：模板 `assets/templates/.knit/{workflow.md,agents/*.md,standards/index.md}` 增加主动识别、采纳依据、冲突处理、候选保留与末尾告知规则；本仓库 `.knit/workflow.md`、`.knit/agents/*.md`、`.knit/standards/index.md` 同步更新。
+- 规范：DESIGN §8.2、STATES §9、ARCHITECTURE、OPERATIONS、GLOSSARY 与 CLI 帮助同步。
+- 验证：`test/standards.test.mjs`、`test/delivery.test.mjs` 覆盖无任务 propose→review→apply、migrate 幂等与旧回执兼容、交付不被候选阻塞；全量 `npm test` 424/424，`npm run pack:check` 通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-8e94bc626288 -->
+- 操作: op-8e94bc626288
+- 时间: 2026-11-04T17:24:01.340Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: e61a86fd8db62556c5465420507a2c5e6440d719
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-task-independent-project-standards
 
 <!-- knit:progress:end -->
