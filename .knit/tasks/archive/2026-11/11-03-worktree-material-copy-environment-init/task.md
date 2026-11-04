@@ -55,4 +55,10 @@ postCreate 步骤：按序以目标 worktree 为 cwd 执行（spawn shell 语义
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-material-copy-environment-init
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1efad13cdb05 -->
+- 任务资料提交: 958a81cb3e6b538ce15e9f73e892e2f02c52aafd
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-material-copy-environment-init
+
 <!-- knit:progress:end -->
