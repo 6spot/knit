@@ -1,11 +1,14 @@
-/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）、prepare（任务 k-e48b7df14115；第6.7节）。 */
+/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）、prepare（任务 k-e48b7df14115；第6.7节）、repair（任务 k-d10f8d4c2833；第6.5节）。 */
 import { Command } from "commander";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { WorktreeService } from "../application/worktree-manager.js";
 import { WorktreeHandoffService } from "../application/worktree-handoff.js";
 import { WorktreePrepareService } from "../application/worktree-prepare.js";
+import { WorktreeRepairService, type WorktreeRepairResult } from "../application/worktree-repair.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { gitSync } from "../infrastructure/process.js";
 import { executionRouteOf, resolveProjectStart, verifyWorktreeRegistration } from "../application/worktree-routing.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -235,6 +238,84 @@ export function registerWorktreeCommands(program: Command): void {
         }
       } finally {
         store.close();
+      }
+    });
+
+  worktree
+    .command("repair")
+    .description("项目／worktree 移动后核实身份并修复可证明的 Git 关联与本机定位（缺省只读）")
+    .option("--task <taskId>", "只处理单个任务")
+    .option("--apply", "执行修复并写入 binding／Session 定位；缺省只做只读预检", false)
+    .option("--dir <dir>", "起点目录（必须在主检出；默认当前目录）", ".")
+    .action(async (options) => {
+      const requestId = `worktree-repair-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const apply = options.apply === true;
+      try {
+        const start = resolveProjectStart(options.dir);
+        if (start.linkedWorktree) {
+          throw new Error(`worktree repair 只在主检出运行；当前位于关联 worktree ${start.executionDir}`);
+        }
+        const inside = gitSync(["rev-parse", "--is-inside-work-tree"], start.mainRoot);
+        if (inside.code !== 0 || inside.stdout.trim() !== "true") {
+          throw new Error(`worktree repair 需要 Git 工作区: ${start.mainRoot}`);
+        }
+        const dbPath = join(start.mainRoot, RUNTIME_DIR, "metadata.db");
+        let result: WorktreeRepairResult;
+        if (!existsSync(dbPath)) {
+          // 没有元数据库：无候选，不创建运行目录。
+          result = {
+            mainRoot: start.mainRoot,
+            opId: null,
+            apply,
+            noop: true,
+            tasks: [],
+            journalPath: null,
+            receiptPath: null,
+          };
+        } else {
+          const store = new SqliteMetadataStore(dbPath, { readOnly: !apply });
+          try {
+            const service = new WorktreeRepairService({ store });
+            result = await service.repair({
+              dir: start.mainRoot,
+              ...(options.task === undefined ? {} : { taskId: options.task }),
+              apply,
+            });
+          } finally {
+            store.close();
+          }
+        }
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, "completed", result));
+          return;
+        }
+        console.log(`主检出: ${result.mainRoot}`);
+        console.log(`模式: ${result.apply ? "apply" : "只读预检"}${result.noop ? "（no-op）" : ""}`);
+        if (result.tasks.length === 0) console.log("（无候选任务）");
+        for (const task of result.tasks) {
+          console.log(`${task.taskId}  ${task.status}`);
+          console.log(`  旧根: ${task.oldRoot}`);
+          console.log(`  新根: ${task.newRoot}`);
+          if (task.oldWorktreePath !== null || task.newWorktreePath !== null) {
+            console.log(`  worktree: ${task.oldWorktreePath ?? "（无）"} → ${task.newWorktreePath ?? "（无）"}`);
+          }
+          if (task.layout !== null) console.log(`  布局: ${task.layout}  分支: ${task.branch ?? "（无）"}`);
+          if (task.association !== null) console.log(`  Git 关联: ${task.association}`);
+          if (task.reason !== null) console.log(`  原因: ${task.reason}`);
+          for (const action of task.plannedActions) console.log(`  计划: ${action}`);
+          for (const action of task.appliedActions) console.log(`  已执行: ${action}`);
+        }
+        if (result.opId !== null) console.log(`操作: ${result.opId}`);
+        if (result.receiptPath !== null) console.log(`回执: ${result.receiptPath}`);
+        if (result.journalPath !== null) console.log(`journal: ${result.journalPath}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
       }
     });
 

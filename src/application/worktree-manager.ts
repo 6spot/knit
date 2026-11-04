@@ -34,6 +34,10 @@ export interface WorktreeInfo {
   baseline: string;
   createdAt: string;
   registeredAt: string;
+  /** 项目／worktree 移动后最近一次成功修复时间（任务 k-d10f8d4c2833）；旧记录缺省。 */
+  repairedAt?: string | null;
+  /** 最近一次成功修复的操作 ID；旧记录缺省。 */
+  lastRepairOp?: string | null;
 }
 
 export interface WorktreeCreateResult {

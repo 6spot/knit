@@ -87,6 +87,10 @@ export const TaskBindingSchema = obj(
           preparedAt: opt(union([str({ minLength: 1 }), nul()])),
           /** 最近一次成功 prepare 的操作 ID（worktree-prepare/<opId>/ 回执入口）。 */
           lastPrepareOp: opt(union([str({ minLength: 1 }), nul()])),
+          /** 项目／worktree 移动后最近一次成功修复时间（worktree-repair/<opId>/ 回执入口）；no-op 不写。 */
+          repairedAt: opt(union([str({ minLength: 1 }), nul()])),
+          /** 最近一次成功修复的操作 ID。 */
+          lastRepairOp: opt(union([str({ minLength: 1 }), nul()])),
         },
       ),
     ),
