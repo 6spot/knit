@@ -179,6 +179,10 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /需求明确直接登记/);
     assert.match(first, /Agent 建议须标注待确认/);
     assert.match(first, /拆分方案/);
+    assert.match(first, /历史查询/);
+    assert.match(first, /knit_task action=search/);
+    assert.match(first, /未表达意愿不主动检索/);
+    assert.match(first, /相关记录不等于因果结论/);
 
     // 创建并选择任务后，下轮注入当前任务状态。
     await host.commands.get("knit").handler("task new --title 注入任务 --slug inject", host.ctx);
@@ -317,6 +321,25 @@ test("knit_material 与 knit_task new 提醒：需求写入入口与重复创建
     // 非法路径拒绝。
     const bad = await host.tools.get("knit_material").execute("t7", { action: "save", taskId: firstId, path: "../escape.md", content: "x" }, null, null, host.ctx);
     assert.equal(bad.isError, true);
+
+    // knit_task search：不需要 taskId，返回可核对来源；无匹配为空数组。
+    const searched = await host.tools.get("knit_task").execute("t8", { action: "search", query: ["需求与计划"], scope: "task" }, null, null, host.ctx);
+    assert.equal(searched.isError, false, searched.content?.[0]?.text ?? "");
+    assert.ok(Array.isArray(searched.details));
+    assert.equal(searched.details.length, 1);
+    assert.equal(searched.details[0].kind, "task");
+    assert.equal(searched.details[0].taskId, firstId);
+    assert.match(searched.details[0].ref, /plan\.md:\d+$/);
+    const emptySearch = await host.tools.get("knit_task").execute("t9", { action: "search", query: "不存在的查询词" }, null, null, host.ctx);
+    assert.equal(emptySearch.isError, false);
+    assert.deepEqual(emptySearch.details, []);
+
+    // /knit task search 的可读摘要也展示来源与片段。
+    host.notifications.length = 0;
+    await host.commands.get("knit").handler("task search 需求与计划 --scope task", host.ctx);
+    assert.match(host.notifications.at(-1).text, /匹配记录（1）/);
+    assert.match(host.notifications.at(-1).text, /plan\.md:\d+/);
+    assert.match(host.notifications.at(-1).text, /需求与计划/);
 
     await host.handlers.get("session_shutdown")();
   } finally {

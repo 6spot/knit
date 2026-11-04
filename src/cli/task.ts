@@ -1,4 +1,4 @@
-/** task 命令组：new/rename/list/record/ready/update/close（DESIGN.md 第4.1节）。 */
+/** task 命令组：new/rename/list/search/record/ready/update/close（DESIGN.md 第4.1节）。 */
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js"
 import { RunActivityService } from "../application/run-activity.js";
 import { TaskService, type TaskUpdateResult } from "../application/task-service.js";
 import { SessionService } from "../application/session-service.js";
+import { searchHistory } from "../application/history-search.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import { gitSync } from "../infrastructure/process.js";
@@ -323,6 +324,43 @@ export function registerTaskCommands(program: Command): void {
           for (const problem of result.problems) console.log(`  ${problem.path}  ${problem.message}`);
         }
       });
+    });
+
+  task
+    .command("search <query...>")
+    .description("只读检索任务、归档、run 记录与 Git 历史")
+    .option("--scope <scope>", "检索范围：task、archive、run 或 git；缺省全部")
+    .option("--limit <n>", "最多返回条数（默认 20，上限 100）")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (query: string[], options) => {
+      const requestId = `task-search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        const hits = searchHistory({
+          dir: options.dir,
+          query,
+          scope: options.scope,
+          limit: options.limit === undefined ? undefined : Number(options.limit),
+        });
+        if (jsonMode()) {
+          // 无匹配返回空数组；不写任务、runtime 或索引。
+          emit(jsonResponse(requestId, "completed", hits));
+          return;
+        }
+        if (hits.length === 0) {
+          console.log(`未找到匹配记录: ${query.join(" ")}`);
+          return;
+        }
+        console.log(`匹配记录（${hits.length}）:`);
+        for (const hit of hits) {
+          const location = hit.kind === "run" ? `  (${hit.path}${hit.line === null ? "" : `:${hit.line}`})` : "";
+          console.log(`  [${hit.kind}] ${hit.ref}${location}${hit.taskId === null ? "" : `  ${hit.taskId}`}  ${hit.snippet}`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (jsonMode()) emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        else console.error(`knit: ${message}`);
+        process.exitCode = 1;
+      }
     });
 
   task

@@ -3,12 +3,13 @@
  * 构建时由 scripts/build-bridge-schema.mjs 派生为 dist/contracts/bridge-tools.json；
  * 桥接只读取派生 JSON，不依赖用户项目 node_modules 中的 Knit 依赖。
  */
-import { arr, bool, lit, map, obj, opt, str, union } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, map, obj, opt, str, union } from "@earendil-works/pi-schema";
 
 export const TaskToolSchema = obj(
   {
     action: union([
       lit("list"),
+      lit("search"),
       lit("new"),
       lit("rename"),
       lit("parent"),
@@ -29,6 +30,12 @@ export const TaskToolSchema = obj(
     title: opt(str()),
     slug: opt(str()),
     newSlug: opt(str()),
+    /** 历史检索：查询词可为单个字符串或词列表；不要求 taskId。 */
+    query: opt(union([str({ minLength: 1 }), arr(str({ minLength: 1 }), { minItems: 1 })])),
+    /** 历史检索范围；缺省全部。 */
+    scope: opt(union([lit("task"), lit("archive"), lit("run"), lit("git")])),
+    /** 历史检索最多返回条数；默认 20，核心上限 100。 */
+    limit: opt(int({ minimum: 1 })),
     /** 创建或挂接的父任务稳定身份；解除关联用 detach。 */
     parentId: opt(str({ minLength: 1 })),
     detach: opt(bool()),

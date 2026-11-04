@@ -309,6 +309,7 @@ export default function (pi: any) {
       if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
       else lines.push("规划资料: 无（简单任务可只用 task.md）");
       lines.push("下一步: 按 workflow.md 当前阶段推进；写动作由核心核对授权与状态。");
+      lines.push("历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。");
     } else {
       lines.push("当前无选定任务。");
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
@@ -316,6 +317,7 @@ export default function (pi: any) {
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
       lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
       lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
+      lines.push("历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。");
     }
     return { text: lines.join("\n"), taskId };
   }
@@ -371,6 +373,17 @@ export default function (pi: any) {
         : "";
       return `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
     };
+    // task search：命中数组，每项带 kind／path／line／ref／snippet。
+    if (tokens[0] === "task" && tokens[1] === "search" && Array.isArray(data)) {
+      if (data.length === 0) return "未找到匹配记录。";
+      const lines = [`匹配记录（${data.length}）：`];
+      for (const hit of data.slice(0, 50)) {
+        const location = hit.kind === "run" ? `（${hit.path}${hit.line === null ? "" : `:${hit.line}`}）` : "";
+        lines.push(`  - [${hit.kind}] ${hit.ref}${location}${hit.taskId ? ` · ${hit.taskId}` : ""} · ${hit.snippet}`);
+      }
+      if (data.length > 50) lines.push(`  - …共 ${data.length} 条`);
+      return lines.join("\n");
+    }
     // task list：{ active: [...], archived: [...] }
     if (Array.isArray(data.active) && Array.isArray(data.archived)) {
       const lines: string[] = [];
@@ -543,9 +556,20 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
+    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+      // 历史检索不需要 taskId，也不写任务状态。
+      if (params.action === "search") {
+        const rawQuery = Array.isArray(params.query) ? params.query : typeof params.query === "string" ? [params.query] : [];
+        const terms = rawQuery.map((value: unknown) => String(value).trim()).filter((value: string) => value !== "");
+        if (terms.length === 0) return failText("task search 需要至少一个查询词");
+        const args = ["task", "search", ...terms];
+        if (params.scope) args.push("--scope", params.scope);
+        if (params.limit !== undefined) args.push("--limit", String(params.limit));
+        args.push("--dir", root);
+        return toolResult(core(args));
+      }
       // task next 不读 taskId；只有真正的任务操作才校验它。
       if (params.action !== "next" && params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
       if (params.action === "use" || params.action === "clear") {

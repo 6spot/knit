@@ -72,6 +72,9 @@ test("init：workflow.md 模板含创建前需求澄清门与复杂拆分提示�
     assert.match(workflow, /复杂需求先拆分/, "复杂需求拆分提示");
     assert.match(workflow, /创建同意不等于实施授权/, "创建同意与实施授权分开");
     assert.match(workflow, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
+    assert.match(workflow, /历史查询意愿/, "历史查询意愿触发规则");
+    assert.match(workflow, /knit task search/, "历史检索入口");
+    assert.match(workflow, /相关记录不等于证明因果/, "相关性与因果边界");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
