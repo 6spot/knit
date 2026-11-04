@@ -98,12 +98,13 @@ export function registerStatusCommands(program: Command): void {
           console.log(`范围: ${result.scopeCount} 条；草案: ${result.pendingDraft ? result.pendingDraft.kind : "无"}`);
           if (result.latestRun !== null) {
             const run = result.latestRun;
-            console.log(`最近 run: ${run.runId} ${run.phase}/${run.state}；耗时 ${formatMs(run.elapsedMs)}；活动 ${run.lastEvent ?? "无"} @ ${run.lastActivityAt ?? "未知"}`);
+            console.log(`最近 run: ${run.runId} ${run.phase}/${run.state}；呈现 ${run.presentation}/${run.presentationSource}；耗时 ${formatMs(run.elapsedMs)}；活动 ${run.lastEvent ?? "无"} @ ${run.lastActivityAt ?? "未知"}`);
             if (run.heartbeat !== null) console.log(`心跳: ${run.heartbeat.at}（${run.heartbeat.verdict}）`);
           }
         } else if ("runId" in result && "elapsedMs" in result) {
           console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}）`);
           console.log(`任务: ${result.taskId} / ${result.phase}；耗时 ${formatMs(result.elapsedMs)}`);
+          console.log(`呈现: ${result.presentation}（来源 ${result.presentationSource}）${result.presentationFallbackReason ? `；回退原因: ${result.presentationFallbackReason}` : ""}`);
           // 执行目录锁是 project 锁的实际键；主检出路由与现在输出等价（任务17）。
           if (result.executionDir !== cliMainRoot(options.dir)) console.log(`执行目录: ${result.executionDir}`);
           console.log(`准备: ${result.prepared}；快照: ${result.snapshot?.state ?? "无"}`);

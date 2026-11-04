@@ -8,6 +8,14 @@ export const RunPresentationSchema = union([
 ]);
 export type RunPresentation = Static<typeof RunPresentationSchema>;
 
+/** 呈现方式来源：调用级显式覆盖、项目配置或自动探测。旧请求缺省按 config 兼容。 */
+export const RunPresentationSourceSchema = union([
+  lit("explicit"),
+  lit("config"),
+  lit("auto"),
+]);
+export type RunPresentationSource = Static<typeof RunPresentationSourceSchema>;
+
 /** 阶段执行；advisory 只产出建议，不推进 Task。 */
 export const RunPhaseSchema = union([
   lit("implement"),
@@ -323,6 +331,9 @@ export const RunRequestFileSchema = obj(
     taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
     presentation: opt(RunPresentationSchema),
+    /** prepare 时的呈现来源与自动回退原因；旧请求缺省按 local／config 解释。 */
+    presentationSource: opt(RunPresentationSourceSchema),
+    presentationFallbackReason: opt(union([str({ minLength: 1 }), nul()])),
     purpose: RunPurposeSchema,
     initiator: RunInitiatorSchema,
     createdAt: str({ minLength: 1 }),

@@ -17,7 +17,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/build-bridge-schema.mjs",
-    "test": "npm run -s typecheck && npm run -s build && node --test \"test/*.test.mjs\"",
+    "test": "npm run -s typecheck && npm run -s build && env -u REX_SESSION -u REX_BLOCK node --test \"test/*.test.mjs\"",
     "pack:check": "npm run -s build && node scripts/pack-check.mjs",
     "pack:install": "node scripts/pack-install.mjs",
     "prepack": "npm run build"

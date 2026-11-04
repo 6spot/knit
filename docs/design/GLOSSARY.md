@@ -15,7 +15,7 @@
 | worker | 执行阶段请求的本机进程，按需加载所选 AgentRuntime；进程结束后原生 Session 和 run 资料可继续保留 |
 | ClientAdapter | 内部模块，生成项目入口与桥接，启动客户端并取得真实主会话上下文 |
 | AgentRuntime | 内部模块，负责阶段 Agent 执行、取消、历史与恢复；首版调用本机 Pi CLI，旧记录无法恢复时同客户端新会话读任务资料续做 |
-| ExecutionHost | 内部模块，启动和定位 worker；首版 local，REX 后续 |
+| ExecutionHost | 内部模块，启动和定位 worker；local 与 REX，缺省 auto 在派发前探测环境与能力 |
 | 项目桥接 | init 生成的客户端集成文件，Pi 为 `.pi/extensions/knit.ts`；转交原生上下文并轻量观察本会话 run，业务由 CLI 处理，不另建常驻服务 |
 | 可插拔模块 | 随 Knit 源码维护和构建的内部实现，通过固定装配表替换，不是第三方插件 SDK |
 | 阶段／phase | 进行中任务下一步所需的四环节；取消／替代时保留停止位置，由 frontmatter 保存 |

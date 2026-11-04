@@ -833,7 +833,7 @@ test("RunCoordinator：presentation=rex 写入不可变 request 并被 status �
   const store = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
   const locks = new LockManager({ root: join(dir, ".locks") });
   const tasks = new TaskService({ store, locks, randomHex });
-  const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks") });
+  const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), hostProbe: async () => {} });
   try {
     const task = await tasks.newTask({ dir, title: "rex presentation", slug: "rex-presentation", verification: "independent" });
     await tasks.ready({ dir, taskId: task.taskId });
@@ -846,9 +846,13 @@ test("RunCoordinator：presentation=rex 写入不可变 request 并被 status �
       model: { runtime: "pi", provider: "fake", model: "fake" },
     });
     assert.equal(prepared.request.presentation, "rex");
+    assert.equal(prepared.request.presentationSource, "explicit");
+    assert.equal(prepared.request.presentationFallbackReason, null);
     assert.equal(new RunStore(dir).readRequest(prepared.request.runId).presentation, "rex");
     const status = await coordinator.status({ dir, runId: prepared.request.runId });
     assert.equal(status.presentation, "rex");
+    assert.equal(status.presentationSource, "explicit");
+    assert.equal(status.presentationFallbackReason, null);
     assert.equal(status.state, "claimed");
   } finally {
     store.close();
@@ -867,7 +871,7 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
     const planner = new ContextPlanner({ store });
     const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
     assert.equal(plan.ready, true);
-    const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks") });
+    const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), hostProbe: async () => {} });
     const prepared = await coordinator.prepare({
       dir,
       taskId: task.taskId,
@@ -943,12 +947,13 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
   }
 });
 
-test("CLI：run implement/check 暴露 --rex 开关", () => {
+test("CLI：run implement/check 暴露 --rex 与 --local 开关", () => {
   for (const command of ["implement", "check"]) {
     const result = spawnSync(process.execPath, [join(ROOT, "dist", "cli", "knit.js"), "run", command, "--help"], {
       encoding: "utf8",
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /--rex/);
+    assert.match(result.stdout, /--local/);
   }
 });

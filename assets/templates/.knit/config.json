@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "client": { "default": "pi" },
   "agent": { "runtime": "pi", "resume": "prefer" },
-  "execution": { "host": "local" },
+  "execution": { "host": "auto" },
   "delivery": { "mode": "local" },
   "workflow": { "maxRepairRounds": 2 },
   "limits": {

@@ -6,7 +6,7 @@
 
 日常由用户在 Pi 对话，主 Agent 调用 Knit。Knit 独立安装并提供 CLI；`init` 在当前项目生成薄 Pi 桥接，用户不另装全局 Pi Extension。主会话与阶段 Agent 都使用原生会话，Knit 负责协调和保存关联。
 
-首版面向同一用户、本机原地执行。代码阶段与 Git 收尾串行，讨论、纯记录及规范候选可并行保存。内部模块可替换，源码装配表负责接入 Pi、local 和测试用 fake；不提供外部插件 SDK。Worktree、REX 和其他客户端具体实现仍属后续。
+首版面向同一用户、本机原地执行。代码阶段与 Git 收尾串行，讨论、纯记录及规范候选可并行保存。内部模块可替换，源码装配表负责接入 Pi、local、REX 和测试用 fake；不提供外部插件 SDK。Worktree 和其他客户端具体实现仍属后续。
 
 ## 2. 分层与依赖
 
@@ -20,8 +20,10 @@ flowchart TD
     A --> P[内部能力契约]
     P --> PI[Pi 客户端与 Runtime]
     P --> L[local 执行宿主]
+    P --> R[REX 执行宿主]
     P --> I[文件 Git 进程 时钟]
     L --> W[独立阶段 worker]
+    R --> W
     W --> A
     W --> PI
 ```
@@ -63,7 +65,7 @@ flowchart TD
 | --- | --- | --- |
 | ClientAdapter | 项目集成计划、原生上下文、有效分支关联、原生效果与确认 | Pi；生成桥接，主会话写入只能经运行中的原生 API |
 | AgentRuntime | probe、指令准备、new/resume、历史、执行、取消、dispose；输出事件和报告 | 本机 Pi CLI／stdin-stdout RPC；实施与检查 Session 分离 |
-| ExecutionHost | probe、launch、inspect；返回实例身份与定位 | local；同一 worker 程序 |
+| ExecutionHost | probe、launch、inspect；返回实例身份与定位 | local 与 REX；REX 复用同一 worker、阶段协议与 RexApi 能力探测 |
 | GitPort | 状态、路径／index、提交树、提交与引用验证 | 原生 Git，argv 调用 |
 | MetadataStore | Session／binding／operation 及短事务 | SQLite（Node24 内置 node:sqlite，M0 实证选定）；不双写权威镜像 |
 | FileStore／LockStore | 项目正文、证据文件、执行与短时占用 | 本地文件系统；不把文件端口等同元数据后端已定 |
@@ -74,9 +76,9 @@ Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CL
 ## 5. 进程与运行时序
 
 1. 项目桥接从当前 Pi 调用取得原生 Session、有效分支和实际模型，转给同一 CLI 命令处理器。用户直接 CLI 可没有主 Session；缺少的任务或模型必须显式补足。实现（任务015）：桥接登记主会话与有效选择，工具 schema 由构建期派生 JSON 提供；观察器按 run 发起方原生 ID 只读查询并按会话条目去重投递，不接收结果。
-2. CLI 核心做只读预检、选定模型身份，发布不可变 request 与启动意图；request 记录任务／分支、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
-3. local 启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。实现（任务012）：RunCoordinator 发布 request/launch，worker 以 `mkdir claim` 认领并自行取锁；implement 快照 ready 后停于 prepared，阶段执行由 013 在同一 run 内继续。实现（任务016）：快照同时保存工作区与独立 index blob；`snapshot show` 只读对照，restore 默认预览、需显式当前指纹，按路径恢复并留下 `.runtime/restores/` 记录，Task 输入改走 task update。
-4. worker 只装配所选 runtime；默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。
+2. CLI 核心做只读预检、选定模型身份，并按调用级 `--rex`／`--local` > `execution.host`（缺省 `auto`）解析呈现；`auto` 仅在派发前探测 REX，失败回退 local 并记录原因。随后发布不可变 request 与启动意图，request 记录任务／分支、呈现来源／回退原因、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
+3. 本机启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。`presentation: rex` 时由 StageRunner 在 worktree 内启动 RexLauncher，在浮层中运行阶段 Pi；start 与 resume 只读 request 中已落盘的呈现，不在启动后换宿主。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。实现（任务012）：RunCoordinator 发布 request/launch，worker 以 `mkdir claim` 认领并自行取锁；implement 快照 ready 后停于 prepared，阶段执行由 013 在同一 run 内继续。实现（任务016）：快照同时保存工作区与独立 index blob；`snapshot show` 只读对照，restore 默认预览、需显式当前指纹，按路径恢复并留下 `.runtime/restores/` 记录，Task 输入改走 task update。
+4. worker 只装配所选 runtime；REX 分支在浮层内使用同一 Pi runtime、工具策略与原生会话协议。默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。
 5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。实现（任务013）：StageRunner 执行阶段并保存 result，RunAcceptanceService 复核输入／规范／scope／分支后机械推进；原生引用不可恢复只标 Session opening，结果写失败置 failed 不接收。实现（任务014）：DeliveryService 先落盘交付／归档操作，限定路径提交并核对真实 OID／范围／index 保护，封存后移动与归档提交；hook 越界与回执丢失分别保留现场和核实恢复。实现（任务017）：StageRunner 在项目锁后取得 Session 锁并写 `stage-process`，取消超时终止完整进程树；`locks`／`unlock` 以 owner token 显式核实与强解，resume 在旧阶段进程未确认结束时保持阻塞。
 6. 结果接收可在 worker 内调用同一核心用例；若中断，后续 CLI 按结果与操作意图重入。收到结果不意味着自动发起下一个模型或 Git 操作，主 Agent 根据工作流与当前用户意图继续。
 

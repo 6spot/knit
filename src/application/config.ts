@@ -8,12 +8,16 @@ import { InfrastructureError } from "../infrastructure/errors.js";
 
 export const PROJECT_SCHEMA_VERSION = 1;
 
+/** 执行宿主选择：auto 在派发前探测 Rex，不可用时回退 local；rex 强制且不回退。 */
+export const ExecutionHostSchema = union([lit("auto"), lit("local"), lit("rex")]);
+export type ExecutionHost = Static<typeof ExecutionHostSchema>;
+
 export const ProjectConfigSchema = obj(
   {
     schemaVersion: int({ minimum: 1 }),
     client: obj({ default: str() }, { open: true }),
     agent: obj({ runtime: str(), resume: union([lit("prefer"), lit("new")]) }, { open: true }),
-    execution: obj({ host: str() }, { open: true }),
+    execution: obj({ host: ExecutionHostSchema }, { open: true }),
     delivery: obj(
       {
         mode: str(),
@@ -85,7 +89,7 @@ export function defaultConfig(): ProjectConfig {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     client: { default: "pi" },
     agent: { runtime: "pi", resume: "prefer" },
-    execution: { host: "local" },
+    execution: { host: "auto" },
     delivery: { mode: "local" },
     workflow: { maxRepairRounds: 2 },
     limits: {

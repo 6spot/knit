@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import type { RunLaunchState, RunPhase, RunPresentation } from "../contracts/run.js";
+import type { RunLaunchState, RunPhase, RunPresentation, RunPresentationSource } from "../contracts/run.js";
 import {
   LaunchRecordSchema,
   RunRequestFileSchema,
@@ -29,11 +29,12 @@ import { dependencyBlockersOf } from "./task-schedule.js";
 import { assertExecutionRoute, executionRouteOf } from "./worktree-routing.js";
 import { loadScope, scopeDigest } from "./scope.js";
 import { currentBranch } from "./delivery.js";
-import { parseConfig, defaultConfig } from "./config.js";
+import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
 import { LockManager } from "../infrastructure/locks.js";
+import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
 
 const WORKER_SCRIPT = fileURLToPath(new URL("../worker/knit-worker.js", import.meta.url));
 
@@ -46,6 +47,9 @@ export interface RunCoordinatorOptions {
   workerCommand?: string[];
   confirmTimeoutMs?: number;
   lockRoot?: string;
+  /** 测试或宿主注入；缺省使用 process.env 与真实 RexApi 探测。 */
+  env?: NodeJS.ProcessEnv;
+  hostProbe?: HostProbe;
 }
 
 export interface PrepareInput {
@@ -54,8 +58,10 @@ export interface PrepareInput {
   executionDir?: string;
   taskId: string;
   phase: RunPhase;
-  /** 缺省 local，保持既有 RPC 链路；rex 才进入浮层分支。 */
+  /** 调用级显式选择；缺省按 execution.host（未配置为 auto）解析。 */
   presentation?: RunPresentation;
+  /** 已解析的宿主；resume 沿用旧 run 时使用，不再探测。 */
+  hostSelection?: HostSelection;
   initiator: {
     client: "pi" | "cli";
     knitSessionId: string | null;
@@ -76,6 +82,8 @@ export interface RunStatusProjection {
   taskId: string;
   phase: RunPhase;
   presentation: RunPresentation;
+  presentationSource: RunPresentationSource;
+  presentationFallbackReason: string | null;
   /** 请求冻结时的任务分支；用于观察通知不误投切树后的上下文。 */
   branch: string | null;
   initiator: RunRequestFile["initiator"];
@@ -116,6 +124,8 @@ export class RunCoordinator {
   private readonly workerCommand: string[];
   private readonly confirmTimeoutMs: number;
   private readonly lockRoot: string | null;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly hostProbe: HostProbe | undefined;
 
   constructor(options: RunCoordinatorOptions) {
     this.store = options.store;
@@ -125,6 +135,8 @@ export class RunCoordinator {
     this.workerCommand = options.workerCommand ?? [process.execPath, WORKER_SCRIPT];
     this.confirmTimeoutMs = options.confirmTimeoutMs ?? 5000;
     this.lockRoot = options.lockRoot ?? null;
+    this.env = options.env ?? process.env;
+    this.hostProbe = options.hostProbe;
   }
 
   /** 短等待项目锁：上一 worker 刚发布终态时可能尚在 finally 释放锁。 */
@@ -227,14 +239,14 @@ export class RunCoordinator {
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
+    const selection = await this.resolveHostSelection(root, input);
     const active = this.findActive(runs, input.taskId, input.phase);
     if (active !== null) {
       const activePresentation = active.request.presentation ?? "local";
-      const requestedPresentation = input.presentation ?? "local";
-      if (activePresentation !== requestedPresentation) {
+      if (activePresentation !== selection.host) {
         throw new GuardError(
           "invalid_request",
-          `已有活动 run 使用 ${activePresentation} 呈现；先取消或等待其结束后再切换到 ${requestedPresentation}`,
+          `已有活动 run 使用 ${activePresentation} 呈现；先取消或等待其结束后再切换到 ${selection.host}`,
         );
       }
       return { request: active.request, launch: active.launch, reused: true };
@@ -249,7 +261,9 @@ export class RunCoordinator {
       runId,
       taskId: input.taskId,
       phase: input.phase,
-      presentation: input.presentation ?? "local",
+      presentation: selection.host,
+      presentationSource: selection.source,
+      presentationFallbackReason: selection.fallbackReason,
       purpose: input.phase === "advisory" ? "assist" : "stage",
       initiator: input.initiator,
       createdAt,
@@ -424,6 +438,8 @@ export class RunCoordinator {
       taskId: request.taskId,
       phase: request.phase,
       presentation: request.presentation ?? "local",
+      presentationSource: request.presentationSource ?? "config",
+      presentationFallbackReason: request.presentationFallbackReason ?? null,
       branch: request.expected.branch,
       initiator: request.initiator,
       createdAt: request.createdAt,
@@ -451,6 +467,29 @@ export class RunCoordinator {
           ? null
           : { operationId: operation.operationId, state: operation.state, reason: operation.reason ?? null },
     };
+  }
+
+  /** 已解析宿主（resume 直接沿用旧选择，不再探测）；显式与已解析值冲突时拒绝。 */
+  private async resolveHostSelection(root: string, input: PrepareInput): Promise<HostSelection> {
+    if (input.hostSelection !== undefined) {
+      if (input.presentation !== undefined && input.presentation !== input.hostSelection.host) {
+        throw new GuardError("invalid_request", "显式呈现选择与已解析的宿主不一致");
+      }
+      return input.hostSelection;
+    }
+    return await selectHost({
+      explicit: input.presentation ?? null,
+      config: this.executionHost(root),
+      env: this.env,
+      probe: this.hostProbe,
+    });
+  }
+
+  /** execution.host；配置缺失时按未配置（auto）处理，存在但非法时按配置错误报告。 */
+  private executionHost(root: string): ExecutionHost | null {
+    const path = join(root, ".knit", "config.json");
+    if (!existsSync(path)) return null;
+    return parseConfig(readFileSync(path, "utf8")).execution.host;
   }
 
   /** 项目修复轮次上限；配置缺失时用默认值。 */
@@ -621,7 +660,11 @@ export class RunCoordinator {
       ...(input.executionDir === undefined ? {} : { executionDir: input.executionDir }),
       taskId: old.taskId,
       phase: old.phase,
-      presentation: old.presentation ?? "local",
+      hostSelection: {
+        host: old.presentation ?? "local",
+        source: old.presentationSource ?? "config",
+        fallbackReason: old.presentationFallbackReason ?? null,
+      },
       initiator: old.initiator,
       model: old.model,
       recovery: { nativeSessionId, resume: "prefer" },

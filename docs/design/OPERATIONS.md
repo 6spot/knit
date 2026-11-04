@@ -1,6 +1,6 @@
 # Knit 运行细则
 
-本文件补充 [DESIGN.md](DESIGN.md) 的运行规则；模块与唯一写入方见 [ARCHITECTURE.md](ARCHITECTURE.md)，枚举／转移见 [STATES.md](STATES.md)，依赖版本见 [TECHNOLOGY.md](TECHNOLOGY.md)。首版独立 CLI、Pi／local 和项目薄桥接已实现至 Linux 候选；Worktree、REX 等属于后续。
+本文件补充 [DESIGN.md](DESIGN.md) 的运行规则；模块与唯一写入方见 [ARCHITECTURE.md](ARCHITECTURE.md)，枚举／转移见 [STATES.md](STATES.md)，依赖版本见 [TECHNOLOGY.md](TECHNOLOGY.md)。首版独立 CLI、Pi／local／REX 和项目薄桥接已实现至 Linux 候选；Worktree 等属于后续。
 
 ## 1. 内部模块与项目桥接
 
@@ -19,6 +19,8 @@ Knit 按源码中的固定装配表使用客户端、runtime 与执行宿主，�
 | 项目 `.knit/.runtime/` | 私有安装映射、初始化清单、会话、绑定、run 和快照，Git 忽略 |
 
 init 维护两类文件：配置、工作流、角色和规范属于项目资料，只补缺；桥接代码及入口标记块属于受管内容，与旧基线一致时可更新，人工改动或未知来源须报告差异。先准备资料与本机映射，最后发布桥接并置 ready；中断按逐项结果核实，不能把部分初始化作为成功。安装 ready 不替代 Pi 原生项目信任；可信项目中新 Pi 可自动加载，已有会话 `/reload` 或重启，未受信时说明原因，不默认加 `--approve` 绕过。子 worker 使用明确资源参数，默认不加载主桥接。
+
+实现（REX 自动呈现）：`run prepare`／`implement`／`check`／`assist` 按调用级 `--rex`／`--local` > 项目 `execution.host` > `auto` 解析宿主；`--rex` 与 `--local` 同用报 `invalid_request`。`auto` 仅在派发前检查 `REX_SESSION`／`REX_BLOCK`、`rex` CLI（`REX_BIN_DIR` 或 PATH）与 `REX_REQUIRED_METHODS`，通过则使用 REX，否则回退 local 并记录原因；显式或配置 `rex` 不可用返回 `rex_unavailable`，不回退。prepare 落盘 `presentation`、`presentationSource`、`presentationFallbackReason`，start 与 resume 只读已落盘值；活动 run 的呈现不可变。`run list`／`run status`／`knit status --run` 展示实际宿主、来源与回退原因；`run check --scope` 仍拒绝 REX。Rex 终端内的 `knit_run` 不传 `--rex` 也按同一配置／环境规则自动生效。
 
 ## 2. 占用与解除
 

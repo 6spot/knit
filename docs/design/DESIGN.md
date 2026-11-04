@@ -3,7 +3,7 @@
 初始记录日期：2026-10-31  
 状态：首版设计已实现至 Linux 候选（001–026）；macOS 后续验证。
 
-Knit 是独立 CLI 与项目辅助系统，负责项目初始化、任务记录、规范演进、四环节协调、模型选择、提交归档和恢复。内部按可插拔模块组织，首版接入 Pi 与 local；Worktree、REX 和其他客户端具体实现后续增加。
+Knit 是独立 CLI 与项目辅助系统，负责项目初始化、任务记录、规范演进、四环节协调、模型选择、提交归档和恢复。内部按可插拔模块组织，已接入 Pi、local 与 REX；Worktree 和其他客户端具体实现后续增加。
 
 日常主入口是用户在 Pi 中对话，由主 Agent 调 Knit；CLI 同时供本人直接操作。个人开发按单人设计，多会话、多分支和换机器只要求身份、资料和恢复不出错，不建设多人协作、共享调度或团队任务库。
 
@@ -28,7 +28,7 @@ Knit 通过自身 CLI 和项目资料提供核心能力，Pi 是首个客户端�
 | Knit 核心 | 独立 CLI、初始化、任务、规范演进、阶段、运行协议与恢复 |
 | ClientAdapter／AgentRuntime | 系统内部的客户端资料、原生会话与阶段执行适配 |
 | SoL-Pi 等 Extensions | 可选的上下文、计划或其他会话辅助 |
-| REX 等终端适配 | 后续可替换的进程启动、窗口定位与展示 |
+| REX 终端适配 | 已实现的进程启动、窗口定位与展示；自动识别 Rex 环境，不可用时回退 local |
 
 初始化、资料与诊断由 Knit 自身运行；Pi 执行需要相应运行时和可用模型。SoL-Pi、计划工具等客户端扩展均为独立可选项。终端宿主只改变执行展示，任务身份、模型策略、检查结论和 Git 操作由核心管理。
 
@@ -308,7 +308,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
-| run implement/check --task <id> | 只派发 worker；实施入口拒绝未满足的前置依赖；run check 也用于 deliver 前复查 |
+| run implement/check --task <id> [--rex/--local] | 只派发 worker；实施入口拒绝未满足的前置依赖；run check 也用于 deliver 前复查；缺省按 execution.host 自动选择宿主 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
 | assist discuss | 可选讨论建议 worker（advisory），不推进业务或执行 Git；交付由主会话协调，不派发 worker |
 | resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |
@@ -371,19 +371,19 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 ```text
 用户／Agent → knit CLI → 核心：阶段、上下文、AgentRuntime、最终模型、cwd
                               ↓ 选择 ExecutionHost
-                   内置 local             后续 REX 适配
-                   后台子进程             可见终端中的子进程
+                   内置 local             内置 REX
+                   后台子进程             可见终端中的阶段 Pi
                               ↓
                  同一个 Knit worker → AgentRuntime → 原生 Session
                               ↓
                     核心校验结构化结果并推进阶段
 ```
 
-worker 随 Knit 安装，负责运行协议、事件输出、结果回执、取消与资源释放。ExecutionHost 负责启动、定位和呈现该进程，默认 local 由 Knit 直接启动。AgentRuntime 负责指令适配、模型与工具策略、原生 Session 和阶段执行。
+worker 随 Knit 安装，负责运行协议、事件输出、结果回执、取消与资源释放。worker 始终由本机启动；`presentation` 决定阶段 Pi 在后台还是 REX 浮层执行，ExecutionHost 负责启动、定位和呈现。缺省 `execution.host: auto`：REX 环境与能力探测通过时使用浮层，否则回退 local。AgentRuntime 负责指令适配、模型与工具策略、原生 Session 和阶段执行。
 
-Pi runtime 启动本机 `pi --mode rpc`，直接通过 stdin/stdout JSONL 发送请求并接收响应／事件；不导入 SDK 或其 RpcClient。用 CLI 参数指定模型、cwd、工具集合与系统附加约束；恢复只向存在且归属已核实的记录传 `--session`。默认关闭扩展、MCP、技能和上下文文件的自动加载，按输入计划显式提供角色、规范与上下文；模型配置和鉴权复用本机客户端，不另建运行时。启动后通过可用清单或 `set_model` 校验所选模型，再核对实际选择。当前 CLI 无法落实的必需资源／策略显式报告，不用 SDK 补齐。编排逻辑在 Knit 核心，local 模块启动同一 worker。
+Pi runtime 启动本机 `pi --mode rpc`，直接通过 stdin/stdout JSONL 发送请求并接收响应／事件；不导入 SDK 或其 RpcClient。用 CLI 参数指定模型、cwd、工具集合与系统附加约束；恢复只向存在且归属已核实的记录传 `--session`。默认关闭扩展、MCP、技能和上下文文件的自动加载，按输入计划显式提供角色、规范与上下文；模型配置和鉴权复用本机客户端，不另建运行时。启动后通过可用清单或 `set_model` 校验所选模型，再核对实际选择。当前 CLI 无法落实的必需资源／策略显式报告，不用 SDK 补齐。编排逻辑在 Knit 核心，本机模块启动同一 worker。
 
-核心解析最终模型，worker 经 AgentRuntime 再核对。凭据留在对应公开鉴权渠道。首版使用 local 后台执行；后续可见模式输出模型文本、工具进度和结果摘要。需要用户决策时返回主会话处理。
+核心解析最终模型，worker 经 AgentRuntime 再核对。凭据留在对应公开鉴权渠道。默认 local 后台执行；REX 呈现时在浮层中输出模型文本、工具进度和结果摘要。需要用户决策时返回主会话处理。
 
 ### 5.5 内部可插拔模块
 
@@ -393,7 +393,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | --- | --- |
 | ClientAdapter | 生成项目桥接与入口、启动客户端、核实原生会话上下文；首版 Pi |
 | AgentRuntime | 阶段指令、模型和工具策略、原生会话、运行与取消；首版本机 Pi CLI 协议 |
-| ExecutionHost | 启动与定位统一 worker；首版 local，REX 后续 |
+| ExecutionHost | 启动与定位统一 worker；local 与 REX（自动探测） |
 
 同一客户端的 ClientAdapter 与 AgentRuntime 共享稳定客户端 ID；宿主 ID 独立。实例按主会话或 run 构造，失败清理本次已取得资源，结束后按依赖顺序释放。运行中使用的实现保持到工具终态，切换选择影响后续运行。
 
@@ -445,17 +445,18 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 
 请求只保存必要环境变量的名称与凭据引用，不序列化环境值、token 或 API key。凭据经受信运行时通道提供。Knit 写入任务、规范或配置前，以及限定路径提交前，扫描待写内容与本次实际差异中的常见 token／私钥模式；命中时暂停并只报告类型和位置。外部工具不受 Knit 事前写入控制，提交前仍执行扫描；扫描不构成无泄露证明。
 
-### 5.7 REX 执行适配（后续）
+### 5.7 REX 执行适配
 
-选择 REX 后，worker 在 REX session 内新建的可见终端窗口执行。REX window 对应 session 内的窗口／标签页。
+阶段呈现（presentation）在 prepare 时一次解析并落盘，start／resume 不再探测或换宿主：
 
-1. `probe()` 核对 CLI、连接、继承的目标 session 与参数能力。身份失效时用 `rex whoami --json` 等查询核实目标，无法确定时返回阻塞。
-2. 使用 `rex run --json --cwd … --label … --keep-open --shell=none -- <worker 程序与参数>`，明确传入目标 session。默认新窗口，配置分屏时指定 `--split` 及锚点。
-3. 程序路径由 Knit 安装位置和当前 Node 运行时解析，启动 argv 包含 worker 入口、run ID 和请求文件位置。阶段请求通过文件交付，鉴权通过选定 AgentRuntime 的公开渠道取得；核对 REX 与父会话的环境差异，必要配置不足时报告阻塞。
-4. 保存创建结果并补齐窗口／block 定位。标签包含任务／运行短 ID 与阶段，首次默认聚焦，配置可保留主窗口焦点；`--keep-open` 保留退出输出。
-5. 核心从 worker 回执读取阶段结果。`--wait` 可辅助观察终端子进程退出码，handle 用于定位、观察与重连。
+1. 调用级 `--rex`／`--local` 优先；二者同时出现报 `invalid_request`。
+2. 否则按 `.knit/config.json` 的 `execution.host`：`auto`（缺省）在派发前探测，`local` 始终本地，`rex` 强制使用 REX。
+3. `auto` 同时满足 `REX_SESSION` 与 `REX_BLOCK`、`rex` CLI 可执行（`REX_BIN_DIR` 或 PATH）、`rex api list --json` 含 7 个必需方法时才使用 REX；否则回退 local 并记录原因。探测复用 `RexApi.check()` 与 `REX_REQUIRED_METHODS`，不新写协议。
+4. `--rex` 或 `host: "rex"` 不可用时报 `rex_unavailable` 并保留具体原因（环境缺失、CLI 缺失、连接失败或缺方法），不静默回退。
 
-显式选择的 REX 不可用时报告原因和可选宿主，宿主切换由用户选择。断连或创建响应丢失后先查原运行，继续执行以原 run 的核实结果为前提。
+选择 REX 后，local worker 仍在项目内完成认领、输入冻结和快照；StageRunner 在 REX session 内用 `session.new_layer` 新建可见终端，运行 Pi TUI + worker 扩展，标签为 `knit <run-id>`，通过 bridge 观察状态、steer 与 stop。已有 `rex.json` 时按标签与身份恢复发现，不重复建浮层。REX window 对应 session 内的窗口／标签页。
+
+`presentation`、`presentationSource`（explicit/config/auto）与 `presentationFallbackReason` 写入不可变 request；活动 run 的呈现不可变，`run resume` 沿用旧值。浮层创建或阶段 Pi 启动后的失败不切换宿主，沿用 `rex_start_failed:*` 与既有失败语义；用户重新派发时按当时检测结果重新解析。`run list`／`run status`／`knit status --run` 显示实际宿主、来源与回退原因。`run check --scope` 为非正式检查，仍不支持 REX。桥接 `knit_run` 不传 `--rex` 时继承扩展进程环境，按同一规则自动生效。
 
 ### 5.8 客户端适配与原生会话
 
@@ -660,7 +661,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 | 原 worker 已退出，原生 Session 有效 | 由记录所属的 AgentRuntime 加载指定会话，校验当前模型、注入清单、cwd 与工具策略 |
 | 恢复时当前客户端或项目默认变化 | 按旧 Session 的客户端归属恢复；客户端不可用时报告阻塞 |
 | 原生 Session 明确不可恢复 | 保留旧引用与原因，确认旧执行结束后沿原客户端自动新建会话，读任务文件与当前现场续做 |
-| 后续 REX 断连或启动响应丢失 | 查找原 run 与 handle，核实后重连或结束处理 |
+| REX 断连或启动响应丢失 | 查找原 run 与 handle，核实后重连或结束处理 |
 | 所需客户端模块不可用 | 保留原生引用与回执，报告版本或能力原因；不切到其他客户端恢复 |
 | 实施完成、检查未完成 | 从检查继续 |
 | 检查后代码变化 | 判断并补充检查范围 |
@@ -699,7 +700,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `agent.runtime`／`phases.<phase>.runtime` | `pi`；调用、阶段、项目默认依次选择内部装配表中的实现 |
 | `phases.<phase>.model` | 未配置时使用阶段启动时主 Agent 的当前模型，包含 provider 与 model 标识 |
 | `agent.resume` | `prefer`；本次可明确选择 `new` |
-| `execution.host` | `local`；调用级选择优先于项目配置，从内部装配表解析 |
+| `execution.host` | `auto`；REX 环境与能力探测通过时用 `rex`，否则 `local`；值为 `local` 始终本地，`rex` 强制且失败报 `rex_unavailable`；调用级 `--rex`／`--local` 优先 |
 | `delivery.mode` | `local`；当前项目／绑定分支交付，调用仍显式 --branch 并核实授权 |
 | `delivery.defaultBranch` | 可选完整 refs/heads/...，无默认；用于默认分支候选展示，不切分支／授权限；格式非法报告配置错误 |
 | `workflow.maxRepairRounds` | `2` |
@@ -713,7 +714,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
   "schemaVersion": 1,
   "client": { "default": "pi" },
   "agent": { "runtime": "pi", "resume": "prefer" },
-  "execution": { "host": "local" },
+  "execution": { "host": "auto" },
   "delivery": { "mode": "local" },
   "workflow": { "maxRepairRounds": 2 }
 }
@@ -721,7 +722,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 
 项目阶段配置保存在 `phases.implement`、`phases.check` 等条目。数值配置校验正数容量、非负修复轮次，心跳可疑阈值大于间隔。核心按固定内部装配表选择 runtime 与 host，项目不能指定模块路径或运行入口。版本与本机资料见 [OPERATIONS.md](OPERATIONS.md)。
 
-后续增加 REX、Codex、Claude Code 等适配实现，以及 Worktree 执行环境及根目录、`worktree.copy`、`worktree.postCreate`、`delivery.mode: "merge"` 与 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
+REX 执行适配已实现；后续增加 Codex、Claude Code 等适配实现，以及 Worktree 执行环境及根目录、`worktree.copy`、`worktree.postCreate`、`delivery.mode: "merge"` 与 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
 
 首版没有 `limits.maxTokens`、`limits.maxCostUsd` 或 `limits.workerTimeoutMs` 配置；用量只观测。主动预算停止作为后续可选能力，不由项目配置暗中启用。
 
@@ -781,7 +782,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 ### 15.2 后续能力
 
 - Worktree 的全部实现：创建、连接、枚举、分支管理、任务资料交接、公共资料复制、初始化、迁移、修复与清理。
-- REX 可见执行模块，Codex、Claude Code 等客户端及 runtime 适配。
+- Codex、Claude Code 等客户端及 runtime 适配。
 - 自动合入与跨目录交付，多任务并行调度。
 
 后续增加跨执行目录恢复、旧框架资料迁入、自动清理、列表缓存，以及用户主动选择的预算／总时长停止策略。
@@ -842,7 +843,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 | 公共资料与初始化 | 明确白名单、路径和指纹、部分失败、步骤顺序与副作用核实；全部成功后才启动阶段 |
 | 多目录与迁移 | 仓库登记、跨目录列表、规则隔离、整体移动和关联修复；失效绑定保留条目 |
 | 跨客户端与展示宿主 | 归属不随配置变化，原生恢复由所属实现处理；历史读取、模型映射、cwd 兼容和切换关联可核对 |
-| REX 具体集成 | 窗口、断连、呈现与定位符合宿主能力；运行结果、取消与恢复沿用首版核心模块与 worker 协议 |
+| REX 呈现与恢复 | 自动识别、显式覆盖与派发前回退可核对；浮层创建、断连、取消与恢复沿用核心 run／worker 协议；真机 GUI 验收按已有决定延期 |
 | 合入与清理 | 目标占用与 index、草稿阻挡、真实冲突、合入后归档重试；清理前保全 Session 与 run 引用 |
 
 ### 16.4 实施里程碑与测试

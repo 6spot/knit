@@ -8,7 +8,7 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { resolvePhaseModel } from "../application/model-selection.js";
 import { GuardError } from "../application/guard-error.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
-import type { RunPhase } from "../contracts/run.js";
+import type { RunPhase, RunPresentation } from "../contracts/run.js";
 import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -21,6 +21,16 @@ function openStore(dir: string): SqliteMetadataStore {
 
 function terminal(state: string): boolean {
   return state === "completed" || state === "cancelled" || state === "failed";
+}
+
+/** 调用级显式覆盖；--rex 与 --local 同时出现拒绝，未指定时由项目配置／自动探测决定。 */
+function explicitPresentation(options: Record<string, unknown>): RunPresentation | undefined {
+  if (options.rex === true && options.local === true) {
+    throw new GuardError("invalid_request", "--rex 与 --local 不能同时使用");
+  }
+  if (options.rex === true) return "rex";
+  if (options.local === true) return "local";
+  return undefined;
 }
 
 export function registerRunCommands(program: Command): void {
@@ -39,6 +49,7 @@ export function registerRunCommands(program: Command): void {
     phase: RunPhase,
     requestId: string,
   ): Promise<Awaited<ReturnType<RunCoordinator["prepare"]>>> => {
+    const presentation = explicitPresentation(options);
     const start = resolveProjectStart(String(options.dir ?? "."));
     const root = start.mainRoot;
     const taskId = String(options.task ?? "");
@@ -60,7 +71,7 @@ export function registerRunCommands(program: Command): void {
         executionDir: start.executionDir,
         taskId,
         phase,
-        presentation: options.rex === true ? "rex" : "local",
+        presentation,
         initiator: {
           client: options.client === "pi" ? "pi" : "cli",
           knitSessionId: (options.session as string | undefined) ?? null,
@@ -122,7 +133,8 @@ export function registerRunCommands(program: Command): void {
     .description("发布 run 请求与启动意图（不取得执行占用、不写业务资料）")
     .requiredOption("--task <taskId>", "任务 ID")
     .requiredOption("--phase <phase>", "implement、check 或 advisory")
-    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
+    .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
+    .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
     .option("--client <client>", "pi 或 cli", "cli")
     .option("--session <knitSessionId>", "发起方 Knit Session")
     .option("--native <nativeSessionId>", "发起方原生 Session")
@@ -146,6 +158,7 @@ export function registerRunCommands(program: Command): void {
         else {
           console.log(`${result.reused ? "复用" : "已准备"} run: ${result.request.runId}`);
           console.log(`阶段: ${result.request.phase}；启动状态: ${result.launch.state}`);
+          console.log(`呈现: ${result.request.presentation}（来源 ${result.request.presentationSource ?? "config"}）${result.request.presentationFallbackReason ? `；回退原因: ${result.request.presentationFallbackReason}` : ""}`);
         }
       } catch (error) {
         fail("run-prepare", error);
@@ -183,7 +196,7 @@ export function registerRunCommands(program: Command): void {
         if (options.wait === true) result.status = await waitFor(String(options.dir ?? "."), prepared.request.runId, options.locks as string | undefined);
         if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
         else {
-          console.log(`run ${prepared.request.runId}: ${phase} 已启动（启动 ${started.launch.state}，准备 ${started.state?.prepared === true}）`);
+          console.log(`run ${prepared.request.runId}: ${phase} 已启动（启动 ${started.launch.state}，准备 ${started.state?.prepared === true}，呈现 ${prepared.request.presentation}/${prepared.request.presentationSource ?? "config"}）`);
           if (options.wait === true) {
             const status = result.status as { state?: string; result?: { state?: string; report?: { verdict?: string } } } | undefined;
             console.log(`终态: ${status?.state ?? "未知"}${status?.result?.report?.verdict ? ` / ${status.result.report.verdict}` : ""}`);
@@ -207,7 +220,8 @@ export function registerRunCommands(program: Command): void {
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
     .option("--new-repair-cycle", "显式开启新修复周期")
-    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
+    .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
+    .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
@@ -226,13 +240,18 @@ export function registerRunCommands(program: Command): void {
     .option("--model <model>", "模型标识")
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
-    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
+    .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
+    .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--pi-bin <path>", "非正式检查的 Pi 可执行文件（默认 KNIT_PI_BIN 或 PATH）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       if (Array.isArray(options.scope) && options.scope.length > 0) {
+        if (options.rex === true && options.local === true) {
+          fail("run-check", new GuardError("invalid_request", "--rex 与 --local 不能同时使用"));
+          return;
+        }
         if (options.rex === true) {
           fail("run-check", new GuardError("invalid_request", "非正式检查不支持 --rex；Rex 浮层只用于正式阶段"));
           return;
@@ -292,6 +311,7 @@ export function registerRunCommands(program: Command): void {
           if (jsonMode()) emit(jsonResponse("run-status", "completed", status));
           else {
             console.log(`run ${status.runId}: ${status.state}（启动 ${status.launchState}，尝试 ${status.attempts}）`);
+            console.log(`呈现: ${status.presentation}（来源 ${status.presentationSource}）${status.presentationFallbackReason ? `；回退原因: ${status.presentationFallbackReason}` : ""}`);
             console.log(`准备: ${status.prepared}；快照: ${status.snapshot?.state ?? "无"}；耗时 ${status.elapsedMs}ms`);
             if (status.inputsDigest !== null && status.effectiveInputsDigest !== null) {
               console.log(`输入摘要: ${status.inputsDigest.slice(0, 12)}；整体身份: ${status.effectiveInputsDigest.slice(0, 12)}`);
@@ -399,7 +419,10 @@ export function registerRunCommands(program: Command): void {
         const result = [];
         for (const runId of runs.listRunIds()) result.push(await coordinator.status({ dir: root, runId }));
         if (jsonMode()) emit(jsonResponse("run-list", "completed", result));
-        else for (const status of result) console.log(`${status.runId} ${status.phase} ${status.state} prepared=${status.prepared}`);
+        else for (const status of result) {
+          const fallback = status.presentationFallbackReason ? ` fallback=${status.presentationFallbackReason}` : "";
+          console.log(`${status.runId} ${status.phase} ${status.state} host=${status.presentation} source=${status.presentationSource}${fallback} prepared=${status.prepared}`);
+        }
       } catch (error) {
         fail("run-list", error);
       } finally {
@@ -419,7 +442,8 @@ export function registerRunCommands(program: Command): void {
     .option("--model <model>", "模型标识")
     .option("--resume <mode>", "prefer 或 new", "prefer")
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
-    .option("--rex", "在 Rex 浮层中运行阶段 Pi（TUI + worker 桥；缺省 local）")
+    .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
+    .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
     .option("--wait", "只观察直到终态")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
