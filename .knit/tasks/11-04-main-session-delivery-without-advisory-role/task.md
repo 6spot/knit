@@ -1,8 +1,8 @@
 ---
 id: k-aeda178a77b5
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:10.189Z
@@ -57,5 +57,25 @@ CLI run/assist、桥接 schema 与分发、角色/主会话模板、本仓库入
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-aeda178a77b5）
+
+- 入口：`knit assist deliver` 在 prepare 前拒绝（`assist_deliver_removed`），`assist discuss` 保留；桥接 `knit_run` assist 模式仅 `discuss`，两份扩展同步。
+- 角色：初始化模板与清单不再生成 `.knit/agents/deliver.md`；本仓库该文件已删除；上下文规划角色集合去掉 deliver；AGENTS 受管块写明「implement / check；交付由主会话协调」。
+- 主会话：workflow 交付段写明接收实施/检查结果、核对成果与完成条件、汇总修改与验证、报告，以及授权、提交范围、恢复与「子进程完成不代表提交/推送/发布授权」。
+- 保留：`knit deliver`/archive、范围与资格校验、readOnly 预检、恢复与授权边界；旧 advisory/交付运行记录只读可查，不删除、不迁移。
+- 规范：DESIGN §4.3/§10.1、STATES、OPERATIONS、GLOSSARY、README 同步。
+- 验证：`npm test` 429/429；`npm run pack:check` 通过；`knit assist deliver` 实测拒绝且不创建 run；临时仓库交付回归 50 项通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-9b9a478074a3 -->
+- 操作: op-9b9a478074a3
+- 时间: 2026-11-04T18:56:59.959Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: bbd148020e15960cbc8fb3043d3fbd57eeabf77d
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-main-session-delivery-without-advisory-role
 
 <!-- knit:progress:end -->
