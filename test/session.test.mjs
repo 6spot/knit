@@ -395,6 +395,11 @@ test("context：分层输入、规范／角色指纹、草案与候选只作背�
     assert.equal(checkPlan.toolPolicy.allow.includes("write"), true);
     assert.equal(checkPlan.toolPolicy.allow.includes("edit"), true);
     assert.equal(checkPlan.sections.find((section) => section.kind === "role").path, ".knit/agents/check.md");
+    // advisory 继续读 .knit/agents/advisory.md，可缺省；交付不再有 worker 角色文件。
+    const advisoryPlan = await planner.plan({ dir, taskId: task.taskId, role: "advisory" });
+    assert.equal(advisoryPlan.ready, true, "advisory 角色文件可缺省");
+    assert.equal(advisoryPlan.sections.some((section) => section.kind === "role"), false);
+    assert.equal(advisoryPlan.toolPolicy.mode, "read");
 
     // 任务候选规范只作背景，不改变需求摘要（DESIGN.md 第8.2节：任务辅助资料 standards.md）。
     const candidateBase = {

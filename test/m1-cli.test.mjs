@@ -217,6 +217,28 @@ test("assist discuss：advisory worker 只给建议，不推进 Task", () => {
   }
 });
 
+test("assist deliver：交付辅助入口已撤除，返回 invalid_request 且不创建 run", () => {
+  const dir = project("assist-deliver");
+  try {
+    const task = newTask(dir);
+    const rejected = jsonCli(dir, ["assist", "deliver", "--task", task.taskId]);
+    assert.equal(rejected.code, 1);
+    assert.equal(rejected.parsed.outcome, "error");
+    assert.equal(rejected.parsed.reasonCode, "invalid_request");
+    assert.match(rejected.parsed.data.error, /assist deliver 已撤除/);
+    const status = jsonCli(dir, ["status", task.taskId]);
+    assert.equal(status.parsed.data.runs.length, 0, "不创建 run");
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs")), false, "不落盘 run 目录");
+    assert.equal(status.parsed.data.phase, "discuss", "交付入口不推进业务阶段");
+    // 其它未知模式同样在准备前拒绝。
+    const unknown = jsonCli(dir, ["assist", "review", "--task", task.taskId]);
+    assert.equal(unknown.parsed.reasonCode, "invalid_request");
+    assert.match(unknown.parsed.data.error, /仅支持 discuss/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("run check --scope：非正式只读检查不建 Task／binding；副作用失败", async () => {
   const dir = project("informal");
   try {
@@ -331,6 +353,8 @@ test("桥接 schema 由同源 pi-schema 定义派生，模板读取安装包内 
   assert.match(template, /knit_task/);
   assert.match(template, /knit_run/);
   assert.match(template, /knit_deliver/);
+  const runSchema = JSON.parse(JSON.stringify(BRIDGE_TOOL_SCHEMAS.run));
+  assert.doesNotMatch(JSON.stringify(runSchema.properties.mode), /deliver/, "桥接不再暴露 assist deliver mode");
   assert.match(template, /knit_snapshot/);
   assert.match(template, /knit\.selection/);
   assert.match(template, /notice_skipped_branch/);

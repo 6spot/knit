@@ -76,7 +76,8 @@ export const RunToolSchema = obj(
     ]),
     taskId: opt(str({ minLength: 1 })),
     runId: opt(str({ minLength: 1 })),
-    mode: opt(union([lit("discuss"), lit("deliver")])),
+    /** 仅讨论建议；交付辅助角色已撤除，交付由主会话协调确定性工具。 */
+    mode: opt(lit("discuss")),
     scope: opt(arr(str({ minLength: 1 }))),
     provider: opt(str({ minLength: 1 })),
     model: opt(str({ minLength: 1 })),

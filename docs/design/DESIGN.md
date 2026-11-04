@@ -45,10 +45,9 @@ AGENTS.md                         # 保留原规则，添加 Knit 受管入口
   config.json                     # 项目配置
   workflow.md                     # 四环节职责与操作规则
   agents/
-    discuss.md                    # 可选，覆盖随包讨论指令
+    advisory.md                   # 可选，覆盖随包讨论建议指令
     implement.md                  # 通用实施角色指令
     check.md                      # 通用检查角色指令
-    deliver.md                    # 可选，仅辅助整理与复核
     runtimes/<runtime-id>.md       # 按需增加的平台补充，如 pi.md、codex.md
   standards/
     index.md                      # 规范路径、简述与适用范围
@@ -310,7 +309,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
 | run implement/check --task <id> | 只派发 worker；实施入口拒绝未满足的前置依赖；run check 也用于 deliver 前复查 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
-| assist discuss/deliver | 可选 advisory worker，不推进业务或执行 Git |
+| assist discuss | 可选讨论建议 worker（advisory），不推进业务或执行 Git；交付由主会话协调，不派发 worker |
 | resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |
 | cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome |
 | deliver [id...] --branch <ref> [--authorization-ref <ref>] [--plan] | 逐任务收尾；业务产物与任务资料分开提交，--plan 只读预检；完整目标 ref 明示，桥接声明授权来源，不默认启动 worker |
@@ -431,7 +430,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | `discuss` | 辅助报告的 ready 为建议；主 Agent 确认目标、条件和资料后由核心推进 |
 | `implement` | `changedPaths` 为路径数组；核心结合启动基线核对实际差异 |
 | `check` | verdict、coverage、findings、unverified；实际证据与未执行项如实报告，主 Agent 核对全部完成条件 |
-| `deliver` | 仅 advisory 整理建议；真实 commits、archivePath、pending 来自核心操作结果 |
+| `deliver` | 不产生 worker 报告；交付由主会话协调，commits、archivePath、pending 来自核心操作结果 |
 
 主会话的讨论确认与收尾事实写核心操作和任务记录，不伪造 worker run/result。advisory run 只证明建议产出；正常执行结果由核心按 request 中固定 acceptanceOperationId 复核并接收。进程在接收中断时先恢复操作，不再执行一次模型阶段；worker 崩溃后的核实结论另记 run.reconcile，不能冒充正常报告。
 
@@ -503,7 +502,7 @@ Pi 桥接执行工具被取消时，向核心发送当前调用已关联的 run/
 
 ### 8.1 角色指令与平台注入
 
-阶段输入由核心提供的职责与操作约束、`.knit/workflow.md`、通用角色文件、可选平台补充、当前任务与规范引用组成。实施和检查分别使用 `.knit/agents/implement.md` 与 `check.md`；讨论与收尾使用随 Knit 发布的阶段指令，项目按需提供同名角色文件。
+阶段输入由核心提供的职责与操作约束、`.knit/workflow.md`、通用角色文件、可选平台补充、当前任务与规范引用组成。实施和检查分别使用 `.knit/agents/implement.md` 与 `check.md`；讨论使用随 Knit 发布的阶段指令，项目可按需提供 `.knit/agents/advisory.md`；交付由主会话协调，不使用角色文件。
 
 `.knit/agents/runtimes/<runtime-id>.md` 保存平台特有的工具用法、输出约定等补充。每个上下文只选择自己的阶段角色、所属客户端补充和相关任务／规范；辅助资料按需读取。任务、四环节和 Git 规则来自核心与公共项目资料。输入冲突按宿主指令层级与任务授权处理，额外载入资料遵守本次工具和资源策略。
 
@@ -597,7 +596,7 @@ Session 查询可按任务、客户端、主／子类型和父子关系定位，
 
 ### 10.1 策略与授权
 
-deliver 是唯一正常交付处理器，主 Agent 协调确定性工具，assist deliver 仅给建议。所有会提交的 deliver/archive 必须显式 --branch <完整本地ref>，与实际及绑定分支一致；桥接 Agent 声明 authorizationRef，终端代调可 --authorization-ref，operation 记录来源引用／版本，不把分支参数当人类授权证明。直接 CLI 只记录调用声明，Agent 代调仍需已有授权。
+deliver 是唯一正常交付处理器，由主会话协调确定性工具，不启动交付辅助 worker。所有会提交的 deliver/archive 必须显式 --branch <完整本地ref>，与实际及绑定分支一致；桥接 Agent 声明 authorizationRef，终端代调可 --authorization-ref，operation 记录来源引用／版本，不把分支参数当人类授权证明。直接 CLI 只记录调用声明，Agent 代调仍需已有授权。
 
 认可的项目策略写在 .knit/workflow.md 的 Git 交付约定，模板不默认授予主分支提交许可。候选默认分支依次来自 delivery.defaultBranch、本地 origin/HEAD 或 unknown，不按 main/master 名猜、不联网探测。检测用于展示和审计，不授予权限；unknown 不阻明确授权。主 Agent 核对来源语义，核心验证引用／版本和目标，已有授权覆盖不重复询问，adopt 不附提交许可。详见 [授权细则](OPERATIONS.md#51-提交目标与授权来源)。
 

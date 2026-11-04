@@ -683,7 +683,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_run",
     label: "Knit run",
-    description: "派发正式任务的实施／独立检查／advisory，查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
+    description: "派发正式任务的实施／独立检查／讨论建议（assist discuss），查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
     parameters: schema("run"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const model = ctx?.model;
@@ -704,7 +704,7 @@ export default function (pi: any) {
       }
       if (params.action === "advisory") {
         if (!params.taskId || safeId(params.taskId, "k-") === null) return failText("advisory 需要合法 taskId");
-        if (params.mode !== "discuss" && params.mode !== "deliver") return failText("advisory 需要 mode=discuss|deliver");
+        if (params.mode !== "discuss") return failText("advisory 仅支持 mode=discuss；交付由主会话协调 knit_deliver");
         const args = ["assist", params.mode, "--task", params.taskId, "--client", "pi", "--native", state.nativeSessionId ?? "", "--dir", root];
         if (provider) args.push("--provider", provider);
         if (modelId) args.push("--model", modelId);

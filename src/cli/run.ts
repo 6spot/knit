@@ -409,7 +409,7 @@ export function registerRunCommands(program: Command): void {
 
   program
     .command("assist <mode>")
-    .description("可选 advisory worker（discuss/deliver）：只给建议，不推进业务、不执行 Git")
+    .description("可选讨论建议 worker（discuss）：只给建议，不推进业务、不执行 Git；交付由主会话协调")
     .requiredOption("--task <taskId>", "任务 ID")
     .option("--client <client>", "pi 或 cli", "cli")
     .option("--session <knitSessionId>", "发起方 Knit Session")
@@ -424,8 +424,13 @@ export function registerRunCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (mode, options) => {
-      if (mode !== "discuss" && mode !== "deliver") {
-        fail("assist", new GuardError("invalid_request", `未知 assist 模式: ${mode}`));
+      if (mode !== "discuss") {
+        // 交付辅助角色已撤除：交付由主会话协调确定性 deliver／archive 工具，不再派发 advisory run。
+        const message =
+          mode === "deliver"
+            ? "assist deliver 已撤除：交付由主会话协调确定性 deliver／archive 工具"
+            : `未知 assist 模式: ${mode}（仅支持 discuss）`;
+        fail("assist", new GuardError(mode === "deliver" ? "assist_deliver_removed" : "unknown_assist_mode", message));
         return;
       }
       try {

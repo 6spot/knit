@@ -631,5 +631,10 @@ test("模板指令：主动识别、冲突待决定、项目候选、一次性�
   assert.match(workflow, /\.knit\/standards\/candidates\.md/);
   assert.match(readFileSync(join(TEMPLATES, "agents", "implement.md"), "utf8"), /主动沉淀可复用规范/);
   assert.match(readFileSync(join(TEMPLATES, "agents", "check.md"), "utf8"), /项目规范沉淀/);
-  assert.match(readFileSync(join(TEMPLATES, "agents", "deliver.md"), "utf8"), /不构成交付前置/);
+  assert.equal(existsSync(join(TEMPLATES, "agents", "deliver.md")), false, "交付辅助角色模板已撤除");
+  assert.match(workflow, /核对实际成果与完成条件/);
+  assert.match(workflow, /不另启动交付辅助 worker/);
+  assert.match(workflow, /已有明确授权不重复确认/);
+  assert.match(workflow, /按操作记录核实工具与 Git 实际效果/);
+  assert.match(workflow, /规范候选未审阅不构成交付前置/);
 });

@@ -33,6 +33,9 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
     assert.equal(result.bridgeReady, true);
     assert.equal(result.manifestState, "ready");
     assert.ok(result.created.includes(".knit/workflow.md"));
+    assert.ok(result.created.includes(".knit/agents/implement.md"));
+    assert.equal(result.created.includes(".knit/agents/deliver.md"), false, "不生成交付辅助角色文件");
+    assert.equal(existsSync(join(dir, ".knit", "agents", "deliver.md")), false);
     assert.ok(result.created.includes(".pi/extensions/knit.ts"));
     assert.ok(result.created.includes("AGENTS.md"));
     // 清单 ready、逐项 created
@@ -40,6 +43,7 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
     assert.equal(manifest.state, "ready");
     assert.equal(manifest.schemaVersion, 1);
     assert.ok(manifest.items.every((item) => item.state === "created"));
+    assert.equal(manifest.items.some((item) => item.path === ".knit/agents/deliver.md"), false, "清单不含交付辅助角色");
     // 安装映射：CLI 入口存在、包版本
     const installation = JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "installation.json"), "utf8"));
     assert.ok(existsSync(installation.cliEntry), `CLI 入口 ${installation.cliEntry}`);

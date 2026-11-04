@@ -69,7 +69,7 @@ binding 只保存 repairCycleId、repairRounds、stopReason，不建立独立链
 
 ## 5. run 启动与执行
 
-run 只代表 worker 执行，正式阶段为 implement/check，discuss/deliver 的独立建议由 assist 创建 advisory run。context 和确定性 deliver 不创建 run。
+run 只代表 worker 执行，正式阶段为 implement/check；讨论建议由 assist discuss 创建 advisory run，交付由主会话直接协调确定性工具。context 和确定性 deliver 不创建 run。
 
 准备入口先持久化 run ID／owner token 并把 ID 返回调用方；桥接确认拿到 ID 后才允许执行。准备尚未确认时不调用模型、不改项目业务文件、不做 Git 收尾。CLI 表面仍为一条 run 命令，内部复用 prepare/start；准备中断只留下可查询、可明确放弃的未启动意图。重发 start 按同 ID 认领，不产生第二个实例。
 
@@ -192,7 +192,7 @@ restore 默认预览，执行核对当前指纹、范围和终态。Task 输入�
 
 ## 13. 入口与验证范围
 
-context 提供讨论输入；task new 由用户决定并可指定 verification；task verification 只在讨论阶段调整完成验证；task ready 推进讨论确认；task update 写入输入显式声明 clarify/change，草案应用／撤回分别校验摘要；run implement/check 派发或复查；assist 只给建议；deliver 逐任务分离产物与资料提交，archive 归档，task close 按完成资格结束业务且不要求 Git；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
+context 提供讨论输入；task new 由用户决定并可指定 verification；task verification 只在讨论阶段调整完成验证；task ready 推进讨论确认；task update 写入输入显式声明 clarify/change，草案应用／撤回分别校验摘要；run implement/check 派发或复查；assist discuss 只给建议；交付由主会话协调，deliver 逐任务分离产物与资料提交，archive 归档，task close 按完成资格结束业务且不要求 Git；cancel 仅指明确对象；resume --run 新尝试，resume --operation 先核实已有效果。status/doctor/storage 不推进业务。
 
 测试按不变量和副作用选择：
 
