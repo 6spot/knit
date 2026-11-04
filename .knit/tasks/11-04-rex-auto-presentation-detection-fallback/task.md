@@ -1,8 +1,8 @@
 ---
 id: k-cf42205bcf76
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:52:38.103Z
@@ -81,5 +81,26 @@ REX 不再要求调用方（用户、主会话或智能体）手工拼 `--rex`�
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-6cb0e54b3c8d）
+
+- 宿主解析：`src/application/host-selection.ts` 按 调用级 --rex/--local > execution.host > auto 解析；auto 探测 REX_SESSION/REX_BLOCK、rex CLI、server 与 7 个必需方法，失败回退 local 并记原因；显式/config rex 失败报 `rex_unavailable`，不回退。
+- prepare 落盘 presentation、来源（explicit/config/auto）与回退原因；start/resume 只读已落盘值；活动 run 呈现不可变校验沿用。
+- CLI：prepare/implement/check/assist 增 `--local`，与 `--rex` 冲突 `invalid_request`；`--scope` 仍拒绝 Rex；run list/status 显示 host、来源与回退原因。
+- 配置：`execution.host` 枚举 auto|local|rex，默认 auto，旧 local 显式本地；模板 config 同步；本仓库 `.knit/config.json` 已切 auto 并单独提交。
+- 桥接：不传 --rex 时随配置/环境自动生效；契约未新增覆盖参数；扩展与 schema 同步。
+- 文档：README、DESIGN 5.7/13、ARCHITECTURE、OPERATIONS、GLOSSARY。
+- 验证：`npm test` 441/441；`npm run pack:check` 通过；真实环境探测 auto→rex、无 env→local 并带原因、`host=rex` 失败报原因；真实浮层 GUI 验收按既有决策延期（未执行）。
+
+### 交付记录
+
+<!-- knit:delivery:op-8a45c9ccdb54 -->
+- 操作: op-8a45c9ccdb54
+- 时间: 2026-11-04T19:45:09.850Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: 2d5fcf186e43da093ecbfcebe07fc9f74f8bb0ac
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-rex-auto-presentation-detection-fallback
 
 <!-- knit:progress:end -->
