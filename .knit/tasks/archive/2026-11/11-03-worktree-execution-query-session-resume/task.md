@@ -69,4 +69,10 @@ deliver：实施已接收，self 自检通过；业务完成凭据已写入，Gi
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-execution-query-session-resume
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-088248b7b73e -->
+- 任务资料提交: 1413678ee952d0f4abd1ee4209829c3079ea47d8
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-execution-query-session-resume
+
 <!-- knit:progress:end -->
