@@ -148,4 +148,10 @@ title: Worktree：项目移动与关联修复
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-move-binding-repair
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-dd5652bad678 -->
+- 任务资料提交: 088dfbce12344de3671ef944bb970703bdc7aa9d
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-move-binding-repair
+
 <!-- knit:progress:end -->
