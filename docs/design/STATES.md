@@ -12,7 +12,7 @@
 | run | 一次 worker 尝试的请求与执行回执 | 启动、准备、执行、取消及终态 |
 | Session 引用 | 本机索引及所属客户端的原生记录 | opening/available/missing/incompatible |
 | 检查凭据 | 核心发布的 scope/check 证据，绑定只存引用 | 当前资格由输入及成果版本推导 |
-| 规范候选 | standards.md 和匹配的审阅回执 | 是否需要提示及本次处理决定 |
+| 规范候选 | `.knit/standards/candidates.md` 和匹配的审阅回执 | 是否需要提示及本次处理决定 |
 | 确定性操作 | 核心操作意图、步骤及实际效果 | planned/running/needs_attention/completed/abandoned |
 
 初始化、快照、占用和兼容性属于执行协议，保留必要结果，不另做产品工作流。桥接监听器和模块实例只是实现资源，不进入持久状态契约。开发者模式是输出开关，也不增加业务状态。
@@ -138,11 +138,13 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，implement 接收时合并；check 凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要；检查前后比对 Git 状态与逐路径指纹，检查者改动文件时结果不接收。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
-## 9. 规范候选
+## 9. 规范候选与沉淀
 
-无候选无需新增；有 standards.md 而无匹配审阅回执则机械提示。回执匹配 Task、分支与候选摘要时可继续，决定为 applied/deferred/rejected/mixed。延期／拒绝有理由即可，不强制新规则生效；候选或分支变化重新提示。
+规范候选以项目为作用域：`.knit/standards/candidates.md` 的标记块与 `standards_reviews` 回执。无候选无需新增；有候选且无匹配当前候选集合摘要的回执时，`standards pending` 机械提示。决定为 applied/deferred/rejected/mixed；延期／拒绝有理由即可，不强制新规则生效。项目级回执不要求分支一致，分支只作记录；候选增删或正文变化后重新提示。
 
-采纳需核实正式规范正文与索引。正式规则修改取得执行占用，其影响按输入／检查规则处理；历史审阅和已归档事实不撤销。
+用户明确的长期规则可直接采纳；Agent 自行采纳需说明依据与适用范围；冲突未决时保存候选并等待用户决定；一次性要求不进入项目候选。旧任务 `standards.md` 只读兼容，`standards list --task` 可按任务与分支查看旧回执，`standards migrate` 幂等迁入项目候选且不改写原文件。
+
+采纳需核实正式规范正文与索引。正式规则修改取得执行占用，其影响按输入／检查规则处理；历史审阅和已归档事实不撤销。交付与归档不因候选未审阅阻塞，不把规范处理重新绑定任务。
 
 ## 10. 确定性操作与恢复
 
@@ -163,7 +165,7 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 
 | 步骤 | 完成证据 |
 | --- | --- |
-| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束、候选已处理；正常完成另需有效完成资格（self／none／independent 按任务 verification）和主 Agent 完成判断 |
+| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束；规范候选未审阅不阻塞；正常完成另需有效完成资格（self／none／independent 按任务 verification）和主 Agent 完成判断 |
 | artifact_commit | 限定业务产物路径与目标树，核实真实 OID、范围与 index 保护；无产物则跳过并记原因 |
 | metadata_commit | 最终记录后限定任务资料路径；与产物提交分开核对 |
 | prepare_archive | 完整结果、验证、产物／资料提交和结束结果进入记录 |

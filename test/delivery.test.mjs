@@ -10,6 +10,7 @@ import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-stor
 import { LockManager } from "../dist/infrastructure/locks.js";
 import { TaskService } from "../dist/application/task-service.js";
 import { DeliveryService } from "../dist/application/delivery-service.js";
+import { StandardsService } from "../dist/application/standards-service.js";
 import { ContextPlanner } from "../dist/application/context-planner.js";
 import { currentEntry, emptyScope, scopeDigest } from "../dist/application/scope.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/application/task-document.js";
@@ -170,6 +171,80 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
     assert.ok(text.includes(`工作提交: ${result.workCommit}`));
     assert.ok(!existsSync(join(dir, result.archivePath, ".knit-sealed")));
     assert.equal(git(dir, ["log", "-1", "--format=%s"]), `knit: archive ${task.taskId} (${result.operationId})`);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("规范候选未审阅不阻塞交付：项目候选与旧任务候选保留", async () => {
+  const dir = project("standards-unreviewed");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const candidateBlock = (id) => [
+      `<!-- knit:candidate:start id=${id} -->`,
+      "## 未审阅候选",
+      "",
+      "### 问题",
+      "",
+      "重复问题。",
+      "",
+      "### 建议规则",
+      "",
+      "可复用规则。",
+      "<!-- knit:candidate:end -->",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, ".knit", "standards", "candidates.md"), `# 规范候选\n\n${candidateBlock("c-0000000000a1")}`);
+    const legacyDir = join(dir, ".knit", task.relativePath.split("/").slice(0, -1).join("/"));
+    writeFileSync(join(legacyDir, "standards.md"), `${candidateBlock("c-0000000000a2")}`);
+
+    const result = await s.delivery.deliver({
+      dir,
+      taskId: task.taskId,
+      branch: BRANCH,
+      authorizationRef: "workflow:.knit/workflow.md#交付授权",
+    });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    assert.ok(result.workCommit);
+    assert.ok(result.metadataCommit);
+    assert.ok(result.archiveCommit);
+    assert.ok(existsSync(join(dir, ".knit", "standards", "candidates.md")), "项目候选保留");
+    assert.ok(existsSync(join(dir, result.archivePath, "standards.md")), "旧任务候选随任务资料归档");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("项目级采纳目标按来源任务并入资料分类，规范处理不阻塞 preflight", async () => {
+  const dir = project("standards-source");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    writeFileSync(join(dir, ".knit", "standards", "errors.md"), "# 错误处理\n\n现有约定。\n");
+    const standards = new StandardsService({ store: s.store, locks: s.locks, now: () => NOW });
+    const proposed = await standards.propose({
+      dir,
+      sourceTaskId: task.taskId,
+      title: "来源任务候选",
+      problem: "重复问题。",
+      rule: "可复用规则。",
+    });
+    assert.ok(proposed);
+    await standards.review({
+      dir,
+      sourceTaskId: task.taskId,
+      decision: "applied",
+      reason: "按来源任务记录采纳目标。",
+      targets: [".knit/standards/errors.md"],
+    });
+    const plan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }]);
+    assert.equal(plan.tasks[0].status, "ready");
+    assert.ok(plan.tasks[0].metadata.includes(".knit/standards/errors.md"));
+    assert.ok(plan.tasks[0].metadata.includes(".knit/standards/index.md"));
+    assert.equal(plan.tasks[0].artifacts.includes(".knit/standards/errors.md"), false);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

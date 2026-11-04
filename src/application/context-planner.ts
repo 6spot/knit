@@ -16,7 +16,7 @@ import {
 } from "../contracts/context-plan.js";
 import type { SessionRole } from "../contracts/session.js";
 import { inputsDigestOf, inputsRegionOf, progressRegionOf, stripStatusFields } from "../contracts/task-inputs.js";
-import { parseCandidates } from "../contracts/standards.js";
+import { PROJECT_CANDIDATES_FILE, parseCandidates } from "../contracts/standards.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
@@ -138,7 +138,12 @@ export class ContextPlanner {
         throw new GuardError("invalid_request", `授权规范成果必须位于 .knit/standards/: ${relativePath}`);
       }
       const relativeInStandards = relativePath.slice(".knit/standards/".length);
-      if (relativeInStandards === "" || relativeInStandards.startsWith("candidates/") || relativeInStandards.includes("..")) {
+      if (
+        relativeInStandards === "" ||
+        relativeInStandards === PROJECT_CANDIDATES_FILE ||
+        relativeInStandards.startsWith("candidates/") ||
+        relativeInStandards.includes("..")
+      ) {
         throw new GuardError("invalid_request", `授权规范成果不能指向候选或越界路径: ${relativePath}`);
       }
       const preFrozenOutput = preFrozen.get(relativePath);
@@ -238,7 +243,13 @@ export class ContextPlanner {
     // 授权成果的规范以冻结旧内容作输入分节，并从当前规范读取中排除（任务037）。
     const standardsRoot = safeJoin(join(root, ".knit"), "standards");
     for (const [index, relativePath] of markdownFiles(standardsRoot).entries()) {
-      if (relativePath === "candidates" || relativePath.startsWith("candidates/")) continue;
+      if (
+        relativePath === "candidates" ||
+        relativePath.startsWith("candidates/") ||
+        relativePath === PROJECT_CANDIDATES_FILE
+      ) {
+        continue;
+      }
       const sectionPath = `.knit/standards/${relativePath}`;
       const authorized = authorizedOutputs.find((output) => output.path === sectionPath);
       if (authorized !== undefined) {
@@ -332,7 +343,30 @@ export class ContextPlanner {
       });
     }
 
-    // 任务候选规范（任务辅助资料 standards.md）：只作背景，不自动成为当前验收条件。
+    // 项目候选规范：只作背景，不自动成为当前验收条件。
+    const projectCandidatesFile = join(root, ".knit", "standards", PROJECT_CANDIDATES_FILE);
+    const projectCandidatesText = readText(projectCandidatesFile);
+    if (projectCandidatesText !== null) {
+      const projectCandidates = parseCandidates(projectCandidatesText).candidates;
+      if (projectCandidates.length > 0) {
+        const candidatesRelative = projectPath(root, projectCandidatesFile);
+        const sourceId = "standard-candidate:project";
+        sections.push({
+          sourceId,
+          kind: "standard-candidate",
+          path: candidatesRelative,
+          content: projectCandidatesText,
+          required: false,
+          background: true,
+          countsTowardInputs: false,
+          priority: 95,
+          mode: "resource",
+        });
+        excluded.push({ sourceId, path: candidatesRelative, reason: "candidate_not_applied" });
+      }
+    }
+
+    // 旧任务候选规范（任务辅助资料 standards.md）：只读兼容，只作背景。
     const candidatesFile = join(located.dir, "standards.md");
     const candidatesText = readText(candidatesFile);
     if (candidatesText !== null) {

@@ -1,4 +1,4 @@
-/** standards 命令组：list/propose/review/apply/pending（DESIGN.md 第8.2节）。 */
+/** standards 命令组：list/propose/review/apply/pending/migrate（DESIGN.md 第8.2节）。 */
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ function collect(value: string, previous: string[]): string[] {
 
 export function registerStandardsCommands(program: Command): void {
   const jsonMode = () => program.opts().json || process.env.KNIT_JSON === "1";
-  const standards = program.command("standards").description("规范候选、审阅与采纳");
+  const standards = program.command("standards").description("项目规范候选、审阅、采纳与旧任务候选迁移");
 
   const withService = async <T>(
     requestId: string,
@@ -44,8 +44,8 @@ export function registerStandardsCommands(program: Command): void {
 
   standards
     .command("list")
-    .description("列出正式规范、索引引用与任务候选")
-    .option("--task <taskId>", "同时列出该任务的候选与回执状态")
+    .description("列出正式规范、索引引用、项目候选与迁移提示")
+    .option("--task <taskId>", "同时只读列出该任务的旧 standards.md 候选")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       await withService(
@@ -57,12 +57,20 @@ export function registerStandardsCommands(program: Command): void {
           for (const file of result.formal) {
             console.log(`  ${file.path}${file.indexed ? "" : "（索引未引用）"}`);
           }
+          console.log(`项目候选（${result.candidates.length}）：`);
+          for (const candidate of result.candidates) {
+            console.log(`  ${candidate.candidateId} ${candidate.title}`);
+          }
+          console.log(`项目审阅：${result.pending.reason}`);
+          if (result.migration.unmigrated > 0) {
+            console.log(`旧任务候选尚未迁移 ${result.migration.unmigrated} 条；可运行 knit standards migrate。`);
+          }
           if (result.task !== undefined) {
-            console.log(`候选（${result.task.candidates.length}）：`);
+            console.log(`旧任务候选（${result.task.candidates.length}）：`);
             for (const candidate of result.task.candidates) {
               console.log(`  ${candidate.candidateId} ${candidate.title}`);
             }
-            console.log(`审阅：${result.task.pending.reason}`);
+            console.log(`旧任务审阅：${result.task.pending.reason}`);
           }
         },
       );
@@ -70,8 +78,9 @@ export function registerStandardsCommands(program: Command): void {
 
   standards
     .command("propose")
-    .description("把规范候选写入任务辅助资料 standards.md")
-    .requiredOption("--task <taskId>", "任务 ID")
+    .description("把可复用规则保存为项目级候选（.knit/standards/candidates.md）")
+    .option("--task <taskId>", "来源任务（仅标注，不要求任务存在）")
+    .option("--source <text>", "来源说明，如讨论、实施发现")
     .option("--title <title>", "候选标题")
     .option("--problem <text>", "发现的问题／缺口")
     .option("--evidence <text>", "证据")
@@ -95,7 +104,8 @@ export function registerStandardsCommands(program: Command): void {
           }
           return service.propose({
             dir: options.dir,
-            taskId: options.task,
+            ...(options.task === undefined ? {} : { sourceTaskId: options.task }),
+            ...(field("source") === "" ? {} : { source: field("source") }),
             title: field("title"),
             problem: field("problem"),
             evidence: field("evidence"),
@@ -114,7 +124,7 @@ export function registerStandardsCommands(program: Command): void {
   standards
     .command("review")
     .description("保存主 Agent 的审阅决定、理由与目标规范")
-    .requiredOption("--task <taskId>", "任务 ID")
+    .option("--task <taskId>", "来源任务（仅标注，不参与匹配）")
     .requiredOption("--decision <decision>", "applied/deferred/rejected/mixed")
     .requiredOption("--reason <reason>", "决定理由")
     .option("--target <path>", "目标正式规范（可重复）", collect, [])
@@ -138,7 +148,7 @@ export function registerStandardsCommands(program: Command): void {
         (service) =>
           service.review({
             dir: options.dir,
-            taskId: options.task,
+            ...(options.task === undefined ? {} : { sourceTaskId: options.task }),
             decision,
             reason: options.reason,
             targets: options.target,
@@ -146,17 +156,17 @@ export function registerStandardsCommands(program: Command): void {
           }),
         (result) => {
           console.log(`已记录审阅 ${result.review.reviewId}：${result.review.decision}`);
-          console.log(`提示状态: ${result.pending.reason}`);
+          console.log(`项目提示状态: ${result.pending.reason}`);
         },
       );
     });
 
   standards
     .command("apply")
-    .description("按匹配回执把候选规则写入正式规范并补索引")
-    .requiredOption("--task <taskId>", "任务 ID")
+    .description("按匹配回执把项目候选规则写入正式规范并补索引")
     .requiredOption("--candidate <id>", "候选 ID")
     .requiredOption("--target <path>", "目标正式规范")
+    .option("--task <taskId>", "来源任务（仅标注）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       await withService(
@@ -165,7 +175,7 @@ export function registerStandardsCommands(program: Command): void {
         (service) =>
           service.apply({
             dir: options.dir,
-            taskId: options.task,
+            ...(options.task === undefined ? {} : { sourceTaskId: options.task }),
             candidateId: options.candidate,
             target: options.target,
           }),
@@ -185,8 +195,8 @@ export function registerStandardsCommands(program: Command): void {
 
   standards
     .command("pending")
-    .description("机械提示：有候选且缺少匹配回执时要求主 Agent 处理")
-    .requiredOption("--task <taskId>", "任务 ID")
+    .description("机械提示项目级候选是否缺少匹配回执")
+    .option("--task <taskId>", "同时只读显示该任务的旧候选状态")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       await withService(
@@ -194,8 +204,30 @@ export function registerStandardsCommands(program: Command): void {
         options.dir,
         (service) => service.pending({ dir: options.dir, taskId: options.task }),
         (result) => {
-          console.log(`候选: ${result.candidateIds.length}；状态: ${result.reason}`);
+          console.log(`项目候选: ${result.candidateIds.length}；状态: ${result.reason}`);
           if (result.needsReview) console.log("需要主 Agent 审阅（standards review）；延期／拒绝也可继续。");
+          if (result.legacy !== undefined) {
+            console.log(`旧任务候选: ${result.legacy.candidateIds.length}；状态: ${result.legacy.reason}`);
+          }
+        },
+      );
+    });
+
+  standards
+    .command("migrate")
+    .description("把旧任务 standards.md 的候选幂等迁入项目候选文件，不改写原文件")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (options) => {
+      await withService(
+        "standards-migrate",
+        options.dir,
+        (service) => service.migrate({ dir: options.dir }),
+        (result) => {
+          console.log(`已迁移 ${result.migrated} 条候选${result.skipped > 0 ? `（跳过已有 ${result.skipped} 条）` : ""}。`);
+          for (const source of result.sources) {
+            console.log(`  ${source.taskId}: ${source.candidateIds.join(", ")}`);
+          }
+          if (result.migrated === 0 && result.skipped === 0) console.log("没有找到旧任务候选。");
         },
       );
     });

@@ -103,7 +103,7 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | snapshot | 核心快照服务 | 恢复对照、覆盖范围及 ready；index 内容独立保存，逐路径恢复记录独立 |
 | cancel 意图 | 核心 | 目标 run/operation 和 owner token，不做请求级路由 |
 | 操作元数据 | OperationService | 步骤意图、文件／Git 效果与恢复事实 |
-| standards.md | 主 Agent 经记录工具 | 未生效候选（`src/application/standards-service.ts`）；审阅回执存 `standards_reviews`，操作记录留痕 |
+| standards/candidates.md | 主 Agent 经记录工具 | 项目级未生效候选（`src/application/standards-service.ts`）；旧任务 standards.md 只读兼容，`standards migrate` 迁入；审阅回执存 `standards_reviews`，操作记录留痕 |
 | 原生历史 | 运行中主会话的宿主 API／阶段 Pi CLI 自身 | Core 和 worker 不直接追加或并发改写原生文件；阶段记录在独立 native-sessions 位置跨 run 保留 |
 | diagnostics JSONL（M3A） | 启用保存的执行者 | 可丢弃的排查信息，不作业务证据；M1 仅 stderr |
 

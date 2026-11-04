@@ -1,9 +1,10 @@
 /**
  * 正式规范的机械事实：文件集合、内容指纹与索引引用（DESIGN.md 第8、8.2节）。
- * 候选目录不进入正式摘要；记录与候选变化不得使检查失效。
+ * 项目候选文件与候选目录不进入正式摘要；记录与候选变化不得使检查失效。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix, relative, sep } from "node:path";
+import { PROJECT_CANDIDATES_FILE } from "../contracts/standards.js";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { safeJoin } from "../infrastructure/paths.js";
 
@@ -24,7 +25,7 @@ function standardsRootOf(root: string): string {
   return safeJoin(join(root, ".knit"), "standards");
 }
 
-/** 递归收集正式规范文件（排除 candidates/），按相对路径排序。 */
+/** 递归收集正式规范文件（排除项目候选文件与 candidates/），按相对路径排序。 */
 export function formalStandardFiles(root: string): FormalStandardFile[] {
   const standardsRoot = standardsRootOf(root);
   const result: FormalStandardFile[] = [];
@@ -49,6 +50,7 @@ export function formalStandardFiles(root: string): FormalStandardFile[] {
           continue;
         }
         const relativePath = relative(standardsRoot, full).split(sep).join("/");
+        if (relativePath === PROJECT_CANDIDATES_FILE) continue;
         result.push({
           path: `${STANDARDS_DIR}/${relativePath}`,
           relativePath,
@@ -130,7 +132,12 @@ export function normalizeTargetPath(target: string): string {
     throw new Error(`目标规范必须位于 ${STANDARDS_DIR}/: ${target}`);
   }
   const relativePath = normalized.slice(STANDARDS_DIR.length + 1);
-  if (relativePath === "" || relativePath.startsWith(`${CANDIDATES_DIR}/`) || !relativePath.endsWith(".md")) {
+  if (
+    relativePath === "" ||
+    relativePath === PROJECT_CANDIDATES_FILE ||
+    relativePath.startsWith(`${CANDIDATES_DIR}/`) ||
+    !relativePath.endsWith(".md")
+  ) {
     throw new Error(`目标规范不能是候选或非 Markdown 文件: ${target}`);
   }
   if (relativePath.split("/").includes("..")) {

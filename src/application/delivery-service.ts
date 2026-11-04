@@ -15,6 +15,7 @@ import type {
   DeliveryStep,
 } from "../contracts/delivery.js";
 import type { CheckFile } from "../contracts/run.js";
+import { PROJECT_SCOPE, type StandardsReview } from "../contracts/standards.js";
 import type { OperationState } from "../contracts/metadata.js";
 import { onComplete, type TaskFacts } from "../domain/task.js";
 import { CompletionService } from "./completion-service.js";
@@ -31,7 +32,6 @@ import { runSettled } from "./run-activity.js";
 import { GuardError } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
 import { validateCheckEvidence } from "./check-validation.js";
-import { StandardsService } from "./standards-service.js";
 import { locateTaskDocument } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
@@ -361,7 +361,7 @@ export class DeliveryService {
     taskDir: string,
   ): Promise<{ artifacts: string[]; metadata: string[]; selected: string[] }> {
     const scope = loadScope(new RunStore(root), taskId, this.now().toISOString());
-    const review = await this.store.standardsReviews.latest(taskId);
+    const review = await this.reviewForTask(taskId);
     const taskDirRelative = relative(root, taskDir).split("\\").join("/");
     const artifactPaths = scope.entries
       .map((entry) => entry.path)
@@ -479,9 +479,6 @@ export class DeliveryService {
         }
       }
       if (!runsSettled) throw new GuardError("runs_unsettled", "任务仍有活动／未知运行或待接收结果");
-      await this.standardsGate(root, input.taskId);
-    } else if (!located.archived) {
-      await this.standardsGate(root, input.taskId);
     }
 
     const { artifacts, metadata, selected: selectedPaths } = await this.classifyPaths(root, input.taskId, taskDir);
@@ -1207,25 +1204,15 @@ export class DeliveryService {
     });
   }
 
-  private async standardsGate(root: string, taskId: string): Promise<void> {
-    const service = new StandardsService({ store: this.store, locks: this.locks, now: this.now, randomHex: this.randomHex });
-    const pending = await service.pending({ dir: root, taskId });
-    if (pending.needsReview) throw new GuardError("standards_review_required", `规范候选待审阅: ${pending.reason}`);
-    const review = pending.matchedReview;
-    if (review !== null && (review.decision === "applied" || review.decision === "mixed")) {
-      // 按候选当前内容核对实际采纳效果：只有来源行不算完成，同 ID 新版本不能冒充（任务038）。
-      const targets = review.targets.map((target) => {
-        const path = join(root, target);
-        return existsSync(path) ? readFileSync(path, "utf8") : "";
-      });
-      const required = review.decision === "applied" ? review.candidateIds : review.candidateIds.slice(0, 1);
-      for (const candidateId of required) {
-        const expectedRule = await service.candidateRuleText({ dir: root, taskId, candidateId });
-        if (expectedRule === null || !targets.some((text) => text.includes(expectedRule))) {
-          throw new GuardError("standards_apply_required", `候选 ${candidateId} 已审阅采纳但完整规则尚未写入正式规范`);
-        }
-      }
-    }
+  /** 交付分类只把本任务来源的采纳目标并入资料提交；规范处理不是交付前置。 */
+  private async reviewForTask(taskId: string): Promise<StandardsReview | null> {
+    const legacy = await this.store.standardsReviews.latest(taskId);
+    const project = (await this.store.standardsReviews.list(PROJECT_SCOPE))
+      .filter((review) => review.sourceTaskId === taskId)
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0] ?? null;
+    if (legacy === null) return project;
+    if (project === null) return legacy;
+    return project.recordedAt >= legacy.recordedAt ? project : legacy;
   }
 
   private async closeCompleted(root: string, taskId: string): Promise<void> {

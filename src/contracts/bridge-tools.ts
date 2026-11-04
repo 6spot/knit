@@ -106,8 +106,11 @@ export const StandardsToolSchema = obj(
       lit("review"),
       lit("apply"),
       lit("pending"),
+      lit("migrate"),
     ]),
     taskId: opt(str({ minLength: 1 })),
+    /** 来源说明（讨论、实施发现）；propose 使用。 */
+    source: opt(str()),
     title: opt(str()),
     problem: opt(str()),
     evidence: opt(str()),

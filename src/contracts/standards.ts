@@ -1,13 +1,18 @@
 /**
  * 规范候选与审阅回执（DESIGN.md 第8.2节、STATES.md 第9节）。
- * 候选保存为任务辅助资料 standards.md 的标记块；回执保存于元数据短事务。
- * 程序只机械核对候选摘要、分支与决定，不判断规则语义。
+ * 候选保存为项目级 .knit/standards/candidates.md 的标记块；回执保存于元数据短事务。
+ * 旧任务的 standards.md 只读兼容，可经 standards migrate 迁入项目级候选文件。
+ * 程序只机械核对候选摘要与决定，不判断规则语义。
  */
-import { arr, lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { sha256Text } from "./digest.js";
 
 export const CANDIDATE_START_PREFIX = "<!-- knit:candidate:start id=";
 export const CANDIDATE_END = "<!-- knit:candidate:end -->";
+/** 项目级候选文件；不进入正式规范摘要。 */
+export const PROJECT_CANDIDATES_FILE = "candidates.md";
+/** standards_reviews 中项目作用域的 task_id 键。 */
+export const PROJECT_SCOPE = "project";
 
 const CANDIDATE_ID = /^c-[0-9a-f]{12}$/;
 
@@ -22,6 +27,8 @@ export const StandardsCandidateSchema = obj(
     /** 建议规则正文；采纳时按此机械追加到目标规范。 */
     rule: str({ minLength: 1 }),
     verification: str(),
+    /** 来源说明（讨论、任务 k-...）；只作记录，不进入摘要。 */
+    source: opt(str()),
     /** 本候选块的版本摘要；正文变化即变化。 */
     digest: str({ minLength: 1 }),
   },
@@ -39,8 +46,11 @@ export type StandardsReviewDecision = Static<typeof StandardsReviewDecisionSchem
 export const StandardsReviewSchema = obj(
   {
     reviewId: str({ pattern: "^r-[0-9a-f]{12}$" }),
-    taskId: str({ minLength: 1 }),
-    /** 审阅时的任务分支；null 与 null 匹配。 */
+    /** 旧任务作用域回执的任务 ID；项目作用域回执省略。 */
+    taskId: opt(str({ minLength: 1 })),
+    /** 仅标注来源的任务 ID，不参与项目级匹配。 */
+    sourceTaskId: opt(str({ minLength: 1 })),
+    /** 审阅时的分支，仅作记录；项目级匹配不要求分支一致。 */
     branch: union([str({ minLength: 1 }), nul()]),
     /** 候选集合摘要：按候选 ID 排序的 id:digest。 */
     candidateDigest: str({ minLength: 1 }),
@@ -64,6 +74,7 @@ export function newReviewId(randomHex: (bytes: number) => string): string {
   return `r-${randomHex(6)}`;
 }
 
+/** 候选正文摘要；source 只作来源记录，变化不使既有审阅回执失配。 */
 export function candidateDigestOf(candidate: Omit<StandardsCandidate, "digest">): string {
   return sha256Text(
     JSON.stringify([
@@ -86,12 +97,13 @@ export function candidateSetDigest(candidates: StandardsCandidate[]): string {
   return sha256Text(lines.join("\n"));
 }
 
-const FIELD_HEADINGS: Record<string, keyof Pick<StandardsCandidate, "problem" | "evidence" | "scope" | "rule" | "verification">> = {
+const FIELD_HEADINGS: Record<string, keyof Pick<StandardsCandidate, "problem" | "evidence" | "scope" | "rule" | "verification" | "source">> = {
   问题: "problem",
   证据: "evidence",
   适用范围: "scope",
   建议规则: "rule",
   "验证／示例": "verification",
+  来源: "source",
 };
 
 export interface ParsedCandidates {
@@ -100,7 +112,7 @@ export interface ParsedCandidates {
   errors: string[];
 }
 
-/** 解析任务辅助资料中的候选标记块；块外文字（说明、空行）忽略。 */
+/** 解析候选文件中的标记块；块外文字（说明、空行）忽略。 */
 export function parseCandidates(text: string): ParsedCandidates {
   const candidates: StandardsCandidate[] = [];
   const errors: string[] = [];
@@ -157,6 +169,7 @@ function parseCandidateBody(candidateId: string, body: string): StandardsCandida
     scope: value("scope"),
     rule: value("rule"),
     verification: value("verification"),
+    source: value("source"),
   };
   return { ...base, digest: candidateDigestOf(base) };
 }
@@ -172,10 +185,14 @@ export function renderCandidate(candidate: StandardsCandidate): string {
   for (const field of ["problem", "evidence", "scope", "rule", "verification"] as const) {
     guard(field, candidate[field]);
   }
+  guard("source", candidate.source ?? "");
   return [
     `${CANDIDATE_START_PREFIX}${candidate.candidateId} -->`,
     `## ${candidate.title}`,
     "",
+    ...(candidate.source === undefined || candidate.source === ""
+      ? []
+      : ["### 来源", "", candidate.source, ""]),
     "### 问题",
     "",
     candidate.problem,
@@ -199,15 +216,16 @@ export function renderCandidate(candidate: StandardsCandidate): string {
   ].join("\n");
 }
 
-/** 采纳写入正式规范时的正文（不含候选标记与 ID）。 */
-export function renderCandidateRule(candidate: StandardsCandidate, taskId: string): string {
+/** 采纳写入正式规范时的正文（不含候选标记与 ID）；source 为来源说明，不要求任务存在。 */
+export function renderCandidateRule(candidate: StandardsCandidate, source: string): string {
+  const label = source.trim() === "" ? "项目讨论" : source.trim();
   return [
     `## ${candidate.title}`,
     "",
     candidate.rule,
     "",
     ...(candidate.verification === "" ? [] : ["验证／示例：", "", candidate.verification, ""]),
-    `来源：任务 ${taskId}／候选 ${candidate.candidateId}。`,
+    `来源：${label}／候选 ${candidate.candidateId}。`,
     "",
   ].join("\n");
 }

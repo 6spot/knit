@@ -781,9 +781,9 @@ export default function (pi: any) {
     async execute(_toolCallId: string, params: any) {
       if (params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
       const args = ["standards", params.action, "--dir", root];
-      if (params.taskId) args.push("--task", params.taskId);
+      if (params.taskId && params.action !== "migrate") args.push("--task", params.taskId);
       if (params.action === "propose") {
-        for (const key of ["title", "problem", "evidence", "scope", "rule", "verification"]) {
+        for (const key of ["source", "title", "problem", "evidence", "scope", "rule", "verification"]) {
           if (params[key]) args.push(`--${key}`, params[key]);
         }
       } else if (params.action === "review") {

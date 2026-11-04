@@ -20,7 +20,7 @@ import type {
   SessionRecord,
   SessionStatus,
 } from "../contracts/session.js";
-import type { StandardsReview } from "../contracts/standards.js";
+import { PROJECT_SCOPE, type StandardsReview } from "../contracts/standards.js";
 import type { MetadataStore, SessionQuery } from "../ports/infrastructure.js";
 
 export interface SqliteMetadataStoreOptions {
@@ -253,11 +253,13 @@ export class SqliteMetadataStore implements MetadataStore {
 
   standardsReviews = {
     save: (review: StandardsReview): Promise<void> => {
+      // 新回执是项目作用域；旧任务回执保留 task_id 以兼容读取与按任务过滤。
+      const scopeKey = review.taskId ?? PROJECT_SCOPE;
       this.db
         .prepare(
-          "INSERT INTO standards_reviews (review_id, task_id, record) VALUES (?, ?, ?) ON CONFLICT(review_id) DO UPDATE SET record = excluded.record",
+          "INSERT INTO standards_reviews (review_id, task_id, record) VALUES (?, ?, ?) ON CONFLICT(review_id) DO UPDATE SET task_id = excluded.task_id, record = excluded.record",
         )
-        .run(review.reviewId, review.taskId, JSON.stringify(review));
+        .run(review.reviewId, scopeKey, JSON.stringify(review));
       return Promise.resolve();
     },
 
@@ -271,14 +273,17 @@ export class SqliteMetadataStore implements MetadataStore {
     },
 
     latest: (taskId: string): Promise<StandardsReview | null> => {
+      // reviewId 是随机稳定 ID，不表达时间顺序；按记录时间取最近回执。
       const rows = this.db
-        .prepare("SELECT record FROM standards_reviews WHERE task_id = ? ORDER BY review_id DESC LIMIT 1")
+        .prepare("SELECT record FROM standards_reviews WHERE task_id = ?")
         .all(taskId) as { record?: unknown }[];
-      const row = rows[0];
-      if (row === undefined) return Promise.resolve(null);
-      return Promise.resolve(
-        JSON.parse(textColumn(row.record, "standards_reviews.record")) as StandardsReview,
+      const records = rows.map(
+        (row) => JSON.parse(textColumn(row.record, "standards_reviews.record")) as StandardsReview,
       );
+      records.sort(
+        (a, b) => b.recordedAt.localeCompare(a.recordedAt) || b.reviewId.localeCompare(a.reviewId),
+      );
+      return Promise.resolve(records[0] ?? null);
     },
   };
 
