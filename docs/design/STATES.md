@@ -44,7 +44,7 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | ImplementationAccepted | Task 为 open/implement，execution 报告及实际成果有效 | independent → check；self／none → deliver；累积 scope 与 lastImplement |
 | CheckAccepted | 最新获准检查及目标版本匹配 | pass → deliver；changes_requested → implement；blocked 保留 check |
 | RecheckRequested：run check --task | 当前为 check/deliver 或未归档 completed，相关收尾已处理 | open/check；discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施 |
-| BusinessClosed：deliver 或 task close | 按 verification 核对当前目标、成果与验证；不要求 Git 提交／回执／归档 | closed/completed/deliver；完成凭据另存，Git 收尾后做 |
+| BusinessClosed：deliver 或 task close | 按 verification 核对当前目标、成果与验证；父任务还要求直接子任务全部结束并给出总体验收说明；不要求 Git 提交／回执／归档 | closed/completed/deliver；完成凭据另存，Git 收尾后做 |
 | TaskEndRequested：task close | 明确取消／替代，无该任务活动／未知 run 或未核实 Git 效果；待接收结果先核实事实并收敛 | closed 及相应 outcome，不默认提交部分源码 |
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
@@ -157,7 +157,7 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 
 ## 11. 收尾与封存
 
-业务完成与 Git 收尾分开。`task close --outcome completed` 按 verification 核对当前目标、成果与验证后记录业务完成并写完成凭据；不要求 Git 提交。`deliver` 逐任务提交产物、任务资料并归档；archive 只处理可归档资料或继续已有归档，不能绕过完成资格。多个任务可以先完成、最后逐项提交，任务资料与业务产物分开；完成不自动授予提交／推送授权。
+业务完成与 Git 收尾分开。`task close --outcome completed` 按 verification 核对当前目标、成果与验证后记录业务完成并写完成凭据；不要求 Git 提交。拥有直接子任务的任务（`children` 非空）还须满足：所有子任务均已结束（归档视为结束），且 `--reason` 给出总体验收依据；未满足分别返回 `children_incomplete`／`parent_acceptance_missing`。子任务完成不自动结束父任务，父任务总体验收由主会话执行。`deliver` 逐任务提交产物、任务资料并归档；archive 只处理可归档资料或继续已有归档，不能绕过完成资格。多个任务可以先完成、最后逐项提交，任务资料与业务产物分开；完成不自动授予提交／推送授权。
 
 | 步骤 | 完成证据 |
 | --- | --- |

@@ -11,6 +11,7 @@ export const TaskToolSchema = obj(
       lit("list"),
       lit("new"),
       lit("rename"),
+      lit("parent"),
       lit("ready"),
       lit("update"),
       lit("record"),
@@ -24,6 +25,9 @@ export const TaskToolSchema = obj(
     title: opt(str()),
     slug: opt(str()),
     newSlug: opt(str()),
+    /** 创建或挂接的父任务稳定身份；解除关联用 detach。 */
+    parentId: opt(str({ minLength: 1 })),
+    detach: opt(bool()),
     branch: opt(str()),
     kind: opt(union([lit("clarify"), lit("change")])),
     body: opt(str()),

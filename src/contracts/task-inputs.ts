@@ -52,6 +52,11 @@ export const TaskFrontmatterSchema = obj(
     branch: union([str({ minLength: 1 }), nul()]),
     /** 完成验证要求；旧记录缺省按 independent 兼容。 */
     verification: opt(VerificationModeSchema),
+    /**
+     * 父任务稳定身份（DESIGN §3.10）。缺省或 null 表示顶层任务；
+     * 关系只存子任务一侧，父任务通过扫描派生，目录改名不影响关联。
+     */
+    parent: opt(union([str({ pattern: "^k-[0-9a-f]{12}$" }), nul()])),
     createdAt: str({ minLength: 1 }),
     title: str({ minLength: 1 }),
   },
@@ -76,15 +81,15 @@ export function stripStatusFields(region: string): string {
 }
 
 /**
- * 需求摘要不含 status／phase／outcome／branch：这些是执行状态与身份，
- * 阶段转移不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.8节）。
+ * 需求摘要不含 status／phase／outcome／branch／parent：这些是执行状态与结构身份，
+ * 阶段转移与挂接父任务不能使刚确认的输入或刚通过的检查立即 stale（DESIGN.md 第3.8节）。
  */
 function withoutStatusFields(region: string): string {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(region);
   if (match === null) return region;
   const body = (match[1] ?? "")
     .split(/\r?\n/)
-    .filter((line) => !/^(id|status|phase|outcome|branch):/.test(line))
+    .filter((line) => !/^(id|status|phase|outcome|branch|parent):/.test(line))
     .join("\n");
   return `---\n${body}\n---${match[2] ?? ""}${region.slice(match[0].length)}`;
 }
