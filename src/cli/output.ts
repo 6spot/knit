@@ -64,7 +64,11 @@ export function reasonForError(error: unknown): ReasonCode {
       guard === "unknown_binding" ||
       guard === "gitignore_rule_unavailable" ||
       guard === "handoff_conflict" ||
-      guard === "handoff_backup_corrupt"
+      guard === "handoff_backup_corrupt" ||
+      guard === "prepare_conflict" ||
+      guard === "prepare_path_escape" ||
+      guard === "prepare_step_failed" ||
+      guard === "prepare_state_mismatch"
     ) {
       return "needs_review";
     }

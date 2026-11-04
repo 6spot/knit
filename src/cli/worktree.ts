@@ -1,9 +1,10 @@
-/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）。 */
+/** worktree 命令组：create／connect（任务 k-248eafc8fb31；WORKTREE.md 第6.2节）、handoff（任务 k-19b5cad5c106；第6.1节）、prepare（任务 k-e48b7df14115；第6.7节）。 */
 import { Command } from "commander";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { WorktreeService } from "../application/worktree-manager.js";
 import { WorktreeHandoffService } from "../application/worktree-handoff.js";
+import { WorktreePrepareService } from "../application/worktree-prepare.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
@@ -131,6 +132,48 @@ export function registerWorktreeCommands(program: Command): void {
             console.log("旧副本保留在源目录（含 Git 跟踪文件），待交付/清理任务处置");
           }
           if (!result.bindingBranchSwitched) console.log("绑定分支未变化");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  worktree
+    .command("prepare")
+    .description("准备已登记 worktree 的公共资料与环境：白名单复制（基线核对）+ postCreate 步骤 + 回执与绑定更新")
+    .requiredOption("--task <taskId>", "任务 ID")
+    .option("--rerun <stepName>", "续做未完成操作时显式重跑单个 postCreate 步骤")
+    .option("--dir <dir>", "项目目录（默认当前目录）", ".")
+    .action(async (options) => {
+      const taskId = options.task;
+      const requestId = `worktree-prepare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const store = openStore(options.dir);
+      try {
+        const service = new WorktreePrepareService({ store });
+        const result = await service.prepare({
+          dir: options.dir,
+          taskId,
+          ...(options.rerun === undefined ? {} : { rerun: options.rerun }),
+        });
+        if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
+        else {
+          const modeLabel = result.mode === "no_op" ? "已一致（no-op）" : result.mode === "resumed" ? "已从断点续做" : "已准备";
+          console.log(`${modeLabel}: ${result.taskId} → ${result.worktreePath}`);
+          console.log(`操作: ${result.opId || "（无）"}  分支: ${result.branch}`);
+          console.log(`复制: ${result.copied}  跳过: ${result.skipped}`);
+          for (const step of result.steps) {
+            const label = step.outcome === "success" ? "成功" : step.outcome === "failed" ? "失败" : "未执行";
+            console.log(`步骤 ${step.name}: ${label}（exit ${step.exit ?? "-"}）`);
+          }
+          if (result.finishedAt !== null) console.log(`完成: ${result.finishedAt}`);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

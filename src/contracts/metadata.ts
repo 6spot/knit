@@ -83,6 +83,10 @@ export const TaskBindingSchema = obj(
           handoffAt: opt(union([str({ minLength: 1 }), nul()])),
           /** 最近一次成功交接的操作 ID（transfers/<opId>/ 回执入口）。 */
           lastHandoffOp: opt(union([str({ minLength: 1 }), nul()])),
+          /** 公共资料复制与环境初始化完成（任务 k-e48b7df14115）；prepare 回执位于 .runtime/worktree-prepare/<opId>/。 */
+          preparedAt: opt(union([str({ minLength: 1 }), nul()])),
+          /** 最近一次成功 prepare 的操作 ID（worktree-prepare/<opId>/ 回执入口）。 */
+          lastPrepareOp: opt(union([str({ minLength: 1 }), nul()])),
         },
       ),
     ),

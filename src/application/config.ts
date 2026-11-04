@@ -2,7 +2,7 @@
  * 项目配置 `.knit/config.json`（DESIGN.md 第13节）。
  * schemaVersion 未知版本阻塞写入；数值校验正数容量、非负修复轮次、心跳可疑阈值大于间隔。
  */
-import { int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { checkSchema, schemaErrors } from "../contracts/schema.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 
@@ -44,10 +44,41 @@ export const ProjectConfigSchema = obj(
         ),
       ),
     ),
+    /** Worktree 公共资料复制白名单与 postCreate 环境步骤（任务 k-e48b7df14115）；无该节=无白名单无步骤。 */
+    worktree: opt(
+      obj(
+        {
+          /** 复制白名单：path 相对主项目根；target 相对 worktree 根，缺省同相对路径。 */
+          copy: opt(arr(obj({ path: str({ minLength: 1 }), target: opt(str({ minLength: 1 })) }, { open: true }))),
+          /** 环境初始化步骤：在目标 worktree 按序执行；name 缺省按序号命名。 */
+          postCreate: opt(arr(obj({ name: opt(str({ minLength: 1 })), command: str({ minLength: 1 }) }, { open: true }))),
+        },
+        { open: true },
+      ),
+    ),
   },
 );
 
 export type ProjectConfig = Static<typeof ProjectConfigSchema>;
+
+export interface WorktreeCopyConfig {
+  path: string;
+  target?: string;
+}
+
+export interface WorktreeStepConfig {
+  name?: string;
+  command: string;
+}
+
+/** worktree 准备配置取值：缺省节与缺省数组都归一为空（不冒充已配置）。 */
+export function worktreeConfigOf(config: ProjectConfig): { copy: WorktreeCopyConfig[]; postCreate: WorktreeStepConfig[] } {
+  const section = config.worktree;
+  return {
+    copy: section?.copy ?? [],
+    postCreate: section?.postCreate ?? [],
+  };
+}
 
 export function defaultConfig(): ProjectConfig {
   return {

@@ -218,8 +218,8 @@ function branchOccupiedBy(root: string, branch: string, targetPath: string | nul
   return null;
 }
 
-/** binding.worktree 幂等核实：路径存在、porcelain 登记且分支可解析到基线或其后代。 */
-function verifyRegisteredWorktree(root: string, info: WorktreeInfo): { ok: boolean; problem: string | null } {
+/** binding.worktree 幂等核实：路径存在、porcelain 登记且分支可解析到基线或其后代（prepare 复用同语义）。 */
+export function verifyRegisteredWorktree(root: string, info: WorktreeInfo): { ok: boolean; problem: string | null } {
   if (!existsSync(info.path) || !statSync(info.path).isDirectory()) {
     return { ok: false, problem: `登记路径缺失: ${info.path}` };
   }
