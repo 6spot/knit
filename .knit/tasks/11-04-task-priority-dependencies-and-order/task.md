@@ -1,8 +1,8 @@
 ---
 id: k-802d3edc053c
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-04T14:11:09.452Z
@@ -58,5 +58,26 @@ Trellis 固定提交 f089cb3 的 priority 默认 P2 可借鉴；其顶层列表�
 ## 结果与验证
 
 ## 运行引用
+
+实施完成（任务 k-802d3edc053c）
+
+- 契约：frontmatter 增 `priority`（P0–P3，默认 P2）、`dependsOn`（稳定 ID 列表）、`order`（人工业务顺序）；三者不参与需求摘要。
+- 领域：新增 `src/domain/schedule.ts`（稳定排序、依赖阻塞与成环检测、重排计划）。
+- 服务：`task new --priority/--depends-on`；`task priority`、`task depends`、`task order`、`task next`；list 统一排序并派生阻塞原因。
+- 入口：`task ready` 与 implement 的 `run prepare` 拒绝未满足依赖（`dependency_unmet`），优先级与用户指定不绕过；依赖结构错误在设置时拒绝。
+- 展示：`task list`／`knit status` 输出优先级、依赖与阻塞原因；`task next` 给出一致安排。
+- 规范：DESIGN §3.1／§3.11／§4.3、STATES、OPERATIONS、GLOSSARY 同步。
+- 验证：`test/task-schedule.test.mjs` 5/5；全量 `npm test` 419/419；typecheck、build 通过。
+
+### 交付记录
+
+<!-- knit:delivery:op-1d9359fe4e07 -->
+- 操作: op-1d9359fe4e07
+- 时间: 2026-11-04T16:47:26.048Z
+- 分支: refs/heads/main
+- 授权来源: user:session-2026-11-04 全权授权逐个执行任务并每任务提交推送
+- 工作提交: 88df0e2deb30dcda037dafe68cfa214bd6a08236
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-04-task-priority-dependencies-and-order
 
 <!-- knit:progress:end -->
