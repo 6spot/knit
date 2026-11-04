@@ -13,7 +13,7 @@ AGENTS.md          本仓库的开发协作入口
 src/               CLI、契约、领域、用例、适配与基础设施
 assets/templates/  init 模板：项目资料与薄桥接
 test/              单元与隔离集成测试
-scripts/           构建与打包检查
+scripts/           构建、打包检查与本地安装
 .knit/             当前任务、工作流、规范与受管运行资料
 .pi/extensions/    项目级 Pi 桥接
 docs/
@@ -24,13 +24,35 @@ docs/
 validation/        可追溯研究、实验与验收材料
 ```
 
-安装（候选包尚未发布）：
+从源码一键打包安装（候选包尚未发布，需要 Node.js >=24 和 npm）：
 
-```text
+```sh
+npm run pack:install
+knit --version
+knit init --client pi --dir <项目>
+knit start --dir <项目>
+```
+
+在仓库根目录执行。脚本先通过 `npm ci --include=dev` 按锁文件重新安装依赖，再由 `npm pack` 的 `prepack` 构建，生成并保留根目录的 `knit-<版本>.tgz`，最后从 tgz 安装到 npm 全局位置并校验安装版本。需要下载依赖；任一步失败会停止并返回非零退出码。重复执行会更新该位置已安装的 Knit。
+
+指定安装位置（例如使用用户目录，避免全局目录权限问题）：
+
+```sh
+npm run pack:install -- --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+knit --version
+```
+
+默认安装也需要 npm 全局命令目录在 `PATH` 中；脚本完成后会打印安装入口。此脚本安装 Knit CLI；运行 Pi 阶段前还需安装并配置本机 Pi CLI。
+
+只打包或在其它项目中局部安装时，可继续使用：
+
+```sh
+npm ci --include=dev
 npm pack
-npm install ./knit-0.1.0.tgz
-./node_modules/.bin/knit init --client pi --dir <项目>
-./node_modules/.bin/knit start --dir <项目>
+# 在目标项目目录中执行，路径替换为生成的 tgz
+npm install /path/to/knit-0.1.0.tgz
+./node_modules/.bin/knit --version
 ```
 
 候选包当前为 `private: true`，未附 LICENSE；公共 npm 发布前需确认名称／scope、版本和许可证。
