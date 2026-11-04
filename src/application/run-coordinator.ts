@@ -25,6 +25,7 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { ContextPlanner } from "./context-planner.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
+import { assertExecutionRoute, executionRouteOf } from "./worktree-routing.js";
 import { loadScope, scopeDigest } from "./scope.js";
 import { currentBranch } from "./delivery.js";
 import { parseConfig, defaultConfig } from "./config.js";
@@ -48,6 +49,8 @@ export interface RunCoordinatorOptions {
 
 export interface PrepareInput {
   dir: string;
+  /** 当前检出根（任务执行目录）；缺省等于 dir（主检出）。 */
+  executionDir?: string;
   taskId: string;
   phase: RunPhase;
   /** 缺省 local，保持既有 RPC 链路；rex 才进入浮层分支。 */
@@ -146,12 +149,19 @@ export class RunCoordinator {
    */
   async prepare(input: PrepareInput): Promise<{ request: RunRequestFile; launch: LaunchRecord; reused: boolean }> {
     const root = normalizeRoot(input.dir);
+    const startDir = normalizeRoot(input.executionDir ?? input.dir);
     const locks = new LockManager(this.lockRoot === null ? {} : { root: this.lockRoot });
     const lock = await this.acquireForPrepare(locks, root, input.taskId);
     try {
+    const binding = await this.store.bindings.get(input.taskId);
+    if (binding === null) throw new GuardError("unknown_binding", `任务缺少绑定: ${input.taskId}`);
+    // 工作区路由：worktree 生效时任务资料与执行目录都在 worktree；invalid 不回退主检出。
+    const route = executionRouteOf(binding, root);
+    assertExecutionRoute(route, startDir);
+    const executionDir = route.dir;
     let located;
     try {
-      located = locateTaskDocument(root, input.taskId);
+      located = locateTaskDocument(executionDir, input.taskId);
     } catch {
       throw new GuardError("unknown_task", `任务不存在: ${input.taskId}`);
     }
@@ -162,18 +172,24 @@ export class RunCoordinator {
     if (located.document.frontmatter.status !== "open") {
       throw new GuardError("task_not_open", `任务不是 open 状态: ${input.taskId}`);
     }
-    const binding = await this.store.bindings.get(input.taskId);
-    if (binding === null) throw new GuardError("unknown_binding", `任务缺少绑定: ${input.taskId}`);
+    // 执行分支：worktree 路由取 worktree 分支（frontmatter 保留源分支 refs/heads/main，不作否决依据）。
+    const expectedBranch = route.state === "worktree" ? route.branch : located.document.frontmatter.branch;
     // 运行边界核对实际检出分支：与任务绑定和 request 三方一致才准启动（任务028）。
-    if (input.phase !== "advisory" && located.document.frontmatter.branch !== null) {
-      const liveBranch = currentBranch(root);
+    if (input.phase !== "advisory" && expectedBranch !== null) {
+      const liveBranch = currentBranch(executionDir);
       if (liveBranch === null) {
         throw new GuardError("branch_mismatch", "当前处于 detached HEAD，不能启动绑定分支的阶段");
       }
-      if (liveBranch !== located.document.frontmatter.branch || liveBranch !== binding.branch) {
+      if (liveBranch !== expectedBranch) {
         throw new GuardError(
           "branch_mismatch",
-          `当前检出分支 ${liveBranch} 与任务绑定不一致；按 task adopt 接管或切回 ${located.document.frontmatter.branch}`,
+          `当前检出分支 ${liveBranch} 与任务执行分支 ${expectedBranch} 不一致；按 task adopt 接管或切回 ${expectedBranch}`,
+        );
+      }
+      if (route.state === "main" && binding.branch !== null && liveBranch !== binding.branch) {
+        throw new GuardError(
+          "branch_mismatch",
+          `当前检出分支 ${liveBranch} 与任务绑定 ${binding.branch} 不一致；按 task adopt 接管或切回 ${binding.branch}`,
         );
       }
     }
@@ -198,7 +214,7 @@ export class RunCoordinator {
       throw new GuardError("invalid_request", "只有实施阶段可以开启修复周期");
     }
     const role = input.phase === "advisory" ? "advisory" : input.phase;
-    const plan = await this.planner.plan({ dir: root, taskId: input.taskId, role, authorizedStandardPaths: input.authorizedStandardPaths });
+    const plan = await this.planner.plan({ dir: executionDir, taskId: input.taskId, role, authorizedStandardPaths: input.authorizedStandardPaths });
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
@@ -229,7 +245,8 @@ export class RunCoordinator {
       initiator: input.initiator,
       createdAt,
       expected: {
-        branch: located.document.frontmatter.branch,
+        branch: expectedBranch,
+        executionDir,
         inputsDigest: plan.inputsDigest,
         standardsDigest: plan.standardsDigest,
         effectiveInputsDigest: plan.effectiveInputsDigest,
@@ -532,7 +549,7 @@ export class RunCoordinator {
    * resume --run：旧执行确认结束后，若结果有效但未接收，先接收且不重跑模型；
    * 已有结果且已接收时不再生成新 run；无结果时用原会话／新会话恢复同一阶段。
    */
-  async resume(input: { dir: string; oldRunId: string }): Promise<{
+  async resume(input: { dir: string; oldRunId: string; executionDir?: string }): Promise<{
     oldRunId: string;
     accepted: boolean;
     resumed: boolean;
@@ -592,6 +609,7 @@ export class RunCoordinator {
     if (prior !== undefined) nativeSessionId = prior.ref.nativeSessionId;
     const prepared = await this.prepare({
       dir: root,
+      ...(input.executionDir === undefined ? {} : { executionDir: input.executionDir }),
       taskId: old.taskId,
       phase: old.phase,
       presentation: old.presentation ?? "local",

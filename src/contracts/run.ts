@@ -155,6 +155,8 @@ export const RunResultFileSchema = obj(
     acceptanceOperationId: str({ minLength: 1 }),
     recordedAt: str({ minLength: 1 }),
     failureReason: union([str(), nul()]),
+    /** 执行分支（worktree 路由为 worktree 分支）；旧结果可缺省。 */
+    branch: opt(union([str({ minLength: 1 }), nul()])),
   },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;
@@ -240,6 +242,8 @@ export type RunInitiator = Static<typeof RunInitiatorSchema>;
 export const RunExpectationSchema = obj(
   {
     branch: union([str({ minLength: 1 }), nul()]),
+    /** 准备时的任务执行目录（worktree 生效时为 worktree 路径）；旧请求可缺省。 */
+    executionDir: opt(union([str({ minLength: 1 }), nul()])),
     inputsDigest: str({ minLength: 1 }),
     standardsDigest: str({ minLength: 1 }),
     effectiveInputsDigest: str({ minLength: 1 }),

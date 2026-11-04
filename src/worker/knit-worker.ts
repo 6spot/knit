@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { RunStateFileSchema, type RunResultFile, type RunStateFile } from "../contracts/run.js";
 import { checkSchema } from "../contracts/schema.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
@@ -23,6 +23,7 @@ import { SnapshotService } from "../application/snapshot.js";
 import { parseConfig } from "../application/config.js";
 import { currentBranch } from "../application/delivery.js";
 import { locateTaskDocument } from "../application/task-service.js";
+import { executionRouteOf } from "../application/worktree-routing.js";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 
 interface Args {
@@ -187,9 +188,20 @@ async function main(): Promise<number> {
     }, config.limits.heartbeatIntervalMs);
     heartbeat.unref();
 
+    const binding = await metadata.bindings.get(request.taskId);
+    if (binding === null) return fail("binding_missing");
+    // 工作区路由：worktree 生效时任务资料与阶段 cwd 都在 worktree；失效不回退主检出。
+    const route = executionRouteOf(binding, root);
+    if (route.state === "invalid") return fail(`worktree_invalid:${route.problem ?? "unknown"}`);
+    if (route.state === "worktree" && !route.prepared) return fail("worktree_not_ready");
+    if (request.expected.executionDir !== undefined && request.expected.executionDir !== null) {
+      if (resolve(request.expected.executionDir) !== resolve(route.dir)) return fail("execution_dir_mismatch");
+    }
+    const executionDir = route.dir;
+
     let located;
     try {
-      located = locateTaskDocument(root, request.taskId);
+      located = locateTaskDocument(executionDir, request.taskId);
     } catch {
       return fail("task_missing");
     }
@@ -197,20 +209,19 @@ async function main(): Promise<number> {
     if (request.phase !== "advisory" && located.document.frontmatter.phase !== request.phase) {
       return fail("phase_mismatch");
     }
-    if (located.document.frontmatter.branch !== request.expected.branch) return fail("branch_mismatch");
-    // 执行副作用前核对实际检出分支；detached HEAD 同样拒绝（任务028）。
+    // worktree 路由下 frontmatter 保留源分支，不作否决依据；三方核对改用执行分支。
+    if (route.state !== "worktree" && located.document.frontmatter.branch !== request.expected.branch) return fail("branch_mismatch");
+    // 执行副作用前核对执行目录的实际检出分支；detached HEAD 同样拒绝（任务028）。
     if (request.phase !== "advisory" && request.expected.branch !== null) {
-      const liveBranch = currentBranch(root);
+      const liveBranch = currentBranch(executionDir);
       if (liveBranch !== request.expected.branch) return fail("branch_mismatch");
     }
-    const binding = await metadata.bindings.get(request.taskId);
-    if (binding === null) return fail("binding_missing");
     if (binding.pendingDraft !== null) return fail("pending_inputs");
 
     const planner = new ContextPlanner({ store: metadata });
     const role = request.phase === "advisory" ? "advisory" : request.phase;
     const plan = await planner.plan({
-      dir: root,
+      dir: executionDir,
       taskId: request.taskId,
       role,
       authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
@@ -266,7 +277,7 @@ async function main(): Promise<number> {
 
     let snapshot = null;
     if (request.phase === "implement") {
-      const result = new SnapshotService().create({ root, runId: request.runId, maxBytes });
+      const result = new SnapshotService().create({ root: executionDir, runId: request.runId, maxBytes, runRoot: root });
       snapshot = {
         state: result.manifest.state,
         digest: result.manifest.digest,
@@ -296,6 +307,7 @@ async function main(): Promise<number> {
     try {
       execution = await new StageRunner({
         root,
+        executionDir,
         request,
         plan,
         inputs: store.readInputs(request.runId) ?? (() => { throw new InfrastructureError("io_error", "inputs 缺失"); })(),

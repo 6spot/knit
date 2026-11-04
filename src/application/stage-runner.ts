@@ -5,7 +5,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ContextPlan } from "../contracts/context-plan.js";
 import type {
   FrozenInputs,
@@ -30,6 +30,7 @@ import {
   type ResumeDecision,
 } from "../adapters/pi/index.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { normalizeRoot } from "../infrastructure/paths.js";
 import { procStartTicks, processTreePids, signalProcessTree, gitSync } from "../infrastructure/process.js";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
@@ -48,6 +49,8 @@ import { RexLauncher, type RexExecution, type RexLauncherOptions } from "./rex-l
 
 export interface StageRunnerOptions {
   root: string;
+  /** 任务执行目录（worktree 生效时为 worktree 路径）；缺省等于 root。 */
+  executionDir?: string;
   request: RunRequestFile;
   plan: ContextPlan;
   inputs: FrozenInputs;
@@ -83,6 +86,15 @@ const START_DIAGNOSTICS_TAIL_LIMIT = 4_000;
 
 function roleOf(request: RunRequestFile): "implement" | "check" | "advisory" {
   return request.phase === "advisory" ? "advisory" : request.phase;
+}
+
+/** 目录相等：别名解析后比较；路径已不存在时退到词法比较（不因现场缺失改变恢复判断）。 */
+function sameDir(a: string, b: string): boolean {
+  try {
+    return normalizeRoot(a) === normalizeRoot(b);
+  } catch {
+    return resolve(a) === resolve(b);
+  }
 }
 
 function toolsFor(request: RunRequestFile, plan: ContextPlan): string[] {
@@ -128,6 +140,7 @@ function usageDelta(before: Record<string, unknown> | null, after: Record<string
 
 export class StageRunner {
   private readonly root: string;
+  private readonly executionDir: string;
   private readonly request: RunRequestFile;
   private readonly plan: ContextPlan;
   private readonly inputs: FrozenInputs;
@@ -146,6 +159,7 @@ export class StageRunner {
 
   constructor(options: StageRunnerOptions) {
     this.root = options.root;
+    this.executionDir = normalizeRoot(options.executionDir ?? options.root);
     this.request = options.request;
     this.plan = options.plan;
     this.inputs = options.inputs;
@@ -169,7 +183,7 @@ export class StageRunner {
     const scope = this.runs.readScope(this.request.taskId);
     const binding = await this.store.bindings.get(this.request.taskId);
     const previousImplement = await this.previousImplementResult(binding?.lastRunIds ?? []);
-    const contents = loadSectionContents(this.root, this.plan, binding?.pendingDraft?.content ?? null);
+    const contents = loadSectionContents(this.executionDir, this.plan, binding?.pendingDraft?.content ?? null);
     const systemPrompt = buildSystemPrompt(this.plan, this.request.phase, contents);
     const userPrompt = buildUserPrompt(this.plan, this.request.phase, contents, {
       taskId: this.request.taskId,
@@ -231,7 +245,7 @@ export class StageRunner {
           provider: this.request.model.provider,
           modelId: this.request.model.model,
           tools: toolsFor(this.request, this.plan),
-          cwd: this.root,
+          cwd: this.executionDir,
           sessionDir,
           appendSystemPrompt: systemPrompt,
           env: isolatedEnv(),
@@ -239,7 +253,7 @@ export class StageRunner {
         session.decision,
       ),
     );
-    const beforeSignature = worktreeSignature(this.root);
+    const beforeSignature = worktreeSignature(this.executionDir);
     if (beforeSignature === null) {
       await runtime.dispose(1_000);
       return this.failure(session, "worktree_unknown", null, null, null);
@@ -257,7 +271,7 @@ export class StageRunner {
       return this.failure(session, `lock_ownership_lost:${lostBeforeStart}`, null, null, null);
     }
     // 副作用前最后核对实际检出分支；prepare 后、启动前换分支在此拒绝（任务028）。
-    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+    if (!liveBranchMatches(this.executionDir, this.request.expected.branch, gitSync)) {
       await this.markSession(session, "opening", "branch_mismatch_at_start", false);
       await runtime.dispose(2_000).catch(() => null);
       return this.failure(session, "branch_mismatch_at_start", null, null, null);
@@ -294,7 +308,7 @@ export class StageRunner {
             provider: this.request.model.provider,
             modelId: this.request.model.model,
             tools: toolsFor(this.request, this.plan),
-            cwd: this.root,
+            cwd: this.executionDir,
             sessionDir,
             appendSystemPrompt: systemPrompt,
             env: isolatedEnv(),
@@ -493,13 +507,20 @@ export class StageRunner {
     if (existing?.kind === "main") {
       // 主会话原生文件不得被 worker 复用；显式恢复请求也改为新子会话。
       decision = { action: "create_new", nativeSessionId: randomUUID(), reason: "main_session_reuse", check: null };
+    } else if (existing !== null && !sameDir(existing.cwd, this.executionDir)) {
+      // 执行目录变化（主检出 ↔ worktree）：旧会话 cwd 不一致，按 resume=prefer 回退新会话续做。
+      decision = { action: "create_new", nativeSessionId: randomUUID(), reason: "cwd_mismatch", check: null };
     } else if (expected === null || this.request.recovery.resume === "new") {
       decision = { action: "create_new", nativeSessionId: randomUUID(), reason: expected === null ? "no_previous_session" : "resume_new_requested", check: null };
     } else {
       decision = await decideResume(expected, file);
     }
     const nativeSessionId = decision.action === "resume" ? decision.nativeSessionId : decision.nativeSessionId;
-    const knitSessionId = existing?.knitSessionId ?? newKnitSessionId(this.randomHex);
+    // 执行目录变化回退新会话时使用独立 Knit Session ID，不覆盖旧会话对象。
+    const knitSessionId =
+      existing !== null && decision.action === "create_new" && decision.reason === "cwd_mismatch"
+        ? newKnitSessionId(this.randomHex)
+        : existing?.knitSessionId ?? newKnitSessionId(this.randomHex);
     const now = this.now().toISOString();
     const parentSessionId = this.request.initiator.knitSessionId;
     const record: SessionRecord = {
@@ -511,14 +532,16 @@ export class StageRunner {
       sessionFile: decision.action === "resume" ? decision.sessionFile : null,
       parentSessionId,
       source:
-        existing?.source ??
-        (decision.action === "create_new" && expected !== null
-          ? { kind: "resume_fallback", fromSessionId: null, reason: decision.reason }
-          : { kind: "attach", fromSessionId: null, reason: null }),
+        existing !== null && decision.action === "create_new" && decision.reason === "cwd_mismatch"
+          ? { kind: "resume_fallback", fromSessionId: existing.knitSessionId, reason: "cwd_mismatch" }
+          : existing?.source ??
+            (decision.action === "create_new" && expected !== null
+              ? { kind: "resume_fallback", fromSessionId: null, reason: decision.reason }
+              : { kind: "attach", fromSessionId: null, reason: null }),
       taskId: this.request.taskId,
       branch: this.request.expected.branch,
       runId: this.request.runId,
-      cwd: this.root,
+      cwd: this.executionDir,
       checkpoint: null,
       selection: null,
       reason: decision.action === "create_new" ? decision.reason : null,
@@ -565,7 +588,7 @@ export class StageRunner {
       taskId: oldRecord.taskId,
       branch: oldRecord.branch,
       runId: this.request.runId,
-      cwd: this.root,
+      cwd: this.executionDir,
       checkpoint: null,
       selection: null,
       reason: decision.reason,
@@ -650,7 +673,7 @@ export class StageRunner {
   ): Promise<StageExecution> {
     const processStartedAt = this.now().toISOString();
     this.writeStageProcess(session, "starting", null, processStartedAt);
-    const beforeSignature = worktreeSignature(this.root);
+    const beforeSignature = worktreeSignature(this.executionDir);
     if (beforeSignature === null) {
       await this.markSession(session, "opening", "worktree_unknown", false);
       return this.failure(session, "worktree_unknown", null, null, null);
@@ -663,7 +686,7 @@ export class StageRunner {
       await this.markSession(session, "opening", `lock_ownership_lost:${lostBeforeStart}`, false);
       return this.failure(session, `lock_ownership_lost:${lostBeforeStart}`, null, null, null);
     }
-    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+    if (!liveBranchMatches(this.executionDir, this.request.expected.branch, gitSync)) {
       await this.markSession(session, "opening", "branch_mismatch_at_start", false);
       return this.failure(session, "branch_mismatch_at_start", null, null, null);
     }
@@ -682,7 +705,7 @@ export class StageRunner {
       tools: toolsFor(this.request, this.plan),
       systemPrompt,
       userPrompt,
-      cwd: this.root,
+      cwd: this.executionDir,
       sessionDir,
       executablePath: this.piExecutable,
       // 不把 StageRunner 的默认目录硬塞给 Rex shell；保留宿主显式配置。
@@ -832,10 +855,10 @@ export class StageRunner {
     nativeReadable: boolean,
   ): StageExecution {
     // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
-    if (!liveBranchMatches(this.root, this.request.expected.branch, gitSync)) {
+    if (!liveBranchMatches(this.executionDir, this.request.expected.branch, gitSync)) {
       return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
     }
-    const afterSignature = worktreeSignature(this.root);
+    const afterSignature = worktreeSignature(this.executionDir);
     if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
     const changedPaths = diffSignatures(beforeSignature, afterSignature);
     // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
@@ -905,10 +928,11 @@ export class StageRunner {
       usage,
       session: this.sessionRecord(session, session.nativeReadable, session.sessionFile),
       actualChangedPaths,
-      actualEntries: actualChangedPaths.map((path) => currentEntry(this.root, path, { factsKind: true })),
+      actualEntries: actualChangedPaths.map((path) => currentEntry(this.executionDir, path, { factsKind: true })),
       acceptanceOperationId: this.request.acceptanceOperationId,
       recordedAt: this.now().toISOString(),
       failureReason,
+      branch: this.request.expected.branch,
     };
   }
 

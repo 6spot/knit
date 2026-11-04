@@ -7,14 +7,16 @@ import { RunCoordinator } from "../application/run-coordinator.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { resolvePhaseModel } from "../application/model-selection.js";
 import { GuardError } from "../application/guard-error.js";
+import { resolveProjectStart } from "../application/worktree-routing.js";
 import type { RunPhase } from "../contracts/run.js";
 import { devEnabled } from "./dev.js";
+import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
 function openStore(dir: string): SqliteMetadataStore {
-  return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+  return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
 function terminal(state: string): boolean {
@@ -37,11 +39,12 @@ export function registerRunCommands(program: Command): void {
     phase: RunPhase,
     requestId: string,
   ): Promise<Awaited<ReturnType<RunCoordinator["prepare"]>>> => {
-    const dir = String(options.dir ?? ".");
+    const start = resolveProjectStart(String(options.dir ?? "."));
+    const root = start.mainRoot;
     const taskId = String(options.task ?? "");
     if (taskId === "") throw new GuardError("task_required", "run 需要 --task <taskId>");
     const model = resolvePhaseModel({
-      dir,
+      dir: root,
       phase,
       provider: options.provider as string | undefined,
       model: options.model as string | undefined,
@@ -49,11 +52,12 @@ export function registerRunCommands(program: Command): void {
     });
     const resume = (options.resume as string | undefined) ?? "prefer";
     if (resume !== "prefer" && resume !== "new") throw new GuardError("invalid_request", `未知恢复方式: ${resume}`);
-    const store = openStore(dir);
+    const store = openStore(root);
     try {
       const coordinator = new RunCoordinator({ store, lockRoot: options.locks as string | undefined });
       return await coordinator.prepare({
-        dir,
+        dir: root,
+        executionDir: start.executionDir,
         taskId,
         phase,
         presentation: options.rex === true ? "rex" : "local",
@@ -61,7 +65,7 @@ export function registerRunCommands(program: Command): void {
           client: options.client === "pi" ? "pi" : "cli",
           knitSessionId: (options.session as string | undefined) ?? null,
           nativeSessionId: (options.native as string | undefined) ?? null,
-          cwd: dir,
+          cwd: start.executionDir,
         },
         model,
         recovery: {
@@ -83,7 +87,7 @@ export function registerRunCommands(program: Command): void {
     runId: string,
     requestId: string,
   ): Promise<Awaited<ReturnType<RunCoordinator["start"]>>> => {
-    const dir = String(options.dir ?? ".");
+    const dir = cliMainRoot(String(options.dir ?? "."));
     const store = openStore(dir);
     try {
       const coordinator = new RunCoordinator({ store, lockRoot: options.locks as string | undefined });
@@ -98,7 +102,8 @@ export function registerRunCommands(program: Command): void {
     }
   };
 
-  const waitFor = async (dir: string, runId: string, locks?: string): Promise<Record<string, unknown>> => {
+  const waitFor = async (startDir: string, runId: string, locks?: string): Promise<Record<string, unknown>> => {
+    const dir = cliMainRoot(startDir);
     const store = openStore(dir);
     try {
       const coordinator = new RunCoordinator({ store, lockRoot: locks });
@@ -239,14 +244,14 @@ export function registerRunCommands(program: Command): void {
         const { runInformalCheck } = await import("../application/informal-check.js");
         try {
           const model = resolvePhaseModel({
-            dir: options.dir,
+            dir: cliMainRoot(options.dir),
             phase: "check",
             provider: options.provider,
             model: options.model,
             runtime: options.runtime,
           });
           const result = await runInformalCheck({
-            dir: options.dir,
+            dir: cliMainRoot(options.dir),
             scope: options.scope,
             model,
             locksRoot: options.locks,
@@ -280,9 +285,10 @@ export function registerRunCommands(program: Command): void {
     .action(async (runId, options) => {
       try {
         const { StatusService } = await import("../application/status-service.js");
-        const store = openStore(options.dir);
+        const root = cliMainRoot(options.dir);
+        const store = openStore(root);
         try {
-          const status = await new StatusService({ store, locksRoot: options.locks }).runStatus(options.dir, runId, options.locks);
+          const status = await new StatusService({ store, locksRoot: options.locks }).runStatus(root, runId, options.locks);
           if (jsonMode()) emit(jsonResponse("run-status", "completed", status));
           else {
             console.log(`run ${status.runId}: ${status.state}（启动 ${status.launchState}，尝试 ${status.attempts}）`);
@@ -316,14 +322,15 @@ export function registerRunCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
-      const store = openStore(options.dir);
+      const root = cliMainRoot(options.dir);
+      const store = openStore(root);
       try {
         const { RunAcceptanceService } = await import("../application/run-acceptance.js");
         const { LockManager } = await import("../infrastructure/locks.js");
         const result = await new RunAcceptanceService({
           store,
           locks: new LockManager(options.locks === undefined ? {} : { root: options.locks }),
-        }).accept({ dir: options.dir, runId });
+        }).accept({ dir: root, runId });
         if (jsonMode()) emit(jsonResponse("run-accept", result.accepted ? "completed" : "needs_attention", result));
         else {
           console.log(`run ${runId}: ${result.accepted ? "已接收" : "待处理"}（${result.reason ?? "无原因"}）`);
@@ -343,10 +350,11 @@ export function registerRunCommands(program: Command): void {
     .option("--reason <text>", "取消理由")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
-      const store = openStore(options.dir);
+      const root = cliMainRoot(options.dir);
+      const store = openStore(root);
       try {
         const coordinator = new RunCoordinator({ store });
-        const result = await coordinator.cancel({ dir: options.dir, runId, reason: options.reason ?? null });
+        const result = await coordinator.cancel({ dir: root, runId, reason: options.reason ?? null });
         if (jsonMode()) emit(jsonResponse("run-cancel", "completed", result));
         else console.log(`run ${runId}: ${result.requested ? "已记录取消意图" : `已是终态 ${result.state}`}`);
       } catch (error) {
@@ -363,10 +371,11 @@ export function registerRunCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
-      const store = openStore(options.dir);
+      const start = resolveProjectStart(options.dir);
+      const store = openStore(start.mainRoot);
       try {
         const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-        const result = await coordinator.resume({ dir: options.dir, oldRunId: runId });
+        const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: runId, executionDir: start.executionDir });
         if (jsonMode()) emit(jsonResponse("run-resume", "completed", result));
         else console.log(`旧 run ${runId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
       } catch (error) {
@@ -381,13 +390,14 @@ export function registerRunCommands(program: Command): void {
     .description("列出本项目的 run 目录（只读）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
-      const dbPath = join(options.dir, RUNTIME_DIR, "metadata.db");
+      const root = cliMainRoot(options.dir);
+      const dbPath = join(root, RUNTIME_DIR, "metadata.db");
       const store = existsSync(dbPath) ? new SqliteMetadataStore(dbPath, { readOnly: true }) : new SqliteMetadataStore(":memory:");
       try {
-        const runs = new RunStore(options.dir);
+        const runs = new RunStore(root);
         const coordinator = new RunCoordinator({ store });
         const result = [];
-        for (const runId of runs.listRunIds()) result.push(await coordinator.status({ dir: options.dir, runId }));
+        for (const runId of runs.listRunIds()) result.push(await coordinator.status({ dir: root, runId }));
         if (jsonMode()) emit(jsonResponse("run-list", "completed", result));
         else for (const status of result) console.log(`${status.runId} ${status.phase} ${status.state} prepared=${status.prepared}`);
       } catch (error) {

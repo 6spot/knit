@@ -7,11 +7,12 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { RestoreService } from "../application/restore.js";
 import { GuardError } from "../application/guard-error.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
 function openStore(dir: string): SqliteMetadataStore {
-  return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+  return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
 function collect(value: string, previous: string[]): string[] {

@@ -6,12 +6,14 @@ import { WorktreeService } from "../application/worktree-manager.js";
 import { WorktreeHandoffService } from "../application/worktree-handoff.js";
 import { WorktreePrepareService } from "../application/worktree-prepare.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { executionRouteOf, resolveProjectStart, verifyWorktreeRegistration } from "../application/worktree-routing.js";
+import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
 function openStore(dir: string): SqliteMetadataStore {
-  return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+  return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
 function printWorktree(worktree: { layout: string; path: string; branch: string; baseline: string; relativePath?: string }): void {
@@ -61,10 +63,11 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const taskId = options.task;
+      const root = cliMainRoot(options.dir);
       const requestId = `worktree-create-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await withService(requestId, options.dir, (service) =>
+      await withService(requestId, root, (service) =>
         service.create({
-          dir: options.dir,
+          dir: root,
           taskId,
           ...(options.path === undefined ? {} : { path: options.path }),
           ...(options.branch === undefined ? {} : { branch: options.branch }),
@@ -92,9 +95,10 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const taskId = options.task;
+      const root = cliMainRoot(options.dir);
       const requestId = `worktree-connect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await withService(requestId, options.dir, (service) =>
-        service.connect({ dir: options.dir, taskId, path: options.path }),
+      await withService(requestId, root, (service) =>
+        service.connect({ dir: root, taskId, path: options.path }),
         (result) => {
           console.log(`${result.registered ? "已连接并登记" : "已连接（幂等命中）"}: ${result.taskId}`);
           printWorktree(result.worktree);
@@ -110,12 +114,13 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const taskId = options.task;
+      const root = cliMainRoot(options.dir);
       const requestId = `worktree-handoff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const store = openStore(options.dir);
+      const store = openStore(root);
       try {
-        const service = new WorktreeHandoffService({ store, runs: new RunStore(options.dir) });
+        const service = new WorktreeHandoffService({ store, runs: new RunStore(root) });
         const result = await service.handoff({
-          dir: options.dir,
+          dir: root,
           taskId,
           ...(options.to === undefined ? {} : { to: options.to }),
         });
@@ -154,12 +159,13 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const taskId = options.task;
+      const root = cliMainRoot(options.dir);
       const requestId = `worktree-prepare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const store = openStore(options.dir);
+      const store = openStore(root);
       try {
         const service = new WorktreePrepareService({ store });
         const result = await service.prepare({
-          dir: options.dir,
+          dir: root,
           taskId,
           ...(options.rerun === undefined ? {} : { rerun: options.rerun }),
         });
@@ -174,6 +180,101 @@ export function registerWorktreeCommands(program: Command): void {
             console.log(`步骤 ${step.name}: ${label}（exit ${step.exit ?? "-"}）`);
           }
           if (result.finishedAt !== null) console.log(`完成: ${result.finishedAt}`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  worktree
+    .command("status")
+    .description("只读报告任务的执行路由：state／dir／branch／layout／prepared／active／problem")
+    .requiredOption("--task <taskId>", "任务 ID")
+    .option("--dir <dir>", "起点目录（主检出或 worktree；默认当前目录）", ".")
+    .action(async (options) => {
+      const requestId = `worktree-status-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const start = resolveProjectStart(options.dir);
+      const store = openStore(start.mainRoot);
+      try {
+        const binding = await store.bindings.get(options.task);
+        if (binding === null) throw new Error(`任务缺少绑定: ${options.task}`);
+        const route = executionRouteOf(binding, start.mainRoot);
+        const result = {
+          taskId: options.task,
+          mainRoot: start.mainRoot,
+          startDir: start.executionDir,
+          ...route,
+        };
+        if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
+        else {
+          console.log(`任务: ${options.task}`);
+          console.log(`主检出: ${result.mainRoot}`);
+          console.log(`当前目录: ${result.startDir}`);
+          console.log(`状态: ${result.state}`);
+          console.log(`执行目录: ${result.dir}`);
+          console.log(`分支: ${result.branch ?? "（无）"}`);
+          console.log(`布局: ${result.layout}`);
+          console.log(`已交接: ${result.active}  已准备: ${result.prepared}`);
+          if (result.problem !== null) console.log(`问题: ${result.problem}`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+        } else {
+          console.error(`knit: ${message}`);
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  worktree
+    .command("list")
+    .description("枚举全部 worktree 登记（跨目录可见；invalid 条目与原因一并显示）")
+    .option("--dir <dir>", "起点目录（主检出或 worktree；默认当前目录）", ".")
+    .action(async (options) => {
+      const requestId = `worktree-list-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const start = resolveProjectStart(options.dir);
+      const store = openStore(start.mainRoot);
+      try {
+        const entries = [];
+        for (const binding of await store.bindings.list()) {
+          const info = binding.worktree;
+          if (info === undefined) continue;
+          const verdict = verifyWorktreeRegistration(start.mainRoot, info);
+          const active = info.active === true;
+          entries.push({
+            taskId: binding.taskId,
+            state: verdict.ok ? (active ? "worktree" : "inactive") : "invalid",
+            dir: info.path,
+            branch: info.branch,
+            layout: info.layout,
+            prepared: typeof info.preparedAt === "string" && info.preparedAt !== "",
+            active,
+            problem: verdict.problem,
+          });
+        }
+        entries.sort((a, b) => a.taskId.localeCompare(b.taskId));
+        const result = { mainRoot: start.mainRoot, entries };
+        if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
+        else {
+          console.log(`主检出: ${result.mainRoot}`);
+          if (entries.length === 0) console.log("（无 worktree 登记）");
+          for (const entry of entries) {
+            console.log(`${entry.taskId}  ${entry.state}  ${entry.dir}`);
+            console.log(`  分支: ${entry.branch}  布局: ${entry.layout}  已交接: ${entry.active}  已准备: ${entry.prepared}`);
+            if (entry.problem !== null) console.log(`  问题: ${entry.problem}`);
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

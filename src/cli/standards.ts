@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { StandardsService } from "../application/standards-service.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -22,7 +23,7 @@ export function registerStandardsCommands(program: Command): void {
     fn: (service: StandardsService) => Promise<T>,
     render: (result: T) => void,
   ): Promise<void> => {
-    const store = new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+    const store = new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
     try {
       const service = new StandardsService({ store });
       const result = await fn(service);

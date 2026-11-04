@@ -11,6 +11,8 @@ import { DeliveryRecordSchema, type DeliveryRecord } from "../contracts/delivery
 import { checkSchema } from "../contracts/schema.js";
 import { GuardError } from "../application/guard-error.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
+import { resolveProjectStart } from "../application/worktree-routing.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -35,11 +37,12 @@ export function registerResumeCommands(program: Command): void {
       const runId = options.run ?? (typeof id === "string" && id.startsWith("run-") ? id : undefined);
       const operationId = options.operation ?? (typeof id === "string" && id.startsWith("op-") ? id : undefined);
       const taskId = options.run === undefined && options.operation === undefined && typeof id === "string" && !id.startsWith("run-") && !id.startsWith("op-") ? id : undefined;
-      const store = new SqliteMetadataStore(join(options.dir, RUNTIME_DIR, "metadata.db"));
+      const start = resolveProjectStart(options.dir);
+      const store = new SqliteMetadataStore(join(start.mainRoot, RUNTIME_DIR, "metadata.db"));
       try {
         if (runId !== undefined) {
           const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-          const result = await coordinator.resume({ dir: options.dir, oldRunId: runId });
+          const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: runId, executionDir: start.executionDir });
           if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
           else console.log(`run ${runId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
           return;
@@ -60,10 +63,10 @@ export function registerResumeCommands(program: Command): void {
             return;
           }
           if (operation.kind === "run_acceptance") {
-            const runs = new RunStore(options.dir);
+            const runs = new RunStore(start.mainRoot);
             const run = runs.listRunIds().find((candidate) => runs.readRequest(candidate)?.acceptanceOperationId === operationId);
             if (run === undefined) throw new GuardError("unknown_run", `找不到操作 ${operationId} 对应的 run`);
-            const result = await new RunAcceptanceService({ store, locks: new LockManager(options.locks === undefined ? {} : { root: options.locks }) }).accept({ dir: options.dir, runId: run });
+            const result = await new RunAcceptanceService({ store, locks: new LockManager(options.locks === undefined ? {} : { root: options.locks }) }).accept({ dir: start.mainRoot, runId: run });
             if (jsonMode()) emit(jsonResponse(requestId, result.accepted ? "completed" : "needs_attention", result));
             else console.log(`操作 ${operationId}: ${result.accepted ? "已接收" : "待处理"}（${result.reason ?? "无原因"}）`);
             return;
@@ -71,14 +74,14 @@ export function registerResumeCommands(program: Command): void {
           throw new GuardError("operation_unsupported", `暂不支持恢复操作类型: ${operation.kind}`);
         }
         if (taskId !== undefined) {
-          const runs = new RunStore(options.dir);
+          const runs = new RunStore(start.mainRoot);
           const candidates = runs.listRunIds()
             .map((run) => runs.readRequest(run))
             .filter((request): request is NonNullable<typeof request> => request !== null && request.taskId === taskId);
           const latest = candidates.at(-1);
           if (latest === undefined) throw new GuardError("unknown_run", `任务没有可恢复 run: ${taskId}`);
           const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-          const result = await coordinator.resume({ dir: options.dir, oldRunId: latest.runId });
+          const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: latest.runId, executionDir: start.executionDir });
           if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
           else console.log(`任务 ${taskId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
           return;
@@ -101,12 +104,13 @@ export function registerResumeCommands(program: Command): void {
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       const requestId = `cancel-${Date.now()}`;
-      const store = new SqliteMetadataStore(join(options.dir, RUNTIME_DIR, "metadata.db"));
+      const root = cliMainRoot(options.dir);
+      const store = new SqliteMetadataStore(join(root, RUNTIME_DIR, "metadata.db"));
       try {
         if (options.run !== undefined) {
           const coordinator = new RunCoordinator({ store });
           const result = await coordinator.cancel({
-            dir: options.dir,
+            dir: root,
             runId: options.run,
             reason: options.reason ?? null,
             terminate: options.terminate === true,

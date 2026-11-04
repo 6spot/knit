@@ -6,6 +6,7 @@ import { DeliveryService, type DeliveryInput, type DeliveryPlan } from "../appli
 import { LockManager } from "../infrastructure/locks.js";
 import type { DeliveryResult } from "../contracts/delivery.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -60,7 +61,7 @@ export function registerDeliveryCommands(program: Command): void {
       process.exitCode = 1;
       return null;
     }
-    const store = new SqliteMetadataStore(join(options.dir, RUNTIME_DIR, "metadata.db"));
+    const store = new SqliteMetadataStore(join(cliMainRoot(options.dir), RUNTIME_DIR, "metadata.db"));
     try {
       const service = new DeliveryService({
         store,

@@ -21,6 +21,7 @@ import { InfrastructureError } from "../infrastructure/errors.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import { locateTaskDocument, TaskGuardError } from "./task-service.js";
 import { verifyRegisteredWorktree, type WorktreeInfo } from "./worktree-manager.js";
+import { executionRouteOf } from "./worktree-routing.js";
 import { defaultConfig, parseConfig, worktreeConfigOf, type WorktreeCopyConfig } from "./config.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import type { TaskBinding } from "../contracts/metadata.js";
@@ -493,7 +494,9 @@ export class WorktreePrepareService {
 
   async prepare(input: { dir: string; taskId: string; rerun?: string }): Promise<WorktreePrepareResult> {
     const root = normalizeRoot(input.dir);
-    const located = locateTaskDocument(root, input.taskId);
+    // 交接后任务资料权威在 worktree：按执行路由定位，不在主检出重复查找。
+    const current = await this.requireBinding(input.taskId);
+    const located = locateTaskDocument(executionRouteOf(current, root).dir, input.taskId);
     if (located.archived) {
       throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
     }

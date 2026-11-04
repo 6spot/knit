@@ -14,7 +14,20 @@ const provider = arg("--provider") ?? "fake";
 const model = arg("--model") ?? "fake";
 const sessionDir = arg("--session-dir") ?? join(process.cwd(), "sessions");
 const explicitFile = arg("--session");
-const sessionId = arg("--session-id") ?? randomUUID();
+// 恢复（--session）时沿用文件内的会话 ID，模拟真实 Pi 的身份保持语义。
+function sessionIdFromFile(file) {
+  try {
+    const first = readFileSync(file, "utf8").split("\n")[0];
+    const header = JSON.parse(first);
+    return typeof header.id === "string" && header.id !== "" ? header.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+const sessionId =
+  arg("--session-id") ??
+  (explicitFile !== undefined && existsSync(explicitFile) ? sessionIdFromFile(explicitFile) : undefined) ??
+  randomUUID();
 const cwd = process.cwd();
 mkdirSync(sessionDir, { recursive: true });
 const sessionFile = explicitFile ?? join(sessionDir, `${new Date().toISOString().replace(/[:.]/g, "-")}_${sessionId}.jsonl`);

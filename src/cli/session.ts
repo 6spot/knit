@@ -5,12 +5,14 @@ import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js"
 import { SessionService, type SessionAttachInput } from "../application/session-service.js";
 import { ContextPlanner } from "../application/context-planner.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 import type { SessionKind, SessionRole, SessionSourceKind } from "../contracts/session.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
 function openStore(dir: string): SqliteMetadataStore {
-  return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+  // 元数据库固定在主检出；worktree 内不新建。
+  return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
 const ROLES = new Set(["implement", "check", "advisory"]);

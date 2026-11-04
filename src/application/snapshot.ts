@@ -133,9 +133,10 @@ export class SnapshotService {
   }
 
   /** 幂等：已有 ready 快照直接返回；failed 或半成品重建。 */
-  create(input: { root: string; runId: string; maxBytes?: number }): SnapshotResult {
+  create(input: { root: string; runId: string; maxBytes?: number; runRoot?: string }): SnapshotResult {
     const root = normalizeRoot(input.root);
-    const store = new RunStore(root);
+    // RunStore 固定在主检出（run 产物唯一位置）；Git 基线取执行目录。
+    const store = new RunStore(normalizeRoot(input.runRoot ?? input.root));
     const runDir = store.runDir(input.runId);
     const target = join(runDir, "snapshot");
     // 先读既有 manifest：未知较新版本在此直接报 version_conflict，早于任何删除／重写，

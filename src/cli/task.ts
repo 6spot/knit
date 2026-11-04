@@ -7,13 +7,15 @@ import { RunActivityService } from "../application/run-activity.js";
 import { TaskService, type TaskUpdateResult } from "../application/task-service.js";
 import { SessionService } from "../application/session-service.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 import { gitSync } from "../infrastructure/process.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 const VERIFICATIONS = new Set(["none", "self", "independent"]);
 
 function openStore(dir: string): SqliteMetadataStore {
-  return new SqliteMetadataStore(join(dir, RUNTIME_DIR, "metadata.db"));
+  // 元数据库固定在主检出；worktree 内不新建。
+  return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
 function summarizeUpdate(result: TaskUpdateResult): string {

@@ -7,11 +7,12 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { StatusService } from "../application/status-service.js";
 import { doctor, storage } from "../application/diagnostics.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cliMainRoot } from "./root.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
 function openReadStore(dir: string): SqliteMetadataStore {
-  const path = join(dir, RUNTIME_DIR, "metadata.db");
+  const path = join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db");
   return existsSync(path)
     ? new SqliteMetadataStore(path, { readOnly: true })
     : new SqliteMetadataStore(":memory:");

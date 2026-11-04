@@ -16,6 +16,7 @@ import { inputsDigestOf } from "../contracts/task-inputs.js";
 import { locateTaskDocument } from "./task-service.js";
 import { entryDrifts, loadScope, mergeScope, scopeDigest, scopeEntriesCurrent } from "./scope.js";
 import { currentBranch } from "./delivery.js";
+import { executionRouteOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { onCheckAccepted, onImplementationAccepted, type TaskFacts } from "../domain/task.js";
@@ -165,17 +166,23 @@ export class RunAcceptanceService {
     result: RunResultFile,
     operationId: string,
   ): Promise<AcceptanceResult> {
-    const located = locateTaskDocument(root, request.taskId);
-    if (located.archived) return this.attention(operationId, request, "task_archived", result);
-    const document = located.document;
     const binding = await this.store.bindings.get(request.taskId);
     if (binding === null) return this.attention(operationId, request, "binding_missing", result);
+    // 工作区路由：worktree 生效时任务资料在 worktree；invalid 不回退主检出。
+    const route = executionRouteOf(binding, root);
+    if (route.state === "invalid") {
+      return this.attention(operationId, request, `worktree_invalid:${route.problem ?? "unknown"}`, result);
+    }
+    const executionDir = route.dir;
+    const located = locateTaskDocument(executionDir, request.taskId);
+    if (located.archived) return this.attention(operationId, request, "task_archived", result);
+    const document = located.document;
     const inputs = runs.readInputs(request.runId);
     if (inputs === null) return this.attention(operationId, request, "inputs_missing", result);
 
     const role = request.phase === "advisory" ? "advisory" : request.phase;
     const plan = await new ContextPlanner({ store: this.store, now: this.now, randomHex: this.randomHex }).plan({
-      dir: root,
+      dir: executionDir,
       taskId: request.taskId,
       role,
       // 授权规范成果以冻结旧版本参与输入身份；新内容按成果核查（任务037）。
@@ -189,12 +196,13 @@ export class RunAcceptanceService {
     ) {
       return this.attention(operationId, request, "stale_input", result);
     }
-    if (document.frontmatter.branch !== request.expected.branch) {
+    // worktree 路由下 frontmatter 保留源分支，不作否决依据。
+    if (route.state !== "worktree" && document.frontmatter.branch !== request.expected.branch) {
       return this.attention(operationId, request, "branch_changed", result);
     }
-    // 结果接收前核对实际检出分支；结果待接收期间换分支不接收（任务028）。
+    // 结果接收前核对执行目录的实际检出分支；结果待接收期间换分支不接收（任务028）。
     if (request.phase !== "advisory" && request.expected.branch !== null) {
-      const liveBranch = currentBranch(root);
+      const liveBranch = currentBranch(executionDir);
       if (liveBranch !== request.expected.branch) {
         return this.attention(operationId, request, "branch_changed", result);
       }
@@ -222,7 +230,7 @@ export class RunAcceptanceService {
       action: "run.accept.stage",
     });
     try {
-    return await this.acceptStageLocked(root, runs, request, result, operationId, located, document, binding, inputs, plan, facts, scope, report);
+    return await this.acceptStageLocked(root, executionDir, route.state, runs, request, result, operationId, located, document, binding, inputs, plan, facts, scope, report);
     } finally {
       this.locks.release(acceptTaskLock);
     }
@@ -230,6 +238,8 @@ export class RunAcceptanceService {
 
   private async acceptStageLocked(
     root: string,
+    executionDir: string,
+    routeState: "main" | "worktree",
     runs: RunStore,
     request: RunRequestFile,
     result: RunResultFile,
@@ -256,7 +266,7 @@ export class RunAcceptanceService {
       ) {
         return this.attention(operationId, request, "stale_input", result);
       }
-      return this.applyJournal(root, runs, request, result, existingJournal);
+      return this.applyJournal(root, executionDir, routeState, runs, request, result, existingJournal);
     }
 
     if (request.phase === "implement") {
@@ -273,14 +283,14 @@ export class RunAcceptanceService {
       if (result.actualEntries !== undefined) {
         // 接收前按当前事实重核发布时指纹：路径、类型、模式和内容，检查窗口的改动不接收（STATES.md 第8节，任务027）。
         for (const entry of result.actualEntries) {
-          if (entryDrifts(root, entry)) return this.attention(operationId, request, "scope_changed", result);
+          if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
         }
       }
       const nextScope = mergeScope(scope, {
         runId: request.runId,
         taskId: request.taskId,
         paths: [...actual],
-        root,
+        root: executionDir,
         now: this.now().toISOString(),
       });
       const target: AcceptanceState = { status: transition.status, phase: transition.phase, outcome: transition.outcome };
@@ -323,7 +333,7 @@ export class RunAcceptanceService {
         createdAt: this.now().toISOString(),
       };
       runs.writeAcceptanceJournal(request.runId, journal);
-      return this.applyJournal(root, runs, request, result, journal);
+      return this.applyJournal(root, executionDir, routeState, runs, request, result, journal);
     }
 
     // check
@@ -350,14 +360,14 @@ export class RunAcceptanceService {
     if (!("phase" in transition)) return this.attention(operationId, request, "transition_invalid", result);
 
     // 检查接收前按当前事实重核 scope 路径；检查者改动成果文件时结果不接收（STATES.md 第8节）。
-    if (!scopeEntriesCurrent(root, scope.entries)) {
+    if (!scopeEntriesCurrent(executionDir, scope.entries)) {
       return this.attention(operationId, request, "scope_changed", result);
     }
     const check: CheckFile = {
       schemaVersion: 1,
       taskId: request.taskId,
       runId: request.runId,
-      branch: document.frontmatter.branch,
+      branch: request.expected.branch,
       verdict,
       report,
       inputsDigest: inputs.inputsDigest,
@@ -376,7 +386,7 @@ export class RunAcceptanceService {
       if (nextBinding.repairCycleId === null) {
         nextBinding = { ...nextBinding, stopReason: "repair_not_authorized" };
       } else {
-        const maxRounds = this.maxRounds(root);
+        const maxRounds = this.maxRounds(executionDir);
         const decision = repairDecision(
           {
             repairCycleId: nextBinding.repairCycleId,
@@ -433,7 +443,7 @@ export class RunAcceptanceService {
       createdAt: this.now().toISOString(),
     };
     runs.writeAcceptanceJournal(request.runId, journal);
-    return this.applyJournal(root, runs, request, result, journal);
+    return this.applyJournal(root, executionDir, routeState, runs, request, result, journal);
   }
 
   /**
@@ -442,6 +452,8 @@ export class RunAcceptanceService {
    */
   private async applyJournal(
     root: string,
+    executionDir: string,
+    routeState: "main" | "worktree",
     runs: RunStore,
     request: RunRequestFile,
     result: RunResultFile,
@@ -453,7 +465,7 @@ export class RunAcceptanceService {
       action: "run.accept.stage",
     });
     try {
-    return await this.applyJournalLocked(root, runs, request, result, journal);
+    return await this.applyJournalLocked(root, executionDir, routeState, runs, request, result, journal);
     } finally {
       this.locks.release(taskLock);
     }
@@ -461,16 +473,18 @@ export class RunAcceptanceService {
 
   private async applyJournalLocked(
     root: string,
+    executionDir: string,
+    routeState: "main" | "worktree",
     runs: RunStore,
     request: RunRequestFile,
     result: RunResultFile,
     journal: AcceptanceJournal,
   ): Promise<AcceptanceResult> {
     try {
-      const located = locateTaskDocument(root, request.taskId);
+      const located = locateTaskDocument(executionDir, request.taskId);
       if (located.archived) return this.attention(journal.operationId, request, "task_archived", result);
       const document = located.document;
-      if (document.frontmatter.branch !== request.expected.branch) {
+      if (routeState !== "worktree" && document.frontmatter.branch !== request.expected.branch) {
         return this.attention(journal.operationId, request, "branch_changed", result);
       }
       const currentState = stateOf(document);
