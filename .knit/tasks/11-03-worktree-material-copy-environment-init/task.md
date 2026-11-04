@@ -1,61 +1,33 @@
 ---
 id: k-e48b7df14115
-status: open
-phase: discuss
-outcome: null
+status: closed
+phase: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 createdAt: 2026-11-03T15:14:07.756Z
 title: Worktree：公共资料白名单复制与环境初始化
 ---
 
-# Worktree：公共资料白名单复制与环境初始化
+需求冻结（主会话核对 WORKTREE.md §6.7/§6.2、DESIGN §13/678 行、任务10 create 与任务11 handoff 交付后决策）：
 
-## 目标与边界
+配置：`.knit/config.json` 新增 `worktree` 可选节（open obj，不升 schemaVersion）：`copy: opt(array(obj({path: str(), target: opt(str())})))`、`postCreate: opt(array(obj({name: opt(str()), command: str()})))`，默认空（无该节=无白名单无步骤）。
 
-在新执行目录准备明确允许复制的公共资料和初始化步骤，所有必需准备成功后才允许启动阶段。
+命令：`knit worktree prepare --task <id> [--rerun <stepName>]`。在 create/connect 与 handoff 之后执行；未登记 worktree binding 或任务归档→报错；持任务锁；仅主检出操作，目标为 binding.worktree.path。
 
-这是用户要求盘点并拆分的设计后续能力，属于后续规划。本轮仅登记任务和边界，保持 open／discuss；不开始技术实施，不调用模型、Rex 或真实项目操作，不改变首版范围。具体方案和完成条件按下述设计来源及待验证事项继续澄清，不把规划建议或尚未核查的能力当作事实。
+白名单复制（逐项）：source 相对主项目根，target 默认同相对路径（显式 target 须仍在 worktree 内，路径越界拒绝）；记录来源/目标/基线指纹（git show <baseline>:path，baseline 取 binding.worktree.baseline）/源内容 sha256/处理结果。目标不存在或内容与基线一致→应用源快照（复制保留源文件）；目标与基线不同（本地修改）→停止报告；源为符号链接→停止报告；目录项递归展开、逐文件记录指纹，展开中遇符号链接停止。`.env` 等本机文件仅在显式列入时复制。全部复制完成且逐项 sha256 核验一致才进入下一步。
 
-### 本任务的交付范围
+postCreate 步骤：按序以目标 worktree 为 cwd 执行（spawn shell 语义），每步执行前先落盘 journal（`--rerun <stepName>` 可显式重跑单步），记录 name/command/exit/stdout/stderr 截断；失败即停，保留目录、已复制资料与已成功步骤，报告失败步骤与恢复入口。
 
-- 按明确白名单和源／目标指纹复制公共资料，处理未提交配置、目标已有修改、路径逃逸与符号链接边界。
-- 表达并执行受授权的初始化顺序，记录步骤与实际副作用；部分失败保留现场并阻止阶段启动。
-- 不把本机凭据、任意 ignored 内容或完整运行目录默认复制到新目录。
+回执：manifest.json+journal 写 `.knit/.runtime/worktree-prepare/<opId>/`（taskId/opId/清单指纹/步骤结果/finishedAt）；全部成功后原子更新 binding：worktree.preparedAt、worktree.lastPrepareOp。
 
-## 完成条件
+中断恢复与幂等：重跑同命令发现未完成 op → 核对已复制项（目标 sha256==manifest 源指纹）视为已完成跳过，未记录步骤继续执行；已成功步骤不盲目重跑（外部副作用按实际状态，重跑须 --rerun）；无可做工作时 no-op 报告已一致。导出 `worktreePrepareCurrent(binding)` 供执行前置检查复用（阶段启动拦截与路由在任务13接线）。
 
-以下是依据现行设计拟定的可验证交付方向；Planner 在实施前对照真实方案复核，范围变化按 Knit 输入更新规则处理。本轮没有执行这些验收。
+边界：不复制 .knit/.runtime 与凭据类默认内容；不产生 Git 提交；不改分支；失败不静默覆盖目标。
 
-- 覆盖白名单、同名目标变化、路径和指纹异常、步骤失败与重试。
-- 重复执行不盲目重跑效果未知的步骤；全部必需准备完成才可通过执行前置检查。
+测试（隔离夹具：临时仓库+worktree create+config.worktree）：a) 完整 prepare：白名单复制+步骤执行+回执+binding.preparedAt；b) 目标被本地修改→停止保留两边；c) 目标不存在→复制落位；d) 符号链接条目→停止；e) target 越界（../）→拒绝；f) 未列入白名单的本机文件不复制；g) 步骤失败即停+journal 完整+已成功步骤保留；h) 中断恢复：未完成 op 续做，已复制/已成功跳过；--rerun 单步重跑；i) 幂等 no-op；j) 未登记 worktree/归档任务拒绝；k) 无 .runtime 复制、无 Git 提交产生；l) 目录白名单递归+逐文件指纹。全量 npm test 绿。
 
-保留 Task／Run／Session 的既有权威、授权和恢复规则；按影响范围选择实际检查。历史真机／真实模型验收继续沿用用户的延期决定，何时进行由后续授权安排，不能以隔离测试冒充真实验收。业务完成、Git 提交、归档、push 和发布分别处理，本轮不进行这些操作。
-
-## 输入引用
-
-- 用户要求：把设计预留的 Worktree、Rex 等后续实现盘点并合理拆分；本轮不实施。
-- [仓库规范](../../../AGENTS.md)、[文档索引](../../../docs/README.md)、[工作流](../../workflow.md)。
-- [docs/research/WORKTREE.md](../../../docs/research/WORKTREE.md) 的公共资料复制与初始化约定
-- [docs/design/DESIGN.md](../../../docs/design/DESIGN.md) 第 16.3 节
-- [docs/design/OPERATIONS.md](../../../docs/design/OPERATIONS.md) 的权限与恢复约定
-
-## 依赖与交接
-
-- [Worktree：创建、连接与本机绑定](../11-03-worktree-create-connect-binding/task.md)（k-248eafc8fb31）：以其实际完成并验证的交付物为输入。
-- [Worktree：任务资料完整交接与中断恢复](../11-03-worktree-task-material-handoff/task.md)（k-19b5cad5c106）：以其实际完成并验证的交付物为输入。
-
-后续使用本任务交付的任务：
-
-- [Worktree：执行路由、跨目录查询与会话续做](../11-03-worktree-execution-query-session-resume/task.md)（k-1910551e4f50）。
-
-依赖描述是规划交接关系，不新增调度字段或状态机。各任务只带自身需要的上游结果；研究若证明依赖或粒度应调整，先说明并更新任务，不因任务已登记而自动派发。
-
-## 待讨论与待验证事项
-
-- 实际配置键、交接与初始化顺序、允许复制范围以及副作用未知时的恢复方式，按现有设计和真实项目需要澄清。
-
-后续 Planner 把本任务的必要方案及可执行步骤保存在本任务目录，继续识别可独立验收的拆分边界；任务登记不替代需求澄清或实施授权。
+模型：deepseek 429，派发显式 --provider magpie --model auto/glm-5.3-flash。
 
 <!-- knit:progress:start -->
 ## 当前位置
@@ -67,5 +39,20 @@ title: Worktree：公共资料白名单复制与环境初始化
 ## 结果与验证
 
 ## 运行引用
+
+实施（run-e11eeeaeba69，已接收 implementation_accepted；模型 magpie/auto/glm-5.3-flash）：新增 src/application/worktree-prepare.ts（`knit worktree prepare`：白名单逐项 source/target 核对+基线/源 sha256 指纹+符号链接与路径越界拒绝+目标本地修改停止保留两边+journal 步骤落盘后执行+失败即停保留现场+--rerun 单步+中断续做跳过已复制/已成功项+幂等 no-op+空配置也落 preparedAt；.knit/.runtime 与 .git 白名单拒绝；worktreePrepareCurrent 供任务13前置检查）+ config.worktree 节（copy/postCreate，schema 归一缺省）+ TaskBindingSchema.worktree 扩展 preparedAt/lastPrepareOp。验证（self）：npm test 360/360 绿，14 组用例覆盖冻结 a–l 全场景+worktreePrepareCurrent+config schema。
+
+过程记录（三次失败与修复，证据保留）：①run-1b3ca1e4f3a0 与 ②run-4dcba22815c8 均完成后死于 report_schema_invalid:/unverified expected array, got string——根因是 buildUserPrompt 实施阶段示例只给 {summary,changedPaths} 却在文字里要求写 unverified（check 示例才有数组形状）；修复 stage.ts 示例补 "unverified":["..."]（独立提交 b131db1，361 测试验证后推送）。②失败后 resume run-636d957135c1（原会话续跑）仍报同错；③resume 复用后改报 changed_paths_mismatch:zero_diff——恢复 run 的快照基线已含此前落盘成果，diff 为零，zero-diff 语义按设计拒绝；resume 只 prepare 不 start 亦为链路缺口（需手动 knit run start，本任务未改）。最终按干净基线全新派发 run-e11eeeaeba69 完成。备份：/tmp/knit-task12-backup（首次成果）、/tmp/knit-task12-run3（二次成果）。
+
+### 交付记录
+
+<!-- knit:delivery:op-1efad13cdb05 -->
+- 操作: op-1efad13cdb05
+- 时间: 2026-11-04T04:18:58.824Z
+- 分支: refs/heads/main
+- 授权来源: user:2026-11-03-message-full-authorization
+- 工作提交: 02479029d1614c3b29a527264738b5c86d401313
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-03-worktree-material-copy-environment-init
 
 <!-- knit:progress:end -->
