@@ -6,7 +6,7 @@ import { emit, formatPlanItem, jsonResponse, outcomeForError, reasonForError } f
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
-    .description("在项目中生成最小工作流、角色与受管桥接（不启动 Pi、不调用模型、不安装依赖、不提交 Git）")
+    .description("在项目中生成最小流程配置、阶段提示词与受管桥接（不启动 Pi、不调用模型、不安装依赖、不提交 Git）")
     .option("--client <client>", "客户端适配 ID", "pi")
     .option("--dir <dir>", "目标项目目录（默认当前目录）", ".")
     .option("--check", "只展示计划，不写任何文件")
@@ -25,6 +25,9 @@ export function registerInitCommand(program: Command): void {
             if (plan.gitWarning) console.log(`注意: ${plan.gitWarning}`);
             console.log(`计划（${plan.items.length} 项）:`);
             for (const item of plan.items) console.log(formatPlanItem(item));
+            if (plan.orphans.length > 0) {
+              console.log(`模板已移除（仅报告，不删除）: ${plan.orphans.map((item) => item.path).join(", ")}`);
+            }
           }
           return;
         }
@@ -49,6 +52,9 @@ export function registerInitCommand(program: Command): void {
           if (result.updated.length) console.log(`更新: ${result.updated.join(", ")}`);
           for (const conflict of result.conflicts) console.log(`冲突（未覆盖）: ${conflict}`);
           for (const failure of result.failed) console.log(`失败: ${failure.path} — ${failure.error}`);
+          if (result.orphans.length > 0) {
+            console.log(`模板已移除（仅报告，不删除）: ${result.orphans.map((item) => item.path).join(", ")}`);
+          }
           if (result.gitWarning) console.log(`注意: ${result.gitWarning}`);
           if (result.ready) {
             console.log("初始化完成：桥接按宿主项目信任规则加载（新会话自动加载；已有会话 /reload 或重启）。");

@@ -173,7 +173,7 @@ export class SessionService {
     return record;
   }
 
-  /** 按原生身份与角色取记录（角色不同是不同对象，不互相覆盖）。 */
+  /** 按原生身份与阶段取记录（阶段不同是不同对象，不互相覆盖）。 */
   private async byNative(client: "pi", nativeSessionId: string, role: SessionRole): Promise<SessionRecord | null> {
     return this.store.sessions.get({ client, nativeSessionId, role });
   }

@@ -1,5 +1,5 @@
 /**
- * ContextPlanner：阶段分层输入、正式规范／角色版本、指纹与注入清单
+ * ContextPlanner：阶段分层输入、正式规范／阶段提示词版本、指纹与注入清单
  * （DESIGN.md 第8.1节、ARCHITECTURE.md）。
  * 需求、纯记录、未生效草案和候选规则分开：只有任务输入区计入 inputsDigest。
  */
@@ -239,7 +239,7 @@ export class ContextPlanner {
     const stageBrief = stageBriefOf(loaded.workflow, stage, loaded.mode, loaded.validation.reason);
 
     // 阶段提示词：配置显式声明 prompt 才注入；缺失时用核心默认 agent 指令，不阻断。
-    // 降级流程为在途旧 run 保留旧角色提示词路径，避免流程降级本身使冻结输入失效。
+    // 降级流程为在途旧 run 保留旧阶段提示词路径，避免流程降级本身使冻结输入失效。
     const promptPath =
       stageDefinition?.prompt ??
       (loaded.mode === "fallback" && !isWorkflowAnchor(stage) && loaded.workflow.stages.length === 0

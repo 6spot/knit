@@ -8,7 +8,7 @@ import { WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 export const SessionRoleSchema = str({ minLength: 1, pattern: WORKFLOW_STAGE_ID_PATTERN });
 export type SessionRole = Static<typeof SessionRoleSchema>;
 
-/** 原生身份：客户端、预分配原生 ID 与角色；不包含凭据。 */
+/** 原生身份：客户端、预分配原生 ID 与阶段；字段名 role 为历史命名，值即阶段 id。 */
 export const NativeSessionRefSchema = obj(
   {
     client: lit("pi"),

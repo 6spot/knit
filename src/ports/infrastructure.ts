@@ -56,7 +56,7 @@ export interface SessionQuery {
 /** MetadataStore：本机索引的短事务入口；物理后端（原子文件或 SQLite）由任务004决定。 */
 export interface MetadataStore {
   sessions: {
-    /** 按（客户端、原生 ID、角色）登记或更新完整索引记录。 */
+    /** 按（客户端、原生 ID、阶段）登记或更新完整索引记录。 */
     save(record: SessionRecord): Promise<void>;
     setStatus(ref: NativeSessionRef, status: SessionStatus, reason?: string | null): Promise<void>;
     get(ref: NativeSessionRef): Promise<SessionRecord | null>;

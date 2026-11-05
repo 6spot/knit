@@ -1,6 +1,6 @@
 # 文档索引
 
-开发入口是 [AGENTS.md](../AGENTS.md)。后续正式任务使用 [.knit/workflow.md](../.knit/workflow.md) 和 `.knit/tasks/`，通过 `npx --no-install knit task list` 查询；各任务的 `task.md` 是需求与业务状态唯一权威。是否建任务由用户决定，未建任务时可直接执行。
+开发入口是 [AGENTS.md](../AGENTS.md)。后续正式任务使用 [.knit/workflow.yaml](../.knit/workflow.yaml) 和 `.knit/tasks/`，通过 `npx --no-install knit task list` 查询；各任务的 `task.md` 是需求与业务状态唯一权威。是否建任务由用户决定，未建任务时可直接执行。
 
 ## 现行设计与规则
 
@@ -12,7 +12,7 @@
 | [TECHNOLOGY.md](design/TECHNOLOGY.md) | 依赖、技术选型与版本边界 |
 | [OPERATIONS.md](design/OPERATIONS.md) | 命令行为、执行、恢复、授权与交付规则 |
 | [GLOSSARY.md](design/GLOSSARY.md) | 术语与稳定身份的含义 |
-| [ROLE-CONTRACT.md](design/ROLE-CONTRACT.md) | 主会话／实施／检查／advisory 的职责、停止条件、报告字段与工具边界；含 Trellis／GSD 来源映射 |
+| [ROLE-CONTRACT.md](design/ROLE-CONTRACT.md) | 阶段与锚点的提示词、职责、停止条件、报告字段与工具能力；含 Trellis／GSD 来源映射 |
 
 这些文档定义当前设计；各项能力的实现与验收结论以对应任务记录和验证证据为准。
 

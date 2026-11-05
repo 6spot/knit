@@ -25,13 +25,26 @@ import {
 } from "./templates.js";
 import type { TemplateSpec } from "./templates.js";
 import { isReady, newManifest } from "./init-manifest.js";
-import type { InitManifest, ManifestItem } from "./init-manifest.js";
+import type { FileOwnership, InitManifest, ManifestItem } from "./init-manifest.js";
 
 export interface InitPlanItem {
   path: string;
   ownership: "project" | "managed";
   action: "create" | "keep" | "update" | "conflict";
   reason: string;
+}
+
+/**
+ * 模板已移除文件：上次清单记录过、当前模板不再生成，但项目里仍存在。
+ * 默认只报告，不删除；是否清理由主会话核对内容与来源后决定。
+ */
+export interface InitOrphan {
+  path: string;
+  ownership: FileOwnership;
+  /** 上次清单记录的状态，仅作判断证据。 */
+  lastState: ManifestItem["state"];
+  /** 当前文件仍存在；报告只收录仍存在的路径。 */
+  exists: boolean;
 }
 
 export interface InitPlan {
@@ -41,6 +54,8 @@ export interface InitPlan {
   resolvedFrom: string | null;
   gitWarning: string | null;
   items: InitPlanItem[];
+  /** 模板已移除、仍留在项目中的文件；执行 init 同样只报告不删除。 */
+  orphans: InitOrphan[];
   agentsHasManagedBlock: boolean;
 }
 
@@ -55,6 +70,8 @@ export interface InitResult {
   ready: boolean;
   /** 桥接文件已发布且清单 ready；缺映射或未 ready 不能声称可调用。 */
   bridgeReady: boolean;
+  /** 模板已移除、仍留在项目中的文件；只报告，不删除。 */
+  orphans: InitOrphan[];
   gitWarning: string | null;
 }
 
@@ -164,12 +181,38 @@ export class InitializationService {
   }
 
   /**
+   * 上次清单记录、当前模板不再生成且项目里仍存在的文件。
+   * 排除本次仍维护的模板路径、AGENTS.md 与 init 自身生成的运行资料；
+   * 不按路径猜测内容，不自动删除。
+   */
+  private orphanedTemplateItems(root: string, previous: InitManifest | null): InitOrphan[] {
+    if (previous === null) return [];
+    const maintained = new Set([
+      ...TEMPLATE_SPECS.map((spec) => spec.path),
+      "AGENTS.md",
+      ".knit/.gitignore",
+      ".knit/.runtime/installation.json",
+    ]);
+    return previous.items
+      .filter((item) => !maintained.has(item.path))
+      .map((item) => ({
+        path: item.path,
+        ownership: item.ownership,
+        lastState: item.state,
+        exists: existsSync(join(root, item.path)),
+      }))
+      .filter((item) => item.exists)
+      .sort((left, right) => left.path.localeCompare(right.path));
+  }
+
+  /**
    * 逐文件计划（只读）。项目文件存在即 keep；受管文件与当前模板基线一致 → update，
    * 不一致 → conflict（人工改动报告差异，不静默覆盖）；AGENTS.md 按受管块单独处理。
    */
   plan(root: string): InitPlan {
     const { root: resolved, isGitRepo, resolvedFrom } = resolveProjectRoot(root);
     const previous = this.readManifestIfExists(resolved);
+    const orphans = this.orphanedTemplateItems(resolved, previous);
     const items: InitPlanItem[] = [];
     let agentsHasManagedBlock = false;
     for (const spec of TEMPLATE_SPECS) {
@@ -206,7 +249,7 @@ export class InitializationService {
       );
     }
     const gitWarning = isGitRepo ? runtimeIgnoreWarning(resolved, true) : "非 Git 目录：资料可初始化；正式任务执行需 Git 仓库、可读 HEAD 与本地分支";
-    return { root: resolved, isGitRepo, resolvedFrom, gitWarning, items, agentsHasManagedBlock };
+    return { root: resolved, isGitRepo, resolvedFrom, gitWarning, items, orphans, agentsHasManagedBlock };
   }
 
   /** --check：只读计划与现状说明，不写文件、不建锁目录。 */
@@ -231,6 +274,7 @@ export class InitializationService {
   private executeLocked(input: { root: string; isGitRepo: boolean; client: string; force: boolean }): InitResult {
     const { root } = input;
     const previous = this.readManifestIfExists(root);
+    const orphans = this.orphanedTemplateItems(root, previous);
     const currentVersion = templateVersion();
     if (previous !== null && compareVersions(previous.templateVersion, currentVersion) > 0) {
       throw new InfrastructureError(
@@ -296,7 +340,7 @@ export class InitializationService {
     manifest.items = [...items, ...previous?.items.filter((item) => !items.some((current) => current.path === item.path)) ?? []];
     this.writeManifest(root, manifest);
 
-    // 3. 项目资料补缺（配置、工作流、角色、规范索引；存在即沿用）
+    // 3. 项目资料补缺（配置、流程配置、阶段提示词、规范索引；存在即沿用）
     for (const spec of TEMPLATE_SPECS.filter((s) => !s.bridge)) {
       const target = join(root, spec.path);
       try {
@@ -393,6 +437,7 @@ export class InitializationService {
       failed,
       ready: manifest.state === "ready",
       bridgeReady: manifest.state === "ready" && existsSync(bridgeTarget),
+      orphans,
       gitWarning,
     };
   }

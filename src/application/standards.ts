@@ -90,7 +90,7 @@ export function effectiveInputsDigest(inputsDigest: string, standardsDigest: str
 
 /**
  * 生效指令的稳定身份：任务输入、正式规范与全部 countsTowardInputs 的生效分节
- * （工作流、所用角色、运行指令）按 sourceId+digest 排序后取整体 SHA-256（任务031）。
+ * （流程配置、阶段提示词、运行指令）按 sourceId+digest 排序后取整体 SHA-256（任务031）。
  * background／候选等背景材料不参与。
  */
 export function effectiveIdentityDigest(inputsDigest: string, standardsDigest: string, effectiveSections: { sourceId: string; digest: string | null }[]): string {

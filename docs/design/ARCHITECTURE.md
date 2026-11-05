@@ -35,7 +35,7 @@ flowchart TD
 | 领域 | Task、修复计数、Run 请求、检查资格与操作规则 | 纯 TypeScript；不导入 Pi SDK、fs、Git 或 UI |
 | 协议 | 命令、结果、文件 schema、错误码与版本 | 校验后转换为领域输入；不是对外插件 API |
 | 适配 | ClientAdapter、AgentRuntime、ExecutionHost | 只处理客户端／宿主差异，不复制业务状态机 |
-| 基础设施 | 仓储、锁、原子写、Git、进程、时钟、指纹和脱敏 | 返回证据和错误，不擅自推进 phase |
+| 基础设施 | 仓储、锁、原子写、Git、进程、时钟、指纹和脱敏 | 返回证据和错误，不擅自推进 stage |
 
 入口和适配依赖核心契约，领域不反向依赖具体实现。内部装配集中在 composition root；测试可替换端口，项目配置只能选择编译进包的 ID。Pi runtime 仅启动本机 CLI 并使用公开 JSON 协议，Knit 不依赖或导入 Pi SDK；init、基础查询和诊断不启动模型或加载用户项目扩展。
 
@@ -45,9 +45,9 @@ flowchart TD
 | --- | --- |
 | ProjectService | 解析项目根、兼容性与 Git 前置条件，按命令所需能力判断可执行性 |
 | InitializationService | 文件所有权、计划、安装映射、模板发布、ready 和失败恢复 |
-| TaskService | 输入／记录分区、ready、业务结束、adopt、改名和 phase；调用纯转移函数 |
+| TaskService | 输入／记录分区、ready、业务结束、adopt、改名和 stage；调用纯转移函数 |
 | SessionService | 原生身份索引、关系、选择事件投影，恢复归属和路径核实 |
-| ContextPlanner | 确定输入、规范／角色、来源指纹和工具策略；生成冻结 inputs 与注入计划 |
+| ContextPlanner | 确定输入、规范／阶段提示词、来源指纹和工具策略；生成冻结 inputs 与注入计划 |
 | RunCoordinator | 校验、占用、快照、启动、取消、等待与接收结果；不代替主 Agent 做语义判断 |
 | RunAcceptanceService | 结果接收：复核输入／scope／分支后写成果范围与检查凭据并推进 Task；资格由 domain 规则（`src/domain/check.ts`）按当前目标版本推导 |
 | StandardsService | 候选、审阅回执、正式规则与索引更新，向收尾提供机械提醒 |
@@ -92,10 +92,10 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 
 | 数据 | 写入方 | 权威用途 |
 | --- | --- | --- |
-| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/phase/outcome/branch，记录短锁保护；业务状态唯一权威，不因文件拆分建立第二套状态表 |
+| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/stage/outcome/branch，记录短锁保护；业务状态唯一权威，不因文件拆分建立第二套状态表 |
 | plan.md／design.md／research/ | 任务规划资料（045 实现，经核心统一接口） | 实施计划、方案依据与调查材料；随任务目录生命周期，要求性内容变化走 task update |
 | installation/init 清单 | InitializationService | 本机安装、文件所有权、模板与准备状态 |
-| Session 元数据 | SessionService | 身份、角色、关系和原生引用；选择仅作已核实快照 |
+| Session 元数据 | SessionService | 身份、阶段、关系和原生引用；选择仅作已核实快照 |
 | binding 元数据 | 核心任务／运行服务 | 位置、分支、范围、最近获准实施／检查引用、修复 ID／计数／停止原因 |
 | run request/inputs | RunCoordinator／ContextPlanner | 不可变请求；取得占用后冻结输入，含固定 acceptanceOperationId |
 | run launch | RunCoordinator | 启动意图、实例句柄与确认 |
@@ -117,7 +117,7 @@ Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路
 
 可变关联元数据由仓储封装，实现为 SQLite 短事务（M0 实证选定）。事务同时提交 Session、binding、operation 的内部更新；Task Markdown、Git 与原生历史仍是外部效果，不能假定同一事务覆盖。任务文件受稳定 Task 短锁保护，指纹与已发布证据只按引用连接。
 
-关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数给出的 nextState 是候选目标，只有效果核验和回执完成后才能对外当成事实；不能先改 phase 再尝试执行。
+关键操作采用“意图先落盘 → 核验前置版本 → 应用效果 → 观察真实结果 → 步骤检查点 → 更新投影”。决定函数给出的 nextState 是候选目标，只有效果核验和回执完成后才能对外当成事实；不能先改 stage 再尝试执行。
 
 概念契约为 decide(current, event, facts) → rejected(reason) 或 accepted(expectedVersion, nextState, effects)。状态不保存在某个常驻解释器实例里，每次命令从权威资料重建。每个外部动作之前，必须能从操作记录定位其目标、已知起点和幂等键。
 
@@ -128,7 +128,7 @@ Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路
 - 已完成的证据不改写。新输入、新检查、恢复后的重跑使用新 run；指针失效不等于删除旧证据。
 - 未完成的输入／Git／归档操作会阻塞相关后续动作；记录或选择冲突只影响相应对象，不用一个异常锁死全部功能。
 
-task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持早期 phase；选定目标的检查 stale 且当前为 deliver 时统一回 open/check 清 completed，change 回 discuss。运行中先存待应用，后续代码／交付先处理；只读发现外部改动只报告待同步。实现（任务018）：update／apply／close 在项目与任务锁内重读 binding 与 run 收敛事实；接收在改 Task 前写检查点，按来源／目标重入，scope／check／binding 半写入不宣称成功。
+task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持当前阶段；选定目标的检查 stale 且当前为 deliver 时统一回到最近检查阶段或工作阶段并清 completed，change 回 start。运行中先存待应用，后续代码／交付先处理；只读发现外部改动只报告待同步。实现（任务018）：update／apply／close 在项目与任务锁内重读 binding 与 run 收敛事实；接收在改 Task 前写检查点，按来源／目标重入，scope／check／binding 半写入不宣称成功。
 
 ## 8. 并发和版本边界
 
@@ -144,7 +144,7 @@ ContextPlanner 区分需求、所选指令版本、授权输出和纯记录。�
 
 检查或 self 完成结论对指定输入和成果版本成立。产物提交前比较当前工作内容；产物／资料提交后核实所选 commit 的内容和完成范围，不把后来未纳入该成果的工作区变动伪称已交付。若用户要求将新变更纳入本任务，先暂停收尾并重新确认范围／完成资格。
 
-原生引用按客户端解释，模型每次按既定优先级解析并验证，未知版本不覆盖旧记录。旧记录无法恢复时可沿同一客户端新建会话，保留来源和失败原因；客户端缺失、模型不可用或旧工具状态未知不以新建会话绕过。标准角色、项目正文、原生自动加载和显式注入去重。跨目录、外部协作与自动清理不混入本轮架构。
+原生引用按客户端解释，模型每次按既定优先级解析并验证，未知版本不覆盖旧记录。旧记录无法恢复时可沿同一客户端新建会话，保留来源和失败原因；客户端缺失、模型不可用或旧工具状态未知不以新建会话绕过。阶段提示词、项目正文、原生自动加载和显式注入去重。跨目录、外部协作与自动清理不混入本轮架构。
 
 ## 9. 代码组织与协议
 

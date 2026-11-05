@@ -54,7 +54,7 @@ export function registerSessionCommands(program: Command): void {
     .description("登记主／子会话：预分配 Knit Session ID、稳定记录位置与原生状态")
     .option("--native <id>", "原生 Session ID（缺省预分配）")
     .option("--kind <kind>", "main 或 sub", "main")
-    .option("--role <role>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）", "implement")
+    .option("--role <role>", "阶段 id（历史参数，等同 --stage；内置锚点或 workflow.yaml 中的阶段）", "implement")
     .option("--task <taskId>", "参与任务")
     .option("--file <path>", "已知原生记录位置")
     .option("--parent <knitSessionId>", "父 Knit Session ID（子会话必填）")
@@ -230,7 +230,7 @@ export function registerSessionCommands(program: Command): void {
 
   program
     .command("context")
-    .description("生成阶段分层输入计划：需求、规范／角色、指纹与注入清单")
+    .description("生成阶段分层输入计划：需求、规范／阶段提示词、指纹与注入清单")
     .option("--task <taskId>", "任务 ID")
     .option("--stage <stage>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）")
     .option("--role <role>", "兼容旧参数；等同 --stage")

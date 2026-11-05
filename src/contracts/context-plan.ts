@@ -4,7 +4,7 @@ import { ToolCapabilitySchema } from "./workflow.js";
 
 /**
  * 上下文计划（DESIGN.md 第8.1节、ARCHITECTURE.md ContextPlanner）。
- * 分层输入：需求、规范／角色、纯记录与背景资料分开；
+ * 分层输入：需求、规范／阶段提示词、纯记录与背景资料分开；
  * 每项含稳定来源 ID、作用域、优先级与内容指纹，发布后不改。
  */
 export const ContextSectionKindSchema = union([

@@ -74,8 +74,10 @@ function workflowSection(text: string, wanted: string | null): { heading: string
 }
 
 /**
- * 授权来源定位。workflow 来源核实文件、章节与摘要；user_reference 只保存调用声明，
+ * 授权来源定位。项目策略来源核实文件、章节与摘要；user_reference 只保存调用声明，
  * 不冒充已验证的人类授权（语义判断仍归主 Agent）。
+ * 缺省来源为 AGENTS.md：主会话规则与交付约定在受管入口中维护；
+ * 调用方可显式给出任意项目相对文件与章节。
  */
 export function resolveAuthorization(root: string, ref: string | null, caller: "cli" | "agent"): AuthorizationSource {
   if (ref === null || ref.trim() === "") {
@@ -86,7 +88,7 @@ export function resolveAuthorization(root: string, ref: string | null, caller: "
   if (value.startsWith("user:") || value.startsWith("native:") || value.startsWith("message:")) {
     return { kind: "user_reference", ref: value, path: null, section: null, digest: null, verified: false };
   }
-  let path = ".knit/workflow.md";
+  let path = "AGENTS.md";
   let wanted: string | null = null;
   if (value.startsWith("workflow:")) {
     const rest = value.slice("workflow:".length);
@@ -109,7 +111,12 @@ export function resolveAuthorization(root: string, ref: string | null, caller: "
   const full = join(root, path);
   if (!existsSync(full)) throw new GuardError("authorization_source_missing", `授权来源不存在: ${path}`);
   const text = readFileSync(full, "utf8");
-  const section = workflowSection(text, wanted);
+  // 默认来源 AGENTS.md 优先取受管入口整段：它包含交付与授权约定；
+  // 没有受管标记时才退回旧的“交付／授权”章节匹配。
+  const section =
+    wanted === null && path === "AGENTS.md"
+      ? (workflowSection(text, "Knit 受管入口") ?? workflowSection(text, null))
+      : workflowSection(text, wanted);
   if (section === null) {
     throw new GuardError("authorization_source_missing", `授权来源缺少交付授权章节: ${path}`);
   }
@@ -123,10 +130,10 @@ export function resolveAuthorization(root: string, ref: string | null, caller: "
   };
 }
 
-/** 当前策略版本：授权来源正文摘要；无 workflow 时用交付配置摘要。 */
+/** 当前策略版本：授权来源正文摘要；无 AGENTS.md 时用交付配置摘要。 */
 export function policyVersion(root: string, config: ProjectConfig): string {
-  const workflow = join(root, ".knit", "workflow.md");
-  if (existsSync(workflow)) return sha256Text(readFileSync(workflow, "utf8"));
+  const agents = join(root, "AGENTS.md");
+  if (existsSync(agents)) return sha256Text(readFileSync(agents, "utf8"));
   return sha256Text(JSON.stringify(config.delivery));
 }
 

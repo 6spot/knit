@@ -40,8 +40,8 @@ function project(name) {
     workflow: { maxRepairRounds: 2 },
     limits: { heartbeatIntervalMs: 5000, heartbeatStaleMs: 30000, cancelGraceMs: 5000, snapshotsMaxBytes: 67108864, storageWarnBytes: 536870912 },
   }, null, 2) + "\n");
-  writeFileSync(join(dir, ".knit", "workflow.md"), [
-    "# 工作流", "", "## 交付授权", "", "允许在当前分支按任务范围提交并归档。", "", "## 检查", "", "检查完成条件。", "",
+  writeFileSync(join(dir, "AGENTS.md"), [
+    "# 项目规则", "", "## 交付授权", "", "允许在当前分支按任务范围提交并归档。", "", "## 检查", "", "检查完成条件。", "",
   ].join("\n"));
   writeFileSync(join(dir, ".knit", "standards", "index.md"), "# 规范索引\n\n- 暂无\n");
   writeFileSync(join(dir, ".knit", "agents", "check.md"), "# 检查角色\n\n核对完成条件。\n");
@@ -139,7 +139,7 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
       dir,
       taskId: task.taskId,
       branch: BRANCH,
-      authorizationRef: "workflow:.knit/workflow.md#交付授权",
+      authorizationRef: "workflow:AGENTS.md#交付授权",
     });
     assert.equal(result.state, "completed", result.reason ?? "");
     assert.equal(result.needsAttention, false);
@@ -204,7 +204,7 @@ test("规范候选未审阅不阻塞交付：项目候选与旧任务候选保�
       dir,
       taskId: task.taskId,
       branch: BRANCH,
-      authorizationRef: "workflow:.knit/workflow.md#交付授权",
+      authorizationRef: "workflow:AGENTS.md#交付授权",
     });
     assert.equal(result.state, "completed", result.reason ?? "");
     assert.ok(result.workCommit);
@@ -386,7 +386,7 @@ test("回执丢失但提交已生效：按操作 ID 核实并继续，不重复�
     const taskDir = `.knit/${task.relativePath.split("/").slice(0, 2).join("/")}`;
     const opId = "op-feedfacecafe";
     const now = NOW.toISOString();
-    const workflow = readFileSync(join(dir, ".knit", "workflow.md"), "utf8");
+    const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
     const steps = ["work_commit", "final_record", "seal", "move", "archive_commit"].map((kind, index) => ({
       stepId: `${index + 1}-${kind}`,
       kind,
@@ -409,7 +409,7 @@ test("回执丢失但提交已生效：按操作 ID 核实并继续，不重复�
       authorizationRef: null,
       authorization: { kind: "explicit_call", ref: null, path: null, section: null, digest: null, verified: false },
       defaultBranch: { ref: null, source: "unknown", exists: false },
-      policyVersion: sha256Text(workflow),
+      policyVersion: sha256Text(agents),
       taskPath: task.relativePath,
       archivePath: null,
       workCommit: null,
@@ -894,7 +894,7 @@ test("最新检查失败时不回退旧 pass 交付", async () => {
         dir,
         taskId: task.taskId,
         branch: BRANCH,
-        authorizationRef: "workflow:.knit/workflow.md#交付授权",
+        authorizationRef: "workflow:AGENTS.md#交付授权",
       }),
       (error) => /check_not_passed|最新检查结论/.test(error.message),
     );

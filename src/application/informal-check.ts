@@ -105,10 +105,10 @@ function scopeFingerprint(root: string, paths: string[]): Record<string, string>
 function standardsText(root: string): string {
   const parts: string[] = [];
   try {
-    const workflow = readFileSync(join(root, ".knit", "workflow.md"), "utf8");
-    parts.push(`# 工作流\n${workflow}`);
+    const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+    parts.push(`# 项目规则\n${agents}`);
   } catch {
-    // 无工作流。
+    // 无项目入口文件。
   }
   for (const file of formalStandardFiles(root)) {
     try {

@@ -6,8 +6,8 @@
 | --- | --- |
 | 主会话 | 用户与主 Agent 沟通的原生客户端会话；首版为 Pi 主会话 |
 | 主 Agent | 主会话中的模型执行者，负责沟通、协调、结果整理与调用 Knit 工具 |
-| 角色契约 | 角色 × 职责／停止条件／报告字段／工具能力的统一对照与来源映射；见 [ROLE-CONTRACT.md](ROLE-CONTRACT.md)。实际行为由完整装配的提示与核心校验共同决定 |
-| 子会话／阶段 Session | 为某个阶段创建或恢复的独立原生会话，实施和检查分别保存引用 |
+| 阶段契约 | 阶段 × 提示词／停止条件／报告字段／工具能力的统一对照与来源映射；见 [ROLE-CONTRACT.md](ROLE-CONTRACT.md)。文件名为历史命名，内容按阶段配置解释 |
+| 子会话／阶段 Session | 为某个阶段创建或恢复的独立原生会话；各阶段按阶段 id 分别保存引用 |
 | Knit Session | Knit 索引中的稳定身份，记录客户端、任务、父子关系与原生定位，不保存一份替代原生历史的对话副本 |
 | 原生 Session | 客户端自己保存的对话、工具记录与会话格式；阶段记录跨 run 保留，索引与原生文件分开，读取不改写原记录 |
 | run | 一次 worker 执行尝试，恢复也产生新 ID；主 Agent 直接讨论／收尾写操作事实，不伪造 worker run |
@@ -19,7 +19,12 @@
 | ExecutionHost | 内部模块，启动和定位 worker；local 与 REX，缺省 auto 在派发前探测环境与能力 |
 | 项目桥接 | init 生成的客户端集成文件，Pi 为 `.pi/extensions/knit.ts`；转交原生上下文并轻量观察本会话 run，业务由 CLI 处理，不另建常驻服务 |
 | 可插拔模块 | 随 Knit 源码维护和构建的内部实现，通过固定装配表替换，不是第三方插件 SDK |
-| 阶段／phase | 进行中任务下一步所需的四环节；取消／替代时保留停止位置，由 frontmatter 保存 |
+| 阶段／stage | 进行中任务下一步所需的业务步骤。取值为内置锚点 `start`／`deliver` 或 `.knit/workflow.yaml` 声明的阶段 id；取消／替代时保留停止位置，由 frontmatter 保存 |
+| 流程配置 | `.knit/workflow.yaml`：`version` 与有序 `stages`；每阶段声明提示词、能力白名单、报告字段、回退目标与访问上限。顺序即流转顺序，注释不参与解析或比较 |
+| 阶段提示词 | 阶段 `prompt` 指向的项目相对文件；缺省或缺失时使用核心默认 agent 指令。阶段可复用同一文件，不再单独建模为独立对象 |
+| 能力白名单 | 阶段 `tools` 声明的能力集合：`read`／`write`／`exec`／`task`／`external`／`network`；不写表示全部放开 |
+| 流程降级 | 配置非法时生效流程退为 `start → deliver`，不套提示词；`workflowMode`、`workflow show`、顶部提示与 `doctor` 显示原因，在途 run 继续跑完 |
+| 模板已移除文件 | 上次 init 清单记录、当前模板不再生成但项目里仍存在的文件；init 默认只报告不删除 |
 | 业务结束／closed | 业务不再推进；收尾是否完成另看真实提交、归档和操作回执 |
 | 父任务／子任务 | 以稳定任务 ID 记录的层级关系，只存子任务 frontmatter.parent；父任务总体验收需子任务全部结束并由主会话给出依据，父子不等于执行依赖 |
 | 优先级 | 任务自身 P0–P3 的业务排序权重，缺省 P2；与父子层级和阶段状态无关 |
@@ -39,8 +44,8 @@
 | 封存 seal | 收尾短锁内固定的任务记录及目录版本；之后补记另行处理，不伪称已入本次提交 |
 | 交付协调 | 主会话核对实施／检查结果并协调确定性 deliver／archive；不启动交付辅助 worker，只有实际工具结果能证明提交和归档 |
 | 用量 | 本 run 新模型调用的 token／费用／耗时统计，缓存是输入子集；首版不作为自动停止阈值 |
-| 检查凭据 | 核心在结果接收时写入 `.runtime/checks/<run-id>.json`，发布后不改；只取最新候选并核对当前目标；stale 不删除旧事实；检查者修复的路径与自检标记一并保存 |
-| clarify / change | 澄清保持早期 phase；摘要变化令检查 stale，deliver 因此回 open/check；实变回 discuss |
+| 检查凭据 | 核心在结果接收时写入 `.runtime/checks/<run-id>.json`，发布后不改；只取最新候选并核对当前目标；stale 不删除旧事实；检查阶段修复的路径与自检标记一并保存 |
+| clarify / change | 澄清保持当前阶段；摘要变化令检查 stale，deliver 因此回到最近检查阶段或工作阶段；实变回 `start` |
 | 自动修复计数 | binding 中的 repairCycleId、repairRounds、stopReason；恢复与 clarify 不重置，不做独立链状态机 |
 | 开发者模式 | M1 仅 --dev 的脱敏结构化 stderr；M3A 加私有日志和 Pi 会话开关，不改规则或自动多调模型 |
 | 提交确认与来源 | --branch 明确完整目标，authorizationRef 追溯指令或认可策略；核心核引用／版本，主 Agent 判断授权语义 |

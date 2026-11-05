@@ -26,7 +26,7 @@ const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
 const NOW = new Date("2026-11-04T10:00:00.000Z");
 const MAIN = "refs/heads/main";
-const AUTHORIZATION = "workflow:.knit/workflow.md#交付";
+const AUTHORIZATION = "workflow:AGENTS.md#交付";
 
 let counter = 0;
 const randomHex = () => {
@@ -50,6 +50,7 @@ function fixture(prefix) {
   git(root, ["config", "user.email", "t@example.com"]);
   git(root, ["config", "user.name", "t"]);
   cpSync(TEMPLATES, join(root, ".knit"), { recursive: true });
+  writeFileSync(join(root, "AGENTS.md"), "# 项目规则\n\n## 交付\n\n允许在当前分支按任务范围提交并归档。\n");
   writeFileSync(join(root, ".gitignore"), ".knit/.runtime/\n.knit/worktrees/\n");
   writeFileSync(join(root, "README.md"), "# demo\n");
   writeFileSync(join(root, "app.txt"), "base\n");

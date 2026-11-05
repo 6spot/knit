@@ -2,7 +2,7 @@
  * 生效流程读取（设计 §4／§9）：把 `.knit/workflow.yaml` 读成 `WorkflowDefinition`。
  *
  * - 文件存在：按配置解析；任一问题降级为 start → deliver（domain/workflow.ts 给出问题与行号）。
- * - 文件缺失：使用内置默认模板（与 `knit workflow init` 生成的默认四环节一致），
+ * - 文件缺失：使用内置默认模板（与 `knit workflow init` 生成的默认流程一致），
  *   不算降级，保证尚未初始化流程配置的项目行为不变。
  * - 阶段缺省上限取 `config.workflow.maxRepairRounds`；配置不可读时用内置缺省。
  *

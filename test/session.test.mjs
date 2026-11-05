@@ -368,7 +368,7 @@ test("临时 cwd 与项目迁移不误选：cwd 不一致返回未生效", async
   }
 });
 
-test("context：分层输入、规范／角色指纹、草案与候选只作背景", async () => {
+test("context：分层输入、规范／阶段提示词指纹、草案与候选只作背景", async () => {
   const dir = gitProject("context");
   installTemplates(dir);
   const { store, planner, tasks } = makeServices(dir);

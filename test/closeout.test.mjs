@@ -35,7 +35,7 @@ function project(name) {
     workflow: { maxRepairRounds: 2 },
     limits: { heartbeatIntervalMs: 5000, heartbeatStaleMs: 30000, cancelGraceMs: 5000, snapshotsMaxBytes: 67108864, storageWarnBytes: 536870912 },
   }, null, 2) + "\n");
-  writeFileSync(join(dir, ".knit", "workflow.md"), "# 工作流\n\n## 交付授权\n\n允许在当前分支按任务范围提交并归档。\n");
+  writeFileSync(join(dir, "AGENTS.md"), "# 项目规则\n\n## 交付授权\n\n允许在当前分支按任务范围提交并归档。\n");
   writeFileSync(join(dir, ".knit", "standards", "index.md"), "# 规范索引\n\n- 暂无\n");
   writeFileSync(join(dir, ".knit", "agents", "check.md"), "# 检查角色\n\n核对完成条件。\n");
   writeFileSync(join(dir, ".gitignore"), ".knit/.runtime/\n");
