@@ -12,6 +12,8 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import type { SnapshotEntry, SnapshotManifest } from "../contracts/run.js";
 import { RestoreRecordSchema, type RestorePathPlan, type RestorePathState, type RestoreRecord, type RestoreIndexState } from "../contracts/restore.js";
 import { inputsDigestOf, verificationModeOf } from "../contracts/task-inputs.js";
+import { isTransitionRefusal, staleDeliverTransition } from "../domain/task.js";
+import { workflowOf } from "./workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
@@ -788,12 +790,28 @@ export class RestoreService {
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       let updated = document;
-      if (document.frontmatter.phase === "deliver") {
-        const phase = verificationModeOf(document.frontmatter) === "independent" ? "check" : "implement";
-        updated = { ...document, frontmatter: { ...document.frontmatter, phase } };
+      let stageVisits = binding.stageVisits ?? {};
+      let stopReason = binding.stopReason;
+      if (document.frontmatter.stage === "deliver") {
+        const next = staleDeliverTransition(workflowOf(root), {
+          status: document.frontmatter.status,
+          stage: document.frontmatter.stage,
+          outcome: document.frontmatter.outcome,
+          branch: document.frontmatter.branch,
+          pendingKind: binding.pendingDraft?.kind ?? null,
+          verification: verificationModeOf(document.frontmatter),
+          visits: stageVisits,
+          stopReason,
+        });
+        if (isTransitionRefusal(next)) {
+          throw new GuardError(next.reason, `restore 后无法离开 deliver：${next.reason}`);
+        }
+        updated = { ...document, frontmatter: { ...document.frontmatter, stage: next.stage } };
+        stageVisits = next.visits;
+        stopReason = next.stopReason;
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated)), expectedSha256: before.sha256, mode: 0o644 });
       }
-      await this.store.bindings.save({ ...binding, lastCheckRunId: null, lastImplement: null });
+      await this.store.bindings.save({ ...binding, lastCheckRunId: null, lastImplement: null, stageVisits, stopReason });
       new RunStore(root).removeCompletion(taskId);
       return true;
     } finally {

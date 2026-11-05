@@ -323,7 +323,7 @@ interface LocatedTask {
   dir: string;
   archived: boolean;
   status: string;
-  phase: string;
+  stage: string;
   outcome: string | null;
   branch: string | null;
 }
@@ -335,7 +335,7 @@ function locateTask(root: string, taskId: string): LocatedTask | null {
       dir: located.dir,
       archived: located.archived,
       status: located.document.frontmatter.status,
-      phase: located.document.frontmatter.phase,
+      stage: located.document.frontmatter.stage,
       outcome: located.document.frontmatter.outcome,
       branch: located.document.frontmatter.branch,
     };
@@ -785,7 +785,7 @@ function combineActivity(...verdicts: ActivityVerdict[]): ActivityVerdict {
 }
 
 /**
- * 任务正文 branch 只在 frontmatter 行内改写，正文、记录区以及 status／phase／outcome
+ * 任务正文 branch 只在 frontmatter 行内改写，正文、记录区以及 status／stage／outcome
  * 原样保留；写后回读核对。
  */
 function rewriteTaskBranch(file: string, branch: string): {
@@ -793,7 +793,7 @@ function rewriteTaskBranch(file: string, branch: string): {
   branchAfter: string;
   changed: boolean;
   status: string;
-  phase: string;
+  stage: string;
   outcome: string | null;
 } {
   const version = readWithVersion(file);
@@ -802,10 +802,10 @@ function rewriteTaskBranch(file: string, branch: string): {
   const document = parseTaskDocument(text, file);
   const branchBefore = document.frontmatter.branch;
   const status = document.frontmatter.status;
-  const phase = document.frontmatter.phase;
+  const stage = document.frontmatter.stage;
   const outcome = document.frontmatter.outcome;
   if (branchBefore === branch) {
-    return { branchBefore, branchAfter: branch, changed: false, status, phase, outcome };
+    return { branchBefore, branchAfter: branch, changed: false, status, stage, outcome };
   }
   const nextText = replaceTaskBranchLine(text, branch);
   if (nextText === null) throw new Error(`task.md 缺少 frontmatter: ${file}`);
@@ -817,10 +817,10 @@ function rewriteTaskBranch(file: string, branch: string): {
   });
   const after = parseTaskDocument(readFileSync(file, "utf8"), file);
   if (after.frontmatter.branch !== branch) throw new Error("task.md branch 回读不一致");
-  if (after.frontmatter.status !== status || after.frontmatter.phase !== phase || after.frontmatter.outcome !== outcome) {
+  if (after.frontmatter.status !== status || after.frontmatter.stage !== stage || after.frontmatter.outcome !== outcome) {
     throw new Error("task.md 状态字段在 branch 更新时发生变化");
   }
-  return { branchBefore, branchAfter: after.frontmatter.branch, changed: true, status, phase, outcome };
+  return { branchBefore, branchAfter: after.frontmatter.branch, changed: true, status, stage, outcome };
 }
 
 export class WorktreeMergeService {
@@ -1344,7 +1344,7 @@ export class WorktreeMergeService {
     }
     record();
 
-    // 3. 任务正文 branch 改为目标分支（不改 status／phase／outcome／正文）。
+    // 3. 任务正文 branch 改为目标分支（不改 status／stage／outcome／正文）。
     const targetTaskFile = join(targetDir, TASK_FILE);
     if (!existsSync(targetTaskFile)) {
       const reason = `任务资料缺少 task.md: ${targetTaskFile}`;

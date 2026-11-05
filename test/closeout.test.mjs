@@ -59,14 +59,14 @@ function services(dir) {
   return { store, locks, tasks, delivery };
 }
 
-async function taskWithWork(dir, s, { title, path, content, verification = "self" }, phase = "deliver") {
+async function taskWithWork(dir, s, { title, path, content, verification = "self" }, stage = "deliver") {
   const task = await s.tasks.newTask({ dir, title, slug: title, branch: BRANCH, verification });
   writeFileSync(join(dir, path), content);
   const file = join(dir, ".knit", task.relativePath);
   const doc = parseTaskDocument(readFileSync(file, "utf8"), file);
   const updated = renderTaskDocument({
     ...doc,
-    frontmatter: { ...doc.frontmatter, phase, ...(phase === "deliver" ? { status: "open", outcome: null } : {}) },
+    frontmatter: { ...doc.frontmatter, stage, ...(stage === "deliver" ? { status: "open", outcome: null } : {}) },
     progressBody: `${doc.progressBody}\n### 实施记录\n\n- 已完成并自检。\n`,
   });
   writeFileSync(file, updated);
@@ -424,7 +424,7 @@ test("055/056：self 任务在 deliver 上澄清会回实施，不逼出独立�
       content: "# clarify\n\n补充范围说明\n",
       runActive: false,
     });
-    assert.equal(changed.phase, "implement");
+    assert.equal(changed.stage, "implement");
     assert.equal(changed.status, "open");
   } finally {
     s.store.close();

@@ -117,7 +117,7 @@ async function waitTerminal(s, dir, runId, timeoutMs = 30_000) {
 }
 
 function taskPhase(taskDir) {
-  return parseTaskDocument(readFileSync(join(taskDir, "task.md"), "utf8")).frontmatter.phase;
+  return parseTaskDocument(readFileSync(join(taskDir, "task.md"), "utf8")).frontmatter.stage;
 }
 
 /** 已完成结果夹具：接收前由测试写入，模拟 prepare-only 后的外部结果。 */

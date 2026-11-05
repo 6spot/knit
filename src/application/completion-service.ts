@@ -74,7 +74,7 @@ export class CompletionService {
     const lastImplement: ImplementEvidence | null = input.binding.lastImplement ?? null;
     return completionDecision({
       status: input.document.frontmatter.status,
-      phase: input.document.frontmatter.phase,
+      stage: input.document.frontmatter.stage,
       outcome: input.document.frontmatter.outcome,
       pendingKind: input.binding.pendingDraft?.kind ?? null,
       verification,

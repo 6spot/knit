@@ -39,7 +39,8 @@ export interface TaskStatusView {
   taskId: string;
   title: string;
   status: string;
-  phase: string;
+  /** 任务阶段：锚点 start／deliver 或当前流程配置里的阶段 id。 */
+  stage: string;
   outcome: string | null;
   branch: string | null;
   relativePath: string;
@@ -72,7 +73,7 @@ export interface StatusOverview {
     taskId: string;
     title: string;
     status: string;
-    phase: string;
+    stage: string;
     outcome: string | null;
     relativePath: string;
     archived: boolean;
@@ -157,7 +158,7 @@ export class StatusService {
       taskId,
       title: document.frontmatter.title,
       status: document.frontmatter.status,
-      phase: document.frontmatter.phase,
+      stage: document.frontmatter.stage,
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       relativePath: relative(root, join(located.dir, "task.md")),
@@ -197,7 +198,7 @@ export class StatusService {
         taskId: task.taskId,
         title: task.title,
         status: task.status,
-        phase: task.phase,
+        stage: task.stage,
         outcome: task.outcome,
         relativePath: task.relativePath,
         archived: task.archived,
@@ -212,10 +213,10 @@ export class StatusService {
     };
   }
 
-  private async listTasks(root: string): Promise<Array<{ taskId: string; title: string; status: string; phase: string; outcome: string | null; relativePath: string; archived: boolean }>> {
+  private async listTasks(root: string): Promise<Array<{ taskId: string; title: string; status: string; stage: string; outcome: string | null; relativePath: string; archived: boolean }>> {
     // 统一任务发现（listTaskDirectories）：活动 tasks/<name> 与归档 archive/<YYYY-MM>/<name>（任务041）。
     // 损坏任务不阻塞概览；重复 ID 如实列出并按路径区分；不跟随符号链接（只认目录与 task.md）。
-    const result: Array<{ taskId: string; title: string; status: string; phase: string; outcome: string | null; relativePath: string; archived: boolean }> = [];
+    const result: Array<{ taskId: string; title: string; status: string; stage: string; outcome: string | null; relativePath: string; archived: boolean }> = [];
     for (const { name, archived } of listTaskDirectories(root)) {
       const file = join(root, ".knit", "tasks", name, "task.md");
       if (!existsSync(file)) continue;
@@ -225,7 +226,7 @@ export class StatusService {
           taskId: document.frontmatter.id,
           title: document.frontmatter.title,
           status: document.frontmatter.status,
-          phase: document.frontmatter.phase,
+          stage: document.frontmatter.stage,
           outcome: document.frontmatter.outcome,
           relativePath: `tasks/${name}`,
           archived,

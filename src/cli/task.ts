@@ -248,7 +248,7 @@ export function registerTaskCommands(program: Command): void {
         }
         for (const entry of result.entries) {
           const blocked = entry.blocked.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
-          console.log(`${entry.priority}  ${entry.taskId}  [${entry.phase}]  ${entry.title}${blocked === "" ? "" : `  ⛔ ${blocked}`}`);
+          console.log(`${entry.priority}  ${entry.taskId}  [${entry.stage}]  ${entry.title}${blocked === "" ? "" : `  ⛔ ${blocked}`}`);
         }
         console.log(`下一项: ${result.next ?? "无（全部被前置依赖阻塞）"}`);
       });
@@ -268,7 +268,7 @@ export function registerTaskCommands(program: Command): void {
           console.log(`任务 ${result.taskId}: ${result.adopted ? "已接管" : "已绑定"} ${result.branch}`);
           if (result.previousBranch === null) console.log("原分支: 无（首次接管）");
           else if (result.previousBranch !== result.branch) console.log(`原分支: ${result.previousBranch}`);
-          if (result.checkInvalidated) console.log(`旧检查已失效；阶段保持 ${result.phase}`);
+          if (result.checkInvalidated) console.log(`旧检查已失效；阶段保持 ${result.stage}`);
         },
       );
     });
@@ -298,7 +298,7 @@ export function registerTaskCommands(program: Command): void {
           if (history.kind === "invalid") return "  [档案异常]";
           return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
         };
-        const row = (t: { taskId: string; title: string; status: string; phase: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; parent: string | null; blocked: { taskId: string; problem: string }[] }) => {
+        const row = (t: { taskId: string; title: string; status: string; stage: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; parent: string | null; blocked: { taskId: string; problem: string }[] }) => {
           // 活跃分区按服务层派生的稳定执行顺序逐行展示；父子关系用 ↳ 与父任务 ID 标注，
           // 不再把子任务重排到父任务之下（DESIGN §3.10、§3.11）。
           const child = t.parent === null ? "" : "↳ ";
@@ -309,7 +309,7 @@ export function registerTaskCommands(program: Command): void {
           const blocked = t.blocked.length > 0
             ? `  ⛔ ${t.blocked.map((entry) => `${entry.taskId}(${entry.problem})`).join(", ")}`
             : "";
-          return `  ${child}${t.priority}  ${t.taskId}  [${t.status}/${t.phase}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${parentRef}${tree}${blocked}${marker(t.history)}`;
+          return `  ${child}${t.priority}  ${t.taskId}  [${t.status}/${t.stage}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${parentRef}${tree}${blocked}${marker(t.history)}`;
         };
         console.log(`活跃任务（${result.active.length}）:`);
         // result.active 已按 priority → order → createdAt 排序；直接逐行展示以与 task next 一致。
@@ -447,7 +447,7 @@ export function registerTaskCommands(program: Command): void {
     .action(async (taskId, options) => {
       const requestId = `task-ready-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await withService(requestId, options.dir, (service) => service.ready({ dir: options.dir, taskId }), (result) => {
-        console.log(`讨论已确认: ${result.taskId} → ${result.phase}`);
+        console.log(`讨论已确认: ${result.taskId} → ${result.stage}`);
         console.log(`冻结输入摘要: ${result.confirmedInputsDigest.slice(0, 12)}`);
       });
     });
@@ -497,7 +497,7 @@ export function registerTaskCommands(program: Command): void {
           }),
         (result) => {
           console.log(`${taskId}: ${summarizeUpdate(result)}`);
-          console.log(`phase: ${result.phase}  status: ${result.status}`);
+          console.log(`stage: ${result.stage}  status: ${result.status}`);
         },
       );
     });

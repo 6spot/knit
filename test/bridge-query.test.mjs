@@ -207,7 +207,7 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
     const second = host.systemPromptOptions.sections.knit;
     assert.match(second, new RegExp(taskId));
-    assert.match(second, /阶段: discuss/);
+    assert.match(second, /阶段: start/);
     assert.match(second, /任务入口: \.knit\//);
     assert.match(second, /任务选择：/);
     assert.match(second, /遗漏选择先补问/);

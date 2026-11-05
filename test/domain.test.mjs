@@ -1,20 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  onAdopt,
-  onCheckAccepted,
-  onComplete,
-  onCloseWithOutcome,
-  onImplementationAccepted,
-  onInputsUpdated,
-  onPendingResolved,
-  onReady,
-  onRecheckCompleted,
-  onRecheckRequested,
-  onRecordWritten,
-  digestImpact,
-  stalenessOf,
-} from "../dist/domain/task.js";
+import { digestImpact, isTransitionRefusal, stalenessOf, transition } from "../dist/domain/task.js";
+import { DEFAULT_WORKFLOW_YAML, fallbackWorkflowDefinition, parseWorkflow } from "../dist/domain/workflow.js";
 import {
   demoteAfterEvent,
   isDeliverable,
@@ -24,13 +11,46 @@ import {
 import { mayStartRepairRound, repairDecision } from "../dist/domain/repair.js";
 import { completionDecision } from "../dist/domain/completion.js";
 
-const openDiscuss = { status: "open", phase: "discuss", outcome: null, branch: "refs/heads/main", pendingKind: null };
-const openImplement = { ...openDiscuss, phase: "implement" };
-const openCheck = { ...openDiscuss, phase: "check" };
-const openDeliver = { ...openDiscuss, phase: "deliver" };
-const closedCompleted = { status: "closed", phase: "deliver", outcome: "completed", branch: "refs/heads/main", pendingKind: null };
-const closedCancelled = { status: "closed", phase: "implement", outcome: "cancelled", branch: "refs/heads/main", pendingKind: null };
-const closedSuperseded = { status: "closed", phase: "check", outcome: "superseded", branch: "refs/heads/main", pendingKind: null };
+const workflow = parseWorkflow(DEFAULT_WORKFLOW_YAML).workflow;
+const fallback = fallbackWorkflowDefinition();
+
+const custom = parseWorkflow(
+  [
+    "version: 1",
+    "stages:",
+    "  - id: draft",
+    "  - id: review",
+    "    report:",
+    "      verdict: [pass, changes_requested]",
+    "    onVerdict:",
+    "      changes_requested: draft",
+    "  - id: ship",
+    "",
+  ].join("\n"),
+).workflow;
+
+const base = {
+  status: "open",
+  stage: "start",
+  outcome: null,
+  branch: "refs/heads/main",
+  pendingKind: null,
+  verification: "independent",
+  visits: {},
+  stopReason: null,
+};
+
+const at = (stage, extra = {}) => ({ ...base, stage, ...extra });
+const stageOf = (result) => {
+  assert.equal(isTransitionRefusal(result), false, JSON.stringify(result));
+  return result;
+};
+/** 把转移结果回灌为下一次事件的事实（pendingKind 等未变化字段取基准）。 */
+const next = (result) => ({ ...base, ...result });
+const reasonOf = (result) => {
+  assert.equal(isTransitionRefusal(result), true, JSON.stringify(result));
+  return result.reason;
+};
 
 /** 不变量：open 无 outcome，closed 必有 outcome（STATES.md 第3节）。 */
 function assertTransitionInvariant(t) {
@@ -40,157 +60,270 @@ function assertTransitionInvariant(t) {
     assert.ok(t.outcome !== null, "closed 任务必须有 outcome");
     assert.ok(["completed", "cancelled", "superseded"].includes(t.outcome));
   }
-  assert.ok(["discuss", "implement", "check", "deliver"].includes(t.phase));
+  assert.match(t.stage, /^[a-z][a-z0-9-]{0,31}$/);
+  assert.equal(typeof t.visits, "object");
 }
 
-test("task ready 仅从 discuss 推进", () => {
-  const ok = onReady(openDiscuss);
-  assertTransitionInvariant(ok);
-  assert.equal(ok.phase, "implement");
-  for (const facts of [openImplement, openCheck, openDeliver]) {
-    assert.deepEqual(onReady(facts), { allowed: false, reason: "phase_mismatch" });
+test("task ready 从 start 进入配置的第一阶段，非 start 拒绝", () => {
+  const ready = stageOf(transition(workflow, at("start"), { kind: "ready" }));
+  assertTransitionInvariant(ready);
+  assert.equal(ready.stage, "implement");
+  assert.deepEqual(ready.visits, { implement: 1 });
+  for (const stage of ["implement", "check", "deliver"]) {
+    assert.equal(reasonOf(transition(workflow, at(stage), { kind: "ready" })), "phase_mismatch");
   }
+  // 自定义流程：第一个阶段就是配置顺序的第一项。
+  assert.equal(stageOf(transition(custom, at("start"), { kind: "ready" })).stage, "draft");
 });
 
-test("实施接受仅从 implement 推进并进入 check", () => {
-  const ok = onImplementationAccepted(openImplement);
-  assertTransitionInvariant(ok);
-  assert.equal(ok.phase, "check");
-  assert.equal(onImplementationAccepted(openCheck)?.allowed, false);
-  assert.equal(onImplementationAccepted(openDeliver)?.allowed, false);
-});
-
-test("实施接受按任务验证要求分流：independent→check，self／none→deliver", () => {
-  const selfTask = onImplementationAccepted({ ...openImplement, verification: "self" });
-  assert.equal(selfTask.phase, "deliver");
-  const noneTask = onImplementationAccepted({ ...openImplement, verification: "none" });
-  assert.equal(noneTask.phase, "deliver");
-  const independent = onImplementationAccepted({ ...openImplement, verification: "independent" });
-  assert.equal(independent.phase, "check");
+test("实施接受按验证要求分流：independent→下一阶段，self／none→deliver", () => {
+  const independent = stageOf(transition(workflow, at("implement", { visits: { implement: 1 } }), { kind: "implementationAccepted" }));
+  assertTransitionInvariant(independent);
+  assert.equal(independent.stage, "check");
+  assert.deepEqual(independent.visits, { implement: 1, check: 1 });
+  assert.equal(
+    stageOf(transition(workflow, { ...at("implement"), verification: "self" }, { kind: "implementationAccepted" })).stage,
+    "deliver",
+  );
+  assert.equal(
+    stageOf(transition(workflow, { ...at("implement"), verification: "none" }, { kind: "implementationAccepted" })).stage,
+    "deliver",
+  );
   // 旧记录缺省 independent，保持既有检查语义。
-  assert.equal(onImplementationAccepted(openImplement).phase, "check");
+  assert.equal(
+    stageOf(transition(workflow, { ...at("implement"), verification: undefined }, { kind: "implementationAccepted" })).stage,
+    "check",
+  );
+  // 任意配置阶段完成都按顺序前进；最后一个阶段之后是 deliver。
+  assert.equal(stageOf(transition(workflow, at("check"), { kind: "implementationAccepted" })).stage, "deliver");
+  assert.equal(reasonOf(transition(workflow, at("deliver"), { kind: "implementationAccepted" })), "phase_mismatch");
 });
 
-test("check 接受按结论分流 pass→deliver / changes_requested→implement / blocked 保留", () => {
-  const pass = onCheckAccepted(openCheck, "pass");
+test("阶段接受按 onVerdict 分流：pass→deliver / changes_requested→implement / blocked 留在 check", () => {
+  const pass = stageOf(transition(workflow, at("check"), { kind: "stageAccepted", verdict: "pass" }));
   assertTransitionInvariant(pass);
-  assert.equal(pass.phase, "deliver");
-  const changes = onCheckAccepted(openCheck, "changes_requested");
-  assert.equal(changes.phase, "implement");
-  const blocked = onCheckAccepted(openCheck, "blocked");
-  assert.equal(blocked.phase, "check");
-  assert.equal(onCheckAccepted(openImplement, "pass")?.allowed, false);
+  assert.equal(pass.stage, "deliver");
+  const changes = stageOf(transition(workflow, at("check"), { kind: "stageAccepted", verdict: "changes_requested" }));
+  assert.equal(changes.stage, "implement");
+  assert.deepEqual(changes.visits, { implement: 1 });
+  const blocked = stageOf(transition(workflow, at("check"), { kind: "stageAccepted", verdict: "blocked" }));
+  assert.equal(blocked.stage, "check");
+  assert.equal(reasonOf(transition(workflow, at("deliver"), { kind: "stageAccepted", verdict: "pass" })), "phase_mismatch");
+  // 未知阶段值不在当前配置中：只读展示，转移拒绝。
+  assert.equal(reasonOf(transition(workflow, at("review"), { kind: "stageAccepted", verdict: "pass" })), "stage_not_in_workflow");
 });
 
-test("clarify 保持早期 phase；deliver 因摘要变化回 open/check", () => {
-  const cases = [
-    [openDiscuss, "discuss"],
-    [openImplement, "implement"],
-    [openCheck, "check"],
-  ];
-  for (const [facts, phase] of cases) {
-    const t = onInputsUpdated(facts, "clarify", true);
-    assertTransitionInvariant(t);
-    assert.equal(t.phase, phase);
+test("自定义阶段顺序与回退边按配置流转", () => {
+  const ready = stageOf(transition(custom, at("start"), { kind: "ready" }));
+  assert.equal(ready.stage, "draft");
+  const review = stageOf(transition(custom, next(ready), { kind: "stageAccepted" }));
+  assert.equal(review.stage, "review");
+  assert.deepEqual(review.visits, { draft: 1, review: 1 });
+  // onVerdict 命中回退目标（回退边合法）。
+  const back = stageOf(transition(custom, next(review), { kind: "stageAccepted", verdict: "changes_requested" }));
+  assert.equal(back.stage, "draft");
+  assert.deepEqual(back.visits, { draft: 2, review: 1 });
+  // 未命中走顺序下一阶段。
+  const ship = stageOf(transition(custom, next(review), { kind: "stageAccepted", verdict: "pass" }));
+  assert.equal(ship.stage, "ship");
+  const deliver = stageOf(transition(custom, next(ship), { kind: "stageAccepted" }));
+  assert.equal(deliver.stage, "deliver");
+  // deliver 锚点不再前进。
+  assert.equal(reasonOf(transition(custom, next(deliver), { kind: "stageAccepted" })), "phase_mismatch");
+});
+
+test("回退环超过阶段 maxVisits 停止并报告 repair_round_limit，计数不再增长", () => {
+  let stage = next(stageOf(transition(custom, at("start"), { kind: "ready" }))); // draft 1
+  stage = next(stageOf(transition(custom, stage, { kind: "stageAccepted" }))); // review 1
+  for (const round of [1, 2]) {
+    stage = next(stageOf(transition(custom, stage, { kind: "stageAccepted", verdict: "changes_requested" })));
+    assert.equal(stage.stage, "draft");
+    assert.equal(stage.visits.draft, round + 1);
+    stage = next(stageOf(transition(custom, stage, { kind: "stageAccepted" })));
+    assert.equal(stage.stage, "review");
   }
-  const deliverStale = onInputsUpdated(openDeliver, "clarify", true);
-  assertTransitionInvariant(deliverStale);
-  assert.equal(deliverStale.phase, "check");
-  assert.equal(deliverStale.status, "open");
-  assert.equal(onInputsUpdated({ ...openDeliver, verification: "self" }, "clarify", true).phase, "implement");
-  assert.equal(onInputsUpdated({ ...openDeliver, verification: "none" }, "clarify", true).phase, "implement");
-  // 摘要未变：不迁移
-  const unchanged = onInputsUpdated(openDeliver, "clarify", false);
-  assert.equal(unchanged.phase, "deliver");
+  // 默认 maxVisits=2（来自 maxRepairRounds）：两轮回退后第三次回退被拒。
+  const refused = transition(custom, stage, { kind: "stageAccepted", verdict: "changes_requested" });
+  assert.equal(reasonOf(refused), "repair_round_limit");
+  assert.equal(refused.stopReason, "repair_round_limit");
 });
 
-test("change 回 open/discuss", () => {
-  const t = onInputsUpdated(openCheck, "change", false);
+test("maxVisits: 0 允许首次进入但禁止回退进入", () => {
+  const noLoop = parseWorkflow(
+    [
+      "version: 1",
+      "stages:",
+      "  - id: draft",
+      "  - id: review",
+      "    maxVisits: 0",
+      "    report:",
+      "      verdict: [pass, changes_requested]",
+      "    onVerdict:",
+      "      changes_requested: draft",
+      "",
+    ].join("\n"),
+  ).workflow;
+  const draft = next(stageOf(transition(noLoop, at("start"), { kind: "ready" })));
+  const review = next(stageOf(transition(noLoop, draft, { kind: "stageAccepted" })));
+  assert.equal(review.stage, "review");
+  // review 的再次进入被 maxVisits=0 阻断（首次进入不计数限制）。
+  assert.equal(
+    reasonOf(transition(noLoop, { ...review, stage: "draft", visits: { draft: 1, review: 1 } }, { kind: "stageAccepted" })),
+    "repair_round_limit",
+  );
+});
+
+test("降级流程（无阶段）按 start → deliver 判定", () => {
+  assert.deepEqual(fallback.stages, []);
+  const ready = stageOf(transition(fallback, at("start"), { kind: "ready" }));
+  assert.equal(ready.stage, "deliver");
+  // 在途 run 的旧阶段值继续跑完：任意配置阶段接受都收敛到 deliver。
+  assert.equal(stageOf(transition(fallback, at("implement"), { kind: "implementationAccepted" })).stage, "deliver");
+  assert.equal(stageOf(transition(fallback, at("check"), { kind: "stageAccepted", verdict: "pass" })).stage, "deliver");
+  assert.equal(reasonOf(transition(fallback, at("start"), { kind: "implementationAccepted" })), "phase_mismatch");
+});
+
+test("clarify 保持阶段；deliver 因摘要变化按验证要求回最后工作阶段", () => {
+  const cases = ["start", "implement", "check"];
+  for (const stage of cases) {
+    const t = stageOf(transition(workflow, at(stage), { kind: "inputsUpdated", updateKind: "clarify", digestChanged: true }));
+    assertTransitionInvariant(t);
+    assert.equal(t.stage, stage);
+  }
+  const deliverStale = stageOf(
+    transition(workflow, at("deliver"), { kind: "inputsUpdated", updateKind: "clarify", digestChanged: true }),
+  );
+  assertTransitionInvariant(deliverStale);
+  assert.equal(deliverStale.stage, "check");
+  assert.equal(deliverStale.status, "open");
+  assert.equal(
+    stageOf(
+      transition(workflow, { ...at("deliver"), verification: "self" }, { kind: "inputsUpdated", updateKind: "clarify", digestChanged: true }),
+    ).stage,
+    "implement",
+  );
+  // self 任务回到最近访问过的工作阶段。
+  const visited = stageOf(
+    transition(workflow, at("deliver", { visits: { implement: 2, check: 1 }, verification: "self" }), {
+      kind: "inputsUpdated",
+      updateKind: "clarify",
+      digestChanged: true,
+    }),
+  );
+  assert.equal(visited.stage, "check");
+  // 摘要未变：不迁移
+  assert.equal(
+    stageOf(transition(workflow, at("deliver"), { kind: "inputsUpdated", updateKind: "clarify", digestChanged: false })).stage,
+    "deliver",
+  );
+});
+
+test("change 回到 start", () => {
+  const t = stageOf(transition(workflow, at("check"), { kind: "inputsUpdated", updateKind: "change", digestChanged: false }));
   assertTransitionInvariant(t);
-  assert.equal(t.phase, "discuss");
+  assert.equal(t.stage, "start");
   assert.equal(t.status, "open");
 });
 
 test("待应用草案存在时阻止代码阶段与交付", () => {
-  const withPending = { ...openImplement, pendingKind: "change" };
-  assert.deepEqual(onImplementationAccepted(withPending), { allowed: false, reason: "pending_draft_exists" });
-  assert.deepEqual(onReady(withPending), { allowed: false, reason: "pending_draft_exists" });
-  assert.deepEqual(onCheckAccepted(withPending, "pass"), { allowed: false, reason: "pending_draft_exists" });
-  assert.deepEqual(onRecheckRequested(withPending), { allowed: false, reason: "pending_draft_exists" });
-  // 草案应用按保存的 kind 走 InputsUpdated 规则
-  const applied = onPendingResolved(withPending, "change", false);
+  const withPending = at("implement", { pendingKind: "change" });
+  assert.equal(reasonOf(transition(workflow, withPending, { kind: "implementationAccepted" })), "pending_draft_exists");
+  assert.equal(reasonOf(transition(workflow, withPending, { kind: "ready" })), "pending_draft_exists");
+  assert.equal(reasonOf(transition(workflow, withPending, { kind: "stageAccepted", verdict: "pass" })), "pending_draft_exists");
+  assert.equal(reasonOf(transition(workflow, withPending, { kind: "recheckRequested" })), "pending_draft_exists");
+  // 草案应用按保存的 kind 走输入更新规则
+  const applied = stageOf(
+    transition(workflow, { ...withPending, stage: "check" }, { kind: "pendingResolved", updateKind: "change", digestChanged: false }),
+  );
   assertTransitionInvariant(applied);
-  assert.equal(applied.phase, "discuss");
+  assert.equal(applied.stage, "start");
 });
 
 test("取消／替代不隐式重开；completed 复查仅显式入口", () => {
+  const closedCancelled = { status: "closed", stage: "implement", outcome: "cancelled", branch: "refs/heads/main", pendingKind: null, visits: {}, stopReason: null };
+  const closedSuperseded = { ...closedCancelled, stage: "check", outcome: "superseded" };
+  const closedCompleted = { ...closedCancelled, stage: "deliver", outcome: "completed" };
+  const events = [
+    { kind: "inputsUpdated", updateKind: "clarify", digestChanged: true },
+    { kind: "inputsUpdated", updateKind: "change", digestChanged: true },
+    { kind: "ready" },
+    { kind: "implementationAccepted" },
+    { kind: "stageAccepted", verdict: "pass" },
+    { kind: "recheckRequested" },
+    { kind: "completed" },
+  ];
   for (const [facts, reason] of [
     [closedCancelled, "outcome_cancelled"],
     [closedSuperseded, "outcome_superseded"],
   ]) {
-    const refusal = { allowed: false, reason };
-    assert.deepEqual(onInputsUpdated(facts, "clarify", true), refusal);
-    assert.deepEqual(onInputsUpdated(facts, "change", true), refusal);
-    assert.equal(onReady(facts)?.allowed, false);
-    assert.equal(onImplementationAccepted(facts)?.allowed, false);
-    assert.equal(onCheckAccepted(facts, "pass")?.allowed, false);
-    assert.equal(onRecheckRequested(facts)?.allowed, false);
-    assert.equal(onComplete(facts)?.allowed, false);
+    for (const event of events) {
+      assert.equal(reasonOf(transition(workflow, facts, event)), reason, JSON.stringify(event));
+    }
   }
-  assert.equal(onReady(closedCompleted)?.allowed, false);
+  assert.equal(reasonOf(transition(workflow, closedCompleted, { kind: "ready" })), "outcome_completed");
   // 未归档 completed 的显式复查
-  const reopened = onRecheckCompleted(closedCompleted);
+  const reopened = stageOf(transition(workflow, closedCompleted, { kind: "recheckCompleted" }));
   assertTransitionInvariant(reopened);
-  assert.equal(reopened.phase, "check");
-  assert.equal(onRecheckCompleted(openCheck), null); // open 任务不是该入口
-  assert.equal(onRecheckCompleted(closedCancelled)?.allowed, false);
+  assert.equal(reopened.stage, "check");
+  assert.equal(reasonOf(transition(workflow, at("check", { status: "open" }), { kind: "recheckCompleted" })), "task_not_open");
+  assert.equal(reasonOf(transition(workflow, closedCancelled, { kind: "recheckCompleted" })), "task_not_open");
 });
 
-test("recheck 仅 check/deliver 合法，discuss/implement 明确拒绝", () => {
-  const fromCheck = onRecheckRequested(openCheck);
+test("recheck 仅最后阶段／deliver 合法，早期阶段明确拒绝", () => {
+  const fromCheck = stageOf(transition(workflow, at("check"), { kind: "recheckRequested" }));
   assertTransitionInvariant(fromCheck);
-  assert.equal(fromCheck.phase, "check");
-  const fromDeliver = onRecheckRequested(openDeliver);
+  assert.equal(fromCheck.stage, "check");
+  assert.equal(fromCheck.visits.check, 1);
+  const fromDeliver = stageOf(transition(workflow, at("deliver"), { kind: "recheckRequested" }));
   assertTransitionInvariant(fromDeliver);
-  assert.equal(fromDeliver.phase, "check");
-  assert.deepEqual(onRecheckRequested(openDiscuss), { allowed: false, reason: "phase_mismatch" });
-  assert.deepEqual(onRecheckRequested(openImplement), { allowed: false, reason: "phase_mismatch" });
+  assert.equal(fromDeliver.stage, "check");
+  assert.equal(reasonOf(transition(workflow, at("start"), { kind: "recheckRequested" })), "phase_mismatch");
+  assert.equal(reasonOf(transition(workflow, at("implement"), { kind: "recheckRequested" })), "phase_mismatch");
+  // 自定义流程的复查目标是声明报告字段的检查阶段。
+  assert.equal(stageOf(transition(custom, at("deliver"), { kind: "recheckRequested" })).stage, "review");
 });
 
-test("业务关闭：取消／替代保留停止位置", () => {
-  const done = onComplete(openDeliver);
+test("业务关闭：完成只从 deliver，取消／替代保留停止位置", () => {
+  const done = stageOf(transition(workflow, at("deliver"), { kind: "completed" }));
   assertTransitionInvariant(done);
+  assert.equal(done.stage, "deliver");
   assert.equal(done.outcome, "completed");
-  const cancelled = onCloseWithOutcome(openImplement, "cancelled");
+  // none 任务无需 ready：complete 事件只落业务状态，资格由 completion 层核对。
+  const noneDone = stageOf(transition(workflow, at("start", { verification: "none" }), { kind: "completed" }));
+  assert.equal(noneDone.status, "closed");
+  assert.equal(noneDone.stage, "deliver");
+  const cancelled = stageOf(transition(workflow, at("implement"), { kind: "closed", outcome: "cancelled" }));
   assertTransitionInvariant(cancelled);
-  assert.equal(cancelled.phase, "implement");
-  const superseded = onCloseWithOutcome(openCheck, "superseded");
+  assert.equal(cancelled.stage, "implement");
+  const superseded = stageOf(transition(workflow, at("check"), { kind: "closed", outcome: "superseded" }));
   assertTransitionInvariant(superseded);
   assert.equal(superseded.outcome, "superseded");
 });
 
-test("adopt 保持 discuss/implement/check，deliver 回 open/check 并清 completed", () => {
-  const cases = [
-    [openDiscuss, "discuss"],
-    [openImplement, "implement"],
-    [openCheck, "check"],
-  ];
-  for (const [facts, phase] of cases) {
-    const t = onAdopt(facts);
+test("adopt 保持早期阶段，deliver 回到最后工作阶段并清 completed", () => {
+  for (const stage of ["start", "implement", "check"]) {
+    const t = stageOf(transition(workflow, at(stage), { kind: "adopted" }));
     assertTransitionInvariant(t);
-    assert.equal(t.phase, phase);
+    assert.equal(t.stage, stage);
   }
-  const deliverCompleted = { status: "closed", phase: "deliver", outcome: "completed", branch: "refs/heads/main", pendingKind: null };
-  const fromDeliver = onAdopt(deliverCompleted);
+  const fromDeliver = stageOf(transition(workflow, at("deliver"), { kind: "adopted" }));
   assertTransitionInvariant(fromDeliver);
-  assert.equal(fromDeliver.phase, "check");
-  assert.equal(fromDeliver.outcome, null);
-  assert.equal(fromDeliver.status, "open");
-  assert.equal(onAdopt({ ...deliverCompleted, verification: "self" }).phase, "implement");
+  assert.equal(fromDeliver.stage, "check");
+  assert.equal(
+    stageOf(transition(workflow, { ...at("deliver"), verification: "self" }, { kind: "adopted" })).stage,
+    "implement",
+  );
+  const completed = { status: "closed", stage: "deliver", outcome: "completed", branch: "refs/heads/main", pendingKind: null, visits: {}, stopReason: null };
+  const reopened = stageOf(transition(workflow, completed, { kind: "adopted" }));
+  assert.equal(reopened.status, "open");
+  assert.equal(reopened.outcome, null);
+  assert.equal(reopened.stage, "check");
+  assert.equal(reasonOf(transition(workflow, { ...completed, outcome: "cancelled" }, { kind: "adopted" })), "outcome_cancelled");
 });
 
 test("纯记录与等价改名不使检查失效；运行引用、候选、模型用量不进摘要", () => {
-  assert.equal(onRecordWritten(openCheck).phase, "check");
+  const recorded = transition(workflow, at("check"), { kind: "recordWritten" });
+  assert.equal(recorded.stage, "check");
   assert.equal(stalenessOf({ kind: "inputs", digestChanged: false }), null);
   assert.equal(stalenessOf({ kind: "inputs", digestChanged: true }), "stale");
   assert.equal(digestImpact({ kind: "record" }), null);
@@ -368,7 +501,7 @@ test("上限 0 与非法上限", () => {
 test("完成资格：self 需要匹配的获准实施，independent 需要有效检查，none 明确记录未验证", () => {
   const base = {
     status: "open",
-    phase: "deliver",
+    stage: "deliver",
     outcome: null,
     pendingKind: null,
     verification: "self",
@@ -383,7 +516,7 @@ test("完成资格：self 需要匹配的获准实施，independent 需要有效
   const self = completionDecision(base);
   assert.equal(self.allowed, true);
   assert.equal(self.mode, "self");
-  assert.deepEqual(completionDecision({ ...base, phase: "check" }), { allowed: false, reason: "phase_mismatch" });
+  assert.deepEqual(completionDecision({ ...base, stage: "check" }), { allowed: false, reason: "phase_mismatch" });
   assert.deepEqual(completionDecision({ ...base, lastImplement: null }), { allowed: false, reason: "implementation_missing" });
   assert.deepEqual(completionDecision({ ...base, lastImplement: { runId: "run-1", inputsDigest: "old", scopeDigest: "scope" } }), { allowed: false, reason: "implementation_stale" });
   const independent = completionDecision({ ...base, verification: "independent", checkQualification: "valid", checkRunId: "run-check" });

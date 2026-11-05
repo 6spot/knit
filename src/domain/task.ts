@@ -1,16 +1,21 @@
 /**
- * Task 业务状态与阶段转移（STATES.md 第3节）。
- * 纯函数：输入为已核实事实，输出决定与原因；不做 IO、不看时钟、不信模型自报。
+ * Task 业务状态与阶段转移（设计 §5；STATES.md 第3节）。
+ * 纯函数：输入为已核实事实与生效流程，输出决定与原因；不做 IO、不看时钟、不信模型自报。
  * 封存／归档、Git 收尾与记录写入不在本模块——本模块只回答业务状态允许什么。
+ *
+ * 阶段模型：`start`／`deliver` 是内置锚点，其余取值必须出现在
+ * `WorkflowDefinition.stages` 中。顺序边与 `onVerdict` 回退边都由配置驱动；
+ * 阶段访问计数与 `maxVisits` 上限在转移层核对，超限返回 `repair_round_limit`。
  */
-import type { CheckVerdict } from "./check.js";
 import type { VerificationMode } from "../contracts/task-inputs.js";
+import { isWorkflowAnchor } from "../contracts/workflow.js";
+import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
 
 /** status：业务工作是否结束；与 Git 提交、归档完成分别判断。 */
 export type TaskStatus = "open" | "closed";
 
-/** phase：下一项业务工作。 */
-export type TaskPhase = "discuss" | "implement" | "check" | "deliver";
+/** stage：下一项业务工作；内置锚点 start／deliver 或流程配置里的阶段 id。 */
+export type TaskStage = string;
 
 /** outcome：结束方式；open 时必须为 null（STATES.md 第3节）。 */
 export type TaskOutcome = "completed" | "cancelled" | "superseded";
@@ -18,13 +23,19 @@ export type TaskOutcome = "completed" | "cancelled" | "superseded";
 /** 待应用草案的更新类型；与应用时的 InputsUpdated 同一分类。 */
 export type UpdateKind = "clarify" | "change";
 
+/** 阶段访问计数：阶段 id → 已进入次数；锚点不计数（没有 maxVisits）。 */
+export type StageVisits = Readonly<Record<string, number>>;
+
+/** 阶段访问达到 maxVisits 时写入的稳定停止原因（设计 §5.3）。 */
+export const STAGE_VISIT_LIMIT_REASON = "repair_round_limit";
+
 /**
  * task.md 的业务投影；调用方从文件与绑定核对后传入。
- * repairCycleId 等修复计数不在对象里：计数规则见 repair.ts，由核心写入 binding。
+ * visits／stopReason 由核心从 binding 读入并写回，不由模型自报。
  */
 export interface TaskFacts {
   status: TaskStatus;
-  phase: TaskPhase;
+  stage: TaskStage;
   /** null 表示 open 无 outcome；closed 必有值。 */
   outcome: TaskOutcome | null;
   /** 完整本地分支引用；null 表示未绑定。 */
@@ -33,6 +44,10 @@ export interface TaskFacts {
   pendingKind: UpdateKind | null;
   /** 完成验证要求；旧记录缺省按 independent 兼容。 */
   verification?: VerificationMode;
+  /** 阶段访问计数；缺省视为空（旧绑定或未接线）。 */
+  visits?: StageVisits;
+  /** 流程停止原因；非空表示不自动续跑（如 repair_round_limit、check_blocked）。 */
+  stopReason?: string | null;
 }
 
 /**
@@ -50,31 +65,197 @@ export type TaskGuardReason =
   | "outcome_cancelled"
   | "outcome_superseded"
   | "pending_draft_exists"
-  | "phase_mismatch";
+  /* 阶段与事件不符；原因码沿用既有协议面。 */
+  | "phase_mismatch"
+  /* 阶段值既不是锚点，也不在当前生效流程中；旧值只读展示。 */
+  | "stage_not_in_workflow"
+  /* 阶段再次进入次数达到 maxVisits：停止自动流转并报告 repair_round_limit。 */
+  | "repair_round_limit";
 
 /** 转移后事实由调用方写回 task.md 与 binding；本模块不保存状态。 */
 export interface TaskTransition {
   status: TaskStatus;
-  phase: TaskPhase;
-  /** 仅关闭事件产生 outcome；其余转移保持 null（取消／替代除外，见 onCloseWithOutcome）。 */
+  stage: TaskStage;
+  /** 仅关闭事件产生 outcome；其余转移保持 null（取消／替代除外）。 */
   outcome: TaskOutcome | null;
+  /** 本次事件后的阶段访问计数；未变化时与输入相同。 */
+  visits: StageVisits;
+  /** 非空表示流程已停止（如 repair_round_limit）；调用方写回 binding 并报告。 */
+  stopReason: string | null;
 }
 
 /** 转移函数的返回：拒绝时带稳定原因，允许时给出目标事实。 */
-export type TaskTransitionResult = TaskTransition | ({ allowed: false; reason: TaskGuardReason });
+export type TaskTransitionResult =
+  | TaskTransition
+  | ({ allowed: false; reason: TaskGuardReason; stopReason?: string });
 
-const OPEN = (phase: TaskPhase): TaskTransition => ({ status: "open", phase, outcome: null });
+/** 拒绝结果的类型守卫：成功分支不含 allowed 字段。 */
+export function isTransitionRefusal(
+  result: TaskTransitionResult,
+): result is Extract<TaskTransitionResult, { allowed: false }> {
+  return "allowed" in result && result.allowed === false;
+}
 
-/** deliver 后需求或分支变化：independent 重查，self／none 重做实施。 */
-function afterDeliver(task: TaskFacts): TaskPhase {
-  return (task.verification ?? "independent") === "independent" ? "check" : "implement";
+/** 调用方核对后传入的业务事件；阶段推进目标一律由生效流程推导。 */
+export type TaskEvent =
+  | { kind: "inputsUpdated"; updateKind: UpdateKind; digestChanged: boolean; archived?: boolean }
+  | { kind: "pendingResolved"; updateKind: UpdateKind; digestChanged: boolean; archived?: boolean }
+  | { kind: "ready" }
+  /** implement 阶段完成；independent 走顺序下一阶段，self／none 直接收尾。 */
+  | { kind: "implementationAccepted" }
+  /** 任意阶段完成；verdict 命中该阶段 onVerdict 时跳转，否则顺序下一阶段。 */
+  | { kind: "stageAccepted"; verdict?: string | null }
+  | { kind: "recheckRequested" }
+  | { kind: "recheckCompleted" }
+  | { kind: "completed" }
+  | { kind: "closed"; outcome: "cancelled" | "superseded" }
+  | { kind: "adopted" }
+  | { kind: "recordWritten" };
+
+const ANCHOR_START = "start";
+const ANCHOR_DELIVER = "deliver";
+
+const OPEN = (stage: TaskStage, visits: StageVisits, stopReason: string | null): TaskTransition => ({
+  status: "open",
+  stage,
+  outcome: null,
+  visits,
+  stopReason,
+});
+
+function visitsOf(task: TaskFacts): StageVisits {
+  return task.visits ?? {};
+}
+
+function stopReasonOf(task: TaskFacts): string | null {
+  return task.stopReason ?? null;
+}
+
+function stageDefinition(workflow: WorkflowDefinition, stage: TaskStage): WorkflowStage | null {
+  return workflow.stages.find((entry) => entry.id === stage) ?? null;
+}
+
+/** 阶段值是否可作为当前状态：内置锚点或当前流程中的阶段 id。 */
+export function isKnownStage(workflow: WorkflowDefinition, stage: TaskStage): boolean {
+  return isWorkflowAnchor(stage) || stageDefinition(workflow, stage) !== null;
+}
+
+function stageIndex(workflow: WorkflowDefinition, stage: TaskStage): number {
+  return workflow.stages.findIndex((entry) => entry.id === stage);
+}
+
+/** 顺序下一阶段；最后一个阶段之后是 deliver 锚点。未知阶段按降级语义直接收尾。 */
+function nextStageOf(workflow: WorkflowDefinition, stage: TaskStage): TaskStage {
+  const index = stageIndex(workflow, stage);
+  if (index < 0) return ANCHOR_DELIVER;
+  return workflow.stages[index + 1]?.id ?? ANCHOR_DELIVER;
+}
+
+function firstStageOf(workflow: WorkflowDefinition): TaskStage {
+  return workflow.stages[0]?.id ?? ANCHOR_DELIVER;
+}
+
+function lastStageOf(workflow: WorkflowDefinition): TaskStage {
+  return workflow.stages.at(-1)?.id ?? ANCHOR_DELIVER;
+}
+
+/** 报告值命中的回退／跳转目标；未声明或未命中返回 null。 */
+function verdictTargetOf(workflow: WorkflowDefinition, stage: TaskStage, verdict: string | null | undefined): TaskStage | null {
+  if (verdict === null || verdict === undefined) return null;
+  return stageDefinition(workflow, stage)?.onVerdict[verdict] ?? null;
+}
+
+/** 配置中最后一个声明了报告字段的阶段；作为 independent 的检查回归目标。 */
+function checkStageOf(workflow: WorkflowDefinition): TaskStage | null {
+  let result: TaskStage | null = null;
+  for (const stage of workflow.stages) {
+    if (Object.keys(stage.report).length > 0) result = stage.id;
+  }
+  return result;
 }
 
 /**
- * 已结束任务的常规业务转移守卫。
- * 取消／替代不可隐式重开；completed 按 DESIGN §3.8 允许输入更新重新打开（是否完整归档由调用方核实），
- * 其余事件（ready、实施、检查、交付、关闭）不作用于已结束任务。
+ * 按配置顺序找出最近访问过的阶段；`withReport` 为 true 时只看声明报告字段的阶段。
+ * 用于 deliver 失去交付资格后回到最后工作阶段／最后检查阶段。
  */
+function lastVisitedStageOf(
+  workflow: WorkflowDefinition,
+  visits: StageVisits,
+  withReport = false,
+): TaskStage | null {
+  let result: TaskStage | null = null;
+  for (const stage of workflow.stages) {
+    if ((visits[stage.id] ?? 0) <= 0) continue;
+    if (withReport && Object.keys(stage.report).length === 0) continue;
+    result = stage.id;
+  }
+  return result;
+}
+
+type EnterResult =
+  | { ok: true; stage: TaskStage; visits: StageVisits }
+  | { ok: false; reason: "repair_round_limit" | "stage_not_in_workflow" };
+
+/**
+ * 进入阶段并累计访问。锚点不计数；配置阶段的 `maxVisits` 限制
+ * 首次进入之后的再次进入次数（0 表示不允许回退进入），与 workflow.maxRepairRounds 对齐。
+ */
+function enterStage(workflow: WorkflowDefinition, stage: TaskStage, visits: StageVisits): EnterResult {
+  if (isWorkflowAnchor(stage)) return { ok: true, stage, visits };
+  const definition = stageDefinition(workflow, stage);
+  if (definition === null) return { ok: false, reason: "stage_not_in_workflow" };
+  const prior = visits[stage] ?? 0;
+  if (definition.maxVisits !== null && prior > definition.maxVisits) {
+    return { ok: false, reason: "repair_round_limit" };
+  }
+  return { ok: true, stage, visits: { ...visits, [stage]: prior + 1 } };
+}
+
+function enterRefusal(result: Extract<EnterResult, { ok: false }>): TaskTransitionResult {
+  if (result.reason === "repair_round_limit") {
+    return { allowed: false, reason: "repair_round_limit", stopReason: STAGE_VISIT_LIMIT_REASON };
+  }
+  return { allowed: false, reason: "stage_not_in_workflow" };
+}
+
+/** 保持当前阶段的转移；当前值必须仍可写（锚点或当前配置阶段）。 */
+function stay(workflow: WorkflowDefinition, task: TaskFacts): TaskTransitionResult {
+  if (!isKnownStage(workflow, task.stage)) return { allowed: false, reason: "stage_not_in_workflow" };
+  return OPEN(task.stage, visitsOf(task), stopReasonOf(task));
+}
+
+/**
+ * deliver（含未归档 completed）失去交付资格：
+ * - independent 回到检查阶段（最后访问过且声明报告字段的阶段，其次配置中的检查阶段）；
+ * - self／none 回到最近访问过的工作阶段，没有记录时回第一段；
+ * - 降级流程（无阶段）回到 start，随后 ready 直接收尾。
+ */
+export function staleDeliverTransition(workflow: WorkflowDefinition, task: TaskFacts): TaskTransitionResult {
+  const visits = visitsOf(task);
+  if (workflow.stages.length === 0) return OPEN(ANCHOR_START, visits, stopReasonOf(task));
+  const verification = task.verification ?? "independent";
+  // independent 重新取得检查凭据：回到最后一个声明报告字段的阶段（无声明时用最后阶段）。
+  if (verification === "independent") {
+    const visitedCheck = lastVisitedStageOf(workflow, visits, true);
+    return enterResult(workflow, visitedCheck ?? checkStageOf(workflow) ?? lastStageOf(workflow), visits, stopReasonOf(task));
+  }
+  // self／none 无独立检查：回到最近访问过的工作阶段；没有记录时从头开始。
+  const lastVisited = lastVisitedStageOf(workflow, visits);
+  return enterResult(workflow, lastVisited ?? firstStageOf(workflow), visits, stopReasonOf(task));
+}
+
+function enterResult(
+  workflow: WorkflowDefinition,
+  stage: TaskStage,
+  visits: StageVisits,
+  stopReason: string | null,
+): TaskTransitionResult {
+  const entered = enterStage(workflow, stage, visits);
+  if (!entered.ok) return enterRefusal(entered);
+  return OPEN(entered.stage, entered.visits, stopReason);
+}
+
+/** 已结束任务的常规业务转移守卫。 */
 function closedGuard(task: TaskFacts): Decision<TaskGuardReason> {
   if (task.status === "open") return { allowed: true };
   switch (task.outcome) {
@@ -103,7 +284,6 @@ function pendingGuard(task: TaskFacts): Decision<TaskGuardReason> {
   return task.pendingKind === null ? { allowed: true } : { allowed: false, reason: "pending_draft_exists" };
 }
 
-/** 依次执行守卫，返回首个拒绝；全部通过返回 null。仅用于 completed 一律拒绝的事件。 */
 function firstRefusal(task: TaskFacts): { allowed: false; reason: TaskGuardReason } | null {
   const closed = closedGuard(task);
   if (!closed.allowed) return closed;
@@ -112,7 +292,7 @@ function firstRefusal(task: TaskFacts): { allowed: false; reason: TaskGuardReaso
   return null;
 }
 
-/** 输入更新守卫：未归档 completed 放宽为可重开；pending 由 onInputsUpdated 内部按上下文裁决（任务036）。 */
+/** 输入更新守卫：未归档 completed 放宽为可重开；pending 由 inputsUpdated 内部按上下文裁决（任务036）。 */
 function inputsUpdateRefusal(task: TaskFacts, archived: boolean, applyPending = false): { allowed: false; reason: TaskGuardReason } | null {
   const closed = inputsClosedGuard(task, archived);
   if (!closed.allowed) return closed;
@@ -123,147 +303,130 @@ function inputsUpdateRefusal(task: TaskFacts, archived: boolean, applyPending = 
   return null;
 }
 
-/**
- * InputsUpdated（task update --kind）的领域规则（STATES.md 第3节）。
- * 摘要是否变化由调用方以冻结摘要对比传入；核心不做自然语言分类。
- * clarify：解释、纠正、补充定位／验证资料——保持 discuss/implement/check，
- * 摘要未变不迁移；deliver 的资格 stale 回 open/check（independent）或 open/implement（self／none）并清 completed。
- * change：新增、删除或改变目标、条件、范围、业务约束——回 open/discuss。
- */
-export function onInputsUpdated(task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived = false): TaskTransitionResult {
+function inputsUpdated(workflow: WorkflowDefinition, task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived: boolean): TaskTransitionResult {
   const refusal = inputsUpdateRefusal(task, archived);
   if (refusal) return refusal;
-  if (kind === "change") return OPEN("discuss");
-  if (!digestChanged) return OPEN(task.phase);
-  return task.phase === "deliver" ? OPEN(afterDeliver(task)) : OPEN(task.phase);
+  // change 是目标／范围变化：回到 start，保留访问计数（不重置回退历史）。
+  if (kind === "change") return OPEN(ANCHOR_START, visitsOf(task), stopReasonOf(task));
+  if (!digestChanged) return stay(workflow, task);
+  if (task.stage !== ANCHOR_DELIVER) return stay(workflow, task);
+  return staleDeliverTransition(workflow, task);
 }
 
 /**
- * PendingApplied／PendingWithdrawn：按草案保存的 kind 应用（STATES.md 第3节）。
- * 应用是待应用草案的解决路径，不受草案守卫拦截；摘要与基线匹配由调用方核对。
+ * 阶段转移唯一入口（设计 §13）：按生效流程决定目标阶段、访问计数与停止原因。
+ * 不读文件、不写 binding；调用方核对事实并写回结果。
  */
-export function onPendingResolved(task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived = false): TaskTransitionResult {
-  const refusal = inputsUpdateRefusal(task, archived, true);
-  if (refusal) return refusal;
-  return onInputsUpdated({ ...task, pendingKind: null }, kind, digestChanged, archived);
-}
-
-/** DiscussionConfirmed（task ready）：discuss → implement，保存确认输入引用由调用方负责。 */
-export function onReady(task: TaskFacts): TaskTransitionResult {
-  const refusal = firstRefusal(task);
-  if (refusal) return refusal;
-  if (task.phase !== "discuss") return { allowed: false, reason: "phase_mismatch" };
-  return OPEN("implement");
-}
-
-/**
- * ImplementationAccepted：实施回执与实际成果有效后 implement → check，累积 scope 由调用方记录。
- * 每次获准实施使旧检查失去交付资格——资格推导在 check.ts，不在此重复。
- */
-export function onImplementationAccepted(task: TaskFacts): TaskTransitionResult {
-  const refusal = firstRefusal(task);
-  if (refusal) return refusal;
-  if (task.phase !== "implement") return { allowed: false, reason: "phase_mismatch" };
-  // independent 保留独立检查；self／none 在实施获准后直接进入交付阶段，
-  // 由完成守卫核对是否具备完成条件（DESIGN §3.8）。
-  return OPEN(task.verification === "independent" || task.verification === undefined ? "check" : "deliver");
-}
-
-/**
- * CheckAccepted（STATES.md 第3节）：最新获准检查及目标版本匹配时，
- * pass → deliver；changes_requested → implement；blocked 保留 check。
- */
-export function onCheckAccepted(task: TaskFacts, verdict: CheckVerdict): TaskTransitionResult {
-  const refusal = firstRefusal(task);
-  if (refusal) return refusal;
-  if (task.phase !== "check") return { allowed: false, reason: "phase_mismatch" };
-  switch (verdict) {
-    case "pass":
-      return OPEN("deliver");
-    case "changes_requested":
-      return OPEN("implement");
-    case "blocked":
-      return OPEN("check");
+export function transition(workflow: WorkflowDefinition, task: TaskFacts, event: TaskEvent): TaskTransitionResult {
+  switch (event.kind) {
+    case "inputsUpdated":
+      return inputsUpdated(workflow, task, event.updateKind, event.digestChanged, event.archived ?? false);
+    case "pendingResolved":
+      // 应用是待应用草案的解决路径，不受草案守卫拦截；摘要与基线匹配由调用方核对。
+      return inputsUpdated(
+        workflow,
+        { ...task, pendingKind: null },
+        event.updateKind,
+        event.digestChanged,
+        event.archived ?? false,
+      );
+    case "ready": {
+      // DiscussionConfirmed：start → 配置的第一个阶段；降级流程直接进入 deliver。
+      const refusal = firstRefusal(task);
+      if (refusal) return refusal;
+      if (task.stage !== ANCHOR_START) return { allowed: false, reason: "phase_mismatch" };
+      return enterResult(workflow, firstStageOf(workflow), visitsOf(task), stopReasonOf(task));
+    }
+    case "implementationAccepted": {
+      const refusal = firstRefusal(task);
+      if (refusal) return refusal;
+      if (isWorkflowAnchor(task.stage)) return { allowed: false, reason: "phase_mismatch" };
+      // 旧任务未做数据迁移时，降级流程按 start → deliver 判定。
+      if (workflow.stages.length === 0) return OPEN(ANCHOR_DELIVER, visitsOf(task), stopReasonOf(task));
+      if (!isKnownStage(workflow, task.stage)) return { allowed: false, reason: "stage_not_in_workflow" };
+      const verification = task.verification ?? "independent";
+      // independent 保留正式检查；self／none 实施获准后直接进入收尾。
+      const target = verification === "independent" ? nextStageOf(workflow, task.stage) : ANCHOR_DELIVER;
+      return enterResult(workflow, target, visitsOf(task), stopReasonOf(task));
+    }
+    case "stageAccepted": {
+      const refusal = firstRefusal(task);
+      if (refusal) return refusal;
+      if (task.stage === ANCHOR_START) {
+        return enterResult(workflow, firstStageOf(workflow), visitsOf(task), stopReasonOf(task));
+      }
+      if (task.stage === ANCHOR_DELIVER) return { allowed: false, reason: "phase_mismatch" };
+      // 降级流程（无阶段）：在途 run 的旧阶段值继续跑完并收敛到 deliver。
+      if (workflow.stages.length === 0) return OPEN(ANCHOR_DELIVER, visitsOf(task), stopReasonOf(task));
+      if (!isKnownStage(workflow, task.stage)) return { allowed: false, reason: "stage_not_in_workflow" };
+      const target = verdictTargetOf(workflow, task.stage, event.verdict) ?? nextStageOf(workflow, task.stage);
+      // 显式指向本阶段（如 blocked 保留检查）是原地停留，不重复累计访问。
+      if (target === task.stage) return OPEN(task.stage, visitsOf(task), stopReasonOf(task));
+      return enterResult(workflow, target, visitsOf(task), stopReasonOf(task));
+    }
+    case "recheckRequested": {
+      const refusal = firstRefusal(task);
+      if (refusal) return refusal;
+      if (workflow.stages.length === 0) {
+        // 降级流程只有 start → deliver；复查直接回到收尾，不自动重开工作阶段。
+        return task.stage === ANCHOR_START ? { allowed: false, reason: "phase_mismatch" } : OPEN(ANCHOR_DELIVER, visitsOf(task), stopReasonOf(task));
+      }
+      // 复查目标是检查阶段（声明报告字段的最后阶段）；从 deliver 或检查阶段本身发起。
+      const checkStage = checkStageOf(workflow) ?? lastStageOf(workflow);
+      if (task.stage !== ANCHOR_DELIVER && task.stage !== checkStage && task.stage !== lastStageOf(workflow)) {
+        return { allowed: false, reason: "phase_mismatch" };
+      }
+      return enterResult(workflow, checkStage, visitsOf(task), stopReasonOf(task));
+    }
+    case "recheckCompleted": {
+      if (task.status === "open") return { allowed: false, reason: "task_not_open" };
+      if (task.outcome !== "completed") return { allowed: false, reason: "task_not_open" };
+      return enterResult(workflow, checkStageOf(workflow) ?? lastStageOf(workflow), visitsOf(task), stopReasonOf(task));
+    }
+    case "completed": {
+      // BusinessClosed：完成资格（self 需 deliver、independent 需有效检查、none 明确跳过）
+      // 由 completion 层核对；本转移只落业务状态，与既有语义一致。
+      const refusal = firstRefusal(task);
+      if (refusal) return refusal;
+      return { status: "closed", stage: ANCHOR_DELIVER, outcome: "completed", visits: visitsOf(task), stopReason: stopReasonOf(task) };
+    }
+    case "closed": {
+      // 取消／替代保留停止位置；已结束任务不可再次结束。
+      const closed = closedGuard(task);
+      if (!closed.allowed) return closed;
+      const valid = stay(workflow, task);
+      if ("allowed" in valid) return valid;
+      return { ...valid, status: "closed", outcome: event.outcome };
+    }
+    case "adopted": {
+      // adopt 只处理分支变化；资格影响按 verification 与已访问阶段推导。
+      if (task.status === "closed") {
+        if (task.outcome === "cancelled") return { allowed: false, reason: "outcome_cancelled" };
+        if (task.outcome === "superseded") return { allowed: false, reason: "outcome_superseded" };
+        if (task.outcome === null) return { allowed: false, reason: "task_not_open" };
+        return staleDeliverTransition(workflow, task);
+      }
+      if (task.pendingKind !== null) return { allowed: false, reason: "pending_draft_exists" };
+      if (task.stage === ANCHOR_DELIVER) return staleDeliverTransition(workflow, task);
+      return stay(workflow, task);
+    }
+    case "recordWritten":
+      // 记录写入不改变业务状态；提供显式判定防止调用方误转移。
+      return {
+        status: task.status,
+        stage: task.stage,
+        outcome: task.outcome,
+        visits: visitsOf(task),
+        stopReason: stopReasonOf(task),
+      };
   }
-}
-
-/**
- * RecheckRequested（run check --task）：当前为 check/deliver 时 open/check；
- * discuss/implement 明确拒绝 phase_mismatch，不自动跳过 ready／实施（STATES.md 第3节）。
- */
-export function onRecheckRequested(task: TaskFacts): TaskTransitionResult {
-  const refusal = firstRefusal(task);
-  if (refusal) return refusal;
-  switch (task.phase) {
-    case "check":
-    case "deliver":
-      return OPEN("check");
-    case "discuss":
-    case "implement":
-      return { allowed: false, reason: "phase_mismatch" };
-  }
-}
-
-/**
- * 未归档 completed 任务的显式复查入口（STATES.md：RecheckRequested 含"未归档 completed"）。
- * completed 无隐式重开；仅 run check --task 显式触发，转 open/check。
- * open 任务不适用本入口，返回 null。
- */
-export function onRecheckCompleted(task: TaskFacts): TaskTransitionResult | null {
-  if (task.status === "open") return null;
-  if (task.outcome !== "completed") return { allowed: false, reason: "task_not_open" };
-  return OPEN("check");
-}
-
-/**
- * BusinessClosed：deliver（须有效检查与主 Agent 完成判断，守卫由调用方核对）后的正常完成。
- * 归档是收尾行为，不属于业务转移；Git 回执由收尾处理器核实。
- */
-export function onComplete(task: TaskFacts): TaskTransitionResult {
-  const refusal = firstRefusal(task);
-  if (refusal) return refusal;
-  return { status: "closed", phase: "deliver", outcome: "completed" };
-}
-
-/**
- * TaskEndRequested（task close --outcome cancelled/superseded）：明确取消／替代。
- * 守卫"无活动／未知 run、无未核实 Git 效果、待接收结果先收敛"属于调用方事实核对；
- * 本函数只裁决业务状态。phase 保留停止位置；草案撤回留记录由调用方完成。
- */
-export function onCloseWithOutcome(task: TaskFacts, outcome: "cancelled" | "superseded"): TaskTransitionResult {
-  const refusal = closedGuard(task);
-  if (!refusal.allowed) return refusal;
-  return { status: "closed", phase: task.phase, outcome };
-}
-
-/**
- * adopt（分支接管）的资格影响（DESIGN.md 第3.5节）。
- * 调用方须先核实：无存活／未知 run、无未核实 Git 效果、输入已收敛、文件在当前分支可见。
- * 仅分支改变且有效需求未变时：discuss/implement 保持；check 保持待检查；
- * deliver（含未归档 completed）按 verification 恢复为 open/check 或 open/implement 并清 completed。
- * 取消／替代只接管收尾，不自动重开。
- */
-export function onAdopt(task: TaskFacts): TaskTransitionResult {
-  if (task.status === "closed") {
-    if (task.outcome === "cancelled") return { allowed: false, reason: "outcome_cancelled" };
-    if (task.outcome === "superseded") return { allowed: false, reason: "outcome_superseded" };
-    if (task.outcome === null) return { allowed: false, reason: "task_not_open" };
-    return OPEN(afterDeliver(task));
-  }
-  if (task.pendingKind !== null) return { allowed: false, reason: "pending_draft_exists" };
-  return task.phase === "deliver" ? OPEN(afterDeliver(task)) : OPEN(task.phase);
-}
-
-/** 记录写入（task record）不改变业务状态；提供显式判定防止调用方误转移。 */
-export function onRecordWritten(task: TaskFacts): TaskTransition {
-  return { status: task.status, phase: task.phase, outcome: task.outcome };
 }
 
 /**
  * 检查资格的失效源归类（STATES.md 第8节）：
  * stale 只由输入、生效规则、成果、分支、restore 影响选定目标时触发；
  * 纯记录、运行引用、未生效候选、等价改名／归档移动不变。
- * 模型自报 phase／次数不进判定——模型可证实的变化一律以核心核实的事实传入。
+ * 模型自报阶段／次数不进判定——模型可证实的变化一律以核心核实的事实传入。
  */
 export type StaleSource =
   | { kind: "inputs"; digestChanged: boolean }
@@ -285,7 +448,7 @@ export function stalenessOf(source: StaleSource): "stale" | null {
   }
 }
 
-/** 输入摘要覆盖哪些事件：需求摘要不纳入 status/phase/branch、运行引用、记录、模型用量（DESIGN.md 第3.3节）。 */
+/** 输入摘要覆盖哪些事件：需求摘要不纳入 status/stage/branch、运行引用、记录、模型用量（DESIGN.md 第3.3节）。 */
 export type DigestRelevantEvent =
   | { kind: "record" }
   | { kind: "runReference" }

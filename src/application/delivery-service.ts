@@ -17,7 +17,8 @@ import type {
 import type { CheckFile } from "../contracts/run.js";
 import { PROJECT_SCOPE, type StandardsReview } from "../contracts/standards.js";
 import type { OperationState } from "../contracts/metadata.js";
-import { onComplete, type TaskFacts } from "../domain/task.js";
+import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
+import { workflowOf } from "./workflow.js";
 import { CompletionService } from "./completion-service.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
@@ -295,8 +296,8 @@ export class DeliveryService {
       if (located.document.frontmatter.status === "closed" && located.document.frontmatter.outcome !== "completed") {
         throw new GuardError("task_closed", `任务已结束（${located.document.frontmatter.outcome}），不能正常交付`);
       }
-      if (located.document.frontmatter.phase !== "deliver") {
-        throw new GuardError("phase_mismatch", `任务不在交付阶段: ${located.document.frontmatter.phase}`);
+      if (located.document.frontmatter.stage !== "deliver") {
+        throw new GuardError("phase_mismatch", `任务不在交付阶段: ${located.document.frontmatter.stage}`);
       }
     } else {
       const status = located.document.frontmatter.status;
@@ -1232,16 +1233,19 @@ export class DeliveryService {
     if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
     const facts: TaskFacts = {
       status: document.frontmatter.status,
-      phase: document.frontmatter.phase,
+      stage: document.frontmatter.stage,
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       pendingKind: binding.pendingDraft?.kind ?? null,
       verification: document.frontmatter.verification,
+      visits: binding.stageVisits ?? {},
+      stopReason: binding.stopReason ?? null,
     };
-    const transition = onComplete(facts);
-    if ("allowed" in transition && transition.allowed === false) throw new GuardError(transition.reason, "任务不能正常完成");
-    if (!("phase" in transition)) throw new GuardError("transition_invalid", "完成转移无效");
-    const updated = withRegions(document, { frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome } });
+    const completion = transition(workflowOf(root), facts, { kind: "completed" });
+    if (isTransitionRefusal(completion)) throw new GuardError(completion.reason, "任务不能正常完成");
+    const updated = withRegions(document, {
+      frontmatter: { ...document.frontmatter, status: completion.status, stage: completion.stage, outcome: completion.outcome },
+    });
     completionService.record({ root, taskId, document, raw: before.data, decision, reason: null });
     try {
       atomicWrite({ path, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
@@ -1249,7 +1253,12 @@ export class DeliveryService {
       new RunStore(root).removeCompletion(taskId);
       throw error;
     }
-    await this.store.bindings.save({ ...binding, pendingDraft: null });
+    await this.store.bindings.save({
+      ...binding,
+      pendingDraft: null,
+      stageVisits: completion.visits,
+      stopReason: completion.stopReason,
+    });
   }
 
   private resultOf(op: DeliveryOperation, complete: boolean): DeliveryResult {

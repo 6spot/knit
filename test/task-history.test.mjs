@@ -45,7 +45,7 @@ function archiveMarkdown(overrides = {}) {
   const frontmatter = {
     id: "k-aaaaaaaaaaaa",
     status: "closed",
-    phase: "deliver",
+    stage: "deliver",
     outcome: "completed",
     branch: "refs/heads/main",
     createdAt: "2026-10-01T00:00:00.000Z",
@@ -159,7 +159,7 @@ test("归档结束字段无效（status=open）显示 invalid 并附问题明细
     writeArchive(dir, "2026-10", "10-01-open", archiveMarkdown({
       id: "k-cccccccccccc",
       status: "open",
-      phase: "discuss",
+      stage: "start",
       outcome: null,
     }));
     writeArchive(dir, "2026-10", "10-02-no-branch", archiveMarkdown({
@@ -174,7 +174,7 @@ test("归档结束字段无效（status=open）显示 invalid 并附问题明细
       const open = list.archived.find((entry) => entry.taskId === "k-cccccccccccc");
       assert.equal(open.history.kind, "invalid");
       assert.ok(open.history.problems.some((problem) => problem.includes("status=open")));
-      assert.ok(open.history.problems.some((problem) => problem.includes("phase=discuss")));
+      assert.ok(open.history.problems.some((problem) => problem.includes("stage=start")));
       const noBranch = list.archived.find((entry) => entry.taskId === "k-999999999999");
       assert.equal(noBranch.history.kind, "invalid");
       assert.ok(noBranch.history.problems.some((problem) => problem.includes("branch")));

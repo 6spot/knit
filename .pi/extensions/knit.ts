@@ -315,7 +315,7 @@ export default function (pi: any) {
       const materialList: string[] = Array.isArray(materials.response?.data) ? materials.response.data : [];
       const activeRuns: any[] = Array.isArray(data.runs) ? data.runs.filter((run: any) => run.state === "running") : [];
       lines.push(`当前任务: ${taskId}${data.title ? `「${data.title}」` : ""}`);
-      lines.push(`阶段: ${data.phase ?? "?"}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
+      lines.push(`阶段: ${data.stage ?? "?"}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
       if (data.pendingDraft) lines.push(`待应用草案: ${data.pendingDraft.kind ?? "?"}（${data.pendingDraft.digest?.slice(0, 12) ?? ""}）——先应用或撤回再进入后续阶段`);
       if (activeRuns.length > 0) lines.push(`活动运行: ${activeRuns.map((run: any) => `${run.runId}(${run.state ?? "?"})`).join(", ")}——活动运行使用冻结输入`);
       lines.push(`任务入口: .knit/${data.relativePath ?? `tasks/…`}`);
@@ -383,7 +383,7 @@ export default function (pi: any) {
       const children = Array.isArray(entry.children) && entry.children.length > 0
         ? ` · 子任务 ${entry.children.length - (Array.isArray(entry.openChildren) ? entry.openChildren.length : 0)}/${entry.children.length}`
         : "";
-      return `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.phase ? ` · ${entry.phase}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
+      return `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.stage ? ` · ${entry.stage}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
     };
     // task search：命中数组，每项带 kind／path／line／ref／snippet。
     if (tokens[0] === "task" && tokens[1] === "search" && Array.isArray(data)) {
@@ -415,12 +415,12 @@ export default function (pi: any) {
       lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}`) : ["  - （无）"]));
       return lines.join("\n");
     }
-    // 按任务查询（仅 status <taskId>）：{ taskId, title, phase, status, runs, ... }（任务042）。
+    // 按任务查询（仅 status <taskId>）：{ taskId, title, stage, status, runs, ... }（任务042）。
     if (tokens[0] === "status" && tokens.length >= 2 && typeof data.taskId === "string") {
       const runs = Array.isArray(data.runs) ? data.runs : [];
       const lines = [
         `${data.taskId}「${data.title ?? "无标题"}」`,
-        `  状态: ${data.status ?? "?"} · 阶段: ${data.phase ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
+        `  状态: ${data.status ?? "?"} · 阶段: ${data.stage ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
       ];
       if (data.parent) lines.push(`  父任务: ${data.parent}`);
       if (Array.isArray(data.children) && data.children.length > 0) {

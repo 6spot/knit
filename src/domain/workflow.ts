@@ -130,6 +130,8 @@ stages:
       verdict: [pass, changes_requested, blocked]
     onVerdict:
       changes_requested: implement
+      # blocked 保留在本阶段复查，不顺序前进。
+      blocked: check
 `;
 
 /**

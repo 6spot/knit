@@ -18,8 +18,9 @@ import { entryDrifts, loadScope, mergeScope, scopeEntriesCurrent } from "./scope
 import { currentBranch } from "./delivery.js";
 import { executionRouteOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
+import { workflowOf } from "./workflow.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
-import { onCheckAccepted, onImplementationAccepted, type TaskFacts } from "../domain/task.js";
+import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
 import { repairDecision } from "../domain/repair.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
@@ -81,7 +82,7 @@ export class RunAcceptanceService {
     const operation = await this.store.operations.get(operationId);
     if (operation?.state === "completed") {
       if (result?.state === "completed") this.reconcileState(runs, request);
-      const journalPhase = runs.readAcceptanceJournal(request.runId)?.target.phase ?? request.phase;
+      const journalStage = runs.readAcceptanceJournal(request.runId)?.target.stage ?? request.phase;
       runs.removeAcceptanceJournal(request.runId);
       return {
         runId: request.runId,
@@ -89,7 +90,7 @@ export class RunAcceptanceService {
         duplicate: true,
         reason: operation.reason ?? null,
         operationId,
-        phase: acceptedPhase(request, operation.reason ?? null, journalPhase),
+        phase: acceptedPhase(request, operation.reason ?? null, journalStage),
         verdict: result?.report?.verdict ?? null,
       };
     }
@@ -120,7 +121,7 @@ export class RunAcceptanceService {
           duplicate: true,
           reason: currentOperation.reason ?? null,
           operationId,
-          phase: acceptedPhase(request, currentOperation.reason ?? null, runs.readAcceptanceJournal(request.runId)?.target.phase),
+          phase: acceptedPhase(request, currentOperation.reason ?? null, runs.readAcceptanceJournal(request.runId)?.target.stage),
           verdict: result?.report?.verdict ?? null,
         };
       }
@@ -230,11 +231,13 @@ export class RunAcceptanceService {
     if (report === null) return this.attention(operationId, request, "report_missing", result);
     const facts: TaskFacts = {
       status: document.frontmatter.status,
-      phase: document.frontmatter.phase,
+      stage: document.frontmatter.stage,
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       pendingKind: binding.pendingDraft === null ? null : binding.pendingDraft.kind,
       verification: document.frontmatter.verification,
+      visits: binding.stageVisits ?? {},
+      stopReason: binding.stopReason,
     };
     if (facts.pendingKind !== null) return this.attention(operationId, request, "pending_inputs", result);
     // 草案在运行期间保存或撤回后，任务锁定由本接收持有；接收继续按冻结输入收敛（任务029）。
@@ -282,12 +285,15 @@ export class RunAcceptanceService {
       return this.applyJournal(root, executionDir, routeState, runs, request, result, existingJournal);
     }
 
+    const workflow = workflowOf(executionDir);
     if (request.phase === "implement") {
-      const transition = onImplementationAccepted(facts);
-      if ("allowed" in transition && transition.allowed === false) {
-        return this.attention(operationId, request, transition.reason, result);
+      const next = transition(workflow, facts, { kind: "implementationAccepted" });
+      if (isTransitionRefusal(next)) {
+        if (next.stopReason !== undefined) {
+          await this.store.bindings.save({ ...binding, stopReason: next.stopReason });
+        }
+        return this.attention(operationId, request, next.reason, result);
       }
-      if (!("phase" in transition)) return this.attention(operationId, request, "transition_invalid", result);
       const reported = new Set((report.changedPaths ?? []).map(normalizePath));
       const actual = new Set(result.actualChangedPaths.map(normalizePath));
       if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
@@ -306,7 +312,7 @@ export class RunAcceptanceService {
         root: executionDir,
         now: this.now().toISOString(),
       });
-      const target: AcceptanceState = { status: transition.status, phase: transition.phase, outcome: transition.outcome };
+      const target: AcceptanceState = { status: next.status, stage: next.stage, outcome: next.outcome };
       const targetInputsDigest = inputsDigestOf(renderTaskDocument({
         ...document,
         frontmatter: { ...document.frontmatter, ...target },
@@ -317,6 +323,7 @@ export class RunAcceptanceService {
         scope: nextScope.entries,
         scopeRunIds: nextScope.runIds,
         stopReason: null,
+        stageVisits: next.visits,
         confirmedInputsDigest: targetInputsDigest,
         confirmedStandardsDigest: plan.standardsDigest,
         lastImplement: {
@@ -377,11 +384,13 @@ export class RunAcceptanceService {
         });
       });
     if (uncovered.length > 0) return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
-    const transition = onCheckAccepted(facts, verdict);
-    if ("allowed" in transition && transition.allowed === false) {
-      return this.attention(operationId, request, transition.reason, result);
+    const next = transition(workflow, facts, { kind: "stageAccepted", verdict });
+    if (isTransitionRefusal(next)) {
+      if (next.stopReason !== undefined) {
+        await this.store.bindings.save({ ...binding, stopReason: next.stopReason });
+      }
+      return this.attention(operationId, request, next.reason, result);
     }
-    if (!("phase" in transition)) return this.attention(operationId, request, "transition_invalid", result);
 
     // 检查者可在既定范围内修复；先重核发布时指纹，再允许已声明路径变化。
     // 未被检查修改的既有 scope 路径仍须与当前事实一致，外部改动转 scope_changed（STATES.md 第8节）。
@@ -426,6 +435,7 @@ export class RunAcceptanceService {
       ...binding,
       lastRunIds: appendUnique(binding.lastRunIds, request.runId),
       lastCheckRunId: request.runId,
+      stageVisits: next.visits,
       ...(nextScope.digest !== scope.digest
         ? { scope: nextScope.entries, scopeRunIds: nextScope.runIds }
         : {}),
@@ -461,7 +471,7 @@ export class RunAcceptanceService {
     } else {
       nextBinding = { ...nextBinding, stopReason: null };
     }
-    const target: AcceptanceState = { status: transition.status, phase: transition.phase, outcome: transition.outcome };
+    const target: AcceptanceState = { status: next.status, stage: next.stage, outcome: next.outcome };
     nextBinding = {
       ...nextBinding,
       confirmedInputsDigest: inputsDigestOf(renderTaskDocument({
@@ -597,7 +607,7 @@ export class RunAcceptanceService {
         duplicate: false,
         reason: journal.reason,
         operationId: journal.operationId,
-        phase: journal.target.phase,
+        phase: journal.target.stage,
         verdict: journal.verdict,
       };
     } catch (error) {
@@ -613,13 +623,13 @@ export class RunAcceptanceService {
   private writeTask(
     file: string,
     document: ReturnType<typeof parseTaskDocument>,
-    transition: { status: TaskFacts["status"]; phase: TaskFacts["phase"]; outcome: TaskFacts["outcome"] },
+    transition: { status: TaskFacts["status"]; stage: TaskFacts["stage"]; outcome: TaskFacts["outcome"] },
     binding: TaskBinding,
   ): { document: ReturnType<typeof parseTaskDocument>; binding: TaskBinding } {
     const before = readWithVersion(file);
     if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
     const latest = parseTaskDocument(before.data.toString("utf8"), file);
-    if (latest.frontmatter.phase !== document.frontmatter.phase || latest.frontmatter.status !== document.frontmatter.status) {
+    if (latest.frontmatter.stage !== document.frontmatter.stage || latest.frontmatter.status !== document.frontmatter.status) {
       throw new InfrastructureError("version_conflict", "接收期间 Task 阶段已变化");
     }
     const updated = {
@@ -627,7 +637,7 @@ export class RunAcceptanceService {
       frontmatter: {
         ...latest.frontmatter,
         status: transition.status,
-        phase: transition.phase,
+        stage: transition.stage,
         outcome: transition.outcome,
       },
     };
@@ -689,13 +699,13 @@ function acceptedPhase(request: RunRequestFile, reason: string | null, journalPh
 function stateOf(document: ReturnType<typeof parseTaskDocument>): AcceptanceState {
   return {
     status: document.frontmatter.status,
-    phase: document.frontmatter.phase,
+    stage: document.frontmatter.stage,
     outcome: document.frontmatter.outcome,
   };
 }
 
 function sameState(a: AcceptanceState, b: AcceptanceState): boolean {
-  return a.status === b.status && a.phase === b.phase && a.outcome === b.outcome;
+  return a.status === b.status && a.stage === b.stage && a.outcome === b.outcome;
 }
 
 function normalizePath(path: string): string {

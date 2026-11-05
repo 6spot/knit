@@ -81,7 +81,7 @@ export function registerStatusCommands(program: Command): void {
           return;
         }
         if ("taskId" in result && "latestRun" in result) {
-          console.log(`任务 ${result.taskId}: ${result.status}/${result.phase}${result.outcome ? `/${result.outcome}` : ""}`);
+          console.log(`任务 ${result.taskId}: ${result.status}/${result.stage}${result.outcome ? `/${result.outcome}` : ""}`);
           console.log(`标题: ${result.title}`);
           console.log(`分支: ${result.branch ?? "未绑定"}；位置: ${result.relativePath}${result.archived ? "（已归档）" : ""}`);
           console.log(`运行: ${result.runs.length} 个（活动 ${result.activeRuns}）；完成验证: ${result.verification}；最近检查: ${result.lastCheckRunId ?? "无"}`);
@@ -122,7 +122,7 @@ export function registerStatusCommands(program: Command): void {
         } else {
           console.log(`项目状态 ${result.generatedAt}：活动任务 ${result.tasks.filter((task) => !task.archived).length}，活动 run ${result.activeRuns.length}`);
           for (const task of result.tasks.filter((item) => !item.archived)) {
-            console.log(`  ${task.taskId}  ${task.status}/${task.phase}  ${task.title}${task.activeRuns > 0 ? `  (run ${task.activeRuns})` : ""}`);
+            console.log(`  ${task.taskId}  ${task.status}/${task.stage}  ${task.title}${task.activeRuns > 0 ? `  (run ${task.activeRuns})` : ""}`);
           }
           for (const run of result.activeRuns) {
             console.log(`  ${run.runId}  ${run.phase}/${run.state}  ${formatMs(run.elapsedMs)}  ${run.lastEvent ?? ""}`);

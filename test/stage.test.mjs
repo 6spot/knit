@@ -155,7 +155,7 @@ test("implement→check 独立会话；结果与原生范围保存，重复接�
     assert.equal(binding.lastRunIds.includes(impl.runId), true);
     assert.equal(binding.scope[0].path, "README.md");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
 
     const duplicate = await s.acceptance.accept({ dir, runId: impl.runId });
     assert.equal(duplicate.accepted, true);
@@ -170,7 +170,7 @@ test("implement→check 独立会话；结果与原生范围保存，重复接�
     assert.equal(checkStatus.result.report.verdict, "pass");
     assert.notEqual(checkStatus.result.session.nativeSessionId, implStatus.result.session.nativeSessionId);
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${check.runId}.json`)), true);
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "deliver");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
     binding = await s.store.bindings.get(task.taskId);
     assert.equal(binding.lastCheckRunId, check.runId);
     assert.equal(binding.confirmedInputsDigest.length, 64);
@@ -221,7 +221,7 @@ test("接收检查点：Task 已写而 binding 失败时重入收敛，不重复
     const journalPath = join(dir, ".knit", ".runtime", "runs", started.runId, "acceptance.json");
     assert.equal(existsSync(journalPath), true, "失败必须留下恢复检查点");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
     assert.equal((await s.store.operations.get(started.request.acceptanceOperationId)).state, "needs_attention");
 
     const second = new RunAcceptanceService({ store: s.store, locks: s.locks, randomHex });
@@ -272,7 +272,7 @@ test("接收检查点：Task 已写而 binding 失败时重入收敛，不重复
     assert.equal(checkFirst.accepted, false);
     const checkFile = join(dir, ".knit", ".runtime", "checks", `${checkPrepared.request.runId}.json`);
     assert.equal(existsSync(checkFile), true);
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "deliver");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
     const checkRecovered = await second.accept({ dir, runId: checkPrepared.request.runId });
     assert.equal(checkRecovered.accepted, true, checkRecovered.reason ?? "");
     assert.equal(checkRecovered.phase, "deliver");
@@ -378,7 +378,7 @@ test("任务关闭后迟到结果只保留事实，不隐式重开", async () =>
     const after = parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile);
     assert.equal(after.frontmatter.status, "closed");
     assert.equal(after.frontmatter.outcome, "cancelled");
-    assert.equal(after.frontmatter.phase, "implement");
+    assert.equal(after.frontmatter.stage, "implement");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -408,7 +408,7 @@ test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓�
       updateOperationId: "op-close-race",
     });
     assert.equal(updated.applied, "pending_saved", "真实 run 仓储覆盖调用方自报的 runActive=false");
-    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", task.relativePath), "utf8"), join(dir, ".knit", task.relativePath)).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", task.relativePath), "utf8"), join(dir, ".knit", task.relativePath)).frontmatter.stage, "implement");
     // 活动 run 中可撤回草案，输入与阶段不被改变。
     const withdrawn = await s.tasks.update({
       dir,
@@ -466,7 +466,7 @@ test("检查可在既定范围内修复：改动落盘、接收并入 scope，�
     assert.equal(checkFile?.selfVerified, true);
     assert.equal(checkFile?.scopeDigest, scope?.digest, "检查凭据绑定并入后的 scope 摘要");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "deliver");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
 
     // independent 完成资格仍由最新 pass 检查支撑，修复后的 scope 指纹已纳入。
     const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
@@ -507,7 +507,7 @@ test("检查 changes_requested 的落盘修复也并入 scope，避免后续指�
     assert.equal(checkFile?.scopeDigest, scope?.digest);
     assert.deepEqual(checkFile?.changedPaths, ["README.md"]);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -550,7 +550,7 @@ test("检查报告 changedPaths 缺失或与实际不符时拒绝，Task 不被�
     const binding = await s.store.bindings.get(task.taskId);
     assert.equal(binding.lastCheckRunId, null);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -575,7 +575,7 @@ test("检查修改 .knit 元数据仍被拒绝；advisory 仍只读", async () =
     const status = await waitTerminal(s, dir, check.runId);
     assert.equal(status.state, "failed");
     assert.equal(status.result.failureReason, `protected_path_modified:${protectedPath}`);
-    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.stage, "check");
 
     const discuss = await s.tasks.newTask({ dir, title: "讨论", slug: "advisory-side" });
     const advisory = await startRun(s, dir, discuss.taskId, "advisory", {
@@ -637,7 +637,7 @@ test("报告改动路径与实际不符时不接收，失败原因带实际路�
     assert.equal(status.result.failureReason, "changed_paths_mismatch:alpha.txt,notes.txt");
     assert.deepEqual(status.result.actualChangedPaths, ["alpha.txt", "notes.txt"]);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
     assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);
   } finally {
     s.store.close();
@@ -669,7 +669,7 @@ test("树基线已含改动时重派为零 diff，失败原因标注 zero_diff",
     assert.equal(secondStatus.result.failureReason, "changed_paths_mismatch:zero_diff");
     assert.deepEqual(secondStatus.result.actualChangedPaths, []);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
     assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);
   } finally {
     s.store.close();
@@ -712,6 +712,59 @@ test("changes_requested→修复→重查两轮后停止，不自动开始第三
       () => s.coordinator.prepare(prepareInput(dir, task.taskId, "implement")),
       (error) => error.guardReason === "repair_stopped",
     );
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("阶段 maxVisits：回退进入超过上限时接收需人工处理并写 repair_round_limit", async () => {
+  const dir = project("stage-visits");
+  const s = services(dir);
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), [
+      "version: 1",
+      "stages:",
+      "  - id: implement",
+      "    maxVisits: 0",
+      "  - id: check",
+      "    report:",
+      "      verdict: [pass, changes_requested, blocked]",
+      "    onVerdict:",
+      "      changes_requested: implement",
+      "      blocked: check",
+      "",
+    ].join("\n"));
+    const task = await readyTask(dir, s);
+    let binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.stageVisits.implement, 1, "首次进入实施阶段计入访问");
+
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# visits\n" }],
+      report: { summary: "实现", changedPaths: ["README.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
+
+    // changes_requested 要回退进入 implement（maxVisits: 0 不允许第二次进入）。
+    const check = await startRun(s, dir, task.taskId, "check", {
+      report: { summary: "要求修复", verdict: "changes_requested", coverage: ["README.md"] },
+    });
+    const status = await waitTerminal(s, dir, check.runId);
+    // 接收被拒绝：run 收敛为 acceptance_repair_round_limit，结论留在 acceptance 供人工处理。
+    assert.equal(status.state, "failed");
+    assert.equal(status.reason, "acceptance_repair_round_limit");
+    assert.equal(status.acceptance.state, "needs_attention");
+    assert.equal(status.acceptance.reason, "repair_round_limit");
+    binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.stopReason, "repair_round_limit");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check", "超限不推进阶段");
+
+    // 重试接收保持同结论，不重复累计或越过上限。
+    const retry = await s.acceptance.accept({ dir, runId: check.runId });
+    assert.equal(retry.accepted, false);
+    assert.equal(retry.reason, "repair_round_limit");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -777,7 +830,7 @@ test("检查接收窗口外部改动成果：重核不符转 scope_changed，不
     assert.equal(accepted.accepted, false);
     assert.equal(accepted.reason, "scope_changed");
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), false);
-    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.stage, "check");
     // 恢复检查时内容后重接可收敛。
     writeFileSync(join(dir, "README.md"), "# impl\n");
     const recovered = await s.acceptance.accept({ dir, runId: prepared.request.runId });
@@ -820,7 +873,7 @@ test("输入在结果发布后变化时接收 stale，不写 Task／scope", asyn
     const accepted = await s.acceptance.accept({ dir, runId: prepared.request.runId });
     assert.equal(accepted.accepted, false);
     assert.equal(accepted.reason, "stale_input");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), false);
   } finally {
     s.store.close();
@@ -861,7 +914,7 @@ test("运行边界核对实际分支：prepare、启动、接收三处拒绝，d
     const failed = await waitTerminal(s, dir, prepared.request.runId);
     assert.equal(failed.state, "failed");
     assert.equal(failed.result.failureReason, "branch_mismatch");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
 
     // 在绑定分支上完成一次实施，推进到 check；再验证接收窗口的分支核对。
     git(dir, ["checkout", "-q", "main"]);
@@ -870,7 +923,7 @@ test("运行边界核对实际分支：prepare、启动、接收三处拒绝，d
       report: { summary: "实现", changedPaths: ["README.md"] },
     });
     await waitTerminal(s, dir, impl.runId);
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "check");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
 
     // 3. 结果待接收时换分支：接收拒绝 branch_changed；切回后可接收。
     git(dir, ["checkout", "-q", "main"]);
@@ -1079,7 +1132,7 @@ test("真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结�
     assert.equal(recovered.reason, "implementation_accepted");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
     const document = parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile);
-    assert.equal(document.frontmatter.phase, "check");
+    assert.equal(document.frontmatter.stage, "check");
     assert.ok(!document.inputsBody.includes("新增目标"), "冻结输入不被草案覆盖");
 
     // 撤回后无草案；旧摘要再撤回拒绝且确定。
@@ -1118,7 +1171,7 @@ test("结果写入失败不发布完成，Task 不推进", async () => {
     assert.equal(status.reason, "result_write_failed");
     assert.equal(status.result, null);
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
     assert.equal(status.acceptance.reason, "result_missing");
   } finally {
     s.store.close();
@@ -1158,7 +1211,7 @@ test("取消在安全点收敛为 cancelled，不推进 Task；旧 run 取消不
     assert.ok(status.result.usage !== null);
     assert.equal(status.acceptance.state, "completed");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
 
     // 新 run 不受旧取消文件影响；复位工作区后写同内容，避免“未改变”被误判。
     writeFileSync(join(dir, "README.md"), "# demo\n");
@@ -1215,7 +1268,7 @@ test("取消与完成竞争：fake-pi 收到取消的同一 tick 发布完成结
     assert.equal(published[0].state, "cancelled");
     // Task 不被迟到完成推进。
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "implement");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
   } finally {
     delete process.env.KNIT_FAKE_COMPLETE_ON_ABORT;
     s.store.close();
@@ -1266,7 +1319,7 @@ test("advisory 只产出建议，不推进 Task；CLI resume/accept 协议输出
     const status = await waitTerminal(s, dir, advisory.runId);
     assert.equal(status.state, "completed");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.phase, "discuss");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "start");
     const raw = execFileSync(
       process.execPath,
       [CLI, "--json", "run", "resume", advisory.runId, "--locks", join(dir, ".locks"), "--dir", dir],

@@ -5,7 +5,13 @@
  */
 import { Document, parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { checkSchema } from "../contracts/schema.js";
-import { TaskFrontmatterSchema, PROGRESS_START, PROGRESS_END, type TaskFrontmatter } from "../contracts/task-inputs.js";
+import {
+  TaskFrontmatterSchema,
+  PROGRESS_START,
+  PROGRESS_END,
+  legacyPhaseToStage,
+  type TaskFrontmatter,
+} from "../contracts/task-inputs.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 
 /** task.md 解析结果：frontmatter、输入区与记录区各自独立，写入方按所有权组合。 */
@@ -23,7 +29,13 @@ function yamlError(path: string, message: string): InfrastructureError {
   return new InfrastructureError("io_error", `task.md 结构不符（${path}）: ${message}`);
 }
 
-/** 解析 task.md；结构错误抛 io_error，不静默修复。 */
+/**
+ * 解析 task.md；结构错误抛 io_error，不静默修复。
+ *
+ * 阶段字段：新文档写 `stage`；旧文档的 `phase` 只读映射到 `stage`
+ * （`discuss` → `start`，其余原样）。渲染只写 `stage`，因此任一写操作都会
+ * 完成字段改名并清掉旧键，不做批量迁移。值是否在当前流程配置中由应用层核对。
+ */
 export function parseTaskDocument(markdown: string, pathForErrors = "task.md"): TaskDocument {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(markdown);
   if (match === null) throw yamlError(pathForErrors, "缺少 frontmatter 分隔符 ---");
@@ -37,12 +49,26 @@ export function parseTaskDocument(markdown: string, pathForErrors = "task.md"): 
     throw yamlError(pathForErrors, "frontmatter 不是映射");
   }
   const frontmatter = rawFrontmatter as Record<string, unknown>;
-  for (const key of ["id", "status", "phase", "outcome", "branch", "createdAt", "title"]) {
+  for (const key of ["id", "status", "outcome", "branch", "createdAt", "title"]) {
     if (!(key in frontmatter)) throw yamlError(pathForErrors, `缺少字段 ${key}`);
   }
-  if (!checkSchema(TaskFrontmatterSchema, frontmatter)) {
+  if ("stage" in frontmatter && "phase" in frontmatter) {
+    throw yamlError(pathForErrors, "frontmatter 同时含 stage 与旧字段 phase；只保留 stage");
+  }
+  const legacyPhase = frontmatter.phase;
+  if ("phase" in frontmatter && typeof legacyPhase !== "string") {
+    throw yamlError(pathForErrors, "旧字段 phase 必须是字符串");
+  }
+  const normalized: Record<string, unknown> = { ...frontmatter };
+  delete normalized.phase;
+  if (!("stage" in normalized)) {
+    if (typeof legacyPhase !== "string") throw yamlError(pathForErrors, "缺少字段 stage");
+    normalized.stage = legacyPhaseToStage(legacyPhase);
+  }
+  if (!checkSchema(TaskFrontmatterSchema, normalized)) {
     throw yamlError(pathForErrors, "frontmatter 字段值不符合 schema");
   }
+  const typed = normalized as unknown as TaskFrontmatter;
   const rest = markdown.slice(match[0].length);
   const start = rest.indexOf(PROGRESS_START);
   const end = rest.indexOf(PROGRESS_END);
@@ -51,7 +77,7 @@ export function parseTaskDocument(markdown: string, pathForErrors = "task.md"): 
   }
   const normalize = (value: string) => value.replace(/^\r?\n/, "").replace(/\n[ \t]*$/, "\n");
   return {
-    frontmatter,
+    frontmatter: typed,
     inputsBody: normalize(rest.slice(0, start)),
     progressBody: normalize(rest.slice(start + PROGRESS_START.length, end)),
     trailingBody: rest.slice(end + PROGRESS_END.length),

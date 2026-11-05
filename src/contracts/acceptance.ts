@@ -10,12 +10,8 @@ import { CheckFileSchema, ScopeFileSchema } from "./run.js";
 export const AcceptanceStateSchema = obj(
   {
     status: union([lit("open"), lit("closed")]),
-    phase: union([
-      lit("discuss"),
-      lit("implement"),
-      lit("check"),
-      lit("deliver"),
-    ]),
+    /** 任务阶段：锚点 start／deliver 或当前流程配置里的阶段 id。 */
+    stage: str({ pattern: "^[a-z][a-z0-9-]{0,31}$" }),
     outcome: union([
       lit("completed"),
       lit("cancelled"),

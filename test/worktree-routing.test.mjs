@@ -155,7 +155,7 @@ test("a) worktree 内派发实施：cwd=worktree；run 产物、pi-sessions 与�
     assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
     // 任务资料权威在 worktree：接收写回 worktree 的 task.md（进入 check）。
     const document = parseTaskDocument(readFileSync(taskFileIn(wt.taskDir), "utf8"));
-    assert.equal(document.frontmatter.phase, "check");
+    assert.equal(document.frontmatter.stage, "check");
     // frontmatter 保留源分支事实（任务由 task new 创建时为 null），不作 worktree 路由否决依据。
     assert.equal(document.frontmatter.branch, null);
     assert.equal(existsSync(join(dir, ".knit", "tasks", basename(wt.taskDir), "task.md")), false);
@@ -398,7 +398,7 @@ test("h) 会话续做：cwd 变化 → 新会话（保留阶段／修复轮次�
 
     const after = await s.store.bindings.get(task.taskId);
     const afterDocument = parseTaskDocument(readFileSync(taskFileIn(wt.taskDir), "utf8"));
-    assert.equal(afterDocument.frontmatter.phase, "implement");
+    assert.equal(afterDocument.frontmatter.stage, "implement");
     assert.equal(after.repairCycleId, before.repairCycleId);
     assert.equal(after.repairRounds, before.repairRounds);
     assert.deepEqual(after.scope ?? [], before.scope ?? []);

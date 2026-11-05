@@ -243,7 +243,7 @@ async function main(): Promise<number> {
       return fail("task_missing");
     }
     if (located.archived) return fail("task_archived");
-    if (request.phase !== "advisory" && located.document.frontmatter.phase !== request.phase) {
+    if (request.phase !== "advisory" && located.document.frontmatter.stage !== request.phase) {
       return fail("phase_mismatch");
     }
     // worktree 路由下 frontmatter 保留源分支，不作否决依据；三方核对改用执行分支。

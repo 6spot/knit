@@ -24,7 +24,7 @@ const TASK_ID_PATTERN = /^k-[0-9a-f]{12}$/;
 
 /**
  * 身份有效：id 符合 k- 模式，title／createdAt／branch 非空。
- * 结束有效：status=closed、phase=deliver、outcome 为 completed 或 cancelled。
+ * 结束有效：status=closed、stage=deliver、outcome 为 completed 或 cancelled。
  * 返回空数组表示字段有效；问题明细按字段列出，供列表与 JSON 展示。
  */
 export function archivedHistoryProblems(frontmatter: TaskFrontmatter): string[] {
@@ -44,8 +44,8 @@ export function archivedHistoryProblems(frontmatter: TaskFrontmatter): string[] 
   if (frontmatter.status !== "closed") {
     problems.push(`结束字段无效: status=${String(frontmatter.status)}（应为 closed）`);
   }
-  if (frontmatter.phase !== "deliver") {
-    problems.push(`结束字段无效: phase=${String(frontmatter.phase)}（应为 deliver）`);
+  if (frontmatter.stage !== "deliver") {
+    problems.push(`结束字段无效: stage=${String(frontmatter.stage)}（应为 deliver）`);
   }
   if (frontmatter.outcome !== "completed" && frontmatter.outcome !== "cancelled") {
     problems.push(`结束字段无效: outcome=${String(frontmatter.outcome)}（应为 completed 或 cancelled）`);

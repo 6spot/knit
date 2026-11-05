@@ -61,7 +61,7 @@ test("默认模板解析为 config 模式并保留全部语义字段", () => {
   assert.equal(check.name, "检查");
   assert.deepEqual(check.tools, ["read", "exec"]);
   assert.deepEqual(check.report.verdict, ["pass", "changes_requested", "blocked"]);
-  assert.deepEqual(check.onVerdict, { changes_requested: "implement" });
+  assert.deepEqual(check.onVerdict, { changes_requested: "implement", blocked: "check" });
   assert.equal(check.maxVisits, DEFAULT_MAX_REPAIR_ROUNDS);
 });
 

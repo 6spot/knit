@@ -1,4 +1,4 @@
-import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, map, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { UpdateKindSchema } from "./task-inputs.js";
 
 /**
@@ -16,6 +16,8 @@ export const TaskBindingSchema = obj(
     repairCycleId: union([str({ minLength: 1 }), nul()]),
     repairRounds: union([int({ minimum: 0 }), nul()]),
     stopReason: union([str(), nul()]),
+    /** 阶段访问计数：阶段 id → 已进入次数（设计 §5.3）；旧记录缺省视为空。 */
+    stageVisits: opt(map(int({ minimum: 0 }))),
     /** 最近获准实施及其冻结输入／成果；self 完成凭据的来源。 */
     lastImplement: opt(
       union([

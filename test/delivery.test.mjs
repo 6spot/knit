@@ -67,13 +67,13 @@ function services(dir) {
   return { store, locks, tasks, delivery };
 }
 
-async function makeDeliverable(dir, s, { phase = "deliver", status = "open", outcome = null } = {}) {
+async function makeDeliverable(dir, s, { stage = "deliver", status = "open", outcome = null } = {}) {
   const created = await s.tasks.newTask({ dir, title: "交付测试", slug: "delivery", branch: BRANCH, verification: "independent" });
   const taskFile = join(dir, ".knit", created.relativePath);
   const doc = parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile);
   writeFileSync(taskFile, renderTaskDocument({
     ...doc,
-    frontmatter: { ...doc.frontmatter, phase, status, outcome },
+    frontmatter: { ...doc.frontmatter, stage, status, outcome },
     progressBody: `${doc.progressBody}\n### 实施记录\n\n- 已完成。\n`,
   }));
   writeFileSync(join(dir, "app.txt"), "new\n");
@@ -307,7 +307,7 @@ test("取消任务归档只移动资料，不提交半成品代码、不造空�
   const dir = project("cancel");
   const s = services(dir);
   try {
-    const task = await makeDeliverable(dir, s, { phase: "implement", status: "closed", outcome: "cancelled" });
+    const task = await makeDeliverable(dir, s, { stage: "implement", status: "closed", outcome: "cancelled" });
     // 取消时 app.txt 改动仍在工作区，但不得进入归档提交。
     const result = await s.delivery.archive({ dir, taskId: task.taskId, branch: BRANCH });
     assert.equal(result.state, "completed", result.reason ?? "");
@@ -736,7 +736,7 @@ test("archive 不能绕过正常交付：未交付的 completed／open 任务要
       () => s.delivery.archive({ dir, taskId: completed.taskId, branch: BRANCH }),
       /deliver_required|正常完成/,
     );
-    const open = await makeDeliverable(dir, s, { phase: "implement", status: "open", outcome: null });
+    const open = await makeDeliverable(dir, s, { stage: "implement", status: "open", outcome: null });
     await assert.rejects(
       () => s.delivery.archive({ dir, taskId: open.taskId, branch: BRANCH }),
       /deliver_required|正常完成/,

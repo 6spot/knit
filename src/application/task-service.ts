@@ -19,7 +19,9 @@ import {
   type VerificationMode,
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
-import { onInputsUpdated, onPendingResolved, onReady, onComplete, onCloseWithOutcome, onRecordWritten, onParentAssigned, onParentCompletion, parentChainContains, type Decision, type TaskFacts, type TaskTransitionResult } from "../domain/task.js";
+import { onParentAssigned, onParentCompletion, parentChainContains, isKnownStage, transition as stageTransition, type Decision, type TaskFacts, type TaskTransition, type TaskTransitionResult } from "../domain/task.js";
+import type { WorkflowDefinition } from "../domain/workflow.js";
+import { workflowOf } from "./workflow.js";
 import {
   compareSchedule,
   dependencyBlockers,
@@ -113,7 +115,8 @@ export interface TaskSummary {
   taskId: string;
   title: string;
   status: string;
-  phase: string;
+  /** 任务阶段：锚点 start／deliver 或当前流程配置里的阶段 id。 */
+  stage: string;
   outcome: string | null;
   branch: string | null;
   /** 完成验证要求；旧记录缺省按 independent 展示。 */
@@ -247,7 +250,7 @@ export interface TaskNextEntry {
   blocked: DependencyBlocker[];
   parent: string | null;
   /** 阶段与完成验证，供主会话决定下一步环节。 */
-  phase: string;
+  stage: string;
   verification: VerificationMode;
 }
 
@@ -290,7 +293,7 @@ export interface TaskVerificationInput {
 export interface TaskVerificationResult {
   taskId: string;
   verification: VerificationMode;
-  phase: string;
+  stage: string;
   changed: boolean;
 }
 
@@ -301,7 +304,7 @@ export interface TaskAdoptResult {
   adopted: boolean;
   /** 分支变化使旧检查失去交付资格时为 true；历史检查文件仍保留。 */
   checkInvalidated: boolean;
-  phase: string;
+  stage: string;
 }
 
 export interface TaskRecordInput {
@@ -342,7 +345,7 @@ export interface TaskUpdateInput {
 export interface TaskUpdateResult {
   taskId: string;
   applied: "direct" | "pending_saved" | "pending_applied" | "pending_withdrawn";
-  phase: string;
+  stage: string;
   status: string;
   outcome: string | null;
   inputsDigest: string;
@@ -365,7 +368,7 @@ export interface TaskCloseResult {
   taskId: string;
   status: string;
   outcome: string | null;
-  phase: string;
+  stage: string;
   /** 关闭时撤回的未应用草案摘要；留原因记录。 */
   pendingWithdrawn: boolean;
   /** completed 时写入的验证方式与凭据来源。 */
@@ -401,12 +404,10 @@ export class TaskGuardError extends GuardError {
   }
 }
 
-type TaskTransition = { status: "open" | "closed"; phase: "discuss" | "implement" | "check" | "deliver"; outcome: "completed" | "cancelled" | "superseded" | null };
-
 /**
  * ready 结构核对（任务049）：只机械核对已承诺的规划——plan.md 存在（复杂任务已承诺持久规划）
  * 但内容为空时拒绝。目标占位是否已确认属主 Agent 语义判断（DESIGN §4.2），不由核心机械拒绝；
- * 可选 design／research 缺失不阻挡。既有 phase 与 ready 入口不变，不新增规划状态机。
+ * 可选 design／research 缺失不阻挡。既有 stage 与 ready 入口不变，不新增规划状态机。
  */
 function assertReadyStructural(document: TaskDocument, taskDir: string): void {
   void document;
@@ -416,23 +417,44 @@ function assertReadyStructural(document: TaskDocument, taskDir: string): void {
   }
 }
 
-function guardRejected<R extends string>(result: TaskTransition | Decision<R>, what: string): TaskTransition {
+function guardRejected<R extends string>(result: Decision<R>, what: string): void;
+function guardRejected(result: TaskTransitionResult, what: string): TaskTransition;
+function guardRejected(result: Decision<string> | TaskTransitionResult, what: string): TaskTransition | void {
   if ("allowed" in result && result.allowed === false) {
     throw new TaskGuardError(result.reason, `${what}被拒绝: ${result.reason}`);
   }
   return result as TaskTransition;
 }
 
-/** 已解析文档的业务事实投影；pendingKind 由调用方按绑定补齐。 */
+/** 已解析文档的业务事实投影；pendingKind、visits 与 stopReason 由调用方按绑定补齐。 */
 function factsOf(document: TaskDocument): TaskFacts {
   return {
     status: document.frontmatter.status,
-    phase: document.frontmatter.phase,
+    stage: document.frontmatter.stage,
     outcome: document.frontmatter.outcome,
     branch: document.frontmatter.branch,
     pendingKind: null,
     verification: verificationModeOf(document.frontmatter),
   };
+}
+
+/** 绑定侧的阶段计数与停止原因；旧绑定缺省为空。 */
+function stageFactsOf(document: TaskDocument, binding: TaskBinding | null): TaskFacts {
+  return {
+    ...factsOf(document),
+    pendingKind: binding?.pendingDraft?.kind ?? null,
+    visits: binding?.stageVisits ?? {},
+    stopReason: binding?.stopReason ?? null,
+  };
+}
+
+/** 阶段值必须可写（锚点或当前生效流程中的阶段）：旧值只读展示，写操作拒绝并提示。 */
+function assertStageWritable(workflow: WorkflowDefinition, document: TaskDocument, what: string): void {
+  if (isKnownStage(workflow, document.frontmatter.stage)) return;
+  throw new TaskGuardError(
+    "stage_not_in_workflow",
+    `${what}被拒绝：任务阶段值 ${document.frontmatter.stage} 不在当前流程配置中；旧值只读展示，先 task update --kind change 回到 start，或恢复 .knit/workflow.yaml`,
+  );
 }
 
 /** 调度事实投影：优先级缺省 P2，依赖缺省为空，order 缺省沿用创建先后（DESIGN §3.11）。 */
@@ -683,6 +705,7 @@ export class TaskService {
         );
       }
       if (previous !== input.parentId) {
+        assertStageWritable(workflowOf(root), document, "task parent");
         const updated = withRegions(document, { frontmatter: { ...document.frontmatter, parent: input.parentId } });
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       }
@@ -755,6 +778,7 @@ export class TaskService {
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       const previous = priorityOf(document.frontmatter);
       if (previous !== input.priority) {
+        assertStageWritable(workflowOf(root), document, "task priority");
         const updated = withRegions(document, { frontmatter: { ...document.frontmatter, priority: input.priority } });
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       }
@@ -792,6 +816,7 @@ export class TaskService {
       this.assertDependencies(input.taskId, next, index);
       const changed = next.length !== previous.length || next.some((id, at) => previous[at] !== id);
       if (changed) {
+        assertStageWritable(workflowOf(root), document, "task depends");
         const updated = withRegions(document, { frontmatter: { ...document.frontmatter, dependsOn: next } });
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       }
@@ -820,6 +845,7 @@ export class TaskService {
         throw new TaskGuardError(planned.reason, `调整执行顺序被拒绝: ${detail}`);
       }
       const updated: string[] = [];
+      const workflow = workflowOf(root);
       for (const { taskId, order } of planned.orders) {
         const entry = entries.get(taskId);
         if (entry === undefined || entry.order === order) continue;
@@ -828,6 +854,7 @@ export class TaskService {
         const before = readWithVersion(file);
         if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
         const document = parseTaskDocument(before.data.toString("utf8"), file);
+        assertStageWritable(workflow, document, "task order");
         const next = withRegions(document, { frontmatter: { ...document.frontmatter, order } });
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(next), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
         updated.push(taskId);
@@ -863,7 +890,7 @@ export class TaskService {
         executable: summary.blocked.length === 0,
         blocked: summary.blocked,
         parent: summary.parent,
-        phase: summary.phase,
+        stage: summary.stage,
         verification: summary.verification,
       }));
     return { entries, next: entries.find((entry) => entry.executable)?.taskId ?? null };
@@ -915,7 +942,7 @@ export class TaskService {
       const parent = index.get(parentId);
       guardRejected(
         onParentAssigned({
-          child: { status: "open", phase: "discuss", outcome: null, branch: null, pendingKind: null },
+          child: { status: "open", stage: "start", outcome: null, branch: null, pendingKind: null },
           childArchived: false,
           parentKnown: parent !== undefined,
           parent: parent === undefined ? null : factsOf(parent.document),
@@ -937,7 +964,7 @@ export class TaskService {
     const frontmatter = {
       id: taskId,
       status: "open" as const,
-      phase: "discuss" as const,
+      stage: "start" as const,
       outcome: null,
       branch: input.branch ?? null,
       verification,
@@ -1026,7 +1053,7 @@ export class TaskService {
         taskId: document.frontmatter.id,
         title: document.frontmatter.title,
         status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
+        stage: document.frontmatter.stage,
         outcome: document.frontmatter.outcome,
         branch: document.frontmatter.branch,
         verification: verificationModeOf(document.frontmatter),
@@ -1173,7 +1200,9 @@ export class TaskService {
       }
       const previous = document.frontmatter.branch;
       const binding = await this.store.bindings.get(input.taskId);
+      const workflow = workflowOf(root);
       if (previous === branch) {
+        assertStageWritable(workflow, document, "task adopt");
         if (binding !== null && binding.branch !== branch) {
           await this.store.bindings.save({ ...binding, branch });
         } else if (binding === null) {
@@ -1200,20 +1229,21 @@ export class TaskService {
           previousBranch: previous,
           adopted: false,
           checkInvalidated: false,
-          phase: document.frontmatter.phase,
+          stage: document.frontmatter.stage,
         };
       }
-      // 纯分支变化只使检查失效；deliver 不再可交付时回 check，discuss/implement/check 保持。
-      const nextPhase = document.frontmatter.phase === "deliver"
-        ? (verificationModeOf(document.frontmatter) === "independent" ? "check" : "implement")
-        : document.frontmatter.phase;
+      // 纯分支变化只使检查失效；deliver 不再可交付时回到最后工作阶段，其余阶段保持。
+      const transition = guardRejected(
+        stageTransition(workflow, stageFactsOf(document, binding), { kind: "adopted" }),
+        "task adopt",
+      );
       const updated = withRegions(document, {
         frontmatter: {
           ...document.frontmatter,
           branch,
-          phase: nextPhase,
-          status: "open",
-          outcome: null,
+          status: transition.status,
+          stage: transition.stage,
+          outcome: transition.outcome,
         },
       });
       atomicWrite({
@@ -1223,7 +1253,14 @@ export class TaskService {
         mode: 0o644,
       });
       if (binding !== null) {
-        await this.store.bindings.save({ ...binding, branch, lastCheckRunId: null, lastImplement: null });
+        await this.store.bindings.save({
+          ...binding,
+          branch,
+          lastCheckRunId: null,
+          lastImplement: null,
+          stageVisits: transition.visits,
+          stopReason: transition.stopReason,
+        });
       }
       new RunStore(root).removeCompletion(input.taskId);
       return {
@@ -1232,7 +1269,7 @@ export class TaskService {
         previousBranch: previous,
         adopted: true,
         checkInvalidated: true,
-        phase: nextPhase,
+        stage: transition.stage,
       };
     } finally {
       this.locks.release(lock);
@@ -1258,13 +1295,15 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
+      const workflow = workflowOf(root);
       if (document.frontmatter.status !== "open") throw new TaskGuardError("task_not_open", "已结束任务不能修改验证要求");
-      if (document.frontmatter.phase !== "discuss") {
+      if (document.frontmatter.stage !== "start") {
         throw new TaskGuardError("phase_mismatch", "验证要求只能在讨论阶段设置；先 task update --kind change 回到讨论");
       }
+      assertStageWritable(workflow, document, "task verification");
       const current = verificationModeOf(document.frontmatter);
       if (current === input.verification) {
-        return { taskId: input.taskId, verification: current, phase: document.frontmatter.phase, changed: false };
+        return { taskId: input.taskId, verification: current, stage: document.frontmatter.stage, changed: false };
       }
       const note = input.reason?.trim() ? `；理由: ${input.reason.trim()}` : "";
       const updated = withRegions(document, {
@@ -1286,7 +1325,7 @@ export class TaskService {
         });
       }
       new RunStore(root).removeCompletion(input.taskId);
-      return { taskId: input.taskId, verification: input.verification, phase: document.frontmatter.phase, changed: true };
+      return { taskId: input.taskId, verification: input.verification, stage: document.frontmatter.stage, changed: true };
     } finally {
       this.locks.release(lock);
     }
@@ -1367,13 +1406,8 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
-      const transition = onRecordWritten({
-        status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        pendingKind: null,
-      });
+      const workflow = workflowOf(root);
+      assertStageWritable(workflow, document, "task record");
       const addition = input.body.trimEnd();
       const progressBody = addition === ""
         ? document.progressBody
@@ -1552,7 +1586,7 @@ export class TaskService {
     return {
       taskId,
       applied: "pending_saved",
-      phase: document.frontmatter.phase,
+      stage: document.frontmatter.stage,
       status: document.frontmatter.status,
       outcome: document.frontmatter.outcome,
       inputsDigest: currentDigest,
@@ -1571,21 +1605,18 @@ export class TaskService {
   ): Promise<TaskUpdateResult> {
     const document = parseTaskDocument(before.data.toString("utf8"), file);
     const binding = await this.store.bindings.get(input.taskId);
+    const workflow = workflowOf(root);
     const prevDigest = binding?.confirmedInputsDigest ?? inputsDigestOf(before.data.toString("utf8"));
     const merged = this.mergeInputs(document, input.content);
     const nextDigest = inputsDigestOf(renderTaskDocument(merged));
     const digestChanged = nextDigest !== prevDigest;
-    const transition = guardRejected(onInputsUpdated({
-      status: document.frontmatter.status,
-      phase: document.frontmatter.phase,
-      outcome: document.frontmatter.outcome,
-      branch: document.frontmatter.branch,
-      pendingKind: binding?.pendingDraft ? binding.pendingDraft.kind : null,
-      verification: document.frontmatter.verification,
-    }, input.kind, digestChanged, archived), "task update");
+    const transition = guardRejected(
+      stageTransition(workflow, stageFactsOf(document, binding), { kind: "inputsUpdated", updateKind: input.kind, digestChanged, archived }),
+      "task update",
+    );
     const updated = withRegions(document, {
       inputsBody: merged.inputsBody,
-      frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+      frontmatter: { ...document.frontmatter, status: transition.status, stage: transition.stage, outcome: transition.outcome },
     });
     assertNoCredentials(input.content, "任务输入更新");
     atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
@@ -1594,6 +1625,8 @@ export class TaskService {
         ...binding,
         pendingDraft: null,
         confirmedInputsDigest: nextDigest,
+        stageVisits: transition.visits,
+        stopReason: transition.stopReason,
       });
     }
     if (digestChanged || input.kind === "change" || document.frontmatter.status === "closed") {
@@ -1602,7 +1635,7 @@ export class TaskService {
     return {
       taskId: input.taskId,
       applied: "direct",
-      phase: transition.phase,
+      stage: transition.stage,
       status: transition.status,
       outcome: transition.outcome,
       inputsDigest: nextDigest,
@@ -1646,29 +1679,38 @@ export class TaskService {
         throw new InfrastructureError("version_conflict", "基线输入已变化；重新确认或合并，不覆盖后来输入");
       }
       const document = parseTaskDocument(before.data.toString("utf8"), file);
-      const facts = {
-        status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        pendingKind: draft.kind,
-        verification: document.frontmatter.verification,
-      };
+      const workflow = workflowOf(root);
+      const facts = stageFactsOf(document, binding);
+      facts.pendingKind = draft.kind;
       const merged = this.mergeInputs(document, draft.content);
       const nextDigest = inputsDigestOf(renderTaskDocument(merged));
-      const transition = guardRejected(onPendingResolved(facts, draft.kind, nextDigest !== draft.baselineDigest, located.archived), "apply pending");
+      const transition = guardRejected(
+        stageTransition(workflow, facts, {
+          kind: "pendingResolved",
+          updateKind: draft.kind,
+          digestChanged: nextDigest !== draft.baselineDigest,
+          archived: located.archived,
+        }),
+        "apply pending",
+      );
       // 任务030：转移结果与正文一起写入权威任务文件，响应与磁盘一致。
       const updated = withRegions(merged, {
-        frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+        frontmatter: { ...document.frontmatter, status: transition.status, stage: transition.stage, outcome: transition.outcome },
       });
       assertNoCredentials(draft.content, "应用输入草案");
       atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated)), expectedSha256: before.sha256, mode: 0o644 });
-      await this.store.bindings.save({ ...binding, pendingDraft: null, confirmedInputsDigest: nextDigest });
+      await this.store.bindings.save({
+        ...binding,
+        pendingDraft: null,
+        confirmedInputsDigest: nextDigest,
+        stageVisits: transition.visits,
+        stopReason: transition.stopReason,
+      });
       new RunStore(root).removeCompletion(input.taskId);
       return {
         taskId: input.taskId,
         applied: "pending_applied",
-        phase: transition.phase,
+        stage: transition.stage,
         status: transition.status,
         outcome: transition.outcome,
         inputsDigest: nextDigest,
@@ -1713,7 +1755,7 @@ export class TaskService {
       return {
         taskId: input.taskId,
         applied: "pending_withdrawn",
-        phase: document.frontmatter.phase,
+        stage: document.frontmatter.stage,
         status: document.frontmatter.status,
         outcome: document.frontmatter.outcome,
         inputsDigest: inputsDigestOf(before.data.toString("utf8")),
@@ -1731,7 +1773,7 @@ export class TaskService {
    */
   async ready(input: { dir: string; taskId: string }): Promise<{
     taskId: string;
-    phase: string;
+    stage: string;
     confirmedInputsDigest: string;
     confirmedStandardsDigest: string;
   }> {
@@ -1758,27 +1800,30 @@ export class TaskService {
         const detail = blockers.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
         throw new TaskGuardError("dependency_unmet", `前置依赖未满足，不能进入实施: ${detail}`);
       }
-      const transition = guardRejected(onReady({
-        status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        pendingKind: null,
-      }), "task ready");
+      const transition = guardRejected(
+        stageTransition(workflowOf(root), stageFactsOf(document, await this.store.bindings.get(input.taskId)), { kind: "ready" }),
+        "task ready",
+      );
       const updated = withRegions(document, {
-        frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+        frontmatter: { ...document.frontmatter, status: transition.status, stage: transition.stage, outcome: transition.outcome },
       });
-      // 冻结的是 ready 后的输入区（含 status/phase 转移），不是转移前版本；
+      // 冻结的是 ready 后的输入区（含 status/stage 转移），不是转移前版本；
       // 否则后续检查会把刚确认的任务立即判为 stale。
       const confirmedInputsDigest = inputsDigestOf(renderTaskDocument(updated));
       const confirmedStandardsDigest = formalStandardsDigest(root);
       atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       const binding = await this.store.bindings.get(input.taskId);
       if (binding !== null) {
-        await this.store.bindings.save({ ...binding, confirmedInputsDigest, confirmedStandardsDigest });
+        await this.store.bindings.save({
+          ...binding,
+          confirmedInputsDigest,
+          confirmedStandardsDigest,
+          stageVisits: transition.visits,
+          stopReason: transition.stopReason,
+        });
       }
       new RunStore(root).removeCompletion(input.taskId);
-      return { taskId: input.taskId, phase: transition.phase, confirmedInputsDigest, confirmedStandardsDigest };
+      return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest };
     } finally {
       this.locks.release(lock);
     }
@@ -1824,14 +1869,9 @@ export class TaskService {
         }
       }
       const pendingKind = binding.pendingDraft?.kind ?? null;
-      const facts = {
-        status: document.frontmatter.status,
-        phase: document.frontmatter.phase,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        pendingKind,
-        verification: verificationModeOf(document.frontmatter),
-      };
+      const facts = stageFactsOf(document, binding);
+      facts.pendingKind = pendingKind;
+      const workflow = workflowOf(root);
       const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
       const completion = input.outcome === "completed"
         ? await completionService.assess({ root, taskId: input.taskId, document, raw: before.data, binding })
@@ -1840,12 +1880,14 @@ export class TaskService {
         throw new TaskGuardError(completion.reason, `任务不能完成: ${completion.reason}`);
       }
       const transition = guardRejected(
-        input.outcome === "completed" ? onComplete(facts) : onCloseWithOutcome(facts, input.outcome),
+        input.outcome === "completed"
+          ? stageTransition(workflow, facts, { kind: "completed" })
+          : stageTransition(workflow, facts, { kind: "closed", outcome: input.outcome }),
         "task close",
       );
       const hadPending = binding.pendingDraft !== null;
       const updated = withRegions(document, {
-        frontmatter: { ...document.frontmatter, status: transition.status, phase: transition.phase, outcome: transition.outcome },
+        frontmatter: { ...document.frontmatter, status: transition.status, stage: transition.stage, outcome: transition.outcome },
         progressBody: hadPending
           ? `${document.progressBody}\n### 关闭撤回输入草案\n\n- 时间: ${this.now().toISOString()}\n- 理由: 任务关闭（${input.outcome}），未应用草案不生效\n`
           : document.progressBody,
@@ -1869,14 +1911,19 @@ export class TaskService {
         throw error;
       }
       if (binding !== null) {
-        await this.store.bindings.save({ ...binding, pendingDraft: null });
+        await this.store.bindings.save({
+          ...binding,
+          pendingDraft: null,
+          stageVisits: transition.visits,
+          stopReason: transition.stopReason,
+        });
       }
       if (input.outcome !== "completed") new RunStore(root).removeCompletion(input.taskId);
       return {
         taskId: input.taskId,
         status: transition.status,
         outcome: transition.outcome,
-        phase: transition.phase,
+        stage: transition.stage,
         pendingWithdrawn: hadPending,
         ...(completion !== null && completion.allowed === true
           ? {

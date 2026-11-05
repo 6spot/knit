@@ -5,6 +5,7 @@
  */
 import { arr, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { sha256Text } from "./digest.js";
+import { WORKFLOW_ANCHORS, isWorkflowAnchor, type WorkflowAnchor } from "./workflow.js";
 
 export const UpdateKindSchema = union([lit("clarify"), lit("change")]);
 export type UpdateKind = Static<typeof UpdateKindSchema>;
@@ -12,13 +13,33 @@ export type UpdateKind = Static<typeof UpdateKindSchema>;
 export const TaskStatusSchema = union([lit("open"), lit("closed")]);
 export type TaskStatus = Static<typeof TaskStatusSchema>;
 
-export const TaskPhaseSchema = union([
-  lit("discuss"),
-  lit("implement"),
-  lit("check"),
-  lit("deliver"),
-]);
-export type TaskPhase = Static<typeof TaskPhaseSchema>;
+/**
+ * 任务阶段（设计 §3）：内置锚点 `start`／`deliver` 加当前流程配置里的阶段 id。
+ * 阶段 id 由 `.knit/workflow.yaml` 定义，本契约只校验取值语法与锚点，
+ * “是否在当前配置中”由 domain/task.ts 按 `WorkflowDefinition` 裁决。
+ */
+export type TaskStage = string;
+
+export const TASK_STAGE_ANCHORS = WORKFLOW_ANCHORS;
+export type TaskStageAnchor = WorkflowAnchor;
+
+/** 内置锚点：start（准备／讨论）与 deliver（收尾）。 */
+export function isTaskStageAnchor(value: string): value is TaskStageAnchor {
+  return isWorkflowAnchor(value);
+}
+
+/** 阶段 id 语法；锚点同形，保留字冲突由配置层拒绝。 */
+export const TASK_STAGE_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
+export const TaskStageSchema = str({ pattern: TASK_STAGE_PATTERN });
+
+/**
+ * 旧 frontmatter 字段 `phase` 的只读映射（设计 §15.3 已确认例外）：
+ * `discuss` 与新任务初始锚点 `start` 等价；其余值原样作为阶段值展示。
+ * 写入端只写 `stage`，首次写入即完成字段改名，不做批量迁移。
+ */
+export function legacyPhaseToStage(value: string): TaskStage {
+  return value === "discuss" ? "start" : value;
+}
 
 export const TaskOutcomeSchema = union([
   lit("completed"),
@@ -58,7 +79,7 @@ export const TaskFrontmatterSchema = obj(
   {
     id: str({ pattern: "^k-[0-9a-f]{12}$" }),
     status: TaskStatusSchema,
-    phase: TaskPhaseSchema,
+    stage: TaskStageSchema,
     outcome: union([TaskOutcomeSchema, nul()]),
     branch: union([str({ minLength: 1 }), nul()]),
     /** 完成验证要求；旧记录缺省按 independent 兼容。 */
@@ -98,7 +119,7 @@ export function stripStatusFields(region: string): string {
 }
 
 /**
- * 需求摘要不含 status／phase／outcome／branch／parent／priority／dependsOn／order：
+ * 需求摘要不含 status／stage（旧字段 phase）／outcome／branch／parent／priority／dependsOn／order：
  * 这些是执行状态、结构身份与调度事实，阶段转移、挂接父任务、调整优先级、依赖或
  * 业务顺序都不改变工作内容与验收条件，不能使已确认输入或已通过的检查 stale
  * （DESIGN.md 第3.8、3.11节）。
@@ -110,7 +131,7 @@ function withoutStatusFields(region: string): string {
   // 调度字段可能是块状列表（dependsOn），其缩进续行随字段一起排除。
   let skipping = false;
   for (const line of (match[1] ?? "").split(/\r?\n/)) {
-    if (/^(id|status|phase|outcome|branch|parent|priority|dependsOn|order):/.test(line)) {
+    if (/^(id|status|stage|phase|outcome|branch|parent|priority|dependsOn|order):/.test(line)) {
       skipping = true;
       continue;
     }

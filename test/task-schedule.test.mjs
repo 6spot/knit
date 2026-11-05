@@ -221,7 +221,7 @@ test("前置依赖：未完成即阻塞 ready，可诊断；完成后放行", as
     await service.close({ dir, taskId: prerequisite.taskId, outcome: "completed", runsSettled: true });
     assert.deepEqual(service.list({ dir }).active.find((entry) => entry.taskId === dependent.taskId).blocked, []);
     const readied = await service.ready({ dir, taskId: dependent.taskId });
-    assert.equal(readied.phase, "implement");
+    assert.equal(readied.stage, "implement");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

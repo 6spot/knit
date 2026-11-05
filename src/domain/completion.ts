@@ -25,7 +25,8 @@ export interface ImplementEvidence {
 
 export interface CompletionFacts {
   status: "open" | "closed";
-  phase: "discuss" | "implement" | "check" | "deliver";
+  /** 任务阶段：内置锚点 start／deliver 或流程配置里的阶段 id。 */
+  stage: string;
   outcome: "completed" | "cancelled" | "superseded" | null;
   pendingKind: "clarify" | "change" | null;
   verification: VerificationMode;
@@ -77,7 +78,7 @@ export function completionDecision(facts: CompletionFacts): CompletionDecision {
   if (!facts.scopeCurrent) return { allowed: false, reason: "scope_changed" };
 
   if (facts.verification === "self") {
-    if (facts.phase !== "deliver") return { allowed: false, reason: "phase_mismatch" };
+    if (facts.stage !== "deliver") return { allowed: false, reason: "phase_mismatch" };
     if (facts.lastImplement === null) return { allowed: false, reason: "implementation_missing" };
     if (
       facts.lastImplement.inputsDigest !== facts.currentInputsDigest ||

@@ -210,7 +210,7 @@ test("assist discuss：advisory worker 只给建议，不推进 Task", () => {
     assert.equal(result.parsed.data.status.state, "completed");
     assert.equal(result.parsed.data.status.phase, "advisory");
     const status = jsonCli(dir, ["status", task.taskId]);
-    assert.equal(status.parsed.data.phase, "discuss", "advisory 不推进业务阶段");
+    assert.equal(status.parsed.data.stage, "start", "advisory 不推进业务阶段");
     assert.equal(status.parsed.data.status, "open");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -229,7 +229,7 @@ test("assist deliver：交付辅助入口已撤除，返回 invalid_request 且�
     const status = jsonCli(dir, ["status", task.taskId]);
     assert.equal(status.parsed.data.runs.length, 0, "不创建 run");
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs")), false, "不落盘 run 目录");
-    assert.equal(status.parsed.data.phase, "discuss", "交付入口不推进业务阶段");
+    assert.equal(status.parsed.data.stage, "start", "交付入口不推进业务阶段");
     // 其它未知模式同样在准备前拒绝。
     const unknown = jsonCli(dir, ["assist", "review", "--task", task.taskId]);
     assert.equal(unknown.parsed.reasonCode, "invalid_request");

@@ -87,7 +87,7 @@ test("taskDirectoryName：日期前缀与重名短序号", () => {
 
 test("task.md 文档模型：分区解析与往返渲染", () => {
   const { inputsBody, progressBody } = renderInitialTaskBody("修复登录");
-  const doc = { frontmatter: { id: "k-0123456789ab", status: "open", phase: "discuss", outcome: null, branch: "refs/heads/main", createdAt: "2026-11-02T00:00:00Z", title: "修复登录" }, inputsBody, progressBody, trailingBody: "" };
+  const doc = { frontmatter: { id: "k-0123456789ab", status: "open", stage: "start", outcome: null, branch: "refs/heads/main", createdAt: "2026-11-02T00:00:00Z", title: "修复登录" }, inputsBody, progressBody, trailingBody: "" };
   const markdown = renderTaskDocument(doc);
   const parsed = parseTaskDocument(markdown);
   assert.deepEqual(parsed.frontmatter, doc.frontmatter);
@@ -101,8 +101,8 @@ test("task.md 文档模型：分区解析与往返渲染", () => {
   // 缺标记与缺 frontmatter 报结构错误
   assert.throws(() => parseTaskDocument("no frontmatter"), /frontmatter/);
   assert.throws(() => parseTaskDocument(renderTaskDocument(doc).replace(PROGRESS_START, "<!-- removed -->")), /记录区标记/);
-  // 未知 frontmatter 值被拒
-  const bad = renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, phase: "research" } });
+  // 语法非法的阶段值被拒；语法合法但不在配置中的值由应用层写操作拒绝（见下一条用例）。
+  const bad = renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, stage: "Research!" } });
   assert.throws(() => parseTaskDocument(bad), /schema/);
 });
 
@@ -120,7 +120,7 @@ test("task new：稳定 ID、目录创建与 binding 落库", async () => {
     const markdown = readFileSync(taskFile(dir, result.relativePath), "utf8");
     const parsed = parseTaskDocument(markdown);
     assert.equal(parsed.frontmatter.id, result.taskId);
-    assert.equal(parsed.frontmatter.phase, "discuss");
+    assert.equal(parsed.frontmatter.stage, "start");
     assert.equal(parsed.frontmatter.verification, "self");
     assert.equal(result.verification, "self");
     // 同 ID 歧义：已存在该 ID 的文件时重新生成
@@ -147,7 +147,7 @@ test("task new：目录重名追加短序号；list 含归档分区", async () =
     const archivedDir = join(dir, ".knit", "tasks", "archive", "2026-10", "10-01-old");
     mkdirSync(archivedDir, { recursive: true });
     writeFileSync(join(archivedDir, "task.md"), renderTaskDocument({
-      frontmatter: { id: "k-ffffffffffff", status: "closed", phase: "deliver", outcome: "completed", branch: null, createdAt: "2026-10-01T00:00:00Z", title: "旧任务" },
+      frontmatter: { id: "k-ffffffffffff", status: "closed", stage: "deliver", outcome: "completed", branch: null, createdAt: "2026-10-01T00:00:00Z", title: "旧任务" },
       ...renderInitialTaskBody("旧任务"),
       trailingBody: "",
     }));
@@ -267,7 +267,7 @@ test("task record：只改记录区、版本核对、并行短锁串行", async 
   }
 });
 
-test("task adopt：分支变化保持早期 phase，deliver 回 check，清检查资格并保留历史", async () => {
+test("task adopt：分支变化保持早期 stage，deliver 回 check，清检查资格并保留历史", async () => {
   const dir = gitProject("adopt");
   const { store, service } = makeService(dir);
   try {
@@ -276,7 +276,7 @@ test("task adopt：分支变化保持早期 phase，deliver 回 check，清检�
     const doc = parseTaskDocument(readFileSync(file, "utf8"), file);
     writeFileSync(file, renderTaskDocument({
       ...doc,
-      frontmatter: { ...doc.frontmatter, branch: "refs/heads/other", phase: "deliver", status: "open", outcome: null },
+      frontmatter: { ...doc.frontmatter, branch: "refs/heads/other", stage: "deliver", status: "open", outcome: null },
     }));
     const binding = await store.bindings.get(task.taskId);
     await store.bindings.save({ ...binding, branch: "refs/heads/other", lastCheckRunId: "run-000000000001" });
@@ -285,10 +285,10 @@ test("task adopt：分支变化保持早期 phase，deliver 回 check，清检�
     assert.equal(adopted.previousBranch, "refs/heads/other");
     assert.equal(adopted.adopted, true);
     assert.equal(adopted.checkInvalidated, true);
-    assert.equal(adopted.phase, "check");
+    assert.equal(adopted.stage, "check");
     const after = parseTaskDocument(readFileSync(file, "utf8"), file);
     assert.equal(after.frontmatter.branch, "refs/heads/main");
-    assert.equal(after.frontmatter.phase, "check");
+    assert.equal(after.frontmatter.stage, "check");
     assert.equal(after.frontmatter.status, "open");
     assert.equal(after.frontmatter.outcome, null);
     assert.equal((await store.bindings.get(task.taskId)).lastCheckRunId, null);
@@ -377,13 +377,13 @@ test("task adopt：活动 run 或未核实 Git 效果拒绝，不写 Task", asyn
   }
 });
 
-test("task ready：discuss → implement 并冻结输入摘要；phase 不符拒绝", async () => {
+test("task ready：start → implement 并冻结输入摘要；stage 不符拒绝", async () => {
   const dir = gitProject("ready");
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     const ready = await service.ready({ dir, taskId });
-    assert.equal(ready.phase, "implement");
+    assert.equal(ready.stage, "implement");
     assert.match(ready.confirmedInputsDigest, /^[0-9a-f]{64}$/);
     const binding = await store.bindings.get(taskId);
     assert.equal(binding.confirmedInputsDigest, ready.confirmedInputsDigest);
@@ -399,25 +399,109 @@ test("task ready：discuss → implement 并冻结输入摘要；phase 不符拒
   }
 });
 
-test("task update：clarify 保持 phase 且不使摘要未变任务迁移；change 回 discuss", async () => {
+test("自定义阶段流转：ready 进入配置首阶段，clarify 保持、change 回 start", async () => {
+  const dir = gitProject("custom-stage");
+  const { store, service } = makeService(dir);
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), [
+      "version: 1",
+      "stages:",
+      "  - id: draft",
+      "    name: 起草",
+      "  - id: review",
+      "    name: 复核",
+      "    report:",
+      "      verdict: [pass, changes_requested]",
+      "    onVerdict:",
+      "      changes_requested: draft",
+      "",
+    ].join("\n"));
+    const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+    const ready = await service.ready({ dir, taskId });
+    assert.equal(ready.stage, "draft", "ready 进入配置的第一个阶段，而不是固定 implement");
+    const file = taskFile(dir, relativePath);
+    const doc = parseTaskDocument(readFileSync(file, "utf8"));
+    assert.equal(doc.frontmatter.stage, "draft");
+    assert.equal(doc.frontmatter.phase, undefined, "新文档只写 stage");
+    // clarify 保持自定义阶段；change 回到内置 start 锚点。
+    const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "## 目标与边界\n\n补充\n", runActive: false });
+    assert.equal(clarify.stage, "draft");
+    const change = await service.update({ dir, taskId, kind: "change", reason: "改目标", content: "## 目标与边界\n\n新目标\n", runActive: false });
+    assert.equal(change.stage, "start");
+    const next = await service.ready({ dir, taskId });
+    assert.equal(next.stage, "draft", "再次 ready 仍由配置决定目标，不写死阶段名");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("旧 phase 兼容：discuss 读作 start，首次写入改写为 stage；非配置旧值只读、写拒绝", async () => {
+  {
+    const dir = gitProject("legacy-phase");
+    const { store, service } = makeService(dir);
+    try {
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      // 模拟阶段模型改造前的文档：旧字段 phase: discuss。
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^stage: start$/m, "phase: discuss"));
+      const legacy = parseTaskDocument(readFileSync(file, "utf8"));
+      assert.equal(legacy.frontmatter.stage, "start", "旧值 discuss 读作锚点 start");
+      assert.equal(service.list({ dir }).active[0].stage, "start");
+      const ready = await service.ready({ dir, taskId });
+      assert.equal(ready.stage, "implement");
+      const after = readFileSync(file, "utf8");
+      assert.match(after, /^stage: implement$/m, "首次写入改为 stage");
+      assert.doesNotMatch(after, /^phase:/m, "首次写入清掉旧字段");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  {
+    const dir = gitProject("legacy-stage-unknown");
+    const { store, service } = makeService(dir);
+    try {
+      writeFileSync(join(dir, ".knit", "workflow.yaml"), "version: 1\nstages:\n  - id: draft\n");
+      const { taskId, relativePath } = await service.newTask({ dir, title: "T" });
+      const file = taskFile(dir, relativePath);
+      // 不在当前配置里的旧值：只读原样展示。
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^stage: start$/m, "phase: check"));
+      const before = readFileSync(file, "utf8");
+      assert.equal(parseTaskDocument(before).frontmatter.stage, "check");
+      assert.equal(service.list({ dir }).active[0].stage, "check");
+      // 写操作拒绝并提示：不静默把旧值改写成 stage。
+      await assert.rejects(
+        () => service.record({ dir, taskId, body: "补充记录" }),
+        (error) => error instanceof TaskGuardError && error.details.guardReason === "stage_not_in_workflow",
+      );
+      assert.equal(readFileSync(file, "utf8"), before, "拒绝时文件不变");
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("task update：clarify 保持 stage 且不使摘要未变任务迁移；change 回 start", async () => {
   const dir = gitProject("update-kind");
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     await service.ready({ dir, taskId });
-    // change：回 open/discuss
+    // change：回 open/start
     const change = await service.update({ dir, taskId, kind: "change", reason: "范围扩大", content: "## 目标与边界\n\n新目标\n", runActive: false });
     assert.equal(change.applied, "direct");
-    assert.equal(change.phase, "discuss");
+    assert.equal(change.stage, "start");
     assert.equal(change.digestChanged, true);
-    // clarify：保持 discuss
+    // clarify：保持 start
     const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充资料", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n", runActive: false });
-    assert.equal(clarify.phase, "discuss");
+    assert.equal(clarify.stage, "start");
     assert.equal(clarify.digestChanged, true);
     // 摘要未变的 clarify 不迁移
     const same = await service.update({ dir, taskId, kind: "clarify", reason: "解释原要求", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n", runActive: false });
     assert.equal(same.digestChanged, false);
-    assert.equal(same.phase, "discuss");
+    assert.equal(same.stage, "start");
     // frontmatter 转移已写回
     const binding = await store.bindings.get(taskId);
     assert.equal(binding.confirmedInputsDigest, clarify.inputsDigest);
@@ -439,7 +523,7 @@ test("task update：活动 run 只保存草案；apply/withdraw 按摘要与基�
     assert.equal(saved.applied, "pending_saved");
     assert.ok(saved.pendingDraftDigest);
     assert.equal(saved.digestChanged, false);
-    assert.equal(parseTaskDocument(readFileSync(file, "utf8")).frontmatter.phase, "discuss");
+    assert.equal(parseTaskDocument(readFileSync(file, "utf8")).frontmatter.stage, "start");
     // 第二份草案被拒（至多一份）
     await assert.rejects(
       () => service.update({ dir, taskId, kind: "clarify", reason: "再来一份", content: "x", runActive: true }),
@@ -549,7 +633,7 @@ test("输入草案竞争：存在草案时直接更新拒绝；同内容新版�
   }
 });
 
-test("task update：apply 按草案 kind 应用；change 草案回 discuss，clarify 草案保持", async () => {
+test("task update：apply 按草案 kind 应用；change 草案回 start，clarify 草案保持", async () => {
   const dir = gitProject("apply");
   const { store, service } = makeService(dir);
   try {
@@ -559,7 +643,7 @@ test("task update：apply 按草案 kind 应用；change 草案回 discuss，cla
     const saved = await service.update({ dir, taskId, kind: "change", reason: "目标改变", content: "## 目标与边界\n\n改变后的目标\n", runActive: true, updateOperationId: "op-9" });
     const applied = await service.update({ dir, taskId, expectPending: saved.pendingDraftDigest });
     assert.equal(applied.applied, "pending_applied");
-    assert.equal(applied.phase, "discuss", "change 草案应用后回 discuss");
+    assert.equal(applied.stage, "start", "change 草案应用后回 start");
     assert.equal(applied.status, "open");
     assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
   } finally {
@@ -635,7 +719,7 @@ test("任务规划资料：按需创建读取保存、越界与白名单拒绝�
     await service.ready({ dir, taskId });
     const movedName = readdirSync(join(dir, ".knit", "tasks")).find((name) => name.endsWith("-moved"));
     const doc = parseTaskDocument(readFileSync(taskFile(dir, `tasks/${movedName}/task.md`), "utf8"));
-    writeFileSync(taskFile(dir, `tasks/${movedName}/task.md`), renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+    writeFileSync(taskFile(dir, `tasks/${movedName}/task.md`), renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "deliver", outcome: "completed" } }));
     mkdirSync(join(dir, ".knit", "tasks", "archive", "2026-11"), { recursive: true });
     renameSync(join(dir, ".knit", "tasks", movedName), join(dir, ".knit", "tasks", "archive", "2026-11", movedName));
     const archivedPlan = await service.readMaterial({ dir, taskId, path: "plan.md" });
@@ -677,7 +761,7 @@ test("task rename：等价移动不改变输入摘要；路径线索与绑定更
   }
 });
 
-test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 clarify 回 open/check，响应与磁盘一致（任务030）", async () => {
+test("应用草案持久化转移：change 实际回 open/start，deliver 上 clarify 回 open/check，响应与磁盘一致（任务030）", async () => {
   const dir = gitProject("pending-phase");
   const { store, service } = makeService(dir);
   try {
@@ -686,16 +770,18 @@ test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 
     await service.ready({ dir, taskId });
     // 模拟实施完成推进到 deliver：直接改权威文件（本测试只关注 apply 转移持久化）。
     const doc = parseTaskDocument(readFileSync(file, "utf8"));
-    writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, phase: "deliver" } }));
+    writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, stage: "deliver" } }));
+    const bindingBeforeDeliver = await store.bindings.get(taskId);
+    await store.bindings.save({ ...bindingBeforeDeliver, stageVisits: { implement: 1, check: 1 } });
     const diskAfterBump = parseTaskDocument(readFileSync(file, "utf8"));
-    // change 草案：应用后实际回 open/discuss。
+    // change 草案：应用后实际回 open/start。
     const changeDraft = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: true });
     assert.equal(changeDraft.applied, "pending_saved");
     const changeApplied = await service.update({ dir, taskId, expectPending: changeDraft.pendingDraftDigest, runsSettled: true });
-    assert.equal(changeApplied.phase, "discuss");
+    assert.equal(changeApplied.stage, "start");
     assert.equal(changeApplied.status, "open");
     const diskChange = parseTaskDocument(readFileSync(file, "utf8"));
-    assert.equal(diskChange.frontmatter.phase, "discuss", "change 应用后磁盘 phase 应为 discuss");
+    assert.equal(diskChange.frontmatter.stage, "start", "change 应用后磁盘 stage 应为 start");
     assert.equal(diskChange.frontmatter.status, "open");
     assert.equal(diskChange.frontmatter.outcome, null);
     assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
@@ -703,12 +789,14 @@ test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 
     // deliver 上摘要变化的 clarify：应用后实际回 open/check。
     await service.ready({ dir, taskId });
     const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
-    writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, phase: "deliver" } }));
+    writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, stage: "deliver" } }));
+    const bindingBeforeClarify = await store.bindings.get(taskId);
+    await store.bindings.save({ ...bindingBeforeClarify, stageVisits: { implement: 1, check: 1 } });
     const clarifyDraft = await service.update({ dir, taskId, kind: "clarify", reason: "约束说明", content: "## 目标与边界\n\n澄清目标\n", runActive: true });
     const clarifyApplied = await service.update({ dir, taskId, expectPending: clarifyDraft.pendingDraftDigest, runsSettled: true });
-    assert.equal(clarifyApplied.phase, "check");
+    assert.equal(clarifyApplied.stage, "check");
     const diskClarify = parseTaskDocument(readFileSync(file, "utf8"));
-    assert.equal(diskClarify.frontmatter.phase, "check", "deliver 上 clarify 应用后磁盘 phase 应为 check");
+    assert.equal(diskClarify.frontmatter.stage, "check", "deliver 上 clarify 应用后磁盘 stage 应为 check");
     assert.equal(diskClarify.frontmatter.status, "open");
   } finally {
     store.close();
@@ -716,7 +804,7 @@ test("应用草案持久化转移：change 实际回 open/discuss，deliver 上 
   }
 });
 
-test("未归档 completed 可按规定重新打开：change 回 discuss、deliver 上 clarify 回 check；已归档与 cancelled/superseded 拒绝（任务036）", async () => {
+test("未归档 completed 可按规定重新打开：change 回 start、deliver 上 clarify 回 check；已归档与 cancelled/superseded 拒绝（任务036）", async () => {
   // 未归档 completed：直接更新重新打开。
   {
     const dir = gitProject("reopen-completed");
@@ -727,23 +815,25 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
       await service.ready({ dir, taskId });
       // 构造未归档 completed/deliver（模拟交付完成但尚未 archive）。
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
-      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "deliver", outcome: "completed" } }));
+      const bindingBeforeComplete = await store.bindings.get(taskId);
+      await store.bindings.save({ ...bindingBeforeComplete, stageVisits: { implement: 1, check: 1 } });
       // clarify：deliver 上回 open/check，清 completed。
       const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "交付后补充说明", content: "## 目标与边界\n\n补充说明\n", runActive: false });
       assert.equal(clarify.applied, "direct");
       assert.equal(clarify.status, "open");
-      assert.equal(clarify.phase, "check");
+      assert.equal(clarify.stage, "check");
       assert.equal(clarify.outcome, null);
       const disk = parseTaskDocument(readFileSync(file, "utf8"));
       assert.equal(disk.frontmatter.status, "open");
       assert.equal(disk.frontmatter.outcome, null);
 
-      // 再次回到 completed 后 change：回 open/discuss。
+      // 再次回到 completed 后 change：回 open/start。
       const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
-      writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, status: "closed", stage: "deliver", outcome: "completed" } }));
       const change = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: false });
       assert.equal(change.status, "open");
-      assert.equal(change.phase, "discuss");
+      assert.equal(change.stage, "start");
       assert.equal(change.outcome, null);
     } finally {
       store.close();
@@ -758,7 +848,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
       const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
-      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "deliver", outcome: "completed" } }));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "deliver", outcome: "completed" } }));
       // 物理移动到 archive 目录模拟完整归档。
       const archiveDir = join(dir, ".knit", "tasks", "archive", "2026-11");
       mkdirSync(archiveDir, { recursive: true });
@@ -780,7 +870,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
       const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
-      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "cancelled" } }));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "implement", outcome: "cancelled" } }));
       await assert.rejects(
         () => service.update({ dir, taskId, kind: "clarify", reason: "取消后补充", content: "## 目标与边界\n\nx\n", runActive: false }),
         (error) => error.guardReason === "outcome_cancelled",
@@ -798,7 +888,7 @@ test("未归档 completed 可按规定重新打开：change 回 discuss、delive
       const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
-      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", phase: "implement", outcome: "superseded" } }));
+      writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "implement", outcome: "superseded" } }));
       await assert.rejects(
         () => service.update({ dir, taskId, kind: "change", reason: "替代后变更", content: "## 目标与边界\n\nx\n", runActive: false }),
         (error) => error.guardReason === "outcome_superseded",
@@ -868,7 +958,7 @@ test("task close：completed 收敛事实；cancelled 撤回草案留记录；cl
     assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
     const doc = parseTaskDocument(readFileSync(taskFile(dir, (await store.bindings.get(taskId)).relativePath), "utf8"));
     assert.ok(doc.progressBody.includes("关闭撤回输入草案"));
-    assert.equal(doc.frontmatter.phase, "discuss", "取消保留停止位置");
+    assert.equal(doc.frontmatter.stage, "start", "取消保留停止位置");
     // 关闭后的任务不接受常规更新
     await assert.rejects(
       () => service.update({ dir, taskId, kind: "clarify", reason: "r", content: "c", runActive: false }),
@@ -1010,9 +1100,9 @@ test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任�
     const file = taskFile(dir, relativePath);
     // 1. 模板占位未填：核心不机械拒绝（语义判断属主 Agent）；ready 正常通过（简单任务，无 plan.md）。
     const ready = await service.ready({ dir, taskId });
-    assert.equal(ready.phase, "implement");
+    assert.equal(ready.stage, "implement");
 
-    // 2. 复杂任务承诺 plan.md：空 plan 阻止 ready（change 回 discuss 后再试）。
+    // 2. 复杂任务承诺 plan.md：空 plan 阻止 ready（change 回 start 后再试）。
     const docForChange = parseTaskDocument(readFileSync(file, "utf8"));
     await service.update({ dir, taskId, kind: "change", reason: "升级为复杂任务", content: docForChange.inputsBody + "\n", runActive: false });
     writeFileSync(join(dir, ".knit", "tasks", relativePath.split("/")[1], "plan.md"), "   \n");
@@ -1023,14 +1113,14 @@ test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任�
     // 有内容后通过。
     writeFileSync(join(dir, ".knit", "tasks", relativePath.split("/")[1], "plan.md"), "# 计划\n\n- [ ] 步骤一\n\n## 未完成\n\n- [ ] 步骤一\n");
     const ready2 = await service.ready({ dir, taskId });
-    assert.equal(ready2.phase, "implement");
+    assert.equal(ready2.stage, "implement");
 
     // 3. 进度更新（勾选）不重置阶段、修复计数或产生草案。
     await service.saveMaterial({ dir, taskId, path: "plan.md", content: "# 计划\n\n- [x] 步骤一\n\n## 未完成\n\n（无）\n" });
     const after = await store.bindings.get(taskId);
     assert.equal(after.pendingDraft ?? null, null, "进度更新不产生草案");
     const docAfter = parseTaskDocument(readFileSync(file, "utf8"));
-    assert.equal(docAfter.frontmatter.phase, "implement", "进度更新不改变阶段");
+    assert.equal(docAfter.frontmatter.stage, "implement", "进度更新不改变阶段");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

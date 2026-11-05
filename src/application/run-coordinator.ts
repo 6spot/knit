@@ -179,8 +179,8 @@ export class RunCoordinator {
       throw new GuardError("unknown_task", `任务不存在: ${input.taskId}`);
     }
     if (located.archived) throw new GuardError("task_archived", `任务已归档: ${input.taskId}`);
-    if (input.phase !== "advisory" && located.document.frontmatter.phase !== input.phase) {
-      throw new GuardError("phase_mismatch", `任务阶段为 ${located.document.frontmatter.phase}，不能准备 ${input.phase}`);
+    if (input.phase !== "advisory" && located.document.frontmatter.stage !== input.phase) {
+      throw new GuardError("phase_mismatch", `任务阶段为 ${located.document.frontmatter.stage}，不能准备 ${input.phase}`);
     }
     if (located.document.frontmatter.status !== "open") {
       throw new GuardError("task_not_open", `任务不是 open 状态: ${input.taskId}`);
@@ -222,10 +222,12 @@ export class RunCoordinator {
       const maxRounds = this.maxRounds(root);
       if (input.newRepairCycle === true) {
         const cycleId = `rep-${this.randomHex(6)}`;
-        await this.store.bindings.save({ ...binding, repairCycleId: cycleId, repairRounds: 0, stopReason: null });
+        // 新周期由用户显式授权：同时清空阶段访问计数，允许再次进入回退目标。
+        await this.store.bindings.save({ ...binding, repairCycleId: cycleId, repairRounds: 0, stopReason: null, stageVisits: {} });
         binding.repairCycleId = cycleId;
         binding.repairRounds = 0;
         binding.stopReason = null;
+        binding.stageVisits = {};
       } else if (binding.stopReason !== null) {
         throw new GuardError("repair_stopped", `修复周期已停止：${binding.stopReason}`);
       } else if (binding.repairCycleId !== null && (binding.repairRounds ?? 0) >= maxRounds) {

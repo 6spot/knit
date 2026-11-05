@@ -273,7 +273,7 @@ test("分支变化拒绝；恢复源码会清空旧检查资格并把 deliver �
     assert.ok(binding);
     await store.bindings.save({ ...binding, lastCheckRunId: "run-000000000001" });
     const taskPath = join(dir, ".knit", task.relativePath);
-    writeFileSync(taskPath, readFileSync(taskPath, "utf8").replace(/^phase: .*$/m, "phase: deliver"));
+    writeFileSync(taskPath, readFileSync(taskPath, "utf8").replace(/^stage: .*$/m, "stage: deliver"));
     const text = readFileSync(join(dir, "text.txt"), "utf8");
     const preview = restores.preview({ dir, runId, paths: ["README.md"] });
     const result = await restores.restore({
@@ -284,7 +284,7 @@ test("分支变化拒绝；恢复源码会清空旧检查资格并把 deliver �
     });
     assert.equal(result.checkInvalidated, true);
     assert.equal((await store.bindings.get(task.taskId)).lastCheckRunId, null);
-    assert.match(readFileSync(taskPath, "utf8"), /^phase: check$/m);
+    assert.match(readFileSync(taskPath, "utf8"), /^stage: check$/m);
     assert.equal(readFileSync(join(dir, "text.txt"), "utf8"), text);
 
     git(dir, ["checkout", "-q", "-b", "other"]);

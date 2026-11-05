@@ -121,11 +121,11 @@ async function setupWorktree(root, s, slug, options = {}) {
   const taskFile = join(handed.targetTaskDir, "task.md");
   const status = options.closed === false ? "open" : "closed";
   const outcome = options.outcome ?? (options.closed === false ? "null" : "completed");
-  const phase = options.phase ?? "deliver";
+  const stage = options.stage ?? "deliver";
   let text = readFileSync(taskFile, "utf8")
     .replace(/^status: .*$/m, `status: ${status}`)
     .replace(/^outcome: .*$/m, `outcome: ${outcome}`)
-    .replace(/^phase: .*$/m, `phase: ${phase}`)
+    .replace(/^stage: .*$/m, `stage: ${stage}`)
     .replace(/^branch: .*$/m, `branch: ${worktree.branch}`);
   writeFileSync(taskFile, text);
   writeFileSync(join(handed.targetTaskDir, "draft.md"), "未提交草稿\n");
@@ -309,7 +309,7 @@ test("2) 正常 apply：合入提交含 opId，资料／正文／binding 转交�
     const mainDocument = parseTaskDocument(readFileSync(mainTaskFile, "utf8"), mainTaskFile);
     assert.equal(mainDocument.frontmatter.branch, MAIN, "task.md branch 已更新到目标");
     assert.equal(mainDocument.frontmatter.status, "closed");
-    assert.equal(mainDocument.frontmatter.phase, "deliver");
+    assert.equal(mainDocument.frontmatter.stage, "deliver");
     assert.equal(mainDocument.frontmatter.outcome, "completed");
 
     const binding = await s.store.bindings.get(setup.task.taskId);
