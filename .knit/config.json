@@ -18,8 +18,7 @@
   },
   "phases": {
     "implement": { "model": "magpie/group/deepseek" },
-    "check": { "model": "magpie/group/deepseek" },
-    "advisory": { "model": "magpie/group/deepseek" }
+    "check": { "model": "magpie/group/deepseek" }
   },
   "limits": {
     "heartbeatIntervalMs": 5000,
