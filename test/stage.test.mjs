@@ -557,7 +557,7 @@ test("检查报告 changedPaths 缺失或与实际不符时拒绝，Task 不被�
   }
 });
 
-test("检查修改 .knit 元数据仍被拒绝；advisory 仍只读", async () => {
+test("检查修改 .knit 元数据仍被拒绝", async () => {
   const dir = project("check-protected");
   const s = services(dir);
   try {
@@ -576,15 +576,6 @@ test("检查修改 .knit 元数据仍被拒绝；advisory 仍只读", async () =
     assert.equal(status.state, "failed");
     assert.equal(status.result.failureReason, `protected_path_modified:${protectedPath}`);
     assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.stage, "check");
-
-    const discuss = await s.tasks.newTask({ dir, title: "讨论", slug: "advisory-side" });
-    const advisory = await startRun(s, dir, discuss.taskId, "advisory", {
-      writes: [{ path: "README.md", content: "# advisory write\n" }],
-      report: { summary: "建议", ready: false },
-    });
-    const advisoryStatus = await waitTerminal(s, dir, advisory.runId);
-    assert.equal(advisoryStatus.state, "failed");
-    assert.match(advisoryStatus.result.failureReason, /^advisory_side_effects:/);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -730,6 +721,7 @@ test("阶段 maxVisits：回退进入超过上限时接收需人工处理并写 
       "  - id: check",
       "    report:",
       "      verdict: [pass, changes_requested, blocked]",
+      "      coverage: string[]",
       "    onVerdict:",
       "      changes_requested: implement",
       "      blocked: check",
@@ -765,6 +757,103 @@ test("阶段 maxVisits：回退进入超过上限时接收需人工处理并写 
     const retry = await s.acceptance.accept({ dir, runId: check.runId });
     assert.equal(retry.accepted, false);
     assert.equal(retry.reason, "repair_round_limit");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("自定义阶段：按声明校验报告、按配置流转并累计访问", async () => {
+  const dir = project("custom-stage");
+  const s = services(dir);
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), [
+      "version: 1",
+      "stages:",
+      "  - id: build",
+      "    name: 构建",
+      "    description: 按任务完成实现",
+      "    report:",
+      "      changedPaths: paths",
+      "  - id: verify",
+      "    name: 验收",
+      "    description: 独立核对实现成果",
+      "    report:",
+      "      verdict: [pass, fail]",
+      "      coverage: string[]",
+      "    onVerdict:",
+      "      fail: build",
+      "",
+    ].join("\n"));
+    const task = await readyTask(dir, s, "自定义阶段");
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "build");
+
+    const plan = await new ContextPlanner({ store: s.store, randomHex }).plan({ dir, taskId: task.taskId, stage: "build" });
+    assert.match(plan.stageBrief, /流程：准备 → 构建 → 验收 → 收尾 ｜ 当前：构建/);
+    assert.match(plan.stageBrief, /本步目标：按任务完成实现/);
+    assert.match(plan.stageBrief, /完成条件：完成后 → 验收/);
+
+    const build = await startRun(s, dir, task.taskId, "build", {
+      writes: [{ path: "README.md", content: "# custom build\n" }],
+      report: { summary: "构建完成", changedPaths: ["README.md"] },
+    });
+    const built = await waitTerminal(s, dir, build.runId);
+    assert.equal(built.state, "completed", built.result?.failureReason ?? built.reason ?? "");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "verify");
+    assert.equal((await s.store.bindings.get(task.taskId)).stageVisits.build, 1);
+
+    // 结论字段由阶段声明决定：缺 verdict 时失败，不借用旧固定字段放行。
+    const missing = await startRun(s, dir, task.taskId, "verify", {
+      report: { summary: "缺少结论", coverage: ["README.md"] },
+    });
+    const missingStatus = await waitTerminal(s, dir, missing.runId);
+    assert.equal(missingStatus.state, "failed");
+    assert.equal(missingStatus.result.failureReason, "report_verdict_missing");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "verify");
+
+    const verify = await startRun(s, dir, task.taskId, "verify", {
+      report: { summary: "验收通过", verdict: "pass", coverage: ["README.md"] },
+    });
+    const verified = await waitTerminal(s, dir, verify.runId);
+    assert.equal(verified.state, "completed", verified.result?.failureReason ?? verified.reason ?? "");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${verify.runId}.json`)), true);
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.stageVisits.verify, 1);
+    assert.equal(binding.lastCheckRunId, verify.runId);
+
+    // 自定义检查阶段写的凭据可用于独立完成资格；不要求阶段 id 叫 check。
+    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+    assert.equal(closed.status, "closed");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：在途 run 继续完成并记录 fallback 模式", async () => {
+  const dir = project("fallback-inflight");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s, "降级在途");
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "implement"));
+    assert.equal(prepared.request.workflowMode, "config");
+    // prepare 之后配置损坏：worker 读取降级流程，但在途 run 仍应完成。
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), "version: 2\nstages: []\n");
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      writes: [{ path: "README.md", content: "# fallback in flight\n" }],
+      report: { summary: "降级实现", changedPaths: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+    assert.equal(status.result.workflowMode, "fallback");
+    assert.equal(new RunStore(dir).readState(prepared.request.runId)?.workflowMode, "fallback");
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -1308,27 +1397,18 @@ test("resume --run：已完成结果待同步时只接收，不新建 run、不�
   }
 });
 
-test("advisory 只产出建议，不推进 Task；CLI resume/accept 协议输出", async () => {
+test("advisory 不再作为阶段：准备被拒绝，不推进 Task", async () => {
   const dir = project("advisory");
   const s = services(dir);
   try {
     const task = await s.tasks.newTask({ dir, title: "讨论", slug: "discuss" });
-    const advisory = await startRun(s, dir, task.taskId, "advisory", {
-      report: { summary: "建议：先确认范围", ready: false },
-    });
-    const status = await waitTerminal(s, dir, advisory.runId);
-    assert.equal(status.state, "completed");
+    await assert.rejects(
+      () => startRun(s, dir, task.taskId, "advisory", { report: { summary: "建议：先确认范围", ready: false } }),
+      (error) => error.guardReason === "phase_mismatch",
+    );
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "start");
-    const raw = execFileSync(
-      process.execPath,
-      [CLI, "--json", "run", "resume", advisory.runId, "--locks", join(dir, ".locks"), "--dir", dir],
-      { encoding: "utf8" },
-    );
-    const resumed = JSON.parse(raw);
-    assert.equal(resumed.outcome, "completed");
-    assert.equal(resumed.data.resumed, false);
-    assert.equal(resumed.data.reason, "already_accepted");
+    assert.equal(new RunStore(dir).listRunIds().length, 0);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -1690,11 +1770,13 @@ test("parseStageReport 失败语义：畸形 JSON 报 report_not_json；schema �
   const fencedBad = parseStageReport("说明\n```json\n{summary: 未加引号}\n```");
   assert.equal(fencedBad.report, null);
   assert.ok(fencedBad.error.startsWith("report_not_json:"));
-  // JSON 合法但 schema 不合（额外字段）：报 schema_invalid 且错误细节含根因。
-  const invalid = parseStageReport(JSON.stringify({ summary: "x", verdict: "pass", coverage: ["x"], evidence: "额外字段" }));
+  // 报告字段集合由阶段声明决定，额外字段不在解析层拒绝；固定字段类型错误仍报 schema_invalid。
+  const flexible = parseStageReport(JSON.stringify({ summary: "x", verdict: "pass", coverage: ["x"], evidence: "额外字段" }));
+  assert.equal(flexible.report?.summary, "x");
+  const invalid = parseStageReport(JSON.stringify({ verdict: "pass" }));
   assert.equal(invalid.report, null);
   assert.ok(invalid.error.startsWith("report_schema_invalid:"));
-  assert.ok(invalid.error.includes("evidence"));
+  assert.ok(invalid.error.includes("/summary"));
 });
 
 test("检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸形报告仍失败", async () => {

@@ -1,5 +1,6 @@
 /** status/doctor/storage：只读观察与诊断（DESIGN.md 第4.1节、STATES.md 第9节）。 */
 import { Command } from "commander";
+import { reportVerdictLabel } from "../contracts/run.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
@@ -105,6 +106,7 @@ export function registerStatusCommands(program: Command): void {
           console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}）`);
           console.log(`任务: ${result.taskId} / ${result.phase}；耗时 ${formatMs(result.elapsedMs)}`);
           console.log(`呈现: ${result.presentation}（来源 ${result.presentationSource}）${result.presentationFallbackReason ? `；回退原因: ${result.presentationFallbackReason}` : ""}`);
+          if (result.workflowMode !== null) console.log(`流程模式: ${result.workflowMode}`);
           // 执行目录锁是 project 锁的实际键；主检出路由与现在输出等价（任务17）。
           if (result.executionDir !== cliMainRoot(options.dir)) console.log(`执行目录: ${result.executionDir}`);
           console.log(`准备: ${result.prepared}；快照: ${result.snapshot?.state ?? "无"}`);
@@ -114,7 +116,7 @@ export function registerStatusCommands(program: Command): void {
           console.log(`阶段进程: ${result.stageProcess ? `${result.stageProcess.state}/${result.stageProcessVerdict}` : "无记录"}`);
           if (result.reason !== null) console.log(`原因: ${result.reason}`);
           if (result.result !== null) {
-            console.log(`结果: ${result.result.state}${result.result.report?.verdict ? ` / ${result.result.report.verdict}` : ""}`);
+            console.log(`结果: ${result.result.state}${result.result.report && reportVerdictLabel(result.result.report) ? ` / ${reportVerdictLabel(result.result.report)}` : ""}`);
             const usage = result.result.usage;
             console.log(`用量: input ${usage.inputTokens ?? "未知"}（含缓存），output ${usage.outputTokens ?? "未知"}；未知值不填零`);
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);

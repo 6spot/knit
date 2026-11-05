@@ -28,10 +28,14 @@ export async function validateCheckEvidence(input: {
   if (check === null) throw new GuardError("check_missing", `检查凭据缺失: ${binding.lastCheckRunId}`);
   if (check.verdict !== "pass") throw new GuardError("check_not_passed", `最新检查结论不是 pass: ${check.verdict}`);
   if (check.branch !== branch) throw new GuardError("check_stale", "检查分支与当前交付分支不一致");
+  // 用产生凭据的 run 阶段重建上下文：检查阶段 id 可由配置改名，不能写死 check。
+  // 旧夹具／历史凭据没有 run 请求时退回默认 check 阶段。
+  const checkRequest = runs.readRequest(check.runId);
+  const checkStage = checkRequest?.phase ?? "check";
   const plan = await new ContextPlanner({ store, now: input.now, randomHex: input.randomHex }).plan({
     dir: root,
     taskId,
-    role: "check",
+    stage: checkStage,
   });
   if (!plan.ready) throw new GuardError("check_stale", `检查上下文不再 ready: ${plan.blockers.join(",")}`);
   if (

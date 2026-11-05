@@ -8,7 +8,7 @@
  * 阶段访问计数与 `maxVisits` 上限在转移层核对，超限返回 `repair_round_limit`。
  */
 import type { VerificationMode } from "../contracts/task-inputs.js";
-import { isWorkflowAnchor } from "../contracts/workflow.js";
+import { isReportEnum, isWorkflowAnchor } from "../contracts/workflow.js";
 import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
 
 /** status：业务工作是否结束；与 Git 提交、归档完成分别判断。 */
@@ -165,11 +165,16 @@ function verdictTargetOf(workflow: WorkflowDefinition, stage: TaskStage, verdict
   return stageDefinition(workflow, stage)?.onVerdict[verdict] ?? null;
 }
 
-/** 配置中最后一个声明了报告字段的阶段；作为 independent 的检查回归目标。 */
+/** 阶段是否用报告枚举作结论；只有结论阶段承担独立检查凭据。 */
+function isDecisionStage(stage: WorkflowStage): boolean {
+  return Object.values(stage.report).some(isReportEnum);
+}
+
+/** 配置中最后一个结论阶段；作为 independent 的检查回归目标。 */
 function checkStageOf(workflow: WorkflowDefinition): TaskStage | null {
   let result: TaskStage | null = null;
   for (const stage of workflow.stages) {
-    if (Object.keys(stage.report).length > 0) result = stage.id;
+    if (isDecisionStage(stage)) result = stage.id;
   }
   return result;
 }
@@ -186,7 +191,7 @@ function lastVisitedStageOf(
   let result: TaskStage | null = null;
   for (const stage of workflow.stages) {
     if ((visits[stage.id] ?? 0) <= 0) continue;
-    if (withReport && Object.keys(stage.report).length === 0) continue;
+    if (withReport && !isDecisionStage(stage)) continue;
     result = stage.id;
   }
   return result;

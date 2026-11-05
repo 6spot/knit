@@ -1,11 +1,11 @@
 import { bool, int, lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
+import { WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 
-/** 阶段角色；实施与检查分离，advisory 不推进业务。 */
-export const SessionRoleSchema = union([
-  lit("implement"),
-  lit("check"),
-  lit("advisory"),
-]);
+/**
+ * 阶段身份：内置锚点或 `.knit/workflow.yaml` 的阶段 id（设计 §3）。
+ * 阶段提示词文件由配置的 `prompt` 决定；“角色”不再独立存在。
+ */
+export const SessionRoleSchema = str({ minLength: 1, pattern: WORKFLOW_STAGE_ID_PATTERN });
 export type SessionRole = Static<typeof SessionRoleSchema>;
 
 /** 原生身份：客户端、预分配原生 ID 与角色；不包含凭据。 */

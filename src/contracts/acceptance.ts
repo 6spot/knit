@@ -40,12 +40,8 @@ export const AcceptanceJournalSchema = obj(
     scopeAfter: ScopeFileSchema,
     check: union([CheckFileSchema, nul()]),
     reason: str({ minLength: 1 }),
-    verdict: union([
-      lit("pass"),
-      lit("changes_requested"),
-      lit("blocked"),
-      nul(),
-    ]),
+    /** 阶段声明的结论值；默认流程为 pass／changes_requested／blocked，旧记录可为 null。 */
+    verdict: union([str({ minLength: 1 }), nul()]),
     createdAt: str({ minLength: 1 }),
   },
 );

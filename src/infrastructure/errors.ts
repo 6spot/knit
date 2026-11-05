@@ -11,7 +11,9 @@ export type InfrastructureErrorCode =
   | "multiple_session_locks"
   | "path_escape"
   | "git_unavailable"
-  | "io_error";
+  | "io_error"
+  | "stage_not_in_workflow"
+  | "tool_capability_unavailable";
 
 export class InfrastructureError extends Error {
   constructor(

@@ -33,6 +33,8 @@ import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
+import { loadWorkflow } from "./workflow.js";
+import { isDecisionStage } from "../domain/report.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
 
@@ -81,6 +83,8 @@ export interface RunStatusProjection {
   runId: string;
   taskId: string;
   phase: RunPhase;
+  /** 实际生效的流程模式；旧记录为 null。 */
+  workflowMode: "config" | "fallback" | null;
   presentation: RunPresentation;
   presentationSource: RunPresentationSource;
   presentationFallbackReason: string | null;
@@ -179,7 +183,7 @@ export class RunCoordinator {
       throw new GuardError("unknown_task", `任务不存在: ${input.taskId}`);
     }
     if (located.archived) throw new GuardError("task_archived", `任务已归档: ${input.taskId}`);
-    if (input.phase !== "advisory" && located.document.frontmatter.stage !== input.phase) {
+    if (located.document.frontmatter.stage !== input.phase) {
       throw new GuardError("phase_mismatch", `任务阶段为 ${located.document.frontmatter.stage}，不能准备 ${input.phase}`);
     }
     if (located.document.frontmatter.status !== "open") {
@@ -188,7 +192,7 @@ export class RunCoordinator {
     // 执行分支：worktree 路由取 worktree 分支（frontmatter 保留源分支 refs/heads/main，不作否决依据）。
     const expectedBranch = route.state === "worktree" ? route.branch : located.document.frontmatter.branch;
     // 运行边界核对实际检出分支：与任务绑定和 request 三方一致才准启动（任务028）。
-    if (input.phase !== "advisory" && expectedBranch !== null) {
+    if (expectedBranch !== null) {
       const liveBranch = currentBranch(executionDir);
       if (liveBranch === null) {
         throw new GuardError("branch_mismatch", "当前处于 detached HEAD，不能启动绑定分支的阶段");
@@ -209,8 +213,15 @@ export class RunCoordinator {
     if (binding.pendingDraft !== null) {
       throw new GuardError("pending_inputs", "存在待应用输入，先应用或撤回再启动代码阶段");
     }
+    // 生效流程决定阶段语义：有报告枚举的是结论阶段，其余是产出阶段。
+    const loaded = loadWorkflow(root);
+    const workflowStage = loaded.workflow.stages.find((stage) => stage.id === input.phase) ?? null;
+    if (workflowStage === null && loaded.workflow.stages.length > 0) {
+      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${input.phase}`);
+    }
+    const decisionStage = isDecisionStage(workflowStage);
     // 前置依赖铁律（DESIGN §3.11）：未满足依赖时实施入口不启动，优先级与用户指定都不绕过。
-    if (input.phase === "implement") {
+    if (!decisionStage) {
       const blockers = dependencyBlockersOf(executionDir, input.taskId);
       if (blockers.length > 0) {
         const detail = blockers.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
@@ -218,7 +229,7 @@ export class RunCoordinator {
       }
     }
     const runs = new RunStore(root);
-    if (input.phase === "implement") {
+    if (!decisionStage) {
       const maxRounds = this.maxRounds(root);
       if (input.newRepairCycle === true) {
         const cycleId = `rep-${this.randomHex(6)}`;
@@ -236,8 +247,12 @@ export class RunCoordinator {
     } else if (input.newRepairCycle === true) {
       throw new GuardError("invalid_request", "只有实施阶段可以开启修复周期");
     }
-    const role = input.phase === "advisory" ? "advisory" : input.phase;
-    const plan = await this.planner.plan({ dir: executionDir, taskId: input.taskId, role, authorizedStandardPaths: input.authorizedStandardPaths });
+    const plan = await this.planner.plan({
+      dir: executionDir,
+      taskId: input.taskId,
+      stage: input.phase,
+      authorizedStandardPaths: input.authorizedStandardPaths,
+    });
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
@@ -263,10 +278,11 @@ export class RunCoordinator {
       runId,
       taskId: input.taskId,
       phase: input.phase,
+      workflowMode: loaded.mode,
       presentation: selection.host,
       presentationSource: selection.source,
       presentationFallbackReason: selection.fallbackReason,
-      purpose: input.phase === "advisory" ? "assist" : "stage",
+      purpose: "stage",
       initiator: input.initiator,
       createdAt,
       expected: {
@@ -276,7 +292,7 @@ export class RunCoordinator {
         standardsDigest: plan.standardsDigest,
         effectiveInputsDigest: plan.effectiveInputsDigest,
         planId: plan.planId,
-        scopeDigest: input.phase === "check" ? scopeDigest(loadScope(runs, input.taskId, createdAt).entries) : null,
+        scopeDigest: decisionStage ? scopeDigest(loadScope(runs, input.taskId, createdAt).entries) : null,
         authorizedStandardOutputs: plan.authorizedStandardOutputs,
       },
       model: input.model,
@@ -439,6 +455,7 @@ export class RunCoordinator {
       runId: request.runId,
       taskId: request.taskId,
       phase: request.phase,
+      workflowMode: state?.workflowMode ?? result?.workflowMode ?? request.workflowMode ?? null,
       presentation: request.presentation ?? "local",
       presentationSource: request.presentationSource ?? "config",
       presentationFallbackReason: request.presentationFallbackReason ?? null,

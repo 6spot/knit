@@ -434,7 +434,7 @@ test("句柄缺失时不启动第二个 worker，只置 failed 等待显式重�
   }
 });
 
-test("阶段／计划守卫：phase 不符、草案未应用、角色缺失都不发布请求", async () => {
+test("阶段／计划守卫：phase 不符、草案未应用、规范缺失都不发布请求", async () => {
   const dir = project("guards");
   const s = services(dir);
   try {
@@ -466,7 +466,7 @@ test("阶段／计划守卫：phase 不符、草案未应用、角色缺失都�
       expectPending: binding.pendingDraft.digest,
       withdrawReason: "取消草案",
     });
-    rmSync(join(dir, ".knit", "agents", "implement.md"));
+    rmSync(join(dir, ".knit", "standards", "index.md"));
     await assert.rejects(
       () => s.coordinator.prepare(prepareInput(dir, task.taskId)),
       (error) => error.guardReason === "plan_not_ready",

@@ -7,6 +7,7 @@ import { ContextPlanner } from "../application/context-planner.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import type { SessionKind, SessionRole, SessionSourceKind } from "../contracts/session.js";
+import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -232,27 +233,29 @@ export function registerSessionCommands(program: Command): void {
     .command("context")
     .description("生成阶段分层输入计划：需求、规范／角色、指纹与注入清单")
     .option("--task <taskId>", "任务 ID")
-    .option("--role <role>", "implement／check／advisory", "implement")
+    .option("--stage <stage>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）")
+    .option("--role <role>", "兼容旧参数；等同 --stage")
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const requestId = `context-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const role = options.role as SessionRole;
       if (!options.task) {
         console.error("knit: context 需要 --task <taskId>");
         process.exitCode = 1;
         return;
       }
-      if (!ROLES.has(role)) {
-        console.error(`knit: 未知 --role "${options.role}"`);
+      const stage = String(options.stage ?? options.role ?? "implement");
+      if (!WORKFLOW_STAGE_ID_REGEX.test(stage)) {
+        console.error(`knit: 非法阶段 id "${stage}"`);
         process.exitCode = 1;
         return;
       }
       await withStore(
         requestId,
         options.dir,
-        async (store) => new ContextPlanner({ store }).plan({ dir: options.dir, taskId: options.task, role }),
+        async (store) => new ContextPlanner({ store }).plan({ dir: options.dir, taskId: options.task, stage }),
         (plan) => {
           console.log(`上下文计划 ${plan.planId}  [${plan.taskId}/${plan.role}]`);
+          if (plan.stageBrief !== undefined) console.log(plan.stageBrief);
           console.log(`输入摘要: ${plan.inputsDigest.slice(0, 12)}；就绪: ${plan.ready ? "是" : "否"}`);
           for (const section of plan.sections) {
             console.log(

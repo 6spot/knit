@@ -1,5 +1,5 @@
 /**
- * 阶段执行装配：把 ContextPlan 转成 Pi prompt、解析报告并按 phase 校验
+ * 阶段执行装配：把 ContextPlan 转成 Pi prompt、解析报告并交由阶段声明校验
  * （DESIGN.md 5.1、5.5、5.6）。模型自报只是待核对证据，实际文件差异由核心另行比对。
  */
 import { readFileSync } from "node:fs";
@@ -7,10 +7,12 @@ import { join } from "node:path";
 import type { ContextPlan, ContextSection } from "../contracts/context-plan.js";
 import { inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
 import { researchDigestSummary } from "./task-materials.js";
-import type { RunPhase } from "../contracts/run.js";
 import { StageReportSchema, type StageReport } from "../contracts/run.js";
+import { isReportEnum, type ReportFieldType } from "../contracts/workflow.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { checkSchema, schemaErrors } from "../contracts/schema.js";
+import { isDecisionStage } from "../domain/report.js";
+import type { WorkflowStage } from "../domain/workflow.js";
 
 export type SectionContents = Record<string, string>;
 
@@ -130,9 +132,69 @@ function backgroundText(sections: ContextSection[], contents: SectionContents): 
   );
 }
 
-export function buildSystemPrompt(plan: ContextPlan, phase: RunPhase, contents: SectionContents): string {
+function reportSample(type: ReportFieldType): unknown {
+  if (isReportEnum(type)) return type[0] ?? "...";
+  switch (type) {
+    case "string":
+      return "...";
+    case "string[]":
+      return ["..."];
+    case "paths":
+      return ["..."];
+    case "bool":
+      return true;
+  }
+}
+
+/** 按阶段声明生成报告形状示例；固定字段始终存在。 */
+export function reportTemplateOf(stage: WorkflowStage | null): string {
+  const shape: Record<string, unknown> = {
+    summary: "...",
+    validation: ["方法：...；结果：pass／fail／not_run；证据：..."],
+    blockers: [],
+  };
+  if (stage !== null) {
+    for (const [field, type] of Object.entries(stage.report)) {
+      // 固定字段始终按固定语义展示；声明不能覆盖成别的形状。
+      if (Object.prototype.hasOwnProperty.call(shape, field)) continue;
+      shape[field] = isReportEnum(type) ? (type[0] ?? "...") : reportSample(type);
+    }
+  }
+  return JSON.stringify(shape);
+}
+
+function stageRequirementOf(stage: WorkflowStage | null): string {
+  if (stage === null) {
+    return "按当前任务资料完成本阶段产出，并运行必要验证；行为以阶段提示词与规范为准。";
+  }
+  if (!isDecisionStage(stage)) {
+    const pathsFields = Object.entries(stage.report)
+      .filter(([, type]) => type === "paths")
+      .map(([field]) => field);
+    const pathRequirement =
+      pathsFields.length === 0
+        ? ""
+        : `最终报告的 ${pathsFields.join("／")} 必须与实际改动的项目相对路径完全一致。`;
+    return `完成本阶段产出，并运行必要验证。${pathRequirement}未执行或证据不足的验证写入 validation（结果标 not_run），不得谎报。`;
+  }
+  const verdictField = Object.entries(stage.report).find(([, type]) => isReportEnum(type));
+  const values = verdictField !== undefined && isReportEnum(verdictField[1]) ? verdictField[1] : [];
+  const blockedValue = values.includes("blocked") ? "blocked" : values.includes("fail") ? "fail" : values.at(-1);
+  const handoff =
+    blockedValue === undefined
+      ? "涉及需求解释、取舍、扩大范围或验收变化时不要修改，交回主会话"
+      : `涉及需求解释、取舍、扩大范围或验收变化时不要修改，以 ${blockedValue} 交回主会话`;
+  return [
+    "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；",
+    `${handoff}。只改任务范围内必要文件，不修改 .knit/，不提交 Git。`,
+    "有修改时 paths 文件字段必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；",
+    "对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。",
+    values.length > 0 ? `结论字段只能是 ${values.join("／")}。` : "",
+  ].join("");
+}
+
+export function buildSystemPrompt(plan: ContextPlan, stage: WorkflowStage | null, contents: SectionContents): string {
   const role = sectionText(plan.sections, ["role"], contents);
-  const workflow = sectionText(plan.sections, ["workflow"], contents);
   const runtime = sectionText(plan.sections, ["runtime"], contents);
   const standards = sectionText(plan.sections, ["standard"], contents);
   // 任务规划资料：plan/design 全文进系统提示（实施按未完成步骤推进，检查按步骤产出核对）；
@@ -142,14 +204,15 @@ export function buildSystemPrompt(plan: ContextPlan, phase: RunPhase, contents: 
     ["planning-material"],
     contents,
   );
+  const stageName = stage?.name ?? plan.role;
   return [
+    plan.stageBrief ?? "",
     "你是 Knit 的独立阶段执行器，不是主 Agent。",
-    `本次阶段：${phase}。`,
+    `本次阶段：${stageName}（${plan.role}）。`,
     "只执行本阶段；不要修改 .knit/ 下任何文件（包括 task.md、规范、配置），不要 git commit／push／rebase，不要委派其他 Agent。",
     "必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。",
     "任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。",
     role,
-    workflow,
     runtime,
     standards,
     planning,
@@ -158,7 +221,7 @@ export function buildSystemPrompt(plan: ContextPlan, phase: RunPhase, contents: 
     .join("\n\n");
 }
 
-export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: SectionContents, context: {
+export function buildUserPrompt(plan: ContextPlan, stage: WorkflowStage | null, contents: SectionContents, context: {
   taskId: string;
   runId: string;
   branch: string | null;
@@ -176,19 +239,8 @@ export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: Se
       : `\n\n上一实施结果：${context.previousImplement.summary ?? "无摘要"}\n改动路径：\n${
           context.previousImplement.changedPaths.join("\n") || "（无）"
         }`;
-  const phaseInstruction =
-    phase === "implement"
-      ? "完成实现，并运行必要验证。最终报告的 changedPaths 必须与实际改动的项目相对路径完全一致。"
-      : phase === "check"
-        ? "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；涉及需求解释、取舍、扩大范围或验收变化时不要修改，以 blocked 交回主会话。只改任务范围内必要文件，不修改 .knit/，不提交 Git。有修改时 changedPaths 必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。verdict 只能是 pass／changes_requested／blocked。"
-        : "只给出建议，不修改项目文件，不推进任务阶段。";
-  const report =
-    phase === "implement"
-      ? '{"summary":"...","changedPaths":["..."],"unverified":["..."]}'
-      : phase === "check"
-        ? '{"summary":"...","verdict":"pass|changes_requested|blocked","coverage":["..."],"changedPaths":["..."],"selfVerified":true,"findings":["..."],"unverified":["..."]}'
-        : '{"summary":"...","ready":true}';
   return [
+    plan.stageBrief ?? "",
     `任务 ID：${context.taskId}`,
     `run ID：${context.runId}`,
     `分支：${context.branch ?? "（无）"}`,
@@ -202,7 +254,7 @@ export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: Se
     previous,
     "",
     "# 阶段要求",
-    phaseInstruction,
+    stageRequirementOf(stage),
     "",
     "# 记录区（背景，不是新要求）",
     progress,
@@ -210,27 +262,7 @@ export function buildUserPrompt(plan: ContextPlan, phase: RunPhase, contents: Se
     "",
     "# 最终报告",
     "结束前只输出一个 ```json 代码块，不要输出其他 JSON。字段形状：",
-    report,
-    "summary 用一两句话说明实际做了什么／核对到什么；证据不足或未执行的验证写入 unverified，不得谎报。",
+    reportTemplateOf(stage),
+    "summary 用一两句话说明实际做了什么／核对到什么；validation 记录实际执行的验证（方法、结果、证据），未执行项标 not_run；blockers 列出阻塞（无则空数组）；证据不足或未执行的验证不得谎报为通过。",
   ].join("\n");
-}
-
-export interface ReportValidation {
-  ok: boolean;
-  reason: string | null;
-}
-
-/** 按 phase 校验报告必填字段；实际改动路径另由核心比对。 */
-export function validateReportForPhase(phase: RunPhase, report: StageReport, actualChangedPaths: string[] = []): ReportValidation {
-  if (phase === "implement") {
-    if (!Array.isArray(report.changedPaths)) return { ok: false, reason: "report_changed_paths_missing" };
-  } else if (phase === "check") {
-    if (report.verdict === undefined) return { ok: false, reason: "report_verdict_missing" };
-    if (!Array.isArray(report.coverage)) return { ok: false, reason: "report_coverage_missing" };
-    // 检查者直接修复时，实际改动必须由报告逐条列明；无修改时 changedPaths 可缺省。
-    if (actualChangedPaths.length > 0 && !Array.isArray(report.changedPaths)) {
-      return { ok: false, reason: "report_changed_paths_missing" };
-    }
-  }
-  return { ok: true, reason: null };
 }

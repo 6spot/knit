@@ -1,5 +1,7 @@
 import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { ProtocolVersionSchema } from "./protocol.js";
+import { TASK_STAGE_PATTERN } from "./task-inputs.js";
+import { ToolCapabilitySchema, WorkflowModeSchema } from "./workflow.js";
 
 /** 阶段呈现方式：local 为现有 RPC 后台链路；rex 为 Rex 浮层内的 TUI 链路。 */
 export const RunPresentationSchema = union([
@@ -16,12 +18,11 @@ export const RunPresentationSourceSchema = union([
 ]);
 export type RunPresentationSource = Static<typeof RunPresentationSourceSchema>;
 
-/** 阶段执行；advisory 只产出建议，不推进 Task。 */
-export const RunPhaseSchema = union([
-  lit("implement"),
-  lit("check"),
-  lit("advisory"),
-]);
+/**
+ * 阶段执行 id（设计 §3／§13）：取值必须是内置锚点或 `.knit/workflow.yaml`
+ * 声明的阶段 id。run 记录仍沿用字段名 `phase`；语义是阶段而非固定角色。
+ */
+export const RunPhaseSchema = str({ minLength: 1, pattern: TASK_STAGE_PATTERN });
 export type RunPhase = Static<typeof RunPhaseSchema>;
 
 /** run 执行状态（STATES.md 第5节转移图）。 */
@@ -94,27 +95,47 @@ export const RunCancelSchema = obj(
 );
 export type RunCancel = Static<typeof RunCancelSchema>;
 
-/** 阶段报告（DESIGN.md 5.1、5.5）；字段按 phase 校验，模型自报不直接改 Task。 */
+/**
+ * 阶段报告（设计 §6；DESIGN.md 5.1、5.5）。
+ *
+ * 固定字段只有 `summary`／`validation`／`blockers`，任何阶段都可使用；
+ * 阶段声明的额外字段（如 `changedPaths`、`verdict`、`coverage`）由
+ * `domain/report.ts` 按 `.knit/workflow.yaml` 的声明校验类型与语义。
+ * schema 保持开放，因为字段集合由生效流程决定，不能在这里写死。
+ */
 export const StageReportSchema = obj(
   {
     summary: str(),
-    /** implement：实际改动的项目相对路径；check：有实际修改时必填并与实际 diff 完全一致。 */
-    changedPaths: opt(arr(str({ minLength: 1 }))),
-    /** check：pass / changes_requested / blocked。 */
-    verdict: opt(
-      union([lit("pass"), lit("changes_requested"), lit("blocked")]),
-    ),
-    /** check：实际核对过的路径或完成条件。 */
-    coverage: opt(arr(str({ minLength: 1 }))),
-    /** check：检查者已自行验证自身修改；不表示另一独立执行者已复核。 */
-    selfVerified: opt(bool()),
-    findings: opt(arr(str())),
-    unverified: opt(arr(str())),
-    /** discuss：建议是否 ready；advisory 不推进业务。 */
-    ready: opt(bool()),
+    /** 实际执行的验证：方法、结果与证据；未执行项写 not_run。 */
+    validation: opt(arr(str())),
+    /** 阻塞当前阶段完成的问题；无阻塞为空数组。 */
+    blockers: opt(arr(str())),
   },
+  { open: true },
 );
-export type StageReport = Static<typeof StageReportSchema>;
+export type StageReport = Static<typeof StageReportSchema> & Record<string, unknown>;
+
+/** 按字段名读取报告中的字符串；不存在或类型不符返回 null。 */
+export function reportStringField(report: StageReport, field: string): string | null {
+  const value = report[field];
+  return typeof value === "string" ? value : null;
+}
+
+/** 按字段名读取报告中的字符串数组；不存在或类型不符返回 null。 */
+export function reportStringArrayField(report: StageReport, field: string): string[] | null {
+  const value = report[field];
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? (value as string[]) : null;
+}
+
+/** 首个可读结论（默认 verdict）；用于日志与状态展示，不参与状态机。 */
+export function reportVerdictLabel(report: StageReport): string | null {
+  const known = ["verdict", "decision", "result"];
+  for (const field of known) {
+    const value = reportStringField(report, field);
+    if (value !== null) return value;
+  }
+  return null;
+}
 
 /** 阶段使用的原生会话事实；原生引用不可恢复与执行结果分开报告。 */
 export const RunSessionRecordSchema = obj(
@@ -167,6 +188,8 @@ export const RunResultFileSchema = obj(
     failureReason: union([str(), nul()]),
     /** 执行分支（worktree 路由为 worktree 分支）；旧结果可缺省。 */
     branch: opt(union([str({ minLength: 1 }), nul()])),
+    /** 实际生效的流程模式；旧结果可缺省。 */
+    workflowMode: opt(WorkflowModeSchema),
   },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;
@@ -308,7 +331,8 @@ export const CheckFileSchema = obj(
     taskId: str({ minLength: 1 }),
     runId: str({ minLength: 1 }),
     branch: union([str({ minLength: 1 }), nul()]),
-    verdict: union([lit("pass"), lit("changes_requested"), lit("blocked")]),
+    /** 检查结论；默认流程为 pass／changes_requested／blocked，自定义阶段可为声明枚举值。 */
+    verdict: str({ minLength: 1 }),
     report: StageReportSchema,
     /** 本次检查实际修改的路径；无修改时缺省。 */
     changedPaths: opt(arr(str({ minLength: 1 }))),
@@ -330,6 +354,8 @@ export const RunRequestFileSchema = obj(
     runId: str({ minLength: 1, pattern: "^run-[0-9a-f]{12}$" }),
     taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
+    /** prepare 时读取到的流程模式：config 按配置，fallback 为 start → deliver 降级。 */
+    workflowMode: opt(WorkflowModeSchema),
     presentation: opt(RunPresentationSchema),
     /** prepare 时的呈现来源与自动回退原因；旧请求缺省按 local／config 解释。 */
     presentationSource: opt(RunPresentationSourceSchema),
@@ -350,6 +376,8 @@ export const RunRequestFileSchema = obj(
         mode: union([lit("write"), lit("read")]),
         allow: arr(str()),
         deny: arr(str()),
+        /** 生效能力白名单；null 表示全部放开，缺省为旧记录（按 allow／deny 解释）。 */
+        capabilities: opt(union([arr(ToolCapabilitySchema), nul()])),
       },
     ),
     recovery: obj(
@@ -440,6 +468,8 @@ export const FrozenInputsSchema = obj(
         mode: union([lit("write"), lit("read")]),
         allow: arr(str()),
         deny: arr(str()),
+        /** 生效能力白名单；null 表示全部放开，缺省为旧记录。 */
+        capabilities: opt(union([arr(ToolCapabilitySchema), nul()])),
       },
     ),
   },
@@ -551,6 +581,8 @@ export const RunStateFileSchema = obj(
     runId: str({ minLength: 1 }),
     taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
+    /** 本 run 生效的流程模式；旧 state 可缺省。 */
+    workflowMode: opt(WorkflowModeSchema),
     state: RunStateSchema,
     worker: obj(
       {

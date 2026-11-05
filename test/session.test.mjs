@@ -379,7 +379,7 @@ test("context：分层输入、规范／角色指纹、草案与候选只作背�
     assert.equal(before.ready, true);
     assert.equal(before.inputsDigest, inputsDigestOf(readFileSync(taskFile, "utf8")));
     const kinds = before.sections.map((section) => section.kind);
-    for (const kind of ["task-inputs", "workflow", "role", "standard", "progress"]) {
+    for (const kind of ["task-inputs", "role", "standard", "progress"]) {
       assert.ok(kinds.includes(kind), `缺少 ${kind} 分层`);
     }
     const roleSection = before.sections.find((section) => section.kind === "role");
@@ -391,15 +391,19 @@ test("context：分层输入、规范／角色指纹、草案与候选只作背�
     assert.equal(progress.countsTowardInputs, false);
     assert.equal(before.toolPolicy.mode, "write");
     const checkPlan = await planner.plan({ dir, taskId: task.taskId, role: "check" });
-    assert.equal(checkPlan.toolPolicy.mode, "write");
-    assert.equal(checkPlan.toolPolicy.allow.includes("write"), true);
-    assert.equal(checkPlan.toolPolicy.allow.includes("edit"), true);
+    assert.equal(checkPlan.toolPolicy.mode, "write", "exec 可间接改文件");
+    assert.deepEqual(checkPlan.toolPolicy.capabilities, ["read", "exec"]);
+    assert.equal(checkPlan.toolPolicy.allow.includes("bash"), true);
+    assert.equal(checkPlan.toolPolicy.allow.includes("write"), false);
     assert.equal(checkPlan.sections.find((section) => section.kind === "role").path, ".knit/agents/check.md");
-    // advisory 继续读 .knit/agents/advisory.md，可缺省；交付不再有 worker 角色文件。
-    const advisoryPlan = await planner.plan({ dir, taskId: task.taskId, role: "advisory" });
-    assert.equal(advisoryPlan.ready, true, "advisory 角色文件可缺省");
-    assert.equal(advisoryPlan.sections.some((section) => section.kind === "role"), false);
-    assert.equal(advisoryPlan.toolPolicy.mode, "read");
+    assert.match(checkPlan.stageBrief, /流程：准备 → 实现 → 检查 → 收尾 ｜ 当前：检查/);
+    assert.match(checkPlan.stageBrief, /本步目标：独立核对完成条件与实现成果/);
+    assert.equal(checkPlan.sections.some((section) => section.sourceId.startsWith("workflow:")), false, "不再注入 workflow.md");
+    // 阶段必须在生效流程中；advisory 不再作为阶段。
+    await assert.rejects(
+      () => planner.plan({ dir, taskId: task.taskId, stage: "advisory" }),
+      /阶段不在生效流程中/,
+    );
 
     // 任务候选规范只作背景，不改变需求摘要（DESIGN.md 第8.2节：任务辅助资料 standards.md）。
     const candidateBase = {
@@ -444,11 +448,12 @@ test("context：分层输入、规范／角色指纹、草案与候选只作背�
     const afterRecord = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
     assert.equal(afterRecord.inputsDigest, before.inputsDigest);
 
-    // 角色文件缺失：必需角色不就绪，计划不标 ready。
+    // 阶段提示词缺失：用核心默认指令，不阻断计划。
     rmSync(join(dir, ".knit", "agents", "implement.md"));
     const missingRole = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
-    assert.equal(missingRole.ready, false);
-    assert.ok(missingRole.blockers.includes("role_file_missing:implement"));
+    assert.equal(missingRole.ready, true);
+    assert.equal(missingRole.sections.some((section) => section.kind === "role"), false);
+    assert.ok(missingRole.excluded.some((item) => item.reason === "stage_prompt_file_missing"));
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

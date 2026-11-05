@@ -15,12 +15,15 @@ import {
   type ToolPolicy,
 } from "../contracts/context-plan.js";
 import type { SessionRole } from "../contracts/session.js";
-import { inputsDigestOf, inputsRegionOf, progressRegionOf, stripStatusFields } from "../contracts/task-inputs.js";
+import { inputsDigestOf, inputsRegionOf, legacyPhaseToStage, progressRegionOf, stripStatusFields } from "../contracts/task-inputs.js";
+import { isWorkflowAnchor, type ToolCapability } from "../contracts/workflow.js";
 import { PROJECT_CANDIDATES_FILE, parseCandidates } from "../contracts/standards.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
+import { loadWorkflow, stageBriefOf, workflowStageOf } from "./workflow.js";
+import type { WorkflowStage } from "../domain/workflow.js";
 import { locateTaskDocument } from "./task-service.js";
 import { effectiveIdentityDigest, formalStandardFiles, formalStandardsDigest } from "./standards.js";
 import { readTaskMaterial, researchDigestSummary, snapshotTaskMaterials } from "./task-materials.js";
@@ -38,7 +41,10 @@ export interface ContextPlannerOptions {
 export interface ContextPlanInput {
   dir: string;
   taskId: string;
-  role: SessionRole;
+  /** 阶段 id：内置锚点或 `.knit/workflow.yaml` 声明的阶段。 */
+  stage?: string;
+  /** 兼容旧调用；等同 `stage`。 */
+  role?: SessionRole;
   /** 明确授权为成果的正式规范路径（.knit/standards/ 下，任务037）；空表示无授权。 */
   authorizedStandardPaths?: string[];
   /** 已冻结的授权成果（来自 run 请求）；给定时优先于磁盘当前内容（任务037）。 */
@@ -59,12 +65,46 @@ interface SectionInput {
   identityContent?: string | null;
 }
 
-function toolPolicyFor(role: SessionRole): ToolPolicy {
-  if (role === "implement" || role === "check") {
-    // 检查可在既定范围内直接修复；advisory 仍只读。
-    return { mode: "write", allow: ["read", "write", "edit", "bash", "task"], deny: [] };
+const ALL_PI_TOOLS = ["read", "grep", "find", "ls", "write", "edit", "bash", "knit_*"];
+
+/** 能力 → Pi 工具名／模式（设计 §7）；`external`／`network` 只影响启动开关。 */
+const CAPABILITY_TOOLS: Record<ToolCapability, readonly string[]> = {
+  read: ["read", "grep", "find", "ls"],
+  write: ["write", "edit"],
+  exec: ["bash"],
+  task: ["knit_*"],
+  external: [],
+  network: [],
+};
+
+function toolPolicyFor(stage: WorkflowStage | null, fallback: boolean): ToolPolicy {
+  // 降级流程不套阶段配置：默认 agent 行为，能力全部放开。
+  if (stage === null && fallback) {
+    return { mode: "write", allow: [...ALL_PI_TOOLS], deny: [], capabilities: null };
   }
-  return { mode: "read", allow: ["read", "bash", "task"], deny: ["write", "edit"] };
+  // 锚点没有阶段工具声明：保守只读。
+  if (stage === null) {
+    return {
+      mode: "read",
+      allow: ["read", "grep", "find", "ls"],
+      deny: ["write", "edit", "bash"],
+      capabilities: ["read"],
+    };
+  }
+  if (stage.tools === null) {
+    return { mode: "write", allow: [...ALL_PI_TOOLS], deny: [], capabilities: null };
+  }
+  const capabilities = [...stage.tools];
+  const allow = [...new Set(capabilities.flatMap((capability) => CAPABILITY_TOOLS[capability]))];
+  const deny: string[] = [];
+  if (!capabilities.includes("write")) deny.push("write", "edit");
+  if (!capabilities.includes("exec")) deny.push("bash");
+  const mode = capabilities.includes("write") || capabilities.includes("exec") ? "write" : "read";
+  return { mode, allow, deny, capabilities };
+}
+
+function resolveStage(input: ContextPlanInput): string {
+  return legacyPhaseToStage(input.stage ?? input.role ?? "implement");
 }
 
 function readText(path: string): string | null {
@@ -184,31 +224,33 @@ export class ContextPlanner {
       identityContent: stripStatusFields(inputsBody),
     });
 
-    const workflow = readText(join(root, ".knit", "workflow.md"));
-    if (workflow !== null) {
-      sections.push({
-        sourceId: "workflow:.knit/workflow.md",
-        kind: "workflow",
-        path: ".knit/workflow.md",
-        content: workflow,
-        required: true,
-        background: false,
-        countsTowardInputs: true,
-        priority: 20,
-        mode: "system",
-      });
-    } else {
-      excluded.push({ sourceId: "workflow:.knit/workflow.md", path: ".knit/workflow.md", reason: "file_missing" });
+    // 生效流程：阶段名／说明／提示词／能力都来自配置；流程配置本身不进 inputsDigest。
+    const loaded = loadWorkflow(root);
+    const stage = resolveStage(input);
+    const stageDefinition = workflowStageOf(loaded.workflow, stage);
+    // 降级流程允许旧阶段值在途跑完；正常配置只接受锚点或已声明阶段。
+    if (
+      stageDefinition === null &&
+      !isWorkflowAnchor(stage) &&
+      !(loaded.mode === "fallback" && loaded.workflow.stages.length === 0)
+    ) {
+      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${stage}`);
     }
+    const stageBrief = stageBriefOf(loaded.workflow, stage, loaded.mode, loaded.validation.reason);
 
-    const roleFile = `.knit/agents/${input.role}.md`;
-    const roleContent = readText(join(root, roleFile));
-    const roleRequired = input.role === "implement" || input.role === "check";
-    if (roleContent !== null) {
+    // 阶段提示词：配置显式声明 prompt 才注入；缺失时用核心默认 agent 指令，不阻断。
+    // 降级流程为在途旧 run 保留旧角色提示词路径，避免流程降级本身使冻结输入失效。
+    const promptPath =
+      stageDefinition?.prompt ??
+      (loaded.mode === "fallback" && !isWorkflowAnchor(stage) && loaded.workflow.stages.length === 0
+        ? `.knit/agents/${stage}.md`
+        : null);
+    const roleContent = promptPath === null ? null : readText(join(root, promptPath));
+    if (promptPath !== null && roleContent !== null) {
       sections.push({
-        sourceId: `role:${input.role}`,
+        sourceId: `role:${stage}`,
         kind: "role",
-        path: roleFile,
+        path: promptPath,
         content: roleContent,
         required: true,
         background: false,
@@ -216,11 +258,11 @@ export class ContextPlanner {
         priority: 30,
         mode: "system",
       });
-    } else {
+    } else if (promptPath !== null) {
       excluded.push({
-        sourceId: `role:${input.role}`,
-        path: roleFile,
-        reason: roleRequired ? "role_file_missing" : "optional_role_file_missing",
+        sourceId: `role:${stage}`,
+        path: promptPath,
+        reason: "stage_prompt_file_missing",
       });
     }
 
@@ -410,9 +452,6 @@ export class ContextPlanner {
 
     const blockers: string[] = [];
     if (!resolved.some((section) => section.kind === "task-inputs")) blockers.push("task_inputs_missing");
-    if (roleRequired && !resolved.some((section) => section.kind === "role")) {
-      blockers.push(`role_file_missing:${input.role}`);
-    }
     if (!resolved.some((section) => section.kind === "standard" && section.required)) {
       blockers.push("standards_missing");
     }
@@ -420,10 +459,12 @@ export class ContextPlanner {
     return {
       planId: newContextPlanId(this.randomHex),
       taskId: input.taskId,
-      role: input.role,
+      role: stage,
+      stageBrief,
       inputsDigest,
       standardsDigest,
-      // 整体身份覆盖全部 countsTowardInputs 分节：工作流、角色、运行指令变化同样使旧凭据过期（任务031）。
+      // 整体身份覆盖全部 countsTowardInputs 分节：阶段提示词、运行指令变化同样使旧凭据过期（任务031）。
+      // 流程配置（阶段顺序／名称／能力）不进摘要：流程重排不使已有凭据过期（设计 §8）。
       // task-inputs 分节用去状态正文参与身份：阶段转移／交付收尾不使刚通过的检查立即 stale（DESIGN §3.8）。
       effectiveInputsDigest: effectiveIdentityDigest(
         inputsDigest,
@@ -439,7 +480,7 @@ export class ContextPlanner {
       createdAt: this.now().toISOString(),
       ready: blockers.length === 0,
       blockers,
-      toolPolicy: toolPolicyFor(input.role),
+      toolPolicy: toolPolicyFor(stageDefinition, loaded.mode === "fallback"),
       authorizedStandardOutputs: authorizedOutputs,
     };
   }

@@ -7,7 +7,13 @@ import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CheckFile, RunRequestFile, RunResultFile, ScopeFile, StageReport } from "../contracts/run.js";
+import type {
+  CheckFile,
+  RunRequestFile,
+  RunResultFile,
+  ScopeFile,
+  StageReport,
+} from "../contracts/run.js";
 import type { ContextPlan } from "../contracts/context-plan.js";
 import type { AcceptanceJournal, AcceptanceState } from "../contracts/acceptance.js";
 import type { TaskBinding } from "../contracts/metadata.js";
@@ -18,7 +24,16 @@ import { entryDrifts, loadScope, mergeScope, scopeEntriesCurrent } from "./scope
 import { currentBranch } from "./delivery.js";
 import { executionRouteOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
-import { workflowOf } from "./workflow.js";
+import { workflowOf, workflowStageOf } from "./workflow.js";
+import {
+  isDecisionStage,
+  reportBoolean,
+  reportCoverageOf,
+  reportString,
+  reportVerdictOf,
+  validateReportForStage,
+} from "../domain/report.js";
+import type { WorkflowStage } from "../domain/workflow.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
 import { repairDecision } from "../domain/repair.js";
@@ -82,7 +97,7 @@ export class RunAcceptanceService {
     const operation = await this.store.operations.get(operationId);
     if (operation?.state === "completed") {
       if (result?.state === "completed") this.reconcileState(runs, request);
-      const journalStage = runs.readAcceptanceJournal(request.runId)?.target.stage ?? request.phase;
+      const journalStage = runs.readAcceptanceJournal(request.runId)?.target.stage;
       runs.removeAcceptanceJournal(request.runId);
       return {
         runId: request.runId,
@@ -90,8 +105,8 @@ export class RunAcceptanceService {
         duplicate: true,
         reason: operation.reason ?? null,
         operationId,
-        phase: acceptedPhase(request, operation.reason ?? null, journalStage),
-        verdict: result?.report?.verdict ?? null,
+        phase: acceptedPhase(root, request, journalStage),
+        verdict: result?.report ? reportString(result.report, "verdict") : null,
       };
     }
     if (result === null) {
@@ -121,8 +136,8 @@ export class RunAcceptanceService {
           duplicate: true,
           reason: currentOperation.reason ?? null,
           operationId,
-          phase: acceptedPhase(request, currentOperation.reason ?? null, runs.readAcceptanceJournal(request.runId)?.target.stage),
-          verdict: result?.report?.verdict ?? null,
+          phase: acceptedPhase(root, request, runs.readAcceptanceJournal(request.runId)?.target.stage),
+          verdict: result?.report ? reportString(result.report, "verdict") : null,
         };
       }
       if (result === null) {
@@ -147,13 +162,8 @@ export class RunAcceptanceService {
           reason: `run_${result.state}`,
           operationId,
           phase: request.phase,
-          verdict: result.report?.verdict ?? null,
+          verdict: result.report ? reportString(result.report, "verdict") : null,
         };
-      }
-      if (request.phase === "advisory") {
-        await this.store.operations.save({ operationId, kind: "run.acceptance", state: "completed", reason: "advisory", recordedAt: this.now().toISOString() });
-        this.reconcileState(runs, request);
-        return { runId: request.runId, accepted: true, duplicate: false, reason: "advisory", operationId, phase: request.phase, verdict: null };
       }
       const accepted = await this.acceptStage(root, runs, request, result, operationId);
       if (accepted.accepted) this.reconcileState(runs, request);
@@ -184,11 +194,10 @@ export class RunAcceptanceService {
     const inputs = runs.readInputs(request.runId);
     if (inputs === null) return this.attention(operationId, request, "inputs_missing", result);
 
-    const role = request.phase === "advisory" ? "advisory" : request.phase;
     const plan = await new ContextPlanner({ store: this.store, now: this.now, randomHex: this.randomHex }).plan({
       dir: executionDir,
       taskId: request.taskId,
-      role,
+      stage: request.phase,
       // 授权规范成果以冻结旧版本参与输入身份；新内容按成果核查（任务037）。
       authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
       authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
@@ -205,7 +214,7 @@ export class RunAcceptanceService {
       return this.attention(operationId, request, "branch_changed", result);
     }
     // 结果接收前核对执行目录的实际检出分支；结果待接收期间换分支不接收（任务028）。
-    if (request.phase !== "advisory" && request.expected.branch !== null) {
+    if (request.expected.branch !== null) {
       const liveBranch = currentBranch(executionDir);
       if (liveBranch !== request.expected.branch) {
         return this.attention(operationId, request, "branch_changed", result);
@@ -286,18 +295,27 @@ export class RunAcceptanceService {
     }
 
     const workflow = workflowOf(executionDir);
-    if (request.phase === "implement") {
+    const stage = workflowStageOf(workflow, request.phase);
+    if (stage === null && workflow.stages.length > 0) {
+      return this.attention(operationId, request, "stage_not_in_workflow", result);
+    }
+    // 降级流程无阶段声明：在途旧 run 仍按旧固定报告字段接收（设计 §9）。
+    const effectiveStage = stage ?? legacyStageOf(request.phase);
+    const decision = isDecisionStage(effectiveStage);
+    const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
+    const actualSet = new Set(actualChangedPaths);
+    const validation = validateReportForStage(effectiveStage, report, actualChangedPaths);
+    if (!validation.ok) {
+      return this.attention(operationId, request, validation.reason ?? "report_invalid", result);
+    }
+
+    if (!decision) {
       const next = transition(workflow, facts, { kind: "implementationAccepted" });
       if (isTransitionRefusal(next)) {
         if (next.stopReason !== undefined) {
           await this.store.bindings.save({ ...binding, stopReason: next.stopReason });
         }
         return this.attention(operationId, request, next.reason, result);
-      }
-      const reported = new Set((report.changedPaths ?? []).map(normalizePath));
-      const actual = new Set(result.actualChangedPaths.map(normalizePath));
-      if (reported.size !== actual.size || [...actual].some((path) => !reported.has(path))) {
-        return this.attention(operationId, request, "changed_paths_mismatch", result);
       }
       if (result.actualEntries !== undefined) {
         // 接收前按当前事实重核发布时指纹：路径、类型、模式和内容，检查窗口的改动不接收（STATES.md 第8节，任务027）。
@@ -308,7 +326,7 @@ export class RunAcceptanceService {
       const nextScope = mergeScope(scope, {
         runId: request.runId,
         taskId: request.taskId,
-        paths: [...actual],
+        paths: actualChangedPaths,
         root: executionDir,
         now: this.now().toISOString(),
       });
@@ -356,34 +374,29 @@ export class RunAcceptanceService {
       return this.applyJournal(root, executionDir, routeState, runs, request, result, journal);
     }
 
-    // check
-    const verdict = report.verdict;
-    if (verdict === undefined) return this.attention(operationId, request, "report_verdict_missing", result);
-    const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
-    const reportedChangedPaths = (report.changedPaths ?? []).map(normalizePath);
-    const reportedSet = new Set(reportedChangedPaths);
-    const actualSet = new Set(actualChangedPaths);
-    /* 检查者直接修复时报告必须与实际改动一致；无修改时可缺省 changedPaths。 */
-    if (
-      (actualSet.size > 0 || reportedSet.size > 0) &&
-      (reportedSet.size !== actualSet.size || [...actualSet].some((path) => !reportedSet.has(path)))
-    ) {
-      return this.attention(operationId, request, "changed_paths_mismatch", result);
-    }
-    const coverage = (report.coverage ?? []).map(normalizePath);
-    // 检查报告常用“路径：说明”形式；路径前缀命中即视为覆盖，不要求逐字相等。
-    const uncovered = scope.entries
-      .map((entry) => entry.path)
-      .filter((path) => {
-        const normalized = normalizePath(path);
-        return !coverage.some((item) => {
-          if (item === normalized) return true;
-          if (!item.startsWith(normalized)) return false;
-          // 路径后必须是分隔／说明文字；避免 app.txt 命中 app.txt.bak。
-          return !/[A-Za-z0-9._/-]/.test(item[normalized.length] ?? "");
+    // 结论阶段：枚举值决定 onVerdict 跳转；未命中走配置顺序下一阶段。
+    const verdict = reportVerdictOf(effectiveStage, report);
+    if (verdict === null) return this.attention(operationId, request, "report_verdict_missing", result);
+    const coverageDeclared =
+      effectiveStage !== null && Object.prototype.hasOwnProperty.call(effectiveStage.report, "coverage");
+    if (coverageDeclared) {
+      const coverage = (reportCoverageOf(effectiveStage, report) ?? []).map(normalizePath);
+      // 检查报告常用“路径：说明”形式；路径前缀命中即视为覆盖，不要求逐字相等。
+      const uncovered = scope.entries
+        .map((entry) => entry.path)
+        .filter((path) => {
+          const normalized = normalizePath(path);
+          return !coverage.some((item) => {
+            if (item === normalized) return true;
+            if (!item.startsWith(normalized)) return false;
+            // 路径后必须是分隔／说明文字；避免 app.txt 命中 app.txt.bak。
+            return !/[A-Za-z0-9._/-]/.test(item[normalized.length] ?? "");
+          });
         });
-      });
-    if (uncovered.length > 0) return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
+      if (uncovered.length > 0) {
+        return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
+      }
+    }
     const next = transition(workflow, facts, { kind: "stageAccepted", verdict });
     if (isTransitionRefusal(next)) {
       if (next.stopReason !== undefined) {
@@ -415,6 +428,7 @@ export class RunAcceptanceService {
             now: this.now().toISOString(),
           })
         : scope;
+    const selfVerified = reportBoolean(report, "selfVerified");
     const check: CheckFile = {
       schemaVersion: 1,
       taskId: request.taskId,
@@ -423,7 +437,7 @@ export class RunAcceptanceService {
       verdict,
       report,
       ...(actualChangedPaths.length > 0 ? { changedPaths: actualChangedPaths } : {}),
-      ...(report.selfVerified !== undefined ? { selfVerified: report.selfVerified } : {}),
+      ...(selfVerified !== null ? { selfVerified } : {}),
       inputsDigest: inputs.inputsDigest,
       standardsDigest: inputs.standardsDigest,
       effectiveInputsDigest: inputs.effectiveInputsDigest,
@@ -665,7 +679,7 @@ export class RunAcceptanceService {
       reason,
       operationId,
       phase: request.phase,
-      verdict: result?.report?.verdict ?? null,
+      verdict: result?.report ? reportString(result.report, "verdict") : null,
     };
   }
 
@@ -689,11 +703,50 @@ export class RunAcceptanceService {
   }
 }
 
-function acceptedPhase(request: RunRequestFile, reason: string | null, journalPhase?: string): string {
+/** 降级流程的旧报告字段兼容：只在 workflow.stages 为空时使用，不参与新阶段流转。 */
+function legacyStageOf(phase: string): WorkflowStage | null {
+  const base: Omit<WorkflowStage, "id" | "name" | "report" | "onVerdict"> = {
+    description: null,
+    prompt: null,
+    tools: null,
+    maxVisits: null,
+  };
+  if (phase === "implement") {
+    return {
+      ...base,
+      id: "implement",
+      name: "实现",
+      report: { changedPaths: "paths", unverified: "string[]" },
+      onVerdict: {},
+    };
+  }
+  if (phase === "check") {
+    return {
+      ...base,
+      id: "check",
+      name: "检查",
+      report: {
+        verdict: ["pass", "changes_requested", "blocked"],
+        coverage: "string[]",
+        changedPaths: "paths",
+        selfVerified: "bool",
+        findings: "string[]",
+        unverified: "string[]",
+      },
+      onVerdict: { changes_requested: "implement", blocked: "check" },
+    };
+  }
+  return null;
+}
+
+/** 重复接收的读数：优先检查点目标，其次当前 Task 阶段；找不到任务时退回请求阶段。 */
+function acceptedPhase(root: string, request: RunRequestFile, journalPhase?: string): string {
   if (journalPhase !== undefined) return journalPhase;
-  if (reason === "implementation_accepted") return "check";
-  if (reason !== null && reason.startsWith("check_")) return "deliver";
-  return request.phase;
+  try {
+    return locateTaskDocument(root, request.taskId).document.frontmatter.stage;
+  } catch {
+    return request.phase;
+  }
 }
 
 function stateOf(document: ReturnType<typeof parseTaskDocument>): AcceptanceState {

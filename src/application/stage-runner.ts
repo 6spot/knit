@@ -21,10 +21,10 @@ import { PROTOCOL_VERSION } from "../contracts/protocol.js";
 import {
   PiAgentRuntime,
   buildRuntimeOptions,
+  capabilitySwitches,
   checkNativeSessionFile,
   decideResume,
   findStageSessionFile,
-  isolatedEnv,
   readEntryRange,
   readLeafEntryId,
   type ResumeDecision,
@@ -41,9 +41,12 @@ import {
   buildUserPrompt,
   loadSectionContents,
   parseStageReport,
-  validateReportForPhase,
 } from "./stage.js";
 import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
+import { loadWorkflow, workflowStageOf } from "./workflow.js";
+import { isDecisionStage, validateReportForStage } from "../domain/report.js";
+import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
+import type { ToolCapability } from "../contracts/workflow.js";
 import { currentEntry } from "./scope.js";
 import { RexLauncher, type RexExecution, type RexLauncherOptions } from "./rex-launcher.js";
 
@@ -79,14 +82,11 @@ export interface StageExecution {
   session: RunSessionRecord | null;
 }
 
-const PI_TOOL_NAMES = ["read", "write", "edit", "bash", "grep", "find", "ls"];
-
 /** 启动诊断尾部上限；启动发生在任何 prompt 之前，stderr 不含消息正文，只防超长。 */
 const START_DIAGNOSTICS_TAIL_LIMIT = 4_000;
 
-function roleOf(request: RunRequestFile): "implement" | "check" | "advisory" {
-  return request.phase === "advisory" ? "advisory" : request.phase;
-}
+/** 阶段声明的 task 能力需要的项目扩展；缺失时明确失败，不静默降级。 */
+const KNIT_EXTENSION_PATH = [".pi", "extensions", "knit.ts"] as const;
 
 /** 目录相等：别名解析后比较；路径已不存在时退到词法比较（不因现场缺失改变恢复判断）。 */
 function sameDir(a: string, b: string): boolean {
@@ -97,13 +97,69 @@ function sameDir(a: string, b: string): boolean {
   }
 }
 
-function toolsFor(request: RunRequestFile, plan: ContextPlan): string[] {
-  const allowed = plan.toolPolicy.allow.filter((name) => PI_TOOL_NAMES.includes(name));
-  // 正式检查可在既定范围内直接修复；advisory 仍只读。
-  if (request.phase === "advisory") {
-    return allowed.filter((name) => !["write", "edit"].includes(name));
+interface StageRuntimeTools {
+  tools: string[] | null;
+  toolAdditions: string[];
+  excludeTools: string[];
+  capabilities: readonly ToolCapability[] | null;
+  extensionPaths: string[];
+}
+
+const BUILTIN_TOOL_NAMES = ["read", "grep", "find", "ls", "write", "edit", "bash", "powershell"];
+const KNIT_TOOL_NAMES = [
+  "knit_task",
+  "knit_context",
+  "knit_run",
+  "knit_deliver",
+  "knit_standards",
+  "knit_workflow",
+];
+
+/** 工具能力 → `--tools` 与扩展路径；capabilities 为 null 表示全部放开。 */
+function stageRuntimeTools(plan: ContextPlan, executionDir: string): StageRuntimeTools {
+  const capabilities = plan.toolPolicy.capabilities;
+  if (capabilities === null) {
+    return {
+      tools: null,
+      toolAdditions: [],
+      excludeTools: [],
+      capabilities: null,
+      extensionPaths: [],
+    };
   }
-  return allowed;
+  const list = capabilities ?? [];
+  const extensionPaths: string[] = [];
+  if (list.includes("task")) {
+    const extensionPath = resolve(executionDir, ...KNIT_EXTENSION_PATH);
+    if (!existsSync(extensionPath)) {
+      throw new InfrastructureError(
+        "tool_capability_unavailable",
+        `阶段声明了 task 能力，但项目扩展不存在: ${extensionPath}`,
+      );
+    }
+    extensionPaths.push(extensionPath);
+  }
+  if (list.includes("external")) {
+    // external 要让未知扩展工具保持可见：用只增项 + 明确排除内置工具，而不是 allowlist。
+    const wanted = new Set(plan.toolPolicy.allow);
+    const additions = BUILTIN_TOOL_NAMES.filter((name) => wanted.has(name));
+    if (list.includes("task")) additions.push(...KNIT_TOOL_NAMES);
+    const excludeTools = BUILTIN_TOOL_NAMES.filter((name) => !wanted.has(name));
+    return {
+      tools: null,
+      toolAdditions: additions,
+      excludeTools,
+      capabilities: list,
+      extensionPaths,
+    };
+  }
+  return {
+    tools: plan.toolPolicy.allow,
+    toolAdditions: [],
+    excludeTools: [],
+    capabilities: list,
+    extensionPaths,
+  };
 }
 
 function diffSignatures(before: WorktreeSignature, after: WorktreeSignature): string[] {
@@ -157,6 +213,9 @@ export class StageRunner {
   private readonly lostOwnership: (() => string | null) | null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
   private readonly rexLauncherFactory: NonNullable<StageRunnerOptions["rexLauncherFactory"]>;
+  private readonly workflow: WorkflowDefinition;
+  private readonly workflowMode: "config" | "fallback";
+  private readonly stage: WorkflowStage | null;
 
   constructor(options: StageRunnerOptions) {
     this.root = options.root;
@@ -177,25 +236,34 @@ export class StageRunner {
     this.lostOwnership = options.lostOwnership ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
     this.rexLauncherFactory = options.rexLauncherFactory ?? ((launcherOptions) => new RexLauncher(launcherOptions));
+    const loaded = loadWorkflow(this.executionDir);
+    this.workflow = loaded.workflow;
+    this.workflowMode = loaded.mode;
+    this.stage = workflowStageOf(this.workflow, this.request.phase);
   }
 
   async execute(): Promise<StageExecution> {
-    const role = roleOf(this.request);
+    const stageId = this.request.phase;
+    if (this.stage === null && this.workflow.stages.length > 0) {
+      throw new InfrastructureError("stage_not_in_workflow", `阶段不在生效流程中: ${stageId}`);
+    }
+    const workStage = this.stage !== null ? !isDecisionStage(this.stage) : stageId !== "check";
     const scope = this.runs.readScope(this.request.taskId);
     const binding = await this.store.bindings.get(this.request.taskId);
     const previousImplement = await this.previousImplementResult(binding?.lastRunIds ?? []);
     const contents = loadSectionContents(this.executionDir, this.plan, binding?.pendingDraft?.content ?? null);
-    const systemPrompt = buildSystemPrompt(this.plan, this.request.phase, contents);
-    const userPrompt = buildUserPrompt(this.plan, this.request.phase, contents, {
+    const systemPrompt = buildSystemPrompt(this.plan, this.stage, contents);
+    const userPrompt = buildUserPrompt(this.plan, this.stage, contents, {
       taskId: this.request.taskId,
       runId: this.request.runId,
       branch: this.request.expected.branch,
-      snapshotDir: this.request.phase === "implement" ? join(this.runs.runDir(this.request.runId), "snapshot") : null,
+      snapshotDir: workStage ? join(this.runs.runDir(this.request.runId), "snapshot") : null,
       scope: scope?.entries.map((entry) => entry.path) ?? [],
       previousImplement,
     });
 
-    let session: PreparedSession = await this.prepareSession(role);
+    const runtimeTools = stageRuntimeTools(this.plan, this.executionDir);
+    let session: PreparedSession = await this.prepareSession(stageId);
     let sessionLock: AcquiredLock | null = null;
     let runtime: PiAgentRuntime | null = null;
     let processStartedAt: string | null = null;
@@ -204,7 +272,7 @@ export class StageRunner {
       const locks = this.locks;
       const acquireSessionLock = () => locks.acquire({
         keys: [{ scope: "session", rawKey: `pi:${session.nativeSessionId}` }],
-        action: `stage.${role}`,
+        action: `stage.${stageId}`,
       });
       try {
         sessionLock = await acquireSessionLock();
@@ -234,7 +302,7 @@ export class StageRunner {
     }
     try {
     if (this.request.presentation === "rex") {
-      return await this.executeRexStage(session, systemPrompt, userPrompt);
+      return await this.executeRexStage(session, systemPrompt, userPrompt, runtimeTools);
     }
     const sessionDir = join(this.root, ".knit", ".runtime", "pi-sessions");
     processStartedAt = this.now().toISOString();
@@ -245,11 +313,14 @@ export class StageRunner {
           executablePath: this.piExecutable,
           provider: this.request.model.provider,
           modelId: this.request.model.model,
-          tools: toolsFor(this.request, this.plan),
+          tools: runtimeTools.tools,
+          toolAdditions: runtimeTools.toolAdditions,
+          excludeTools: runtimeTools.excludeTools,
+          capabilities: runtimeTools.capabilities,
+          extensionPaths: runtimeTools.extensionPaths,
           cwd: this.executionDir,
           sessionDir,
           appendSystemPrompt: systemPrompt,
-          env: isolatedEnv(),
         },
         session.decision,
       ),
@@ -308,11 +379,14 @@ export class StageRunner {
             executablePath: this.piExecutable,
             provider: this.request.model.provider,
             modelId: this.request.model.model,
-            tools: toolsFor(this.request, this.plan),
+            tools: runtimeTools.tools,
+            toolAdditions: runtimeTools.toolAdditions,
+            excludeTools: runtimeTools.excludeTools,
+            capabilities: runtimeTools.capabilities,
+            extensionPaths: runtimeTools.extensionPaths,
             cwd: this.executionDir,
             sessionDir,
             appendSystemPrompt: systemPrompt,
-            env: isolatedEnv(),
           },
           fallbackDecision,
         ),
@@ -498,7 +572,7 @@ export class StageRunner {
     });
   }
 
-  private async prepareSession(role: "implement" | "check" | "advisory"): Promise<PreparedSession> {
+  private async prepareSession(role: string): Promise<PreparedSession> {
     const expected = this.request.recovery.nativeSessionId;
     const existing =
       expected === null ? null : await this.store.sessions.get({ client: "pi", nativeSessionId: expected, role });
@@ -655,7 +729,10 @@ export class StageRunner {
   private async previousImplementResult(runIds: string[]): Promise<{ summary: string | null; changedPaths: string[] } | null> {
     for (const runId of [...runIds].reverse()) {
       const request = this.runs.readRequest(runId);
-      if (request?.phase !== "implement") continue;
+      if (request === null) continue;
+      const stage = workflowStageOf(this.workflow, request.phase);
+      const workStage = stage === null ? request.phase === "implement" : !isDecisionStage(stage);
+      if (!workStage) continue;
       const result = this.runs.readResult(runId);
       if (result?.state !== "completed") continue;
       return { summary: result.reportSummary, changedPaths: result.actualChangedPaths };
@@ -671,6 +748,7 @@ export class StageRunner {
     session: PreparedSession,
     systemPrompt: string,
     userPrompt: string,
+    runtimeTools: StageRuntimeTools,
   ): Promise<StageExecution> {
     const processStartedAt = this.now().toISOString();
     this.writeStageProcess(session, "starting", null, processStartedAt);
@@ -703,7 +781,11 @@ export class StageRunner {
       sessionFile: session.sessionFile,
       provider: this.request.model.provider,
       modelId: this.request.model.model,
-      tools: toolsFor(this.request, this.plan),
+      tools: runtimeTools.tools,
+      toolAdditions: runtimeTools.toolAdditions,
+      excludeTools: runtimeTools.excludeTools,
+      capabilities: runtimeTools.capabilities,
+      toolExtensionPaths: runtimeTools.extensionPaths,
       systemPrompt,
       userPrompt,
       cwd: this.executionDir,
@@ -870,38 +952,21 @@ export class StageRunner {
     if (protectedPaths.length > 0) {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
-    if (this.request.phase === "advisory" && changedPaths.length > 0) {
+    const parsed = parseStageReport(text);
+    if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
+    const validation = validateReportForStage(this.stage, parsed.report, changedPaths);
+    if (!validation.ok) {
+      const actualPaths = [...new Set(changedPaths.map(normalizePath))].sort();
       return this.failure(
         session,
-        `advisory_side_effects:${changedPaths.join(",")}`,
+        validation.reason ?? "report_invalid",
         usage,
         nativeEntries,
         sessionFile,
         text,
+        parsed.report,
+        actualPaths,
       );
-    }
-
-    const parsed = parseStageReport(text);
-    if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
-    const validation = validateReportForPhase(this.request.phase, parsed.report, changedPaths);
-    if (!validation.ok) return this.failure(session, validation.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report);
-
-    if (this.request.phase === "implement" || this.request.phase === "check") {
-      const reportedPaths = parsed.report.changedPaths ?? [];
-      const reported = new Set(reportedPaths.map(normalizePath));
-      const actual = new Set(changedPaths.map(normalizePath));
-      // check 无修改时可缺省 changedPaths；一旦任一侧有路径，就必须与实际 diff 完全一致。
-      const compare = this.request.phase === "implement" || actual.size > 0 || reported.size > 0;
-      if (compare && (reported.size !== actual.size || [...actual].some((path) => !reported.has(path)))) {
-        // 失败原因直接带实际 diff 路径清单；零 diff（基线已含改动／重派无改动）显式标注为 zero_diff，
-        // 便于排障时区分「报告路径写错」与「基线未还原导致无法再产生差异」。
-        const actualPaths = [...actual].sort();
-        const reason =
-          actualPaths.length === 0
-            ? "changed_paths_mismatch:zero_diff"
-            : `changed_paths_mismatch:${actualPaths.join(",")}`;
-        return this.failure(session, reason, usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
-      }
     }
 
     return {
@@ -937,6 +1002,7 @@ export class StageRunner {
       recordedAt: this.now().toISOString(),
       failureReason,
       branch: this.request.expected.branch,
+      workflowMode: this.workflowMode,
     };
   }
 
@@ -984,7 +1050,7 @@ interface PreparedSession {
   knitSessionId: string;
   nativeSessionId: string;
   sessionFile: string | null;
-  role: "implement" | "check" | "advisory";
+  role: string;
   decision: ResumeDecision;
   record: SessionRecord;
   status: SessionRecord["status"];

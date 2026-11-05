@@ -19,6 +19,8 @@ import { currentIdentity } from "../infrastructure/process.js";
 import { RunStore, type WorkerIdentity } from "../infrastructure/run-store.js";
 import { ContextPlanner } from "../application/context-planner.js";
 import { RunAcceptanceService } from "../application/run-acceptance.js";
+import { loadWorkflow, workflowStageOf } from "../application/workflow.js";
+import { isDecisionStage, reportString } from "../domain/report.js";
 import { StageRunner, type StageExecution } from "../application/stage-runner.js";
 import { SnapshotService } from "../application/snapshot.js";
 import { parseConfig } from "../application/config.js";
@@ -116,6 +118,7 @@ async function main(): Promise<number> {
     runId: request.runId,
     taskId: request.taskId,
     phase: request.phase,
+    ...(request.workflowMode === undefined ? {} : { workflowMode: request.workflowMode }),
     state: "claimed",
     worker,
     claimedAt,
@@ -138,6 +141,7 @@ async function main(): Promise<number> {
     runId: request.runId,
     taskId: request.taskId,
     phase: request.phase,
+    ...(state.workflowMode === undefined ? {} : { workflowMode: state.workflowMode }),
     state: "failed",
     report: null,
     reportSummary: reason,
@@ -243,24 +247,29 @@ async function main(): Promise<number> {
       return fail("task_missing");
     }
     if (located.archived) return fail("task_archived");
-    if (request.phase !== "advisory" && located.document.frontmatter.stage !== request.phase) {
+    if (located.document.frontmatter.stage !== request.phase) {
       return fail("phase_mismatch");
     }
     // worktree 路由下 frontmatter 保留源分支，不作否决依据；三方核对改用执行分支。
     if (route.state !== "worktree" && located.document.frontmatter.branch !== request.expected.branch) return fail("branch_mismatch");
     // 执行副作用前核对执行目录的实际检出分支；detached HEAD 同样拒绝（任务028）。
-    if (request.phase !== "advisory" && request.expected.branch !== null) {
+    if (request.expected.branch !== null) {
       const liveBranch = currentBranch(executionDir);
       if (liveBranch !== request.expected.branch) return fail("branch_mismatch");
     }
     if (binding.pendingDraft !== null) return fail("pending_inputs");
 
+    const loaded = loadWorkflow(executionDir);
+    const workflow = loaded.workflow;
+    if (state.workflowMode !== loaded.mode) writeState({ ...state, workflowMode: loaded.mode });
+    const stage = workflowStageOf(workflow, request.phase);
+    if (stage === null && workflow.stages.length > 0) return fail("stage_not_in_workflow");
+    const workStage = stage !== null ? !isDecisionStage(stage) : request.phase === "implement";
     const planner = new ContextPlanner({ store: metadata });
-    const role = request.phase === "advisory" ? "advisory" : request.phase;
     const plan = await planner.plan({
       dir: executionDir,
       taskId: request.taskId,
-      role,
+      stage: request.phase,
       authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
       authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
     });
@@ -313,7 +322,7 @@ async function main(): Promise<number> {
     store.appendEvent(request.runId, { event: "inputs_frozen", inputsDigest: plan.inputsDigest });
 
     let snapshot = null;
-    if (request.phase === "implement") {
+    if (workStage) {
       const result = new SnapshotService().create({ root: executionDir, runId: request.runId, maxBytes, runRoot: root });
       snapshot = {
         state: result.manifest.state,
@@ -387,7 +396,7 @@ async function main(): Promise<number> {
     store.appendEvent(request.runId, {
       event: "result_published",
       state: execution.result.state,
-      verdict: execution.result.report?.verdict ?? null,
+      verdict: execution.result.report ? reportString(execution.result.report, "verdict") : null,
     });
     try {
       const acceptance = await acceptResult();

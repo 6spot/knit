@@ -36,6 +36,8 @@ import {
 } from "../adapters/rex/index.js";
 import { type PiProcessExit } from "../adapters/pi/index.js";
 import type { RunPhase, RunUsage } from "../contracts/run.js";
+import type { ToolCapability } from "../contracts/workflow.js";
+import { capabilitySwitches } from "../adapters/pi/runtime.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { procStartTicks, processTreePids, signalProcessTree } from "../infrastructure/process.js";
 
@@ -51,7 +53,14 @@ export interface RexPiCommandInput {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  tools: string[];
+  /** 工具 allowlist；null 表示不限制。 */
+  tools: string[] | null;
+  toolAdditions?: string[];
+  excludeTools?: string[];
+  /** 阶段能力；null 表示全部放开。 */
+  capabilities?: readonly ToolCapability[] | null;
+  /** task 能力需要的项目扩展路径。 */
+  toolExtensionPaths?: string[];
   systemPrompt: string;
   extensionPath: string;
   manifestPath: string;
@@ -76,6 +85,7 @@ export function defaultRexWorkerExtensionPath(): string {
  * 只接收 command/cwd/path_prepend，不接收 env；同时用 -u 清除主会话 PI_* 变量。
  */
 export function buildRexPiArgs(input: RexPiCommandInput): string[] {
+  const switches = capabilitySwitches(input.capabilities);
   const envArgs = [
     "/usr/bin/env",
     "-u",
@@ -88,10 +98,12 @@ export function buildRexPiArgs(input: RexPiCommandInput): string[] {
     "PI_MODEL",
     "-u",
     "PI_REASONING_LEVEL",
+    "-u",
+    "PI_OFFLINE",
     "PI_KNIT_REX_WORKER=1",
     `PI_KNIT_REX_MANIFEST=${input.manifestPath}`,
     `KNIT_RUN=${input.runId}`,
-    "PI_OFFLINE=1",
+    ...(switches.offline ? ["PI_OFFLINE=1"] : []),
     "PI_SKIP_VERSION_CHECK=1",
     "PI_TELEMETRY=0",
     ...(input.agentDir === undefined ? [] : [`PI_CODING_AGENT_DIR=${input.agentDir}`]),
@@ -99,27 +111,33 @@ export function buildRexPiArgs(input: RexPiCommandInput): string[] {
   const args: string[] = [
     "--mode",
     "text",
-    "--offline",
-    "--no-mcp",
-    "--no-skills",
     "--no-context-files",
     "--no-prompt-templates",
     "--no-themes",
     "--no-approve",
-    "--no-extensions",
-    "--extension",
-    input.extensionPath,
-    "--session-dir",
-    input.sessionDir,
   ];
+  if (switches.offline) args.push("--offline");
+  if (!switches.mcp) args.push("--no-mcp");
+  if (!switches.skills) args.push("--no-skills");
+  if (!switches.extensions) args.push("--no-extensions");
+  args.push("--extension", input.extensionPath);
+  for (const extensionPath of input.toolExtensionPaths ?? []) args.push("--extension", extensionPath);
+  args.push("--session-dir", input.sessionDir);
   if (input.sessionFile !== null) {
     args.push("--session", input.sessionFile);
   } else {
     args.push("--session-id", input.sessionId, "--name", "Knit Rex worker");
   }
   args.push("--provider", input.provider, "--model", input.modelId);
-  if (input.tools.length > 0) args.push("--tools", input.tools.join(","));
+  if (input.toolAdditions !== undefined && input.toolAdditions.length > 0) {
+    args.push("--tools", input.toolAdditions.map((name) => `+${name}`).join(","));
+  } else if (input.tools === null) {
+    // 全部放开：不传 --tools，也不传 --no-tools。
+  } else if (input.tools.length > 0) args.push("--tools", input.tools.join(","));
   else args.push("--no-tools");
+  if (input.excludeTools !== undefined && input.excludeTools.length > 0) {
+    args.push("--exclude-tools", input.excludeTools.join(","));
+  }
   if (input.thinkingLevel !== undefined) args.push("--thinking", input.thinkingLevel);
   args.push("--append-system-prompt", input.systemPrompt);
   return [...envArgs, input.executablePath, ...args];
@@ -135,7 +153,11 @@ export interface RexLauncherOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  tools: string[];
+  tools: string[] | null;
+  toolAdditions?: string[];
+  excludeTools?: string[];
+  capabilities?: readonly ToolCapability[] | null;
+  toolExtensionPaths?: string[];
   systemPrompt: string;
   userPrompt: string;
   cwd: string;
@@ -197,7 +219,11 @@ export class RexLauncher {
   private readonly provider: string;
   private readonly modelId: string;
   private readonly thinkingLevel: string | undefined;
-  private readonly tools: string[];
+  private readonly tools: string[] | null;
+  private readonly toolAdditions: string[];
+  private readonly excludeTools: string[];
+  private readonly capabilities: readonly ToolCapability[] | null | undefined;
+  private readonly toolExtensionPaths: string[];
   private readonly systemPrompt: string;
   private readonly userPrompt: string;
   private readonly cwd: string;
@@ -240,6 +266,10 @@ export class RexLauncher {
     this.modelId = options.modelId;
     this.thinkingLevel = options.thinkingLevel;
     this.tools = options.tools;
+    this.toolAdditions = options.toolAdditions ?? [];
+    this.excludeTools = options.excludeTools ?? [];
+    this.capabilities = options.capabilities;
+    this.toolExtensionPaths = options.toolExtensionPaths ?? [];
     this.systemPrompt = options.systemPrompt;
     this.userPrompt = options.userPrompt;
     this.cwd = options.cwd;
@@ -420,6 +450,10 @@ export class RexLauncher {
       modelId: this.modelId,
       thinkingLevel: this.thinkingLevel,
       tools: this.tools,
+      toolAdditions: this.toolAdditions,
+      excludeTools: this.excludeTools,
+      capabilities: this.capabilities,
+      toolExtensionPaths: this.toolExtensionPaths,
       systemPrompt: this.systemPrompt,
       extensionPath: this.extensionPath,
       manifestPath: rexManifestPath(this.runDirectory),

@@ -121,6 +121,9 @@ stages:
     description: 按 task.md 完成产出并运行范围验证
     prompt: .knit/agents/implement.md
     tools: [read, write, exec]
+    report:
+      changedPaths: paths
+      unverified: string[]
   - id: check
     name: 检查
     description: 独立核对完成条件与实现成果
@@ -128,6 +131,11 @@ stages:
     tools: [read, exec]
     report:
       verdict: [pass, changes_requested, blocked]
+      coverage: string[]
+      changedPaths: paths
+      selfVerified: bool
+      findings: string[]
+      unverified: string[]
     onVerdict:
       changes_requested: implement
       # blocked 保留在本阶段复查，不顺序前进。

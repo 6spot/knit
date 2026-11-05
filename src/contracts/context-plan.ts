@@ -1,5 +1,6 @@
-import { arr, bool, int, lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { SessionRoleSchema } from "./session.js";
+import { ToolCapabilitySchema } from "./workflow.js";
 
 /**
  * 上下文计划（DESIGN.md 第8.1节、ARCHITECTURE.md ContextPlanner）。
@@ -9,7 +10,6 @@ import { SessionRoleSchema } from "./session.js";
 export const ContextSectionKindSchema = union([
   lit("task-inputs"),
   lit("progress"),
-  lit("workflow"),
   lit("role"),
   lit("runtime"),
   lit("standard"),
@@ -59,12 +59,18 @@ export const ContextExclusionSchema = obj(
 );
 export type ContextExclusion = Static<typeof ContextExclusionSchema>;
 
-/** 工具策略按角色给出；实施与检查可写（检查限既定范围内修复），advisory 只读。 */
+/**
+ * 工具策略按阶段能力给出（设计 §7）：
+ * - `capabilities: null` = 阶段未写 `tools`，全部放开；
+ * - 其余数组是白名单，`allow` 是展开后的 Pi 工具名／模式，`deny` 供展示与诊断。
+ */
 export const ToolPolicySchema = obj(
   {
     mode: union([lit("write"), lit("read")]),
     allow: arr(str({ minLength: 1 })),
     deny: arr(str({ minLength: 1 })),
+    /** 生效能力白名单；null 表示全部放开，缺省为旧计划（按 allow／deny 解释）。 */
+    capabilities: opt(union([arr(ToolCapabilitySchema), nul()])),
   },
 );
 export type ToolPolicy = Static<typeof ToolPolicySchema>;
@@ -85,6 +91,8 @@ export const ContextPlanSchema = obj(
     planId: str({ minLength: 1, pattern: "^ctx-[0-9a-f]{12}$" }),
     taskId: str({ minLength: 1 }),
     role: SessionRoleSchema,
+    /** 每轮上下文最上方的提示行：流程、当前阶段、本步目标与完成条件。 */
+    stageBrief: opt(str()),
     /** 冻结输入摘要（任务输入区）；背景资料不计入。 */
     inputsDigest: str({ minLength: 1 }),
     /** 正式规范整体摘要；候选、记录与未生效草案不计入。 */

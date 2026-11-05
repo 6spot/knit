@@ -87,7 +87,8 @@ test("校验失败以 JSON Pointer 报出字段路径", () => {
 test("非法枚举被拒绝", () => {
   assert.equal(checkSchema(OutcomeSchema, "ok"), false);
   assert.equal(checkSchema(ReasonCodeSchema, "not_a_reason"), false);
-  assert.equal(checkSchema(RunRequestSchema, { taskId: "t1", phase: "discuss" }), false);
+  // 阶段 id 由流程配置判定；schema 只拒绝不符合阶段 id 语法的值。
+  assert.equal(checkSchema(RunRequestSchema, { taskId: "t1", phase: "Discuss" }), false);
   assert.equal(checkSchema(RunStateSchema, "starting"), false);
   assert.equal(checkSchema(SessionStatusSchema, "closed"), false);
 });

@@ -197,21 +197,18 @@ test("run implement + status --events：真实 worker 终态观察，事件流�
   }
 });
 
-test("assist discuss：advisory worker 只给建议，不推进 Task", () => {
+test("assist discuss：advisory 阶段已撤除，不创建 run、不推进 Task", () => {
   const dir = project("assist");
   try {
     const task = newTask(dir);
-    const action = fakeAction(dir, { report: { summary: "建议先补充完成条件", ready: false } });
     const result = jsonCli(dir, ["assist", "discuss", "--task", task.taskId, "--provider", "fake", "--model", "fake", "--wait"], {
       KNIT_PI_BIN: FAKE_PI,
-      KNIT_FAKE_ACTION: action,
     });
-    assert.equal(result.parsed.outcome, "completed", result.stderr);
-    assert.equal(result.parsed.data.status.state, "completed");
-    assert.equal(result.parsed.data.status.phase, "advisory");
+    assert.equal(result.code, 1);
+    assert.equal(result.parsed.outcome, "error");
     const status = jsonCli(dir, ["status", task.taskId]);
     assert.equal(status.parsed.data.stage, "start", "advisory 不推进业务阶段");
-    assert.equal(status.parsed.data.status, "open");
+    assert.equal(status.parsed.data.runs.length, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -54,13 +54,16 @@ test("默认模板解析为 config 模式并保留全部语义字段", () => {
   assert.equal(implement.description, "按 task.md 完成产出并运行范围验证");
   assert.equal(implement.prompt, ".knit/agents/implement.md");
   assert.deepEqual(implement.tools, ["read", "write", "exec"]);
-  assert.deepEqual(implement.report, {});
+  assert.deepEqual(implement.report, { changedPaths: "paths", unverified: "string[]" });
   assert.deepEqual(implement.onVerdict, {});
   assert.equal(implement.maxVisits, DEFAULT_MAX_REPAIR_ROUNDS);
 
   assert.equal(check.name, "检查");
   assert.deepEqual(check.tools, ["read", "exec"]);
   assert.deepEqual(check.report.verdict, ["pass", "changes_requested", "blocked"]);
+  assert.equal(check.report.coverage, "string[]");
+  assert.equal(check.report.changedPaths, "paths");
+  assert.equal(check.report.selfVerified, "bool");
   assert.deepEqual(check.onVerdict, { changes_requested: "implement", blocked: "check" });
   assert.equal(check.maxVisits, DEFAULT_MAX_REPAIR_ROUNDS);
 });

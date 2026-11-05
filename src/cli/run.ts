@@ -9,6 +9,7 @@ import { resolvePhaseModel } from "../application/model-selection.js";
 import { GuardError } from "../application/guard-error.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
 import type { RunPhase, RunPresentation } from "../contracts/run.js";
+import { reportStringArrayField, reportVerdictLabel } from "../contracts/run.js";
 import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -198,8 +199,9 @@ export function registerRunCommands(program: Command): void {
         else {
           console.log(`run ${prepared.request.runId}: ${phase} 已启动（启动 ${started.launch.state}，准备 ${started.state?.prepared === true}，呈现 ${prepared.request.presentation}/${prepared.request.presentationSource ?? "config"}）`);
           if (options.wait === true) {
-            const status = result.status as { state?: string; result?: { state?: string; report?: { verdict?: string } } } | undefined;
-            console.log(`终态: ${status?.state ?? "未知"}${status?.result?.report?.verdict ? ` / ${status.result.report.verdict}` : ""}`);
+            const status = result.status as { state?: string; result?: { state?: string; report?: import("../contracts/run.js").StageReport } } | undefined;
+            const verdict = status?.result?.report === undefined ? null : reportVerdictLabel(status.result.report);
+            console.log(`终态: ${status?.state ?? "未知"}${verdict === null ? "" : ` / ${verdict}`}`);
           }
         }
       } catch (error) {
@@ -279,8 +281,9 @@ export function registerRunCommands(program: Command): void {
           if (jsonMode()) emit(jsonResponse("run-check", result.state === "completed" ? "completed" : "needs_attention", result));
           else {
             console.log(`非正式检查 ${result.checkId}: ${result.state}`);
-            if (result.report?.verdict) console.log(`结论: ${result.report.verdict}`);
-            for (const item of result.report?.coverage ?? []) console.log(`  ${item}`);
+            const verdict = result.report === null ? null : reportVerdictLabel(result.report);
+            if (verdict !== null) console.log(`结论: ${verdict}`);
+            for (const item of result.report === null ? [] : reportStringArrayField(result.report, "coverage") ?? []) console.log(`  ${item}`);
           }
           if (result.state !== "completed") process.exitCode = 1;
         } catch (error) {
@@ -323,7 +326,7 @@ export function registerRunCommands(program: Command): void {
               if (diag.stderrTail !== "") console.log(diag.stderrTail);
             }
             if (status.result !== null) {
-              console.log(`结果: ${status.result.state}${status.result.report?.verdict ? ` / ${status.result.report.verdict}` : ""}`);
+              console.log(`结果: ${status.result.state}${status.result.report && reportVerdictLabel(status.result.report) ? ` / ${reportVerdictLabel(status.result.report)}` : ""}`);
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
             }
           }

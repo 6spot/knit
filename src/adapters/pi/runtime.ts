@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { checkNativeSessionFile, type NativeFileCheck } from "./native-file.js";
+import type { ToolCapability } from "../../contracts/workflow.js";
 import {
   PiConnectionClosedError,
   PiRpcConnection,
@@ -26,7 +27,16 @@ export interface PiRuntimeOptions {
   provider: string;
   modelId: string;
   thinkingLevel?: string;
-  tools?: string[];
+  /** 工具 allowlist；null 表示不限制（全部放开），空数组表示不给工具。 */
+  tools?: string[] | null;
+  /** 只增不删的工具名（external 场景保留扩展工具时使用）。 */
+  toolAdditions?: string[];
+  /** 明确排除的内置工具（external 场景限制内置工具）。 */
+  excludeTools?: string[];
+  /** 生效能力白名单；null 表示全部放开，缺省按旧行为收紧。 */
+  capabilities?: readonly ToolCapability[] | null;
+  /** 显式加载的扩展路径（task 能力用）；仍可用 `--no-extensions` 阻止自动发现。 */
+  extensionPaths?: string[];
   /** 预分配原生 ID；不传则由 pi 生成（仍经 get_state 取回核实）。 */
   sessionId?: string;
   sessionName?: string;
@@ -61,40 +71,83 @@ export interface SettledObservation {
   exit: PiProcessExit | null;
 }
 
-const DEFAULT_OFFLINE_ENV: Record<string, string> = {
-  PI_OFFLINE: "1",
-  PI_SKIP_VERSION_CHECK: "1",
-  PI_TELEMETRY: "0",
-};
+/** 能力 → Pi 启动开关（设计 §7）：external 放开扩展／MCP／技能，network 放开离线限制。 */
+export interface PiCapabilitySwitches {
+  offline: boolean;
+  extensions: boolean;
+  mcp: boolean;
+  skills: boolean;
+}
+
+export function capabilitySwitches(
+  capabilities: readonly ToolCapability[] | null | undefined,
+): PiCapabilitySwitches {
+  if (capabilities === null) {
+    return { offline: false, extensions: true, mcp: true, skills: true };
+  }
+  const list = capabilities ?? [];
+  const external = list.includes("external");
+  return {
+    offline: !list.includes("network"),
+    extensions: external,
+    mcp: external,
+    skills: external,
+  };
+}
 
 /** 与本会话环境隔离，避免继承主会话的 PI_SESSION_ID／PI_MODEL 等。 */
-export function isolatedEnv(extra: Record<string, string> = {}): Record<string, string> {
+export function isolatedEnv(
+  extra: Record<string, string> = {},
+  options: { offline?: boolean } = {},
+): Record<string, string> {
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
-  for (const key of ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL"]) {
+  for (const key of [
+    "PI_SESSION_ID",
+    "PI_SESSION_FILE",
+    "PI_PROVIDER",
+    "PI_MODEL",
+    "PI_REASONING_LEVEL",
+    "PI_OFFLINE",
+  ]) {
     delete env[key];
   }
-  for (const [key, value] of Object.entries(DEFAULT_OFFLINE_ENV)) env[key] = value;
+  if (options.offline !== false) env.PI_OFFLINE = "1";
+  env.PI_SKIP_VERSION_CHECK = "1";
+  env.PI_TELEMETRY = "0";
   for (const [key, value] of Object.entries(extra)) env[key] = value;
   return env;
 }
 
-function baseArgs(options: PiRuntimeOptions): string[] {
+/** 构造 Pi RPC 参数；导出供能力→参数单测直接核对，不启动进程。 */
+export function buildPiArgs(options: PiRuntimeOptions): string[] {
+  const switches = capabilitySwitches(options.capabilities);
   const args = [
     "--mode", "rpc",
-    "--offline",
-    "--no-mcp",
-    "--no-skills",
     "--no-context-files",
     "--no-prompt-templates",
     "--no-themes",
-    "--no-extensions",
     "--no-approve",
-    "--session-dir", options.sessionDir,
   ];
-  if (options.tools !== undefined && options.tools.length > 0) {
+  if (switches.offline) args.push("--offline");
+  if (!switches.mcp) args.push("--no-mcp");
+  if (!switches.skills) args.push("--no-skills");
+  if (!switches.extensions) args.push("--no-extensions");
+  for (const extensionPath of options.extensionPaths ?? []) {
+    args.push("--extension", extensionPath);
+  }
+  args.push("--session-dir", options.sessionDir);
+  if (options.toolAdditions !== undefined && options.toolAdditions.length > 0) {
+    // 只增项保留扩展／自定义工具的默认选择，不把工具面收窄成 allowlist。
+    args.push("--tools", options.toolAdditions.map((name) => `+${name}`).join(","));
+  } else if (options.tools === null) {
+    // 全部放开：不传 --tools，也不传 --no-tools。
+  } else if (options.tools !== undefined && options.tools.length > 0) {
     args.push("--tools", options.tools.join(","));
   } else {
     args.push("--no-tools");
+  }
+  if (options.excludeTools !== undefined && options.excludeTools.length > 0) {
+    args.push("--exclude-tools", options.excludeTools.join(","));
   }
   args.push("--provider", options.provider, "--model", options.modelId);
   if (options.thinkingLevel !== undefined) args.push("--thinking", options.thinkingLevel);
@@ -144,9 +197,10 @@ export class PiAgentRuntime {
   async start(checkTimeoutMs = 30_000): Promise<RuntimeStartCheck> {
     if (this.started) throw new Error("PiAgentRuntime 已启动，不能重复 start");
     this.started = true;
-    const connection = new PiRpcConnection(this.options.executablePath, baseArgs(this.options), {
+    const switches = capabilitySwitches(this.options.capabilities);
+    const connection = new PiRpcConnection(this.options.executablePath, buildPiArgs(this.options), {
       cwd: this.options.cwd,
-      env: this.options.env ?? isolatedEnv(),
+      env: this.options.env ?? isolatedEnv(undefined, { offline: switches.offline }),
     });
     this.connection = connection;
     try {
