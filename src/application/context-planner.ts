@@ -22,7 +22,7 @@ import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
-import { loadWorkflow, stageBriefOf, workflowStageOf } from "./workflow.js";
+import { legalStageList, loadWorkflow, stageBriefOf, workflowStageOf } from "./workflow.js";
 import type { WorkflowStage } from "../domain/workflow.js";
 import { locateTaskDocument } from "./task-service.js";
 import { effectiveIdentityDigest, formalStandardFiles, formalStandardsDigest } from "./standards.js";
@@ -234,7 +234,7 @@ export class ContextPlanner {
       !isWorkflowAnchor(stage) &&
       !(loaded.mode === "fallback" && loaded.workflow.stages.length === 0)
     ) {
-      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${stage}`);
+      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${stage}；合法阶段: ${legalStageList(loaded.workflow)}`);
     }
     const stageBrief = stageBriefOf(loaded.workflow, stage, loaded.mode, loaded.validation.reason);
 

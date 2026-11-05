@@ -43,7 +43,7 @@ import {
   parseStageReport,
 } from "./stage.js";
 import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
-import { loadWorkflow, workflowStageOf } from "./workflow.js";
+import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
 import { isDecisionStage, validateReportForStage } from "../domain/report.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import type { ToolCapability } from "../contracts/workflow.js";
@@ -245,7 +245,7 @@ export class StageRunner {
   async execute(): Promise<StageExecution> {
     const stageId = this.request.phase;
     if (this.stage === null && this.workflow.stages.length > 0) {
-      throw new InfrastructureError("stage_not_in_workflow", `阶段不在生效流程中: ${stageId}`);
+      throw new InfrastructureError("stage_not_in_workflow", `阶段不在生效流程中: ${stageId}；合法阶段: ${legalStageList(this.workflow, false)}`);
     }
     const workStage = this.stage !== null ? !isDecisionStage(this.stage) : stageId !== "check";
     const scope = this.runs.readScope(this.request.taskId);

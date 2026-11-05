@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
+import { loadWorkflow } from "./workflow.js";
+import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { PROTOCOL_VERSION } from "../contracts/protocol.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { LockManager } from "../infrastructure/locks.js";
@@ -141,6 +143,15 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
   const configPath = join(root, ".knit", "config.json");
   const config = configOf(root);
   add("config", config.config === null ? "fail" : "ok", config.problem ?? "config.json 可解析");
+  const workflow = loadWorkflow(root);
+  const workflowChain = ["准备", ...workflow.workflow.stages.map((stage) => stage.name), "收尾"].join(" → ");
+  add(
+    "workflow",
+    workflow.mode === "config" ? "ok" : "warn",
+    workflow.mode === "config"
+      ? `${existsSync(join(root, WORKFLOW_CONFIG_PATH)) ? WORKFLOW_CONFIG_PATH : "缺省模板"}；${workflowChain}`
+      : `配置降级：${workflow.validation.reason}；${workflow.validation.issues[0]?.message ?? "问题见 knit workflow validate"}`,
+  );
   const manifest = readJson(join(root, RUNTIME, "init-manifest.json"));
   add("init-manifest", manifest === null ? "fail" : manifest.state === "ready" ? "ok" : "warn", manifest === null ? "缺少初始化清单" : `state=${String(manifest.state)}`);
   const installation = readJson(join(root, RUNTIME, "installation.json"));

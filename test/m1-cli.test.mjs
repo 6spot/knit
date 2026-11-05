@@ -164,7 +164,7 @@ test("run implement + status --events：真实 worker 终态观察，事件流�
     const task = newTask(dir);
     assert.equal(jsonCli(dir, ["task", "ready", task.taskId]).parsed.outcome, "completed");
     const action = fakeAction(dir, { report: { summary: "done", changedPaths: [], findings: [], unverified: [] } });
-    const prepared = jsonCli(dir, ["--dev", "run", "prepare", "--task", task.taskId, "--phase", "implement", "--client", "pi", "--native", "main-native", "--provider", "fake", "--model", "fake"]);
+    const prepared = jsonCli(dir, ["--dev", "run", "prepare", "--task", task.taskId, "--stage", "implement", "--client", "pi", "--native", "main-native", "--provider", "fake", "--model", "fake"]);
     assert.equal(prepared.parsed.outcome, "completed", prepared.stderr);
     assert.equal(prepared.parsed.data.request.recovery.nativeSessionId, null, "发起方 native 不是阶段恢复目标");
     const run = jsonCli(dir, ["--dev", "run", "implement", "--task", task.taskId, "--provider", "fake", "--model", "fake", "--wait"], {
@@ -197,40 +197,20 @@ test("run implement + status --events：真实 worker 终态观察，事件流�
   }
 });
 
-test("assist discuss：advisory 阶段已撤除，不创建 run、不推进 Task", () => {
-  const dir = project("assist");
+test("assist／advisory 链路已删除：未知命令不创建 run、不推进 Task", () => {
+  const dir = project("assist-removed");
   try {
     const task = newTask(dir);
     const result = jsonCli(dir, ["assist", "discuss", "--task", task.taskId, "--provider", "fake", "--model", "fake", "--wait"], {
       KNIT_PI_BIN: FAKE_PI,
     });
     assert.equal(result.code, 1);
-    assert.equal(result.parsed.outcome, "error");
+    assert.equal(result.parsed, null, "未知命令不输出成功协议");
+    assert.match(result.stderr, /unknown command 'assist'|未知命令 "assist"/);
     const status = jsonCli(dir, ["status", task.taskId]);
-    assert.equal(status.parsed.data.stage, "start", "advisory 不推进业务阶段");
+    assert.equal(status.parsed.data.stage, "start", "删除入口不推进业务阶段");
     assert.equal(status.parsed.data.runs.length, 0);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("assist deliver：交付辅助入口已撤除，返回 invalid_request 且不创建 run", () => {
-  const dir = project("assist-deliver");
-  try {
-    const task = newTask(dir);
-    const rejected = jsonCli(dir, ["assist", "deliver", "--task", task.taskId]);
-    assert.equal(rejected.code, 1);
-    assert.equal(rejected.parsed.outcome, "error");
-    assert.equal(rejected.parsed.reasonCode, "invalid_request");
-    assert.match(rejected.parsed.data.error, /assist deliver 已撤除/);
-    const status = jsonCli(dir, ["status", task.taskId]);
-    assert.equal(status.parsed.data.runs.length, 0, "不创建 run");
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs")), false, "不落盘 run 目录");
-    assert.equal(status.parsed.data.stage, "start", "交付入口不推进业务阶段");
-    // 其它未知模式同样在准备前拒绝。
-    const unknown = jsonCli(dir, ["assist", "review", "--task", task.taskId]);
-    assert.equal(unknown.parsed.reasonCode, "invalid_request");
-    assert.match(unknown.parsed.data.error, /仅支持 discuss/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -349,9 +329,22 @@ test("桥接 schema 由同源 pi-schema 定义派生，模板读取安装包内 
   assert.doesNotMatch(template, /typebox/i);
   assert.match(template, /knit_task/);
   assert.match(template, /knit_run/);
+  assert.match(template, /knit_context/);
+  assert.match(template, /knit_workflow/);
   assert.match(template, /knit_deliver/);
   const runSchema = JSON.parse(JSON.stringify(BRIDGE_TOOL_SCHEMAS.run));
-  assert.doesNotMatch(JSON.stringify(runSchema.properties.mode), /deliver/, "桥接不再暴露 assist deliver mode");
+  const contextSchema = JSON.parse(JSON.stringify(BRIDGE_TOOL_SCHEMAS.context));
+  assert.equal("mode" in runSchema.properties, false, "桥接不再暴露 assist mode");
+  assert.equal("anyOf" in runSchema.properties.action, false, "run.action 不静态枚举阶段，由配置派生");
+  assert.equal("role" in contextSchema.properties, false, "context 目标改用 stage，不再保留 role 静态枚举");
+  assert.equal("anyOf" in contextSchema.properties.stage, false, "context.stage 由配置派生");
+  assert.equal(JSON.stringify(runSchema).includes("advisory"), false);
+  assert.equal(JSON.stringify(contextSchema).includes("advisory"), false);
+  assert.ok(BRIDGE_TOOL_SCHEMAS.workflow, "新增 knit_workflow schema");
+  assert.match(template, /workflow", "show"/);
+  assert.doesNotMatch(template, /workflow\.md/, "turn context 不再引用已删除的 workflow.md");
+  assert.doesNotMatch(template, /assist|advisory/, "assist／advisory 入口已删除");
+  assert.doesNotMatch(template, /params\.mode\b/, "knit_run 不再有 mode 参数");
   assert.match(template, /knit_snapshot/);
   assert.match(template, /knit\.selection/);
   assert.match(template, /notice_skipped_branch/);

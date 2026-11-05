@@ -1404,7 +1404,11 @@ test("advisory 不再作为阶段：准备被拒绝，不推进 Task", async () 
     const task = await s.tasks.newTask({ dir, title: "讨论", slug: "discuss" });
     await assert.rejects(
       () => startRun(s, dir, task.taskId, "advisory", { report: { summary: "建议：先确认范围", ready: false } }),
-      (error) => error.guardReason === "phase_mismatch",
+      (error) => {
+        assert.equal(error.guardReason, "stage_not_in_workflow");
+        assert.match(error.message, /合法阶段: implement、check/);
+        return true;
+      },
     );
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "start");

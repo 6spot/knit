@@ -66,25 +66,17 @@ export const TaskToolSchema = obj(
 export const ContextToolSchema = obj(
   {
     taskId: str({ minLength: 1 }),
-    role: opt(union([lit("implement"), lit("check"), lit("advisory")])),
+    /** 阶段目标由生效流程派生；读取失败时退回字符串，由核心返回合法阶段清单。 */
+    stage: opt(str({ minLength: 1 })),
   },
 );
 
 export const RunToolSchema = obj(
   {
-    action: union([
-      lit("implement"),
-      lit("check"),
-      lit("advisory"),
-      lit("status"),
-      lit("list"),
-      lit("resume"),
-      lit("cancel"),
-    ]),
+    /** 阶段动作与 status／list／resume／cancel 由桥接按 config 派生；这里只约束非空字符串。 */
+    action: str({ minLength: 1 }),
     taskId: opt(str({ minLength: 1 })),
     runId: opt(str({ minLength: 1 })),
-    /** 仅讨论建议；交付辅助角色已撤除，交付由主会话协调确定性工具。 */
-    mode: opt(lit("discuss")),
     scope: opt(arr(str({ minLength: 1 }))),
     provider: opt(str({ minLength: 1 })),
     model: opt(str({ minLength: 1 })),
@@ -92,6 +84,40 @@ export const RunToolSchema = obj(
     newRepairCycle: opt(bool()),
     wait: opt(bool()),
     reason: opt(str()),
+  },
+);
+
+/** `knit workflow` 命令组：读取、校验与修改 .knit/workflow.yaml。 */
+export const WorkflowToolSchema = obj(
+  {
+    action: union([
+      lit("init"),
+      lit("show"),
+      lit("validate"),
+      lit("add"),
+      lit("remove"),
+      lit("move"),
+      lit("set-prompt"),
+      lit("set-tools"),
+      lit("set-report"),
+      lit("set-next"),
+    ]),
+    stageId: opt(str({ minLength: 1 })),
+    name: opt(str()),
+    description: opt(str()),
+    prompt: opt(str({ minLength: 1 })),
+    tools: opt(arr(str({ minLength: 1 }))),
+    report: opt(map(str({ minLength: 1 }))),
+    maxVisits: opt(int({ minimum: 0 })),
+    field: opt(str({ minLength: 1 })),
+    type: opt(str({ minLength: 1 })),
+    value: opt(str({ minLength: 1 })),
+    target: opt(str({ minLength: 1 })),
+    position: opt(int({ minimum: 1 })),
+    before: opt(str({ minLength: 1 })),
+    after: opt(str({ minLength: 1 })),
+    clear: opt(bool()),
+    force: opt(bool()),
   },
 );
 
@@ -168,6 +194,7 @@ export const BRIDGE_TOOL_SCHEMAS = {
   material: MaterialToolSchema,
   context: ContextToolSchema,
   run: RunToolSchema,
+  workflow: WorkflowToolSchema,
   deliver: DeliverToolSchema,
   standards: StandardsToolSchema,
   snapshot: SnapshotToolSchema,

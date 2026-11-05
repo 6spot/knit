@@ -377,7 +377,7 @@ test("CLI：无 --rex 时按 execution.host=auto 与环境自动使用 Rex", asy
     fakeRex(binDir);
     const prepared = spawnSync(
       process.execPath,
-      [CLI, "--json", "run", "prepare", "--task", task.taskId, "--phase", "implement", "--provider", "fake", "--model", "fake", "--dir", dir],
+      [CLI, "--json", "run", "prepare", "--task", task.taskId, "--stage", "implement", "--provider", "fake", "--model", "fake", "--dir", dir],
       { encoding: "utf8", env: { ...process.env, ...rexEnv(binDir) } },
     );
     assert.equal(prepared.status, 0, prepared.stderr);
@@ -417,10 +417,9 @@ test("CLI：--rex 与 --local 冲突报 invalid_request；帮助与桥接不再�
       assert.match(help.stdout, /--rex/);
       assert.match(help.stdout, /--local/);
     }
-    const assistHelp = spawnSync(process.execPath, [CLI, "assist", "--help"], { encoding: "utf8" });
-    assert.equal(assistHelp.status, 0, assistHelp.stderr);
-    assert.match(assistHelp.stdout, /--rex/);
-    assert.match(assistHelp.stdout, /--local/);
+    const topHelp = spawnSync(process.execPath, [CLI, "--help"], { encoding: "utf8" });
+    assert.equal(topHelp.status, 0, topHelp.stderr);
+    assert.doesNotMatch(topHelp.stdout, /^  assist/m, "assist 命令已删除");
 
     const bridge = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
     assert.equal(bridge, readFileSync(join(ROOT, ".pi", "extensions", "knit.ts"), "utf8"), "两份桥接保持一致");

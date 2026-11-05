@@ -258,7 +258,8 @@ export type RunStatus = Static<typeof RunStatusSchema>;
  * 文件保存跨进程事实；SQLite 只做可查询投影，不能替代 request 与操作记录。
  */
 
-export const RunPurposeSchema = union([lit("stage"), lit("assist")]);
+/** run 目的：阶段执行。讨论辅助链路已撤除，不再保留第二类目的。 */
+export const RunPurposeSchema = lit("stage");
 export type RunPurpose = Static<typeof RunPurposeSchema>;
 
 export const RunInitiatorSchema = obj(

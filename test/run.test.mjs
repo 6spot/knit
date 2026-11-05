@@ -477,6 +477,35 @@ test("阶段／计划守卫：phase 不符、草案未应用、规范缺失都�
   }
 });
 
+test("自定义流程阶段：task ready 进入配置首阶段，run prepare 接受 --stage", async () => {
+  const dir = project("custom-stage");
+  const s = services(dir);
+  try {
+    writeFileSync(
+      join(dir, ".knit", "workflow.yaml"),
+      "version: 1\nstages:\n  - id: build\n    name: 构建\n  - id: verify\n    name: 验证\n",
+    );
+    const task = await s.tasks.newTask({ dir, title: "custom stage", slug: "custom-stage", verification: "self" });
+    const ready = await s.tasks.ready({ dir, taskId: task.taskId });
+    assert.equal(ready.stage, "build", "ready 进入配置首阶段");
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "build"));
+    assert.equal(prepared.request.phase, "build");
+    assert.equal(prepared.request.workflowMode, "config");
+    assert.equal(prepared.reused, false);
+    await assert.rejects(
+      () => s.coordinator.prepare(prepareInput(dir, task.taskId, "bogus")),
+      (error) => {
+        assert.equal(error.guardReason, "stage_not_in_workflow");
+        assert.match(error.message, /合法阶段: build、verify/);
+        return true;
+      },
+    );
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  }
+});
+
 test("CLI：prepare/start/status/list 协议输出，未知 run 非零退出", async () => {
   const dir = project("cli");
   const s = services(dir);
@@ -491,7 +520,7 @@ test("CLI：prepare/start/status/list 协议输出，未知 run 非零退出", a
         "prepare",
         "--task",
         task.taskId,
-        "--phase",
+        "--stage",
         "implement",
         "--provider",
         "test",

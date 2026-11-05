@@ -52,6 +52,51 @@ export default function (pi: any) {
   }
   const schemas = loadSchemas();
 
+  /**
+   * 读取当前生效流程的阶段 id，供桥接 schema 派生。
+   * 配置不可读或已降级时返回 null：schema 保留字符串参数，由核心返回合法阶段清单。
+   */
+  function readConfiguredStages(): string[] | null {
+    const installation = readJson(join(root, ".knit", ".runtime", "installation.json"));
+    if (typeof installation?.cliEntry !== "string" || !existsSync(installation.cliEntry)) return null;
+    const result = spawnSync(process.execPath, [installation.cliEntry, "--json", "workflow", "show", "--dir", root], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 20_000,
+      env: { ...process.env, KNIT_BRIDGE_BASELINE: MANAGED_BASELINE },
+    });
+    if (result.status !== 0 || typeof result.stdout !== "string" || result.stdout.trim() === "") return null;
+    let response: any;
+    try {
+      response = JSON.parse(result.stdout);
+    } catch {
+      return null;
+    }
+    const data = response?.data;
+    if (response?.outcome !== "completed" || data?.mode !== "config" || data?.validation?.ok !== true) return null;
+    const stages = Array.isArray(data?.workflow?.stages) ? data.workflow.stages : [];
+    const ids = stages.map((stage: any) => stage?.id).filter((id: any) => typeof id === "string" && id !== "");
+    return ids.length > 0 ? ids : null;
+  }
+  const configuredStages = readConfiguredStages();
+
+  function stageEnum(values: string[]): any {
+    return { anyOf: values.map((value) => ({ const: value })) };
+  }
+
+  /** 派生桥接参数 schema：阶段动作与 context 目标来自配置；读取失败时保留字符串。 */
+  function schemaOf(name: string): any {
+    const base = schemas && schemas[name] ? JSON.parse(JSON.stringify(schemas[name])) : { type: "object" };
+    if (configuredStages === null) return base;
+    if (name === "run" && base.properties?.action) {
+      base.properties.action = stageEnum([...configuredStages, "status", "list", "resume", "cancel"]);
+    }
+    if (name === "context" && base.properties?.stage) {
+      base.properties.stage = stageEnum(["start", ...configuredStages, "deliver"]);
+    }
+    return base;
+  }
+
   function diag(event: string, fields: any = {}): void {
     if (process.env.KNIT_DEV !== "1") return;
     const allowed: any = { type: "knit.bridge.diag", event };
@@ -130,6 +175,11 @@ export default function (pi: any) {
   function safeId(value: unknown, prefix: string): string | null {
     if (typeof value !== "string") return null;
     return new RegExp(`^${prefix}[0-9a-z-]+$`).test(value) ? value : null;
+  }
+
+  function safeStageId(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    return /^[a-z][a-z0-9-]{0,31}$/.test(value) ? value : null;
   }
 
   function branchNow(): string | null {
@@ -291,7 +341,7 @@ export default function (pi: any) {
     "规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提决定，未明确内容用 standards propose 存项目候选；正常回复末尾告知内容、适用范围与位置。",
     "历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。",
     "交付：实施与检查结果由主会话接收、核对完成条件并汇总报告；提交、推送、发布另行授权。",
-    "完整规则见 .knit/workflow.md。",
+    "完整规则见 AGENTS.md；流程配置见 .knit/workflow.yaml。",
   ];
 
   /**
@@ -321,7 +371,7 @@ export default function (pi: any) {
       lines.push(`任务入口: .knit/${data.relativePath ?? `tasks/…`}`);
       if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
       else lines.push("规划资料: 无（简单任务可只用 task.md）");
-      lines.push("下一步: 按 workflow.md 当前阶段推进；写动作由核心核对授权与状态。");
+      lines.push("下一步: 按当前阶段推进；写动作由核心核对授权与状态。");
     } else {
       lines.push("当前无选定任务。");
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
@@ -512,8 +562,8 @@ export default function (pi: any) {
     },
   });
 
-  // 工具参数直接使用安装包内生成的纯 JSON Schema；未知工具名退回空对象 schema。
-  const schema = (name: string) => (schemas && schemas[name] ? schemas[name] : { type: "object" });
+  // 工具参数直接使用安装包内生成的纯 JSON Schema；阶段目标按当前 workflow.yaml 派生。
+  const schema = (name: string) => schemaOf(name);
 
   pi.registerTool({
     name: "knit_status",
@@ -708,18 +758,32 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_context",
     label: "Knit context",
-    description: "生成任务阶段的分层输入计划与阻塞项。",
+    description: "生成任务阶段的分层输入计划与阻塞项；stage 由当前 workflow.yaml 派生。",
     parameters: schema("context"),
     async execute(_toolCallId: string, params: any) {
       if (safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
-      return toolResult(core(["context", "--task", params.taskId, "--role", params.role ?? "implement", "--dir", root]));
+      const stage = params.stage ?? configuredStages?.[0] ?? "implement";
+      return toolResult(core(["context", "--task", params.taskId, "--stage", stage, "--dir", root]));
     },
   });
+
+  /** 轮询 run 终态；桥接只读观察，不重复接收结果。 */
+  function waitForRun(runId: string): { code: number; response: any; stderr: string; error?: string } {
+    const startedAt = Date.now();
+    let last = core(["run", "status", runId, "--dir", root]);
+    for (;;) {
+      const state = last.response?.data?.state;
+      if (state === "completed" || state === "cancelled" || state === "failed") return last;
+      if (last.code !== 0 || Date.now() - startedAt > 180_000) return last;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+      last = core(["run", "status", runId, "--dir", root]);
+    }
+  }
 
   pi.registerTool({
     name: "knit_run",
     label: "Knit run",
-    description: "派发正式任务的实施／独立检查／讨论建议（assist discuss），查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
+    description: "派发正式任务的配置阶段（action 为 workflow.yaml 阶段 id）、查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
     parameters: schema("run"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const model = ctx?.model;
@@ -738,15 +802,6 @@ export default function (pi: any) {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run cancel 需要合法 runId");
         return toolResult(core(["run", "cancel", params.runId, "--reason", params.reason ?? "bridge cancel", "--dir", root]));
       }
-      if (params.action === "advisory") {
-        if (!params.taskId || safeId(params.taskId, "k-") === null) return failText("advisory 需要合法 taskId");
-        if (params.mode !== "discuss") return failText("advisory 仅支持 mode=discuss；交付由主会话协调 knit_deliver");
-        const args = ["assist", params.mode, "--task", params.taskId, "--client", "pi", "--native", state.nativeSessionId ?? "", "--dir", root];
-        if (provider) args.push("--provider", provider);
-        if (modelId) args.push("--model", modelId);
-        if (params.wait === true) args.push("--wait");
-        return toolResult(core(args));
-      }
       if (params.action === "check" && Array.isArray(params.scope) && params.scope.length > 0) {
         const args = ["run", "check", "--scope", ...params.scope, "--dir", root];
         if (provider) args.push("--provider", provider);
@@ -754,12 +809,76 @@ export default function (pi: any) {
         return toolResult(core(args));
       }
       if (!params.taskId || safeId(params.taskId, "k-") === null) return failText(`${params.action} 需要合法 taskId`);
-      const args = ["run", params.action, "--task", params.taskId, "--client", "pi", "--native", state.nativeSessionId ?? "", "--dir", root];
-      if (provider) args.push("--provider", provider);
-      if (modelId) args.push("--model", modelId);
-      if (params.resumeSession) args.push("--resume-session", params.resumeSession);
-      if (params.newRepairCycle === true) args.push("--new-repair-cycle");
-      if (params.wait === true) args.push("--wait");
+      // 阶段动作统一走 prepare + start：action 不在配置中时由核心返回合法阶段清单。
+      const common = ["--task", params.taskId, "--client", "pi", "--native", state.nativeSessionId ?? "", "--dir", root];
+      if (provider) common.push("--provider", provider);
+      if (modelId) common.push("--model", modelId);
+      if (params.resumeSession) common.push("--resume-session", params.resumeSession);
+      if (params.newRepairCycle === true) common.push("--new-repair-cycle");
+      const prepared = core(["run", "prepare", "--stage", String(params.action), ...common]);
+      if (prepared.code !== 0 || prepared.response?.outcome !== "completed") return toolResult(prepared);
+      const runId = prepared.response?.data?.request?.runId;
+      if (typeof runId !== "string") return failText(`Knit 未返回 runId（action=${params.action}）`);
+      const started = core(["run", "start", runId, "--dir", root]);
+      if (started.code !== 0 || started.response?.outcome !== "completed") return toolResult(started);
+      let data: any = { ...(prepared.response?.data ?? {}), ...(started.response?.data ?? {}) };
+      if (params.wait === true) {
+        const status = waitForRun(runId);
+        if (status.response?.data?.state !== undefined) data = { ...data, status: status.response.data };
+      }
+      return toolResult({ code: 0, response: { ...prepared.response, data }, stderr: started.stderr });
+    },
+  });
+
+  pi.registerTool({
+    name: "knit_workflow",
+    label: "Knit workflow",
+    description: "读取、校验或修改 .knit/workflow.yaml；写入先全量校验，失败带 YAML 行号。",
+    parameters: schema("workflow"),
+    async execute(_toolCallId: string, params: any) {
+      const action = String(params.action);
+      const args = ["workflow", action, "--dir", root];
+      if (action === "init") {
+        if (params.force === true) args.push("--force");
+        return toolResult(core(args));
+      }
+      if (action === "show" || action === "validate") return toolResult(core(args));
+      const id = safeStageId(params.stageId);
+      if (id === null) return failText(`knit_workflow ${action} 需要合法 stageId`);
+      args.push(id);
+      if (action === "add") {
+        if (params.name) args.push("--name", params.name);
+        if (params.description) args.push("--description", params.description);
+        if (params.prompt) args.push("--prompt", params.prompt);
+        if (params.before) args.push("--before", params.before);
+        if (params.after) args.push("--after", params.after);
+        if (params.maxVisits !== undefined) args.push("--max-visits", String(params.maxVisits));
+        if (Array.isArray(params.tools) && params.tools.length > 0) args.push("--tools", params.tools.join(","));
+        if (params.report && typeof params.report === "object") {
+          for (const [field, type] of Object.entries(params.report)) args.push("--report", `${field}:${String(type)}`);
+        }
+      } else if (action === "move") {
+        if (params.position !== undefined) args.push(String(params.position));
+        if (params.before) args.push("--before", params.before);
+        if (params.after) args.push("--after", params.after);
+      } else if (action === "set-prompt") {
+        if (params.clear === true) args.push("--clear");
+        else if (params.prompt) args.push(params.prompt);
+      } else if (action === "set-tools") {
+        if (params.clear === true) args.push("--clear");
+        else if (Array.isArray(params.tools) && params.tools.length > 0) args.push(params.tools.join(","));
+      } else if (action === "set-report") {
+        if (!params.field) return failText("knit_workflow set-report 需要 field");
+        args.push(params.field);
+        if (params.clear === true) args.push("--clear");
+        else if (params.type) args.push(params.type);
+      } else if (action === "set-next") {
+        if (params.clear === true) args.push("--clear");
+        else {
+          if (!params.value || !params.target) return failText("knit_workflow set-next 需要 value 与 target");
+          args.push(params.value, params.target);
+        }
+      }
       return toolResult(core(args));
     },
   });

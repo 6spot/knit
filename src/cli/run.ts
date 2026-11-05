@@ -10,6 +10,7 @@ import { GuardError } from "../application/guard-error.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
 import type { RunPhase, RunPresentation } from "../contracts/run.js";
 import { reportStringArrayField, reportVerdictLabel } from "../contracts/run.js";
+import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -133,7 +134,7 @@ export function registerRunCommands(program: Command): void {
     .command("prepare")
     .description("发布 run 请求与启动意图（不取得执行占用、不写业务资料）")
     .requiredOption("--task <taskId>", "任务 ID")
-    .requiredOption("--phase <phase>", "implement、check 或 advisory")
+    .requiredOption("--stage <stage>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）")
     .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
     .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
     .option("--client <client>", "pi 或 cli", "cli")
@@ -149,12 +150,12 @@ export function registerRunCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
-      if (options.phase !== "implement" && options.phase !== "check" && options.phase !== "advisory") {
-        fail("run-prepare", new GuardError("invalid_request", `未知阶段: ${options.phase}`));
+      if (!WORKFLOW_STAGE_ID_REGEX.test(String(options.stage))) {
+        fail("run-prepare", new GuardError("invalid_request", `未知阶段: ${options.stage}`));
         return;
       }
       try {
-        const result = await prepare(options, options.phase as RunPhase, "run-prepare");
+        const result = await prepare(options, options.stage as RunPhase, "run-prepare");
         if (jsonMode()) emit(jsonResponse("run-prepare", "completed", result));
         else {
           console.log(`${result.reused ? "复用" : "已准备"} run: ${result.request.runId}`);
@@ -430,45 +431,6 @@ export function registerRunCommands(program: Command): void {
         fail("run-list", error);
       } finally {
         store.close();
-      }
-    });
-
-  program
-    .command("assist <mode>")
-    .description("可选讨论建议 worker（discuss）：只给建议，不推进业务、不执行 Git；交付由主会话协调")
-    .requiredOption("--task <taskId>", "任务 ID")
-    .option("--client <client>", "pi 或 cli", "cli")
-    .option("--session <knitSessionId>", "发起方 Knit Session")
-    .option("--native <nativeSessionId>", "发起方原生 Session")
-    .option("--runtime <runtime>", "内部 runtime", "pi")
-    .option("--provider <provider>", "模型 provider")
-    .option("--model <model>", "模型标识")
-    .option("--resume <mode>", "prefer 或 new", "prefer")
-    .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
-    .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
-    .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
-    .option("--wait", "只观察直到终态")
-    .option("--locks <dir>", "锁根目录")
-    .option("--dir <dir>", "项目目录", ".")
-    .action(async (mode, options) => {
-      if (mode !== "discuss") {
-        // 交付辅助角色已撤除：交付由主会话协调确定性 deliver／archive 工具，不再派发 advisory run。
-        const message =
-          mode === "deliver"
-            ? "assist deliver 已撤除：交付由主会话协调确定性 deliver／archive 工具"
-            : `未知 assist 模式: ${mode}（仅支持 discuss）`;
-        fail("assist", new GuardError(mode === "deliver" ? "assist_deliver_removed" : "unknown_assist_mode", message));
-        return;
-      }
-      try {
-        const prepared = await prepare(options, "advisory", "assist");
-        const started = await start(options, prepared.request.runId, "assist");
-        const result: Record<string, unknown> = { ...prepared, ...started, mode };
-        if (options.wait === true) result.status = await waitFor(options.dir, prepared.request.runId, options.locks);
-        if (jsonMode()) emit(jsonResponse("assist", "completed", result));
-        else console.log(`assist ${mode}: run ${prepared.request.runId}（advisory，不推进业务）`);
-      } catch (error) {
-        fail("assist", error);
       }
     });
 }

@@ -48,6 +48,17 @@ export function workflowStageOf(workflow: WorkflowDefinition, stage: string): Wo
   return workflow.stages.find((entry) => entry.id === stage) ?? null;
 }
 
+/** 配置声明的业务阶段 id（不含内置锚点）；顺序即流转顺序。 */
+export function workflowStageIds(workflow: WorkflowDefinition): string[] {
+  return workflow.stages.map((stage) => stage.id);
+}
+
+/** 核心对外给出的合法阶段清单；读取配置失败时用来说明可用目标。 */
+export function legalStageList(workflow: WorkflowDefinition, includeAnchors = true): string {
+  const ids = [...(includeAnchors ? workflow.anchors : []), ...workflowStageIds(workflow)];
+  return ids.length === 0 ? "无" : ids.join("、");
+}
+
 const ANCHOR_NAMES: Record<string, string> = {
   start: "准备",
   deliver: "收尾",

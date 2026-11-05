@@ -16,7 +16,6 @@ function openStore(dir: string): SqliteMetadataStore {
   return new SqliteMetadataStore(join(cliMainRoot(dir), RUNTIME_DIR, "metadata.db"));
 }
 
-const ROLES = new Set(["implement", "check", "advisory"]);
 const KINDS = new Set(["main", "sub"]);
 const SOURCES = new Set(["fork", "switch", "resume_fallback", "attach"]);
 
@@ -55,7 +54,7 @@ export function registerSessionCommands(program: Command): void {
     .description("登记主／子会话：预分配 Knit Session ID、稳定记录位置与原生状态")
     .option("--native <id>", "原生 Session ID（缺省预分配）")
     .option("--kind <kind>", "main 或 sub", "main")
-    .option("--role <role>", "implement／check／advisory", "implement")
+    .option("--role <role>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）", "implement")
     .option("--task <taskId>", "参与任务")
     .option("--file <path>", "已知原生记录位置")
     .option("--parent <knitSessionId>", "父 Knit Session ID（子会话必填）")
@@ -76,7 +75,7 @@ export function registerSessionCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      if (!ROLES.has(role)) {
+      if (!WORKFLOW_STAGE_ID_REGEX.test(role)) {
         console.error(`knit: 未知 --role "${options.role}"`);
         process.exitCode = 1;
         return;

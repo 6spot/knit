@@ -185,7 +185,9 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /明确“按这个做”/);
     assert.match(first, /规范沉淀：/);
     assert.match(first, /交付：实施与检查结果由主会话接收/);
-    assert.match(first, /完整规则见 \.knit\/workflow\.md/);
+    assert.match(first, /完整规则见 AGENTS\.md/);
+    assert.match(first, /流程配置见 \.knit\/workflow\.yaml/);
+    assert.doesNotMatch(first, /workflow\.md/);
     assert.match(first, /历史查询/);
     assert.match(first, /knit_task action=search/);
     assert.match(first, /未表达意愿不主动检索/);
@@ -209,6 +211,8 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(second, new RegExp(taskId));
     assert.match(second, /阶段: start/);
     assert.match(second, /任务入口: \.knit\//);
+    assert.match(second, /按当前阶段推进/);
+    assert.doesNotMatch(second, /workflow\.md/);
     assert.match(second, /任务选择：/);
     assert.match(second, /遗漏选择先补问/);
     assert.match(second, /创建任务不等于需求确认或实施授权/);
@@ -286,6 +290,58 @@ test("对话任务衔接：显式创建、重复引导、拒绝无副作用、�
     // 7. 拒绝后无副作用：任务数仍为 2。
     const listFinal = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { encoding: "utf8" }));
     assert.equal(listFinal.data.active.length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test("桥接按 workflow.yaml 派生阶段 schema；读取失败退回字符串由核心报合法清单（P6）", async () => {
+  const dir = project("workflow-schema");
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), [
+      "version: 1",
+      "stages:",
+      "  - id: build",
+      "    name: 构建",
+      "  - id: verify",
+      "    name: 验证",
+      "    report:",
+      "      verdict: [pass, blocked]",
+      "    onVerdict:",
+      "      blocked: build",
+      "",
+    ].join("\n"));
+    const { host } = await loadBridge(dir);
+    const runStages = host.tools.get("knit_run").parameters.properties.action.anyOf.map((entry) => entry.const);
+    assert.deepEqual(runStages, ["build", "verify", "status", "list", "resume", "cancel"], "run.action 按配置派生");
+    const contextStages = host.tools.get("knit_context").parameters.properties.stage.anyOf.map((entry) => entry.const);
+    assert.deepEqual(contextStages, ["start", "build", "verify", "deliver"], "context.stage 按配置派生");
+    const workflowTool = host.tools.get("knit_workflow");
+    assert.ok(workflowTool, "新增 knit_workflow");
+    const shown = await workflowTool.execute("w1", { action: "show" }, null, null, host.ctx);
+    assert.equal(shown.isError, false, shown.content?.[0]?.text ?? "");
+    assert.deepEqual(shown.details.workflow.stages.map((stage) => stage.id), ["build", "verify"]);
+    const validated = await workflowTool.execute("w2", { action: "validate" }, null, null, host.ctx);
+    assert.equal(validated.isError, false);
+    assert.equal(validated.details.validation.ok, true);
+    assert.equal(JSON.stringify(host.tools.get("knit_run").parameters).includes("advisory"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("桥接读取坏配置失败时退回字符串参数，不静默通过（P6）", async () => {
+  const dir = project("workflow-schema-bad");
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), "version: 2\nstages:\n  - id: build\n");
+    const { host } = await loadBridge(dir);
+    const action = host.tools.get("knit_run").parameters.properties.action;
+    assert.equal(action.type, "string", "降级时保留字符串参数");
+    assert.equal(action.anyOf, undefined);
+    const stage = host.tools.get("knit_context").parameters.properties.stage;
+    assert.equal(stage.type, "string");
+    assert.equal(stage.anyOf, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

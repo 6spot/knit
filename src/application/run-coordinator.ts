@@ -33,7 +33,7 @@ import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
-import { loadWorkflow } from "./workflow.js";
+import { legalStageList, loadWorkflow } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
@@ -183,8 +183,20 @@ export class RunCoordinator {
       throw new GuardError("unknown_task", `任务不存在: ${input.taskId}`);
     }
     if (located.archived) throw new GuardError("task_archived", `任务已归档: ${input.taskId}`);
+    // 生效流程先决定阶段是否合法：未知阶段要返回合法清单，不能被 phase_mismatch 掩盖。
+    const loaded = loadWorkflow(root);
+    const workflowStage = loaded.workflow.stages.find((stage) => stage.id === input.phase) ?? null;
+    if (workflowStage === null) {
+      // 降级流程没有业务阶段：新 run 必须失败，不能静默用默认 agent 行为执行未知阶段。
+      const legal = legalStageList(loaded.workflow, false);
+      const note = loaded.mode === "fallback" ? `（配置降级：${loaded.validation.reason}；仅 start → deliver）` : "";
+      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${input.phase}；合法阶段: ${legal}${note}`);
+    }
     if (located.document.frontmatter.stage !== input.phase) {
-      throw new GuardError("phase_mismatch", `任务阶段为 ${located.document.frontmatter.stage}，不能准备 ${input.phase}`);
+      throw new GuardError(
+        "phase_mismatch",
+        `任务阶段为 ${located.document.frontmatter.stage}，不能准备 ${input.phase}；合法阶段: ${legalStageList(loaded.workflow, false)}`,
+      );
     }
     if (located.document.frontmatter.status !== "open") {
       throw new GuardError("task_not_open", `任务不是 open 状态: ${input.taskId}`);
@@ -214,11 +226,6 @@ export class RunCoordinator {
       throw new GuardError("pending_inputs", "存在待应用输入，先应用或撤回再启动代码阶段");
     }
     // 生效流程决定阶段语义：有报告枚举的是结论阶段，其余是产出阶段。
-    const loaded = loadWorkflow(root);
-    const workflowStage = loaded.workflow.stages.find((stage) => stage.id === input.phase) ?? null;
-    if (workflowStage === null && loaded.workflow.stages.length > 0) {
-      throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${input.phase}`);
-    }
     const decisionStage = isDecisionStage(workflowStage);
     // 前置依赖铁律（DESIGN §3.11）：未满足依赖时实施入口不启动，优先级与用户指定都不绕过。
     if (!decisionStage) {
