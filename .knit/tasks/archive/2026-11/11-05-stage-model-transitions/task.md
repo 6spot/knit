@@ -85,4 +85,10 @@ stage: deliver
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-stage-model-transitions
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-aff741f2e705 -->
+- 任务资料提交: 31759969a221f59e1f2518eb69812db5867601ad
+- 归档目标: .knit/tasks/archive/2026-11/11-05-stage-model-transitions
+
 <!-- knit:progress:end -->
