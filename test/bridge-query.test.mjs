@@ -416,3 +416,45 @@ test("knit_material 与 knit_task new 提醒：需求写入入口与重复创建
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("knit_task ready／record／close 未传 taskId 使用当前选择；无选择返回同一句明确提示", async () => {
+  const dir = project("current-task");
+  try {
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const tool = host.tools.get("knit_task");
+    const expected = "未选择任务：请提供 taskId，或先用 knit_task action=use 选择当前任务";
+
+    const noSelection = await tool.execute("t1", { action: "ready" }, null, null, host.ctx);
+    assert.equal(noSelection.isError, true);
+    assert.equal(noSelection.content[0].text, expected);
+
+    const created = await tool.execute("t2", { action: "new", title: "当前任务", slug: "current-task" }, null, null, host.ctx);
+    assert.equal(created.isError, false, created.content?.[0]?.text ?? "");
+    const taskId = created.details.taskId;
+    const used = await tool.execute("t3", { action: "use", taskId }, null, null, host.ctx);
+    assert.equal(used.isError, false, used.content?.[0]?.text ?? "");
+
+    const ready = await tool.execute("t4", { action: "ready" }, null, null, host.ctx);
+    assert.equal(ready.isError, false, ready.content?.[0]?.text ?? "");
+    assert.equal(ready.details.taskId, taskId);
+    assert.equal(ready.details.stage, "implement");
+
+    const recorded = await tool.execute("t5", { action: "record", body: "工具未传 taskId 的记录" }, null, null, host.ctx);
+    assert.equal(recorded.isError, false, recorded.content?.[0]?.text ?? "");
+    const list = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { encoding: "utf8" }));
+    const relative = list.data.active.find((entry) => entry.taskId === taskId).relativePath;
+    assert.match(readFileSync(join(dir, ".knit", relative, "task.md"), "utf8"), /工具未传 taskId 的记录/);
+
+    const closed = await tool.execute("t6", { action: "close", outcome: "cancelled", runsSettled: true }, null, null, host.ctx);
+    assert.equal(closed.isError, false, closed.content?.[0]?.text ?? "");
+    assert.equal(closed.details.taskId, taskId);
+    assert.equal(closed.details.outcome, "cancelled");
+
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -443,10 +443,46 @@ export function registerTaskCommands(program: Command): void {
   task
     .command("ready [taskId]")
     .description("保存讨论确认：discuss → implement，冻结当前输入摘要")
+    .option("--session <knitSessionId>", "主会话 Knit Session ID；省略 taskId 时使用其已落盘选择")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (taskId, options) => {
       const requestId = `task-ready-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await withService(requestId, options.dir, (service) => service.ready({ dir: options.dir, taskId }), (result) => {
+      let resolvedTaskId = typeof taskId === "string" ? taskId.trim() : "";
+      const rejectBeforeResolve = (reason: string): void => {
+        process.exitCode = 1;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+      };
+      if (resolvedTaskId === "") {
+        const sessionId = typeof options.session === "string" ? options.session.trim() : "";
+        if (sessionId === "") {
+          rejectBeforeResolve("task_id_required");
+          return;
+        }
+        const store = openStore(options.dir);
+        try {
+          const resolution = await new SessionService({ store }).resolveSelection(options.dir, sessionId);
+          if (resolution.effective && typeof resolution.taskId === "string" && resolution.taskId !== "") {
+            resolvedTaskId = resolution.taskId;
+          } else {
+            const record = await store.sessions.getByKnitId(sessionId);
+            const pending =
+              resolution.reason === "selection_not_persisted" ||
+              (record !== null && record.selection !== null && record.selection.persisted === false);
+            rejectBeforeResolve(pending ? "selection_pending" : "selection_missing");
+            return;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (jsonMode()) emit(jsonResponse(requestId, outcomeForError(error), { error: message }, reasonForError(error)));
+          else console.error(`knit: ${message}`);
+          process.exitCode = 1;
+          return;
+        } finally {
+          store.close();
+        }
+      }
+      await withService(requestId, options.dir, (service) => service.ready({ dir: options.dir, taskId: resolvedTaskId }), (result) => {
         console.log(`讨论已确认: ${result.taskId} → ${result.stage}`);
         console.log(`冻结输入摘要: ${result.confirmedInputsDigest.slice(0, 12)}`);
       });

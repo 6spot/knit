@@ -174,10 +174,49 @@ test("归档结束字段无效（status=open）显示 invalid 并附问题明细
       const open = list.archived.find((entry) => entry.taskId === "k-cccccccccccc");
       assert.equal(open.history.kind, "invalid");
       assert.ok(open.history.problems.some((problem) => problem.includes("status=open")));
-      assert.ok(open.history.problems.some((problem) => problem.includes("stage=start")));
+      assert.ok(open.history.problems.some((problem) => problem.includes("outcome=null")), "无效 outcome 仍报结束字段问题");
+      assert.ok(!open.history.problems.some((problem) => problem.includes("stage=start")), "无效 outcome 下不把停止位置误报为交付位置");
       const noBranch = list.archived.find((entry) => entry.taskId === "k-999999999999");
       assert.equal(noBranch.history.kind, "invalid");
       assert.ok(noBranch.history.problems.some((problem) => problem.includes("branch")));
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("归档结束位置：completed 要求 deliver，cancelled／superseded 接受非空停止位置", () => {
+  const dir = gitProject("end-stage");
+  try {
+    writeArchive(dir, "2026-10", "10-01-cancelled", archiveMarkdown({
+      id: "k-121212121212",
+      outcome: "cancelled",
+      stage: "check",
+    }));
+    writeArchive(dir, "2026-10", "10-02-superseded", archiveMarkdown({
+      id: "k-131313131313",
+      outcome: "superseded",
+      stage: "start",
+    }));
+    writeArchive(dir, "2026-10", "10-03-completed-early", archiveMarkdown({
+      id: "k-141414141414",
+      outcome: "completed",
+      stage: "check",
+    }));
+    const { store, service } = makeService(dir);
+    try {
+      const list = service.list({ dir });
+      const cancelled = list.archived.find((entry) => entry.taskId === "k-121212121212");
+      assert.equal(cancelled.history.kind, "local-only", "取消保留停止位置仍是有效档案");
+      assert.deepEqual(cancelled.history.problems, []);
+      const superseded = list.archived.find((entry) => entry.taskId === "k-131313131313");
+      assert.equal(superseded.history.kind, "local-only");
+      assert.deepEqual(superseded.history.problems, []);
+      const early = list.archived.find((entry) => entry.taskId === "k-141414141414");
+      assert.equal(early.history.kind, "invalid", "completed 未到 deliver 仍为异常档案");
+      assert.ok(early.history.problems.some((problem) => problem.includes("completed 应为 deliver")));
     } finally {
       store.close();
     }

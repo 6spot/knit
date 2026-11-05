@@ -157,6 +157,11 @@ export function reportTemplateOf(stage: WorkflowStage | null): string {
     for (const [field, type] of Object.entries(stage.report)) {
       // 固定字段始终按固定语义展示；声明不能覆盖成别的形状。
       if (Object.prototype.hasOwnProperty.call(shape, field)) continue;
+      // coverage 每项只对应一个 scope 路径；示例展示“路径：核对内容”，避免被误解为可合并多项。
+      if (field === "coverage" && (type === "string[]" || type === "paths")) {
+        shape[field] = ["src/app.ts：核对内容"];
+        continue;
+      }
       shape[field] = isReportEnum(type) ? (type[0] ?? "...") : reportSample(type);
     }
   }
@@ -184,11 +189,15 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
     blockedValue === undefined
       ? "涉及需求解释、取舍、扩大范围或验收变化时不要修改，交回主会话"
       : `涉及需求解释、取舍、扩大范围或验收变化时不要修改，以 ${blockedValue} 交回主会话`;
+  const coverageRequirement = Object.prototype.hasOwnProperty.call(stage.report, "coverage")
+    ? "coverage 每项一个路径（可写成「路径：核对内容」），不要合并多项；scope 中每个路径都要单独出现，否则接收会以 check_scope_incomplete 拒绝。"
+    : "";
   return [
     "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；",
     `${handoff}。只改任务范围内必要文件，不修改 .knit/，不提交 Git。`,
     "有修改时 paths 文件字段必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；",
     "对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。",
+    coverageRequirement,
     values.length > 0 ? `结论字段只能是 ${values.join("／")}。` : "",
   ].join("");
 }

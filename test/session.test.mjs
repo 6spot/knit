@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -571,6 +571,61 @@ test("CLI：session attach 与 context --json 走协议输出", async () => {
     const used = JSON.parse(useRaw);
     assert.equal(used.outcome, "error");
     assert.equal(used.reasonCode, "invalid_request");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI task ready：无参拒绝；--session 使用已落盘选择并区分 pending／missing", async () => {
+  const dir = gitProject("ready-session");
+  installTemplates(dir);
+  const { store, session, tasks, agentDir } = makeServices(dir);
+  const run = (args) =>
+    spawnSync(process.execPath, [CLI, "--json", ...args, "--dir", dir], { encoding: "utf8" });
+  try {
+    const missingArg = run(["task", "ready"]);
+    assert.equal(missingArg.status, 1);
+    const missingArgData = JSON.parse(missingArg.stdout);
+    assert.equal(missingArgData.outcome, "error");
+    assert.equal(missingArgData.reasonCode, "invalid_request");
+    assert.equal(missingArgData.data.reason, "task_id_required");
+    assert.doesNotMatch(missingArg.stdout, /undefined/);
+    assert.doesNotMatch(missingArg.stderr, /undefined/);
+    const missingHuman = spawnSync(process.execPath, [CLI, "task", "ready", "--dir", dir], { encoding: "utf8" });
+    assert.equal(missingHuman.status, 1);
+    assert.doesNotMatch(missingHuman.stdout + missingHuman.stderr, /undefined/);
+    assert.match(missingHuman.stderr, /task_id_required/);
+
+    const task = await tasks.newTask({ dir, title: "ready session", slug: "ready-session" });
+    const attached = await session.attach({ dir, kind: "main", role: "implement" });
+    const noSelection = run(["task", "ready", "--session", attached.record.knitSessionId]);
+    assert.equal(noSelection.status, 1);
+    assert.equal(JSON.parse(noSelection.stdout).data.reason, "selection_missing");
+
+    await session.useTask({
+      dir,
+      knitSessionId: attached.record.knitSessionId,
+      taskId: task.taskId,
+      persisted: false,
+    });
+    const pending = run(["task", "ready", "--session", attached.record.knitSessionId]);
+    assert.equal(pending.status, 1);
+    assert.equal(JSON.parse(pending.stdout).data.reason, "selection_pending");
+
+    // 落盘的原生选择才是可用权威；ready 直接使用该任务，无需再传 taskId。
+    const nativeId = "ready-native";
+    writeNativeSession(agentDir, dir, nativeId, [
+      { type: "message", id: "e1", parentId: null },
+      selectionEntry("e2", "e1", { taskId: task.taskId, branch: "refs/heads/main", operationId: "sel-ready" }),
+    ]);
+    const persisted = await session.attach({ dir, nativeSessionId: nativeId, kind: "main", role: "implement" });
+    const readyRun = run(["task", "ready", "--session", persisted.record.knitSessionId]);
+    assert.equal(readyRun.status, 0, readyRun.stderr);
+    const ready = JSON.parse(readyRun.stdout);
+    assert.equal(ready.outcome, "completed");
+    assert.equal(ready.data.taskId, task.taskId);
+    assert.equal(ready.data.stage, "implement");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

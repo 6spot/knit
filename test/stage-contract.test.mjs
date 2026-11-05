@@ -16,7 +16,7 @@ import {
   validateReportForStage,
 } from "../dist/domain/report.js";
 import { stageBriefOf } from "../dist/application/workflow.js";
-import { reportTemplateOf } from "../dist/application/stage.js";
+import { buildUserPrompt, reportTemplateOf } from "../dist/application/stage.js";
 
 const BASE = {
   executablePath: "pi",
@@ -118,9 +118,19 @@ test("报告按阶段声明校验：paths 严格、枚举必填、未声明字�
   assert.equal(reportVerdictOf(check, { summary: "x", verdict: "changes_requested" }), "changes_requested");
 
   const template = JSON.parse(reportTemplateOf(check));
-  assert.ok(Array.isArray(template.coverage), "报告模板中的数组字段必须是数组");
+  assert.deepEqual(template.coverage, ["src/app.ts：核对内容"], "coverage 示例展示单路径加核对内容");
   assert.equal(template.selfVerified, true, "报告模板中的布尔字段必须是布尔");
   assert.equal(template.verdict, "pass", "枚举示例使用首个合法值");
+
+  // 结论阶段的用户提示明确 coverage 每项一路径；合并多项会被接收拒绝。
+  const prompt = buildUserPrompt(
+    { role: "check", stageBrief: null, sections: [] },
+    check,
+    {},
+    { taskId: "k-aaaaaaaaaaaa", runId: "run-1", branch: "refs/heads/main", snapshotDir: null, scope: ["a.txt"], previousImplement: null },
+  );
+  assert.match(prompt, /coverage 每项一个路径（可写成「路径：核对内容」），不要合并多项；scope 中每个路径都要单独出现，否则接收会以 check_scope_incomplete 拒绝。/);
+  assert.match(prompt, /"src\/app\.ts：核对内容"/);
 });
 
 test("顶部提示行使用 name／description 渲染流程、本步目标与完成条件", () => {

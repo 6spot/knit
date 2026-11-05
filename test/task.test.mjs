@@ -382,6 +382,17 @@ test("task ready：start → implement 并冻结输入摘要；stage 不符拒�
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    // 空 taskId 必须作为请求错误拒绝，不能带着 undefined 进入定位。
+    await assert.rejects(() => service.ready({ dir, taskId: "" }), (error) => {
+      assert.ok(error instanceof TaskGuardError);
+      assert.equal(error.details.guardReason, "invalid_request");
+      return true;
+    });
+    await assert.rejects(() => service.ready({ dir, taskId: undefined }), (error) => {
+      assert.ok(error instanceof TaskGuardError);
+      assert.equal(error.details.guardReason, "invalid_request");
+      return true;
+    });
     const ready = await service.ready({ dir, taskId });
     assert.equal(ready.stage, "implement");
     assert.match(ready.confirmedInputsDigest, /^[0-9a-f]{64}$/);

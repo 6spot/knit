@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const MANAGED_BASELINE = "__BRIDGE_BASELINE__";
 const SELECTION_ENTRY = "knit.selection";
+const NO_CURRENT_TASK = "未选择任务：请提供 taskId，或先用 knit_task action=use 选择当前任务";
 const NOTICE_ENTRY = "knit.notice";
 const POLL_MS = 5000;
 const OBSERVER_GUARD = Symbol.for("knit.bridge.observer");
@@ -594,6 +595,15 @@ export default function (pi: any) {
     return typeof current === "string" && current !== "" && current !== createdTaskId ? current : null;
   }
 
+  /** 本轮主会话经 session resolve 核实的当前任务；无有效选择返回 null。 */
+  function currentTaskId(ctx: any): string | null {
+    const session = sessionOf(ctx);
+    if (session === null) return null;
+    const resolution = core(["session", "resolve", session.knitSessionId, "--dir", root]);
+    const current = resolution.response?.data?.taskId;
+    return resolution.code === 0 && typeof current === "string" && current !== "" ? current : null;
+  }
+
   pi.registerTool({
     name: "knit_material",
     label: "Knit materials",
@@ -680,8 +690,16 @@ export default function (pi: any) {
         return toolResult(created);
       }
       const args = ["task", params.action];
+      // ready／record／close 允许省略 taskId：使用本轮 session resolve 的当前任务；
+      // 其他动作保持原语义（next 不接受任务参数，其余需要显式 taskId 的动作由核心报错）。
+      let taskId = params.taskId;
+      if ((params.action === "ready" || params.action === "record" || params.action === "close") && !taskId) {
+        const current = currentTaskId(ctx);
+        if (current === null) return failText(NO_CURRENT_TASK);
+        taskId = current;
+      }
       // task next 是项目级只读视图，不接受任务参数；忽略误传的 taskId。
-      if (params.taskId && params.action !== "next") args.push(params.taskId);
+      if (taskId && params.action !== "next") args.push(taskId);
       if (params.action === "rename") {
         if (!params.newSlug) return failText("task rename 需要 newSlug");
         args.push(params.newSlug);

@@ -24,7 +24,8 @@ const TASK_ID_PATTERN = /^k-[0-9a-f]{12}$/;
 
 /**
  * 身份有效：id 符合 k- 模式，title／createdAt／branch 非空。
- * 结束有效：status=closed、stage=deliver、outcome 为 completed 或 cancelled。
+ * 结束有效：status=closed；completed 的 stage 为 deliver，cancelled／superseded
+ * 保留停止位置、只要求 stage 非空。
  * 返回空数组表示字段有效；问题明细按字段列出，供列表与 JSON 展示。
  */
 export function archivedHistoryProblems(frontmatter: TaskFrontmatter): string[] {
@@ -44,11 +45,17 @@ export function archivedHistoryProblems(frontmatter: TaskFrontmatter): string[] 
   if (frontmatter.status !== "closed") {
     problems.push(`结束字段无效: status=${String(frontmatter.status)}（应为 closed）`);
   }
-  if (frontmatter.stage !== "deliver") {
-    problems.push(`结束字段无效: stage=${String(frontmatter.stage)}（应为 deliver）`);
-  }
-  if (frontmatter.outcome !== "completed" && frontmatter.outcome !== "cancelled") {
-    problems.push(`结束字段无效: outcome=${String(frontmatter.outcome)}（应为 completed 或 cancelled）`);
+  if (frontmatter.outcome === "completed") {
+    if (frontmatter.stage !== "deliver") {
+      problems.push(`结束字段无效: stage=${String(frontmatter.stage)}（completed 应为 deliver）`);
+    }
+  } else if (frontmatter.outcome === "cancelled" || frontmatter.outcome === "superseded") {
+    // 取消／替代保留停止位置（STATES.md 第3节），不要求走到 deliver。
+    if (typeof frontmatter.stage !== "string" || frontmatter.stage.trim() === "") {
+      problems.push(`结束字段无效: stage=${String(frontmatter.stage)}（取消／替代应保留非空停止位置）`);
+    }
+  } else {
+    problems.push(`结束字段无效: outcome=${String(frontmatter.outcome)}（应为 completed、cancelled 或 superseded）`);
   }
   return problems;
 }

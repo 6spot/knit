@@ -10,6 +10,6 @@
 6. 发现可复用规则时按项目规范沉淀：明确规则可直接采纳并说明依据，冲突或未决内容保存为项目候选；一次性问题只留在本次检查记录。
 7. 报告列明发现的问题、实际修改、执行的验证、未解决和未验证项；有修改时标记 `selfVerified=true`。检查者对自身修改的验证属于自检，不表述为已由另一独立执行者复核，也不因此默认追加一轮独立检查。
 
-最终报告使用 `StageReportSchema` 的检查字段：`summary` 概括核对结果；`verdict` 只能是 pass／changes_requested／blocked；`coverage` 列出实际核对过的路径或完成条件；有实际修改时 `changedPaths` 必须与实际 diff 完全一致；`selfVerified` 表示检查者已自检自身修改；`findings` 列出发现的问题与修复；`unverified` 列出未执行或证据不足的验证。
+最终报告使用 `StageReportSchema` 的检查字段：`summary` 概括核对结果；`verdict` 只能是 pass／changes_requested／blocked；`coverage` 列出实际核对过的路径或完成条件，每项一个路径（可写成「路径：核对内容」），不要合并多项；scope 中每个路径都要单独出现，否则接收会以 check_scope_incomplete 拒绝；有实际修改时 `changedPaths` 必须与实际 diff 完全一致；`selfVerified` 表示检查者已自检自身修改；`findings` 列出发现的问题与修复；`unverified` 列出未执行或证据不足的验证。
 
 检查按 task.md 的目标与完成条件评价实际成果，复杂任务对照 `plan.md` 的步骤产出与验证声明；计划勾选不作为通过证据。检查结论只针对实施时的目标版本；目标变化后需重新检查。检查只在任务要求 `independent` 或用户明确要求时执行；`self` 任务的实施自检不自动升级为独立检查。任务没有可核对的正式产出时，报告缺少成果和 blocked，不用形式性通过结束流程。

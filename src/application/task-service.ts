@@ -567,6 +567,9 @@ export function locateTaskDocument(
   root: string,
   taskId: string,
 ): { dir: string; archived: boolean; document: TaskDocument; raw: Buffer } {
+  if (typeof taskId !== "string" || taskId.trim() === "") {
+    throw new TaskGuardError("invalid_request", "任务 ID 不能为空");
+  }
   const tasksRoot = tasksRootOf(root);
   for (const { name, archived } of listTaskDirectories(root)) {
     const dir = join(tasksRoot, name);
@@ -649,6 +652,9 @@ export class TaskService {
 
   /** 按稳定 ID 定位任务目录；读 frontmatter 核对 ID，防目录重名冲突。 */
   private locate(root: string, taskId: string): { dir: string; archived: boolean; document: TaskDocument; raw: Buffer } {
+    if (typeof taskId !== "string" || taskId.trim() === "") {
+      throw new TaskGuardError("invalid_request", "任务 ID 不能为空");
+    }
     return locateTaskDocument(root, taskId);
   }
 
@@ -1777,6 +1783,9 @@ export class TaskService {
     confirmedInputsDigest: string;
     confirmedStandardsDigest: string;
   }> {
+    if (typeof input.taskId !== "string" || input.taskId.trim() === "") {
+      throw new TaskGuardError("invalid_request", "task ready 需要任务 ID");
+    }
     const root = normalizeRoot(input.dir);
     assertFormalTaskEnvironment(root);
     const lock = await this.locks.acquire({
