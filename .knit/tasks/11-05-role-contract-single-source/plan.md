@@ -6,7 +6,9 @@
 
 先立数据模型，再改使用方；每步可独立 typecheck + 跑相关测试；不追求一次性大改导致中间态不可验证。
 
-依赖链：P1 →（P2、P3 并行）→ P4 →（P5、P6）→ P7 → P8 → P9。P1 是全链路前置。
+依赖链（与子任务 `dependsOn` 元数据一致，全串行）：P1 → P2 → P3+P4 → P5+P6 → P7+P8 → P9。P1 是全链路前置。
+
+子任务映射：P1＝`11-05-config-layer-yaml-workflow`；P2＝`11-05-stage-model-transitions`；P3+P4＝`11-05-report-acceptance-context-permissions`；P5+P6＝`11-05-workflow-cli-and-bridge`；P7+P8＝`11-05-templates-init-docs`；P9 与总体验收由父任务承担。各子任务在同一检出上改 `src/`，派发串行，不并发。
 
 ## P1 配置层（不接线）
 

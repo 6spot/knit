@@ -192,7 +192,7 @@ CLI：`knit workflow init | show | validate | add | remove | move | set-prompt |
 
 1. 角色并入阶段，配置中无独立 `roles`。
 2. 流程配置不进 `inputsDigest`。
-3. 不兼容旧任务；不在配置里的旧阶段值只读原样展示，写操作拒绝。
+3. 不兼容旧任务；不在配置里的旧阶段值只读原样展示，写操作拒绝。例外（2026-11-05 用户决定）：旧值 `discuss` 读作锚点 `start`（与新任务初始态等价），可以正常流转，首次写入时把 frontmatter 字段改写为 `stage` 并清掉旧值。目的是让本仓库拆分完成时仍在 `discuss` 的子任务不必做数据迁移。
 4. 固定报告字段 `summary`／`validation`／`blockers`。
 5. 降级时在途 run 继续跑完；`workflowMode` 记录模式。
 6. 回退环必须有上限。
