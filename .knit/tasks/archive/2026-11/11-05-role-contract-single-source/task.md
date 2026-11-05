@@ -97,4 +97,10 @@ stage: deliver
 - 结果: 正常交付；检查 run-f991c43105a2 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-05-role-contract-single-source
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-5553d5c662d8 -->
+- 任务资料提交: 45a40a52c5267b070373a7ae40cab0e5b85e1de0
+- 归档目标: .knit/tasks/archive/2026-11/11-05-role-contract-single-source
+
 <!-- knit:progress:end -->
