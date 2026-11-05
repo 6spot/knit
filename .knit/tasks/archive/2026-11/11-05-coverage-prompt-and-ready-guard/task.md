@@ -96,4 +96,10 @@ title: 提示词与诊断修复：coverage 每项一路径、ready 无参拒绝�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-coverage-prompt-and-ready-guard
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-6c180fd08fb6 -->
+- 任务资料提交: 03460ef4e4cd4e4bb1c61c7e5cf048f7ee22808a
+- 归档目标: .knit/tasks/archive/2026-11/11-05-coverage-prompt-and-ready-guard
+
 <!-- knit:progress:end -->
