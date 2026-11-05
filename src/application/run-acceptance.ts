@@ -201,6 +201,10 @@ export class RunAcceptanceService {
       // 授权规范成果以冻结旧版本参与输入身份；新内容按成果核查（任务037）。
       authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
       authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
+      // prepare 冻结的阶段定义：配置降级不改变本 run 的提示词与输入身份。
+      stageDefinition: request.stageDefinition,
+      // 旧请求没有冻结字段：config 在途 run 保留旧提示词，降级后的新 run 不套提示词。
+      keepLegacyStagePrompt: request.workflowMode !== "fallback",
     });
     if (
       plan.inputsDigest !== inputs.inputsDigest ||
@@ -295,13 +299,15 @@ export class RunAcceptanceService {
     }
 
     const workflow = workflowOf(executionDir);
+    // prepare 冻结的阶段定义优先：配置在途降级时仍按本 run 的声明校验报告、判断结论与产出。
+    // 只有旧请求（无冻结字段）才退回当前流程／旧固定字段兼容。
     const stage = workflowStageOf(workflow, request.phase);
-    if (stage === null && workflow.stages.length > 0) {
+    const effectiveStage =
+      request.stageDefinition ?? stage ?? (workflow.stages.length === 0 ? legacyStageOf(request.phase) : null);
+    if (effectiveStage === null && workflow.stages.length > 0) {
       return this.attention(operationId, request, "stage_not_in_workflow", result);
     }
-    // 降级流程无阶段声明：在途旧 run 仍按旧固定报告字段接收（设计 §9）。
-    const effectiveStage = stage ?? legacyStageOf(request.phase);
-    const decision = isDecisionStage(effectiveStage);
+    const decision = request.stageDefinition?.decision ?? isDecisionStage(effectiveStage);
     const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
     const actualSet = new Set(actualChangedPaths);
     const validation = validateReportForStage(effectiveStage, report, actualChangedPaths);
@@ -703,7 +709,7 @@ export class RunAcceptanceService {
   }
 }
 
-/** 降级流程的旧报告字段兼容：只在 workflow.stages 为空时使用，不参与新阶段流转。 */
+/** 降级流程的旧报告字段兼容：只用于没有冻结阶段定义的旧请求，不参与新 run 流转。 */
 function legacyStageOf(phase: string): WorkflowStage | null {
   const base: Omit<WorkflowStage, "id" | "name" | "report" | "onVerdict"> = {
     description: null,

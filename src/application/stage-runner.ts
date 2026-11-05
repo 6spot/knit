@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
-import type { ContextPlan } from "../contracts/context-plan.js";
+import type { ContextPlan, ToolPolicy } from "../contracts/context-plan.js";
 import type {
   FrozenInputs,
   RunDiagnosticsFile,
@@ -116,8 +116,8 @@ const KNIT_TOOL_NAMES = [
 ];
 
 /** 工具能力 → `--tools` 与扩展路径；capabilities 为 null 表示全部放开。 */
-function stageRuntimeTools(plan: ContextPlan, executionDir: string): StageRuntimeTools {
-  const capabilities = plan.toolPolicy.capabilities;
+function stageRuntimeTools(policy: ToolPolicy, executionDir: string): StageRuntimeTools {
+  const capabilities = policy.capabilities;
   if (capabilities === null) {
     return {
       tools: null,
@@ -141,7 +141,7 @@ function stageRuntimeTools(plan: ContextPlan, executionDir: string): StageRuntim
   }
   if (list.includes("external")) {
     // external 要让未知扩展工具保持可见：用只增项 + 明确排除内置工具，而不是 allowlist。
-    const wanted = new Set(plan.toolPolicy.allow);
+    const wanted = new Set(policy.allow);
     const additions = BUILTIN_TOOL_NAMES.filter((name) => wanted.has(name));
     if (list.includes("task")) additions.push(...KNIT_TOOL_NAMES);
     const excludeTools = BUILTIN_TOOL_NAMES.filter((name) => !wanted.has(name));
@@ -154,7 +154,7 @@ function stageRuntimeTools(plan: ContextPlan, executionDir: string): StageRuntim
     };
   }
   return {
-    tools: plan.toolPolicy.allow,
+    tools: policy.allow,
     toolAdditions: [],
     excludeTools: [],
     capabilities: list,
@@ -239,7 +239,8 @@ export class StageRunner {
     const loaded = loadWorkflow(this.executionDir);
     this.workflow = loaded.workflow;
     this.workflowMode = loaded.mode;
-    this.stage = workflowStageOf(this.workflow, this.request.phase);
+    // prepare 冻结的阶段定义优先：配置在途降级不改变本 run 的报告语义与提示词。
+    this.stage = options.request.stageDefinition ?? workflowStageOf(this.workflow, this.request.phase);
   }
 
   async execute(): Promise<StageExecution> {
@@ -247,7 +248,12 @@ export class StageRunner {
     if (this.stage === null && this.workflow.stages.length > 0) {
       throw new InfrastructureError("stage_not_in_workflow", `阶段不在生效流程中: ${stageId}；合法阶段: ${legalStageList(this.workflow, false)}`);
     }
-    const workStage = this.stage !== null ? !isDecisionStage(this.stage) : stageId !== "check";
+    const workStage =
+      this.request.stageDefinition !== undefined
+        ? !this.request.stageDefinition.decision
+        : this.stage !== null
+          ? !isDecisionStage(this.stage)
+          : stageId !== "check";
     const scope = this.runs.readScope(this.request.taskId);
     const binding = await this.store.bindings.get(this.request.taskId);
     const previousImplement = await this.previousImplementResult(binding?.lastRunIds ?? []);
@@ -262,7 +268,7 @@ export class StageRunner {
       previousImplement,
     });
 
-    const runtimeTools = stageRuntimeTools(this.plan, this.executionDir);
+    const runtimeTools = stageRuntimeTools(this.request.toolPolicy, this.executionDir);
     let session: PreparedSession = await this.prepareSession(stageId);
     let sessionLock: AcquiredLock | null = null;
     let runtime: PiAgentRuntime | null = null;
@@ -730,8 +736,14 @@ export class StageRunner {
     for (const runId of [...runIds].reverse()) {
       const request = this.runs.readRequest(runId);
       if (request === null) continue;
-      const stage = workflowStageOf(this.workflow, request.phase);
-      const workStage = stage === null ? request.phase === "implement" : !isDecisionStage(stage);
+      // 旧 run 也按 prepare 冻结的阶段定义判断：配置在途降级后，
+      // 自定义实施阶段仍要作为“上一实施结果”进入本 run 的用户提示。
+      const stage = request.stageDefinition ?? workflowStageOf(this.workflow, request.phase);
+      const workStage = stage === null
+        ? request.phase === "implement"
+        : request.stageDefinition !== undefined
+          ? !request.stageDefinition.decision
+          : !isDecisionStage(stage);
       if (!workStage) continue;
       const result = this.runs.readResult(runId);
       if (result?.state !== "completed") continue;

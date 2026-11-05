@@ -860,6 +860,340 @@ test("配置在 prepare 后降级：在途 run 继续完成并记录 fallback �
   }
 });
 
+function argValue(argv, flag) {
+  const index = argv.indexOf(flag);
+  return index >= 0 ? argv[index + 1] : undefined;
+}
+
+const FROZEN_WORKFLOW = [
+  "version: 1",
+  "stages:",
+  "  - id: build",
+  "    name: 构建",
+  "    description: 按任务完成实现",
+  "    prompt: .knit/prompts/build.md",
+  "    tools: [read, exec]",
+  "    report:",
+  "      changedPaths: paths",
+  "      evidence: string[]",
+  "  - id: verify",
+  "    name: 验收",
+  "    description: 独立核对实现成果",
+  "    prompt: .knit/prompts/verify.md",
+  "    tools: [read]",
+  "    report:",
+  "      verdict: [pass, fail]",
+  "      coverage: string[]",
+  "    onVerdict:",
+  "      fail: build",
+  "",
+].join("\n");
+
+const BROKEN_WORKFLOW = "version: 2\nstages: []\n";
+
+function clearFakeStageEnv() {
+  delete process.env.KNIT_FAKE_ARGS_FILE;
+  delete process.env.KNIT_FAKE_PROMPT_FILE;
+}
+
+/** 测试钩子文件放在 gitignore 的运行目录，不污染阶段实际 diff。 */
+function hookPath(dir, name) {
+  return join(dir, ".knit", ".runtime", name);
+}
+
+test("配置在 prepare 后降级：自定义提示词／能力／报告按冻结定义执行", async () => {
+  const dir = project("fallback-frozen-build");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    mkdirSync(join(dir, ".knit", "prompts"), { recursive: true });
+    writeFileSync(join(dir, ".knit", "prompts", "build.md"), "# 自定义构建提示词\n\n只构建任务范围内文件。\n");
+    writeFileSync(join(dir, ".knit", "prompts", "verify.md"), "# 自定义验收提示词\n\n按冻结声明核对。\n");
+    writeFileSync(workflowFile, FROZEN_WORKFLOW);
+    const task = await readyTask(dir, s, "冻结构建");
+
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "build"));
+    assert.equal(prepared.request.workflowMode, "config");
+    assert.equal(prepared.request.stageDefinition.id, "build");
+    assert.equal(prepared.request.stageDefinition.prompt, ".knit/prompts/build.md");
+    assert.deepEqual(prepared.request.stageDefinition.tools, ["read", "exec"]);
+    assert.deepEqual(prepared.request.stageDefinition.report, {
+      changedPaths: "paths",
+      evidence: "string[]",
+    });
+    assert.equal(prepared.request.stageDefinition.decision, false);
+    assert.deepEqual(prepared.request.toolPolicy.capabilities, ["read", "exec"]);
+
+    // prepare 之后配置损坏：worker 读取降级流程，但本 run 仍按冻结定义执行。
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    const argvFile = hookPath(dir, "fake-argv-build.json");
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ARGS_FILE = argvFile;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      writes: [{ path: "README.md", content: "# frozen build\n" }],
+      report: { summary: "构建完成", changedPaths: ["README.md"], evidence: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+    assert.equal(status.result.workflowMode, "fallback");
+
+    // 冻结提示词参与输入身份：摘要与 prepare 一致，且自定义提示词进入系统提示。
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    assert.match(argValue(argv, "--append-system-prompt") ?? "", /自定义构建提示词/);
+    // 冻结能力：降级后仍只给 read／exec 展开的工具，不放宽为全部工具。
+    assert.equal(argValue(argv, "--tools"), "read,grep,find,ls,bash");
+    assert.equal(argv.includes("--no-extensions"), true);
+
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：自定义结论阶段按冻结定义接收并落到收尾", async () => {
+  const dir = project("fallback-frozen-verify");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    mkdirSync(join(dir, ".knit", "prompts"), { recursive: true });
+    writeFileSync(join(dir, ".knit", "prompts", "build.md"), "# 自定义构建提示词\n");
+    writeFileSync(join(dir, ".knit", "prompts", "verify.md"), "# 自定义验收提示词\n\n按冻结声明核对。\n");
+    writeFileSync(workflowFile, FROZEN_WORKFLOW);
+    const task = await readyTask(dir, s, "冻结验收");
+
+    // 构建在 config 流程下完成，任务进入 verify。
+    const build = await startRun(s, dir, task.taskId, "build", {
+      writes: [{ path: "README.md", content: "# verified build\n" }],
+      report: { summary: "构建完成", changedPaths: ["README.md"], evidence: ["README.md"] },
+    });
+    const buildStatus = await waitTerminal(s, dir, build.runId);
+    assert.equal(buildStatus.state, "completed", buildStatus.result?.failureReason ?? buildStatus.reason ?? "");
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "verify");
+
+    // prepare 验收时仍为 config；随后配置降级，接收必须按冻结的 verify 定义判断结论阶段。
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "verify"));
+    assert.equal(prepared.request.stageDefinition.id, "verify");
+    assert.equal(prepared.request.stageDefinition.decision, true);
+    assert.equal(prepared.request.stageDefinition.prompt, ".knit/prompts/verify.md");
+    assert.deepEqual(prepared.request.stageDefinition.tools, ["read"]);
+    assert.deepEqual(prepared.request.stageDefinition.report, {
+      verdict: ["pass", "fail"],
+      coverage: "string[]",
+    });
+
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    const argvFile = hookPath(dir, "fake-argv-verify.json");
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ARGS_FILE = argvFile;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      report: { summary: "验收通过", verdict: "pass", coverage: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+    assert.equal(status.result.report.verdict, "pass");
+    assert.equal(status.result.workflowMode, "fallback");
+
+    // 冻结验收提示词被读取，冻结只读能力生效。
+    const verifyArgv = JSON.parse(readFileSync(argvFile, "utf8"));
+    assert.match(argValue(verifyArgv, "--append-system-prompt") ?? "", /自定义验收提示词/);
+    assert.equal(argValue(verifyArgv, "--tools"), "read,grep,find,ls");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
+
+    // 自定义结论阶段在降级后仍写检查凭据：task close 不出现 check_missing 死路。
+    assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), true);
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.lastCheckRunId, prepared.request.runId);
+    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+    assert.equal(closed.status, "closed");
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：自定义实施结果仍进入上一实施上下文", async () => {
+  const dir = project("fallback-frozen-prev");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    mkdirSync(join(dir, ".knit", "prompts"), { recursive: true });
+    writeFileSync(join(dir, ".knit", "prompts", "build.md"), "# 自定义构建提示词\n");
+    writeFileSync(join(dir, ".knit", "prompts", "verify.md"), "# 自定义验收提示词\n");
+    writeFileSync(workflowFile, FROZEN_WORKFLOW);
+    const task = await readyTask(dir, s, "冻结上下文");
+
+    const build = await startRun(s, dir, task.taskId, "build", {
+      writes: [{ path: "README.md", content: "# previous implement\n" }],
+      report: { summary: "上一轮构建完成", changedPaths: ["README.md"], evidence: ["README.md"] },
+    });
+    assert.equal((await waitTerminal(s, dir, build.runId)).state, "completed");
+
+    // verify 在 config 下冻结，随配置降级；上一轮 build 的请求也带冻结定义。
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "verify"));
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    const promptFile = hookPath(dir, "fake-prompt-verify.txt");
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_PROMPT_FILE = promptFile;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      report: { summary: "验收通过", verdict: "pass", coverage: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+
+    // 自定义实施阶段在降级后仍被识别为工作阶段，上一实施结果不丢失。
+    const prompt = readFileSync(promptFile, "utf8");
+    assert.match(prompt, /上一实施结果：上一轮构建完成/);
+    assert.match(prompt, /README\.md/);
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：接收按冻结声明校验报告", async () => {
+  const dir = project("fallback-frozen-accept");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    mkdirSync(join(dir, ".knit", "prompts"), { recursive: true });
+    writeFileSync(join(dir, ".knit", "prompts", "build.md"), "# 自定义构建提示词\n");
+    writeFileSync(join(dir, ".knit", "prompts", "verify.md"), "# 自定义验收提示词\n");
+    writeFileSync(workflowFile, FROZEN_WORKFLOW);
+    const task = await readyTask(dir, s, "冻结接收");
+
+    const build = await startRun(s, dir, task.taskId, "build", {
+      writes: [{ path: "README.md", content: "# build for accept\n" }],
+      report: { summary: "构建完成", changedPaths: ["README.md"], evidence: ["README.md"] },
+    });
+    assert.equal((await waitTerminal(s, dir, build.runId)).state, "completed");
+
+    // 冻结输入后配置降级，再直接投放缺少 verdict 的合成结果。
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "verify"));
+    await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    const runs = new RunStore(dir);
+    runs.writeResult(prepared.request.runId, resultFixture(prepared.request, "completed", {
+      summary: "缺少结论",
+      coverage: ["README.md"],
+    }));
+    const rejected = await s.acceptance.accept({ dir, runId: prepared.request.runId });
+    assert.equal(rejected.accepted, false);
+    assert.equal(rejected.reason, "report_verdict_missing");
+
+    const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "verify");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：无 prompt 阶段不套旧提示词", async () => {
+  const dir = project("fallback-frozen-noprompt");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    writeFileSync(workflowFile, [
+      "version: 1",
+      "stages:",
+      "  - id: noprompt",
+      "    name: 无提示",
+      "    report:",
+      "      changedPaths: paths",
+      "",
+    ].join("\n"));
+    // 同名旧阶段提示词存在：若降级后错误回退到它，输入摘要会与 prepare 不符。
+    writeFileSync(join(dir, ".knit", "agents", "noprompt.md"), "# 不应被注入的旧提示词\n");
+    const task = await readyTask(dir, s, "无提示阶段");
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "noprompt"));
+    assert.equal(prepared.request.stageDefinition.prompt, null);
+    assert.equal(prepared.request.stageDefinition.decision, false);
+
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    const argvFile = hookPath(dir, "fake-argv-noprompt.json");
+    process.env.KNIT_FAKE_ARGS_FILE = argvFile;
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      writes: [{ path: "README.md", content: "# no prompt\n" }],
+      report: { summary: "无提示完成", changedPaths: ["README.md"] },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    assert.equal((argValue(argv, "--append-system-prompt") ?? "").includes("不应被注入的旧提示词"), false);
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("配置在 prepare 后降级：报告声明按冻结定义校验", async () => {
+  const dir = project("fallback-frozen-report");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  const auditWorkflow = [
+    "version: 1",
+    "stages:",
+    "  - id: audit",
+    "    name: 审计",
+    "    report:",
+    "      changedPaths: paths",
+    "      notes: string",
+    "",
+  ].join("\n");
+  try {
+    writeFileSync(workflowFile, auditWorkflow);
+    const task = await readyTask(dir, s, "冻结报告");
+
+    // 第一次：notes 类型不符；旧默认字段会忽略它，这里必须按冻结声明失败。
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "audit"));
+    assert.deepEqual(prepared.request.stageDefinition.report, { changedPaths: "paths", notes: "string" });
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      writes: [{ path: "README.md", content: "# audit\n" }],
+      report: { summary: "声明字段类型错误", changedPaths: ["README.md"], notes: 123 },
+    });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const failed = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.result.failureReason, "report_field_type:notes:string");
+
+    // 第二次：按冻结声明补全后正常完成。
+    writeFileSync(workflowFile, auditWorkflow);
+    const retry = await s.coordinator.prepare(prepareInput(dir, task.taskId, "audit"));
+    writeFileSync(workflowFile, BROKEN_WORKFLOW);
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, {
+      writes: [{ path: "README.md", content: "# audit complete\n" }],
+      report: { summary: "审计完成", changedPaths: ["README.md"], notes: "已核对" },
+    });
+    const retried = await s.coordinator.start({ dir, runId: retry.request.runId });
+    assert.equal(retried.confirmed, true);
+    const completed = await waitTerminal(s, dir, retry.request.runId);
+    assert.equal(completed.state, "completed", completed.result?.failureReason ?? completed.reason ?? "");
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("scope 跨 run 累积、换会话不重置修复计数与检查事实", async () => {
   const dir = project("scope-races");
   const s = services(dir);

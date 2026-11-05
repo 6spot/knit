@@ -33,7 +33,7 @@ import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
-import { legalStageList, loadWorkflow } from "./workflow.js";
+import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
@@ -259,6 +259,8 @@ export class RunCoordinator {
       taskId: input.taskId,
       stage: input.phase,
       authorizedStandardPaths: input.authorizedStandardPaths,
+      // 新请求按当前模式规划：已降级时不套旧阶段提示词；在途 config run 由 worker 按请求模式保留。
+      keepLegacyStagePrompt: loaded.mode !== "fallback",
     });
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
@@ -286,6 +288,7 @@ export class RunCoordinator {
       taskId: input.taskId,
       phase: input.phase,
       workflowMode: loaded.mode,
+      stageDefinition: freezeStageDefinition(workflowStage) ?? undefined,
       presentation: selection.host,
       presentationSource: selection.source,
       presentationFallbackReason: selection.fallbackReason,

@@ -460,6 +460,34 @@ test("context：分层输入、规范／阶段提示词指纹、草案与候选�
   }
 });
 
+test("降级流程：新计划不套旧阶段提示词，在途 run 仍保留冻结提示词", async () => {
+  const dir = gitProject("fallback-prompt");
+  installTemplates(dir);
+  const { store, planner, tasks } = makeServices(dir);
+  try {
+    const task = await tasks.newTask({ dir, title: "降级提示词", slug: "fallback-prompt" });
+    const before = await planner.plan({ dir, taskId: task.taskId, stage: "implement" });
+    assert.equal(before.sections.some((section) => section.kind === "role"), true);
+
+    // prepare 之后配置损坏：在途 run 需要保留 prepare 时的提示词，摘要才不失效。
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), "version: 2\nstages: []\n");
+    const inFlight = await planner.plan({ dir, taskId: task.taskId, stage: "implement" });
+    assert.equal(inFlight.sections.some((section) => section.kind === "role"), true, "缺省保留旧提示词，兼容在途 run");
+    assert.match(inFlight.stageBrief, /配置降级：unsupported_version/);
+
+    // 降级后的新计划不套提示词，按默认 agent 行为执行（设计 §9）。
+    const fresh = await planner.plan({ dir, taskId: task.taskId, stage: "implement", keepLegacyStagePrompt: false });
+    assert.equal(fresh.ready, true);
+    assert.equal(fresh.sections.some((section) => section.kind === "role"), false);
+    assert.equal(fresh.excluded.some((item) => item.reason === "stage_prompt_file_missing"), false);
+    assert.match(fresh.stageBrief, /本步目标：配置降级：按默认 agent 行为执行/);
+    assert.notEqual(fresh.effectiveInputsDigest, inFlight.effectiveInputsDigest, "提示词参与有效身份摘要，口径不同摘要不同");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("history：只读摘要，不复制正文、不修改原生文件", async () => {
   const dir = gitProject("history");
   const { store, session, agentDir } = makeServices(dir);

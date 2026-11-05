@@ -8,6 +8,7 @@ import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js
 import { cliMainRoot } from "./root.js";
 import type { SessionKind, SessionRole, SessionSourceKind } from "../contracts/session.js";
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
+import { loadWorkflow } from "../application/workflow.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -251,7 +252,14 @@ export function registerSessionCommands(program: Command): void {
       await withStore(
         requestId,
         options.dir,
-        async (store) => new ContextPlanner({ store }).plan({ dir: options.dir, taskId: options.task, stage }),
+        async (store) =>
+          new ContextPlanner({ store }).plan({
+            dir: options.dir,
+            taskId: options.task,
+            stage,
+            // 展示新 run 将使用的计划：已降级时不套旧阶段提示词。
+            keepLegacyStagePrompt: loadWorkflow(options.dir).mode !== "fallback",
+          }),
         (plan) => {
           console.log(`上下文计划 ${plan.planId}  [${plan.taskId}/${plan.role}]`);
           if (plan.stageBrief !== undefined) console.log(plan.stageBrief);

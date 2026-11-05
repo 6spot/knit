@@ -263,8 +263,17 @@ async function main(): Promise<number> {
     const workflow = loaded.workflow;
     if (state.workflowMode !== loaded.mode) writeState({ ...state, workflowMode: loaded.mode });
     const stage = workflowStageOf(workflow, request.phase);
-    if (stage === null && workflow.stages.length > 0) return fail("stage_not_in_workflow");
-    const workStage = stage !== null ? !isDecisionStage(stage) : request.phase === "implement";
+    if (stage === null && workflow.stages.length > 0 && request.stageDefinition === undefined) {
+      return fail("stage_not_in_workflow");
+    }
+    // 冻结阶段定义优先：配置在途降级不改变本 run 的阶段语义与快照选择。
+    const runStage = request.stageDefinition ?? stage;
+    const workStage =
+      request.stageDefinition !== undefined
+        ? !request.stageDefinition.decision
+        : runStage !== null && runStage !== undefined
+          ? !isDecisionStage(runStage)
+          : request.phase === "implement";
     const planner = new ContextPlanner({ store: metadata });
     const plan = await planner.plan({
       dir: executionDir,
@@ -272,6 +281,10 @@ async function main(): Promise<number> {
       stage: request.phase,
       authorizedStandardPaths: (request.expected.authorizedStandardOutputs ?? []).map((output) => output.path),
       authorizedStandardContents: request.expected.authorizedStandardOutputs ?? [],
+      // prepare 冻结的阶段定义：提示词、报告与工具面按 prepare 时执行，降级不重新解释。
+      stageDefinition: request.stageDefinition,
+      // 旧请求没有冻结字段：prepare 时为 config 的在途 run 仍需旧阶段提示词，保证摘要一致。
+      keepLegacyStagePrompt: request.workflowMode !== "fallback",
     });
     if (!plan.ready) return fail(`plan_not_ready:${plan.blockers.join(",")}`);
     if (
@@ -303,7 +316,8 @@ async function main(): Promise<number> {
         countsTowardInputs: section.countsTowardInputs,
       })),
       excluded: plan.excluded.map((item) => ({ sourceId: item.sourceId, reason: item.reason })),
-      toolPolicy: plan.toolPolicy,
+      // 记录本 run 实际执行的冻结策略；配置在途降级不改变工具面。
+      toolPolicy: request.toolPolicy,
     });
     store.writeInstructions(request.runId, {
       schemaVersion: 1,

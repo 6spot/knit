@@ -31,11 +31,15 @@ export async function validateCheckEvidence(input: {
   // 用产生凭据的 run 阶段重建上下文：检查阶段 id 可由配置改名，不能写死 check。
   // 旧夹具／历史凭据没有 run 请求时退回默认 check 阶段。
   const checkRequest = runs.readRequest(check.runId);
-  const checkStage = checkRequest?.phase ?? "check";
+  const checkStage = checkRequest?.stageDefinition?.id ?? checkRequest?.phase ?? "check";
   const plan = await new ContextPlanner({ store, now: input.now, randomHex: input.randomHex }).plan({
     dir: root,
     taskId,
     stage: checkStage,
+    // 凭据产生时冻结的阶段定义：配置降级后仍按当时的提示词重算输入身份。
+    stageDefinition: checkRequest?.stageDefinition,
+    // 旧请求没有冻结字段：用产生凭据的 run 请求模式保留当时的提示词。
+    keepLegacyStagePrompt: checkRequest?.workflowMode !== "fallback",
   });
   if (!plan.ready) throw new GuardError("check_stale", `检查上下文不再 ready: ${plan.blockers.join(",")}`);
   if (

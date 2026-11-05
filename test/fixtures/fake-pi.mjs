@@ -29,6 +29,9 @@ const sessionId =
   (explicitFile !== undefined && existsSync(explicitFile) ? sessionIdFromFile(explicitFile) : undefined) ??
   randomUUID();
 const cwd = process.cwd();
+// 测试钩子：记录实际启动参数，用于核对能力白名单。
+const argsFile = process.env.KNIT_FAKE_ARGS_FILE;
+if (argsFile) writeFileSync(argsFile, JSON.stringify(argv));
 mkdirSync(sessionDir, { recursive: true });
 const sessionFile = explicitFile ?? join(sessionDir, `${new Date().toISOString().replace(/[:.]/g, "-")}_${sessionId}.jsonl`);
 if (process.env.KNIT_FAKE_NO_FILE !== "1" && !existsSync(sessionFile)) {
@@ -148,6 +151,9 @@ rl.on("line", async (line) => {
     return;
   }
   if (type === "prompt") {
+    // 测试钩子：记录用户提示正文，用于核对阶段上下文（如上一实施结果）。
+    const promptFile = process.env.KNIT_FAKE_PROMPT_FILE;
+    if (promptFile) writeFileSync(promptFile, String(request.message ?? ""));
     respond(id, {});
     const spec = action();
     if (abortCompleted) return;

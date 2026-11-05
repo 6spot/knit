@@ -1,7 +1,7 @@
-import { arr, bool, int, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, map, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { ProtocolVersionSchema } from "./protocol.js";
 import { TASK_STAGE_PATTERN } from "./task-inputs.js";
-import { ToolCapabilitySchema, WorkflowModeSchema } from "./workflow.js";
+import { ReportFieldTypeSchema, ToolCapabilitySchema, WorkflowModeSchema } from "./workflow.js";
 
 /** 阶段呈现方式：local 为现有 RPC 后台链路；rex 为 Rex 浮层内的 TUI 链路。 */
 export const RunPresentationSchema = union([
@@ -24,6 +24,29 @@ export type RunPresentationSource = Static<typeof RunPresentationSourceSchema>;
  */
 export const RunPhaseSchema = str({ minLength: 1, pattern: TASK_STAGE_PATTERN });
 export type RunPhase = Static<typeof RunPhaseSchema>;
+
+/**
+ * prepare 时冻结的生效阶段定义（设计 §9）：配置在 run 中途降级或改动时，
+ * worker 与接收仍按这份定义读取提示词、校验报告、判断结论阶段与工具面，
+ * 不重新解释当前配置。旧 run 请求没有该字段，按当时的生效流程兼容。
+ */
+export const RunStageDefinitionSchema = obj({
+  id: str({ minLength: 1 }),
+  name: str({ minLength: 1 }),
+  description: union([str(), nul()]),
+  /** 项目相对提示词路径；null 表示用核心默认 agent 指令。 */
+  prompt: union([str({ minLength: 1 }), nul()]),
+  /** 能力白名单；null 表示全部放开。 */
+  tools: union([arr(ToolCapabilitySchema), nul()]),
+  /** 额外报告字段声明；空对象表示只校验固定字段。 */
+  report: map(ReportFieldTypeSchema),
+  /** 报告值 → 阶段 id 或 deliver；冻结后不再随配置变化。 */
+  onVerdict: map(str({ minLength: 1 })),
+  maxVisits: union([int({ minimum: 0 }), nul()]),
+  /** 是否为结论阶段（报告含枚举）；冻结后阶段语义不随配置变化。 */
+  decision: bool(),
+});
+export type RunStageDefinition = Static<typeof RunStageDefinitionSchema>;
 
 /** run 执行状态（STATES.md 第5节转移图）。 */
 export const RunStateSchema = union([
@@ -357,6 +380,8 @@ export const RunRequestFileSchema = obj(
     phase: RunPhaseSchema,
     /** prepare 时读取到的流程模式：config 按配置，fallback 为 start → deliver 降级。 */
     workflowMode: opt(WorkflowModeSchema),
+    /** prepare 时冻结的阶段定义；worker／接收按它执行，旧请求缺省。 */
+    stageDefinition: opt(RunStageDefinitionSchema),
     presentation: opt(RunPresentationSchema),
     /** prepare 时的呈现来源与自动回退原因；旧请求缺省按 local／config 解释。 */
     presentationSource: opt(RunPresentationSourceSchema),

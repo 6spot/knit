@@ -49,6 +49,18 @@ export interface ContextPlanInput {
   authorizedStandardPaths?: string[];
   /** 已冻结的授权成果（来自 run 请求）；给定时优先于磁盘当前内容（任务037）。 */
   authorizedStandardContents?: AuthorizedStandardOutput[];
+  /**
+   * prepare 时冻结的生效阶段定义；给定时优先于当前 `.knit/workflow.yaml`。
+   * 配置在途降级或改动不改变该 run 的提示词与工具面（设计 §9）。
+   * `undefined` 表示旧请求没有冻结字段，按当前配置兼容解释。
+   */
+  stageDefinition?: WorkflowStage | null;
+  /**
+   * 降级流程是否为在途旧 run 保留旧阶段提示词。
+   * 仅对没有冻结阶段定义的旧请求生效：保留提示词可让 worker 重算的摘要与冻结请求一致。
+   * 新 run 在降级流程下不套提示词，与设计 §9 的“默认 agent 行为”一致。
+   */
+  keepLegacyStagePrompt?: boolean;
 }
 
 interface SectionInput {
@@ -225,9 +237,15 @@ export class ContextPlanner {
     });
 
     // 生效流程：阶段名／说明／提示词／能力都来自配置；流程配置本身不进 inputsDigest。
+    // prepare 冻结的阶段定义优先：配置在途降级不重新解释本 run 的语义（设计 §9）。
     const loaded = loadWorkflow(root);
     const stage = resolveStage(input);
-    const stageDefinition = workflowStageOf(loaded.workflow, stage);
+    const configuredStage = workflowStageOf(loaded.workflow, stage);
+    const frozenStage = input.stageDefinition;
+    if (frozenStage !== undefined && frozenStage !== null && frozenStage.id !== stage) {
+      throw new GuardError("invalid_request", `冻结阶段定义与请求阶段不一致: ${frozenStage.id} ≠ ${stage}`);
+    }
+    const stageDefinition = frozenStage !== undefined ? frozenStage : configuredStage;
     // 降级流程允许旧阶段值在途跑完；正常配置只接受锚点或已声明阶段。
     if (
       stageDefinition === null &&
@@ -236,15 +254,19 @@ export class ContextPlanner {
     ) {
       throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${stage}；合法阶段: ${legalStageList(loaded.workflow)}`);
     }
-    const stageBrief = stageBriefOf(loaded.workflow, stage, loaded.mode, loaded.validation.reason);
+    const stageBrief = stageBriefOf(loaded.workflow, stage, loaded.mode, loaded.validation.reason, frozenStage ?? null);
 
-    // 阶段提示词：配置显式声明 prompt 才注入；缺失时用核心默认 agent 指令，不阻断。
-    // 降级流程为在途旧 run 保留旧阶段提示词路径，避免流程降级本身使冻结输入失效。
+    // 阶段提示词：冻结定义优先；没有冻结定义时才读当前配置。
+    // 旧请求（无冻结字段）在降级流程中为在途 run 保留旧提示词路径，避免摘要失效；
+    // 新 run（prepare 时已降级）不套提示词，按默认 agent 行为执行（设计 §9）。
+    const keepLegacyPrompt = input.keepLegacyStagePrompt ?? true;
     const promptPath =
-      stageDefinition?.prompt ??
-      (loaded.mode === "fallback" && !isWorkflowAnchor(stage) && loaded.workflow.stages.length === 0
-        ? `.knit/agents/${stage}.md`
-        : null);
+      frozenStage !== undefined
+        ? frozenStage?.prompt ?? null
+        : configuredStage?.prompt ??
+          (loaded.mode === "fallback" && loaded.workflow.stages.length === 0 && !isWorkflowAnchor(stage) && keepLegacyPrompt
+            ? `.knit/agents/${stage}.md`
+            : null);
     const roleContent = promptPath === null ? null : readText(join(root, promptPath));
     if (promptPath !== null && roleContent !== null) {
       sections.push({
