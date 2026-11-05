@@ -76,4 +76,10 @@ title: 配置层：workflow.yaml 解析、校验与降级
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-config-layer-yaml-workflow
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-f8c6417d893b -->
+- 任务资料提交: 2eb4c18e06a89dcaa69ebd57a98c915755dac273
+- 归档目标: .knit/tasks/archive/2026-11/11-05-config-layer-yaml-workflow
+
 <!-- knit:progress:end -->
