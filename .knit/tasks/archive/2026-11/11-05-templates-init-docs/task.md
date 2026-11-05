@@ -89,4 +89,10 @@ stage: deliver
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-templates-init-docs
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-410d6e7e2565 -->
+- 任务资料提交: b105a5bc794f241f0070d0e428d949057dfdf575
+- 归档目标: .knit/tasks/archive/2026-11/11-05-templates-init-docs
+
 <!-- knit:progress:end -->
