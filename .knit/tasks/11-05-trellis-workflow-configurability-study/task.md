@@ -83,4 +83,13 @@ title: Trellis 工作流可配置性调研与 Knit 改造方案建议
 
 业务完成但未提交、未推送、未归档。`knit-options.md` 全部内容为待确认建议，未据此改动产品规范或代码。
 
+## 提交记录
+
+用户 2026-11-05 授权提交（仅本地提交，不含推送／发布／归档）。工作产物与任务资料分开提交：
+
+- 工作提交：`12b6c75`（`validation/trellis-workflow-config/` 三个文件，276 行新增）
+- 任务资料提交：`a6e8e77`（本任务 `task.md`）
+
+提交前 `git status --porcelain` 只有上述两个新增目录，未改动源码或现行规范。未推送。
+
 <!-- knit:progress:end -->
