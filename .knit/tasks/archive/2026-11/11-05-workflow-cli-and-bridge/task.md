@@ -86,4 +86,10 @@ stage: deliver
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-workflow-cli-and-bridge
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-694f4189b438 -->
+- 任务资料提交: 6717a448875730590c1211004b1891734310dfa6
+- 归档目标: .knit/tasks/archive/2026-11/11-05-workflow-cli-and-bridge
+
 <!-- knit:progress:end -->
