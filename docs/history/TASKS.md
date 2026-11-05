@@ -1,6 +1,6 @@
 # Knit 开发任务历史（001–060）
 
-本表及 [tasks/](tasks/) 已归档，保存启用 Knit 管理开发前的 001–060 执行事实，不再新增排程或维护后续任务状态。后续开发从 [AGENTS.md](../../AGENTS.md) 和 [.knit/workflow.md](../../.knit/workflow.md) 开始，正式任务使用 `.knit/tasks/`。
+本表及 [tasks/](tasks/) 已归档，保存启用 Knit 管理开发前的 001–060 执行事实，不再新增排程或维护后续任务状态。后续开发从 [AGENTS.md](../../AGENTS.md) 和 [.knit/workflow.yaml](../../.knit/workflow.yaml) 开始，正式任务使用 `.knit/tasks/`。
 
 下述阶段说明、编号顺序与旧启动约定按当时事实保留，不作为当前执行指令。历史文件原位于根 TASKS.md、BLOCKERS.md 和 tasks/，现在统一保存在 docs/history/。产品元数据仍由 Knit 的 SQLite 存储管理。
 

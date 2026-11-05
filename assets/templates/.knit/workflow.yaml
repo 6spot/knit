@@ -1,0 +1,61 @@
+# Knit 流程配置 .knit/workflow.yaml
+#
+# version 必填，当前只支持 1。
+# stages 必填，是有序阶段列表（至少一个）；数组顺序就是流转顺序。
+# 内置锚点 start（准备／讨论）与 deliver（收尾）不写在 stages 里，id 也不能取这两个值。
+#
+# 阶段字段：
+#   id          必填，^[a-z][a-z0-9-]{0,31}$，全文件唯一；写入 task.md 的 stage。
+#   name        可选，显示名；缺省用 id。
+#   description 可选，本步说明；用于顶部提示与 workflow show。
+#   prompt      可选，项目相对路径；缺省或文件缺失时用核心默认 agent 指令。
+#   tools       可选，能力白名单；不写 = 全部放开，写了 = 只允许列出的能力：
+#                 read      只读：read／grep／find／ls
+#                 write     改文件：write／edit
+#                 exec      执行命令：bash（可能间接改文件）
+#                 task      任务／上下文工具（knit_*）
+#                 external  放开项目扩展、MCP 与技能（显式 opt-in）
+#                 network   放开网络（显式 opt-in；默认阶段离线）
+#   report      可选，额外报告字段：string／string[]／paths／bool／枚举数组（如 [pass, blocked]）。
+#               固定字段 summary／validation／blockers 不需要声明。
+#   onVerdict   可选，报告值 → 跳转目标；目标必须是已声明阶段 id 或 deliver。
+#               键必须是某个 report 枚举字段声明的值；未命中走顺序下一阶段。
+#   maxVisits   可选，阶段访问上限（非负整数）；回退环上缺省用 config.workflow.maxRepairRounds。
+#               回退环上所有阶段都没有有限上限时，整份配置降级。
+#
+# 常见错误（都会降级为 start → deliver，并给出含行号的原因）：
+#   - 漏写 version 或写成 2；stages 为空；根节点不是映射
+#   - id 大写、超长、重复，或使用保留锚点 start／deliver
+#   - tools 写未知能力；report 写未知类型、空枚举数组或重复枚举值
+#   - onVerdict 指向不存在的阶段，或键未在 report 枚举中声明
+#   - 回退环上所有阶段都缺有限上限（maxVisits 为 null 且没有 workflow.maxRepairRounds）
+#   - YAML 缩进错误、冒号后缺空格、重复键
+#
+# 降级时只对新 run 生效：当前 run 继续跑完并正常接收；生效流程不套提示词，
+# 使用默认 agent 行为。knit workflow validate 可查看全部问题与行号。
+version: 1
+stages:
+  - id: implement
+    name: 实现
+    description: 按 task.md 完成产出并运行范围验证
+    prompt: .knit/agents/implement.md
+    tools: [read, write, exec]
+    report:
+      changedPaths: paths
+      unverified: string[]
+  - id: check
+    name: 检查
+    description: 独立核对完成条件与实现成果
+    prompt: .knit/agents/check.md
+    tools: [read, exec]
+    report:
+      verdict: [pass, changes_requested, blocked]
+      coverage: string[]
+      changedPaths: paths
+      selfVerified: bool
+      findings: string[]
+      unverified: string[]
+    onVerdict:
+      changes_requested: implement
+      # blocked 保留在本阶段复查，不顺序前进。
+      blocked: check

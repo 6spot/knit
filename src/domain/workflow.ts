@@ -95,8 +95,13 @@ export const DEFAULT_WORKFLOW_YAML = `# Knit 流程配置 .knit/workflow.yaml
 #   name        可选，显示名；缺省用 id。
 #   description 可选，本步说明；用于顶部提示与 workflow show。
 #   prompt      可选，项目相对路径；缺省或文件缺失时用核心默认 agent 指令。
-#   tools       可选，能力白名单：read／write／exec／task／external／network。
-#               不写 = 全部放开；写了 = 只允许列出的能力。
+#   tools       可选，能力白名单；不写 = 全部放开，写了 = 只允许列出的能力：
+#                 read      只读：read／grep／find／ls
+#                 write     改文件：write／edit
+#                 exec      执行命令：bash（可能间接改文件）
+#                 task      任务／上下文工具（knit_*）
+#                 external  放开项目扩展、MCP 与技能（显式 opt-in）
+#                 network   放开网络（显式 opt-in；默认阶段离线）
 #   report      可选，额外报告字段：string／string[]／paths／bool／枚举数组（如 [pass, blocked]）。
 #               固定字段 summary／validation／blockers 不需要声明。
 #   onVerdict   可选，报告值 → 跳转目标；目标必须是已声明阶段 id 或 deliver。

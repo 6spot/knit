@@ -4,9 +4,9 @@
 
 现有开发已完成 001–060 的实现、复核与阻塞修复，记录保留在[开发历史](https://github.com/6spot/knit/blob/main/docs/history/TASKS.md)，验证依据见 [validation](https://github.com/6spot/knit/tree/main/validation)。Linux 候选安装验收记录已保留；后续真机／真实模型验收按用户决定延期，macOS 完整安装与运行验收仍待进行，当前不声明 macOS 兼容。NPM 发布和外部部署尚未进行。
 
-开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，用 `npx --no-install knit task list` 查询；用户决定是否建任务，各任务的 `task.md` 保存需求与业务状态。旧编号任务保留为历史档案。
+开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，流程由 `.knit/workflow.yaml` 声明（默认 准备 → 实现 → 检查 → 收尾），用 `npx --no-install knit task list` 查询；用户决定是否建任务，各任务的 `task.md` 保存需求与业务状态。旧编号任务保留为历史档案。
 
-设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)、[角色契约](https://github.com/6spot/knit/blob/main/docs/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
+设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)、[阶段契约](https://github.com/6spot/knit/blob/main/docs/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
 
 ```text
 AGENTS.md          本仓库的开发协作入口
@@ -14,7 +14,7 @@ src/               CLI、契约、领域、用例、适配与基础设施
 assets/templates/  init 模板：项目资料与薄桥接
 test/              单元与隔离集成测试
 scripts/           构建、打包检查与本地安装
-.knit/             当前任务、工作流、规范与受管运行资料
+.knit/             当前任务、流程配置、规范与受管运行资料
 .pi/extensions/    项目级 Pi 桥接
 docs/
   README.md        文档导航

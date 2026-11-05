@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { parseConfig, defaultConfig } from "../dist/application/config.js";
 import { resolveProjectRoot, InitializationService } from "../dist/application/initialization.js";
 import { AGENTS_MANAGED_MARKER_BEGIN, AGENTS_MANAGED_MARKER_END, agentsManagedBlock, templateDigest } from "../dist/application/templates.js";
+import { DEFAULT_WORKFLOW_YAML } from "../dist/domain/workflow.js";
 import { sha256Text } from "../dist/infrastructure/fingerprint.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
@@ -32,7 +33,8 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
     assert.equal(result.ready, true);
     assert.equal(result.bridgeReady, true);
     assert.equal(result.manifestState, "ready");
-    assert.ok(result.created.includes(".knit/workflow.md"));
+    assert.ok(result.created.includes(".knit/workflow.yaml"));
+    assert.equal(result.created.includes(".knit/workflow.md"), false, "不再生成已删除的 workflow.md");
     assert.ok(result.created.includes(".knit/agents/implement.md"));
     assert.equal(result.created.includes(".knit/agents/deliver.md"), false, "不生成交付辅助角色文件");
     assert.equal(existsSync(join(dir, ".knit", "agents", "deliver.md")), false);
@@ -51,7 +53,7 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
     // 权限：运行目录 0700、清单 0600；项目资料 0644
     assert.equal(statSync(join(dir, ".knit", ".runtime")).mode & 0o777, 0o700);
     assert.equal(statSync(join(dir, ".knit", ".runtime", "init-manifest.json")).mode & 0o777, 0o600);
-    assert.equal(statSync(join(dir, ".knit", "workflow.md")).mode & 0o777, 0o644);
+    assert.equal(statSync(join(dir, ".knit", "workflow.yaml")).mode & 0o777, 0o644);
     // 运行目录被忽略且未跟踪
     execFileSync("git", ["check-ignore", "-q", ".knit/.runtime"], { cwd: dir });
   } finally {
@@ -59,34 +61,86 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
   }
 });
 
-test("init：workflow.md 模板含创建前需求澄清门与复杂拆分提示（k-efc748322ccf）", async () => {
+test("init：AGENTS 受管块含创建前需求澄清门与复杂拆分提示（k-efc748322ccf）", async () => {
   const dir = freshProject("clarify-gate");
   try {
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
     await init(service, dir);
-    const workflow = readFileSync(join(dir, ".knit", "workflow.md"), "utf8");
-    assert.match(workflow, /关键缺口先讨论/, "关键缺口先讨论");
-    assert.match(workflow, /需求明确直接登记/, "需求明确直接登记");
-    assert.match(workflow, /想法登记/, "想法登记路径");
-    assert.match(workflow, /（Agent 建议，待确认）/, "Agent 建议标注");
-    assert.match(workflow, /复杂需求先拆分/, "复杂需求拆分提示");
-    assert.match(workflow, /创建同意不等于实施授权/, "创建同意与实施授权分开");
-    assert.match(workflow, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
-    assert.match(workflow, /历史查询意愿/, "历史查询意愿触发规则");
-    assert.match(workflow, /knit task search/, "历史检索入口");
-    assert.match(workflow, /相关记录不等于证明因果/, "相关性与因果边界");
-    assert.match(workflow, /新事项先问是否建任务/, "先问任务选择");
-    assert.match(workflow, /暂不创建时继续讨论/, "暂不创建可继续讨论");
-    assert.match(workflow, /明确不创建时同一事项持续有效/, "拒绝创建持续有效");
-    assert.match(workflow, /不能用“你做吧”代替/, "实施前补问任务选择");
-    assert.match(workflow, /用户明确“按这个做”等可同时确认范围与授权实施/, "明确实施可合并确认");
-    assert.match(workflow, /归纳问题、范围、完成条件与待决事项/, "讨论可实施时归纳结构");
+    const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
+    assert.match(agents, /关键缺口先讨论/, "关键缺口先讨论");
+    assert.match(agents, /需求明确直接登记/, "需求明确直接登记");
+    assert.match(agents, /想法登记/, "想法登记路径");
+    assert.match(agents, /（Agent 建议，待确认）/, "Agent 建议标注");
+    assert.match(agents, /复杂需求先拆分/, "复杂需求拆分提示");
+    assert.match(agents, /创建同意不等于实施授权/, "创建同意与实施授权分开");
+    assert.match(agents, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
+    assert.match(agents, /历史查询意愿/, "历史查询意愿触发规则");
+    assert.match(agents, /knit task search/, "历史检索入口");
+    assert.match(agents, /相关记录不等于证明因果/, "相关性与因果边界");
+    assert.match(agents, /新事项先问是否建任务/, "先问任务选择");
+    assert.match(agents, /暂不创建时继续讨论/, "暂不创建可继续讨论");
+    assert.match(agents, /明确不创建时同一事项持续有效/, "拒绝创建持续有效");
+    assert.match(agents, /不能用“你做吧”代替/, "实施前补问任务选择");
+    assert.match(agents, /用户明确“按这个做”等可同时确认范围与授权实施/, "明确实施可合并确认");
+    assert.match(agents, /归纳问题、范围、完成条件与待决事项/, "讨论可实施时归纳结构");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("init：角色文件覆盖停止条件、报告字段与工具边界（k-20bdb1709d7e）", async () => {
+test("init：workflow.yaml 模板与内置默认流程逐字一致，且不再生成 workflow.md", async () => {
+  const dir = freshProject("workflow-template");
+  try {
+    const asset = readFileSync(join(import.meta.dirname, "..", "assets", "templates", ".knit", "workflow.yaml"), "utf8");
+    assert.equal(asset, DEFAULT_WORKFLOW_YAML, "发布模板与内置默认流程同源");
+    assert.match(asset, /^# Knit 流程配置/m);
+    assert.match(asset, /能力白名单；不写 = 全部放开/);
+    assert.match(asset, /read\s+只读：read／grep／find／ls/);
+    assert.match(asset, /write\s+改文件：write／edit/);
+    assert.match(asset, /exec\s+执行命令：bash/);
+    assert.match(asset, /task\s+任务／上下文工具（knit_\*）/);
+    assert.match(asset, /external\s+放开项目扩展、MCP 与技能/);
+    assert.match(asset, /network\s+放开网络/);
+    assert.match(asset, /常见错误/);
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    assert.ok(existsSync(join(dir, ".knit", "workflow.yaml")));
+    assert.equal(existsSync(join(dir, ".knit", "workflow.md")), false, "workflow.md 不再生成");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：模板已移除文件只报告不删除，不阻断 ready", async () => {
+  const dir = freshProject("orphans");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    writeFileSync(join(dir, ".knit", "workflow.md"), "# 旧工作流\n");
+    writeFileSync(join(dir, ".knit", "agents", "deliver.md"), "# 旧交付辅助角色\n");
+    const manifestPath = join(dir, ".knit", ".runtime", "init-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.items.push(
+      { path: ".knit/workflow.md", ownership: "project", state: "kept" },
+      { path: ".knit/agents/deliver.md", ownership: "project", state: "kept" },
+    );
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+    const plan = service.check(dir);
+    assert.deepEqual(plan.orphans.map((item) => item.path), [".knit/agents/deliver.md", ".knit/workflow.md"]);
+    assert.ok(plan.orphans.every((item) => item.exists), "只报告仍存在的文件");
+
+    const result = await init(service, dir);
+    assert.equal(result.ready, true, "孤儿报告不阻断 ready");
+    assert.deepEqual(result.orphans.map((item) => item.path), [".knit/agents/deliver.md", ".knit/workflow.md"]);
+    assert.ok(existsSync(join(dir, ".knit", "workflow.md")), "默认不删除");
+    assert.ok(existsSync(join(dir, ".knit", "agents", "deliver.md")), "默认不删除旧角色文件");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init：阶段提示词覆盖停止条件、报告字段与工具边界（k-20bdb1709d7e）", async () => {
   const dir = freshProject("role-contract");
   try {
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
@@ -113,7 +167,7 @@ test("init：角色文件覆盖停止条件、报告字段与工具边界（k-20
     assert.match(check, /changes_requested|blocked/, "检查交回结论");
     const runtime = readFileSync(join(dir, ".knit", "agents", "runtimes", "pi.md"), "utf8");
     assert.match(runtime, /--no-extensions/);
-    assert.match(runtime, /implement／check 可写，advisory 只读/, "runtime 工具事实");
+    assert.match(runtime, /工具范围由该阶段 `tools` 能力白名单决定/);
     assert.match(runtime, /changedPaths/);
     assert.match(runtime, /停止条件/);
   } finally {
@@ -149,14 +203,14 @@ test("init：项目资料只补缺，受管冲突不覆盖，--force 显式更�
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
     await init(service, dir);
     // 人工修改项目正文、受管桥接、AGENTS 正文
-    writeFileSync(join(dir, ".knit", "workflow.md"), "项目自定义工作流\n");
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), "# 项目自定义流程\nversion: 1\nstages:\n  - id: implement\n");
     writeFileSync(join(dir, ".pi", "extensions", "knit.ts"), "// 人工改动\n");
     const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
     writeFileSync(join(dir, "AGENTS.md"), `${agents}人工补充规则\n`);
     const result = await init(service, dir);
     assert.equal(result.ready, false);
     assert.deepEqual(result.conflicts, [".pi/extensions/knit.ts"]);
-    assert.equal(readFileSync(join(dir, ".knit", "workflow.md"), "utf8"), "项目自定义工作流\n", "项目正文不覆盖");
+    assert.equal(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8"), "# 项目自定义流程\nversion: 1\nstages:\n  - id: implement\n", "项目配置不覆盖");
     assert.equal(readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8"), "// 人工改动\n", "受管冲突不覆盖");
     assert.ok(readFileSync(join(dir, "AGENTS.md"), "utf8").endsWith("人工补充规则\n"), "AGENTS 正文保留");
     // 清单 failed，逐项 conflict
@@ -168,7 +222,7 @@ test("init：项目资料只补缺，受管冲突不覆盖，--force 显式更�
     const forced = await init(service, dir, { force: true });
     assert.equal(forced.ready, true);
     assert.ok(readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8").includes("Knit 项目薄桥接"));
-    assert.ok(readFileSync(join(dir, ".knit", "workflow.md"), "utf8").startsWith("项目自定义工作流"), "force 仍不覆盖项目资料");
+    assert.ok(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8").startsWith("# 项目自定义流程"), "force 仍不覆盖项目资料");
     // 受管 AGENTS 块与基线一致时人工改动不受影响
     assert.ok(readFileSync(join(dir, "AGENTS.md"), "utf8").endsWith("人工补充规则\n"));
   } finally {
@@ -245,7 +299,7 @@ test("init：子目录归一到仓库根；非 Git 目录可准备资料并提�
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
     const result = await init(service, join(dir, "packages", "app"));
     assert.equal(result.root, dir, "子目录归一到仓库根");
-    assert.ok(existsSync(join(dir, ".knit", "workflow.md")));
+    assert.ok(existsSync(join(dir, ".knit", "workflow.yaml")));
     // 非 Git 目录
     const plain = mkdtempSync(join(tmpdir(), "knit-008-plain-"));
     try {
@@ -457,7 +511,8 @@ test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
   const block = agentsManagedBlock("knit");
   assert.ok(block.startsWith(AGENTS_MANAGED_MARKER_BEGIN));
   assert.ok(block.trimEnd().endsWith(AGENTS_MANAGED_MARKER_END));
-  assert.ok(block.includes(".knit/workflow.md"));
+  assert.ok(block.includes(".knit/workflow.yaml"));
+  assert.equal(block.includes(".knit/workflow.md"), false, "受管块不再引用已删除的 workflow.md");
   assert.ok(block.includes("knit task list"));
   assert.ok(block.includes("主会话入口"));
   assert.ok(block.includes("规范沉淀："));
@@ -466,7 +521,7 @@ test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
   assert.equal((block.match(/历史查询：/g) ?? []).length, 1, "受管块历史查询只出现一次");
 });
 
-test("模板：角色契约文档覆盖职责、停止条件、报告与 Trellis／GSD 来源", () => {
+test("模板：阶段契约文档覆盖职责、停止条件、报告与 Trellis／GSD 来源", () => {
   const doc = readFileSync(join(import.meta.dirname, "..", "docs", "design", "ROLE-CONTRACT.md"), "utf8");
   assert.match(doc, /职责/);
   assert.match(doc, /停止条件/);
