@@ -295,7 +295,7 @@ test("RexApi：list/call 封装、newLayer 参数与缺能力报错", async () =
   await assert.rejects(missing.check(), /session\.float_block/);
 });
 
-test("buildRexPiArgs：TUI、扩展、会话与模型参数及 env 注入", () => {
+test("buildRexPiArgs：TUI、扩展、会话与模型参数及 env 注入（不强制禁用主题）", () => {
   const args = buildRexPiArgs({
     executablePath: "pi",
     sessionId: "native-1",
@@ -316,6 +316,11 @@ test("buildRexPiArgs：TUI、扩展、会话与模型参数及 env 注入", () =
   assert.ok(args.includes("KNIT_RUN=run-0123456789ab"));
   assert.ok(args.includes("--mode"));
   assert.equal(args[args.indexOf("--mode") + 1], "text");
+  // 主题发现沿用用户设置：不再传 --no-themes；其余基础开关与顺序保持不变。
+  const piArgs = args.slice(args.indexOf("pi") + 1);
+  assert.deepEqual(piArgs.slice(0, 4), ["--mode", "text", "--no-context-files", "--no-prompt-templates"]);
+  assert.equal(piArgs[4], "--no-approve");
+  assert.ok(!args.includes("--no-themes"));
   assert.equal(args[args.indexOf("--extension") + 1], "/pkg/dist/adapters/rex/worker-extension.js");
   assert.equal(args[args.indexOf("--session-id") + 1], "native-1");
   assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
@@ -334,6 +339,7 @@ test("buildRexPiArgs：TUI、扩展、会话与模型参数及 env 注入", () =
   });
   assert.equal(resume[resume.indexOf("--session") + 1], "/sessions/old.jsonl");
   assert.ok(resume.includes("--no-tools"));
+  assert.ok(!resume.includes("--no-themes"));
   assert.ok(rexLabel("run-0123456789ab").startsWith("knit run-"));
   assert.ok(rexLabel("x".repeat(80)).length <= 60);
 });

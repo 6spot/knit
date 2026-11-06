@@ -114,7 +114,6 @@ export function buildRexPiArgs(input: RexPiCommandInput): string[] {
     "text",
     "--no-context-files",
     "--no-prompt-templates",
-    "--no-themes",
     "--no-approve",
   ];
   if (switches.offline) args.push("--offline");
