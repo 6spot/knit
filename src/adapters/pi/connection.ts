@@ -51,6 +51,11 @@ export class PiRpcConnection {
   private readonly exitWaiters: Array<(exit: PiProcessExit) => void> = [];
   private stderrTail = "";
   private stderrTruncated = false;
+  /** stderr 流已结束（end／close／error）；结束后不再有尾部数据。 */
+  private stderrClosed = false;
+  /** 收敛后的最终 stderr 快照；显式冻结后即使流未结束也保持不变。 */
+  private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
+  private readonly stderrWaiters: Array<() => void> = [];
   /** 收到的协议事件（非 response 记录）；由调用方消费。 */
   readonly events: PiRpcRecord[] = [];
   /** 无法按 JSON 对象核实的帧（畸形或截断尾部）；不当作响应或事件。 */
@@ -75,13 +80,22 @@ export class PiRpcConnection {
       const waiters = this.exitWaiters.splice(0);
       for (const waiter of waiters) waiter(this.exitInfo);
     });
-    this.child.stderr?.on("data", (chunk: Buffer) => {
-      this.stderrTail += chunk.toString("utf-8");
-      if (this.stderrTail.length > STDERR_TAIL_LIMIT) {
-        this.stderrTail = this.stderrTail.slice(-STDERR_TAIL_LIMIT);
-        this.stderrTruncated = true;
-      }
-    });
+    const stderr = this.child.stderr;
+    if (stderr === null) {
+      this.markStderrSettled();
+    } else {
+      stderr.on("data", (chunk: Buffer) => {
+        this.stderrTail += chunk.toString("utf-8");
+        if (this.stderrTail.length > STDERR_TAIL_LIMIT) {
+          this.stderrTail = this.stderrTail.slice(-STDERR_TAIL_LIMIT);
+          this.stderrTruncated = true;
+        }
+      });
+      stderr.on("end", () => this.markStderrSettled());
+      stderr.on("close", () => this.markStderrSettled());
+      // 读流错误同样意味着不会再有数据；不在此吞掉进程级错误。
+      stderr.on("error", () => this.markStderrSettled());
+    }
     void this.pumpStdout();
   }
 
@@ -93,14 +107,50 @@ export class PiRpcConnection {
     return this.exitInfo;
   }
 
-  /** 最近 stderr 内容（尾部截断保留）；诊断用途，不作权威回执。 */
+  /** 最近 stderr 内容（尾部截断保留）；诊断用途，不作权威回执。收敛后与冻结快照一致。 */
   get diagnostics(): string {
-    return this.stderrTruncated ? `…(截断)${this.stderrTail}` : this.stderrTail;
+    const { tail, truncated } = this.stderrDiagnostics;
+    return truncated ? `…(截断)${tail}` : tail;
   }
 
-  /** stderr 尾部与真实截断标志；结构化诊断用，不作权威回执。 */
+  /** stderr 尾部与真实截断标志；结构化诊断用，不作权威回执。收敛后返回冻结快照。 */
   get stderrDiagnostics(): { tail: string; truncated: boolean } {
-    return { tail: this.stderrTail, truncated: this.stderrTruncated };
+    return this.stderrSnapshot ?? { tail: this.stderrTail, truncated: this.stderrTruncated };
+  }
+
+  /** stderr 流是否已结束；诊断读取前用于判断尾部是否还可能增长。 */
+  get stderrSettled(): boolean {
+    return this.stderrClosed;
+  }
+
+  /** 有界等待 stderr 流结束；超时返回 false，不阻塞调用方。 */
+  waitStderrClose(timeoutMs = 2_000): Promise<boolean> {
+    if (this.stderrClosed) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      const waiter = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        const index = this.stderrWaiters.indexOf(waiter);
+        if (index >= 0) this.stderrWaiters.splice(index, 1);
+        resolve(false);
+      }, timeoutMs);
+      this.stderrWaiters.push(waiter);
+    });
+  }
+
+  /** 冻结当前 stderr 尾部；之后返回的快照不再变化（连接释放后仍可读）。 */
+  snapshotStderr(): { tail: string; truncated: boolean } {
+    this.stderrSnapshot ??= { tail: this.stderrTail, truncated: this.stderrTruncated };
+    return this.stderrSnapshot;
+  }
+
+  private markStderrSettled(): void {
+    if (this.stderrClosed) return;
+    this.stderrClosed = true;
+    this.snapshotStderr();
+    for (const waiter of this.stderrWaiters.splice(0)) waiter();
   }
 
   private async pumpStdout(): Promise<void> {

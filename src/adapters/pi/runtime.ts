@@ -16,6 +16,9 @@ import {
 
 export const PI_ADAPTER_VERSION = 1;
 
+/** dispose 等待 stderr 流收敛的上限；超时保留已有尾部，不阻塞收尾。 */
+const STDERR_SETTLE_TIMEOUT_MS = 1_000;
+
 /** 启动后必须核对实际模型；仅字符串匹配 get_state 不算可用。 */
 export interface ModelRequirement {
   provider: string;
@@ -163,6 +166,8 @@ export function buildPiArgs(options: PiRuntimeOptions): string[] {
 
 export class PiAgentRuntime {
   private connection: PiRpcConnection | null = null;
+  /** dispose 冻结的最终 stderr 快照；连接释放后仍可读（启动诊断用）。 */
+  private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
   private settledSeen = false;
   private lastSettledAborted = false;
   private started = false;
@@ -179,7 +184,7 @@ export class PiAgentRuntime {
 
   /** 本次进程 stderr 尾部与截断标志；启动失败诊断用，不作权威回执。 */
   get stderrDiagnostics(): { tail: string; truncated: boolean } {
-    return this.connection?.stderrDiagnostics ?? { tail: "", truncated: false };
+    return this.connection?.stderrDiagnostics ?? this.stderrSnapshot ?? { tail: "", truncated: false };
   }
 
   /** 已启动 Pi 进程的 PID；用于崩溃后核实并清理本次自有进程。 */
@@ -345,21 +350,28 @@ export class PiAgentRuntime {
     const connection = this.connection;
     if (connection === null) return null;
     this.connection = null;
-    if (connection.exit === null) {
-      await safeCall(connection, "clear_queue");
-      await safeCall(connection, "abort");
-      connection.endStdin();
-      const exited = await connection.waitExit(graceMs);
-      if (exited === null) {
-        connection.killProcessGroup("SIGTERM");
-        const terminated = await connection.waitExit(3_000);
-        if (terminated === null) {
-          connection.killProcessGroup("SIGKILL");
-          await connection.waitExit(3_000);
+    try {
+      if (connection.exit === null) {
+        await safeCall(connection, "clear_queue");
+        await safeCall(connection, "abort");
+        connection.endStdin();
+        const exited = await connection.waitExit(graceMs);
+        if (exited === null) {
+          connection.killProcessGroup("SIGTERM");
+          const terminated = await connection.waitExit(3_000);
+          if (terminated === null) {
+            connection.killProcessGroup("SIGKILL");
+            await connection.waitExit(3_000);
+          }
         }
       }
+      // 进程退出不等于 stderr 已读完：有界等待流收敛后再冻结快照，避免诊断读到空尾部。
+      await connection.waitStderrClose(STDERR_SETTLE_TIMEOUT_MS);
+      return connection.exit;
+    } finally {
+      // 超时也保留已有尾部；释放连接后 stderrDiagnostics 返回该快照，不为空。
+      this.stderrSnapshot = connection.snapshotStderr();
     }
-    return connection.exit;
   }
 }
 

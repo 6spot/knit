@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -150,6 +150,81 @@ test("连接层把非 JSON 与非对象帧归入 invalidFrames，不作响应或
     assert.equal(connection.events.length, 0);
   } finally {
     connection.killProcessGroup("SIGKILL");
+  }
+});
+
+test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout: 30_000 }, async () => {
+  const { root } = makeWorkspace("stderr-settle");
+  const script = [
+    "process.stderr.write('startup detail: model missing\\n')",
+    "setInterval(() => {}, 1000)",
+  ].join(";");
+  const connection = new PiRpcConnection(process.execPath, ["-e", script], { cwd: root, env: {} });
+  try {
+    // 进程存活、stderr 未关闭：有界等待超时返回 false，不无限阻塞。
+    assert.equal(await connection.waitStderrClose(100), false);
+    assert.equal(connection.stderrSettled, false);
+    connection.killProcessGroup("SIGKILL");
+    assert.equal(await connection.waitStderrClose(5_000), true);
+    assert.equal(connection.stderrSettled, true);
+    const diagnostics = connection.stderrDiagnostics;
+    assert.match(diagnostics.tail, /startup detail: model missing/);
+    assert.equal(diagnostics.truncated, false);
+    // 流结束后快照冻结，不再随数据变化。
+    assert.deepEqual(connection.snapshotStderr(), diagnostics);
+  } finally {
+    connection.killProcessGroup("SIGKILL");
+  }
+});
+
+test("runtime 启动失败后 dispose 保留 stderr 尾部快照且幂等", { timeout: 30_000 }, async () => {
+  const workspace = makeWorkspace("stderr-dispose");
+  // 独立假 pi：get_state 成功、set_model 先写 stderr 再回错误，用于固定“响应早于 stderr 读取”的顺序。
+  const executable = path.join(workspace.root, "fake-pi-start-fail.mjs");
+  writeFileSync(
+    executable,
+    [
+      "#!/usr/bin/env node",
+      'import { createInterface } from "node:readline";',
+      "const rl = createInterface({ input: process.stdin });",
+      'rl.on("line", (line) => {',
+      "  let request;",
+      "  try { request = JSON.parse(line); } catch { return; }",
+      '  if (request.type === "get_state") {',
+      '    process.stdout.write(JSON.stringify({ type: "response", id: request.id, success: true, data: { sessionId: "s1", sessionFile: null, model: { provider: "p", id: "m" } } }) + "\\n");',
+      "    return;",
+      "  }",
+      '  if (request.type === "set_model") {',
+      '    process.stderr.write("Error: Model not found: p/m\\n");',
+      '    process.stdout.write(JSON.stringify({ type: "response", id: request.id, success: false, error: "Model not found: p/m" }) + "\\n");',
+      "    return;",
+      "  }",
+      '  process.stdout.write(JSON.stringify({ type: "response", id: request.id, success: true, data: {} }) + "\\n");',
+      "});",
+    ].join("\n") + "\n",
+  );
+  chmodSync(executable, 0o755);
+  const runtime = new PiAgentRuntime({
+    executablePath: executable,
+    provider: "p",
+    modelId: "m",
+    cwd: workspace.root,
+    sessionDir: workspace.sessionDir,
+  });
+  try {
+    const check = await runtime.start(10_000);
+    assert.equal(check.ok, false);
+    assert.equal(check.failure, "set_model_rejected");
+    await runtime.dispose(2_000);
+    // 连接已释放，仍能读到最终尾部而不是空值。
+    assert.equal(runtime.connectionForTests, null);
+    assert.match(runtime.stderrDiagnostics.tail, /Model not found: p\/m/);
+    assert.equal(runtime.stderrDiagnostics.truncated, false);
+    // 重复 dispose 幂等，且不丢失快照。
+    assert.equal(await runtime.dispose(2_000), null);
+    assert.match(runtime.stderrDiagnostics.tail, /Model not found: p\/m/);
+  } finally {
+    await runtime.dispose(1_000).catch(() => null);
   }
 });
 

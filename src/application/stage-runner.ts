@@ -403,8 +403,9 @@ export class StageRunner {
     if (!start.ok) {
       const failure = start.failure ?? "unknown";
       await this.markSession(session, "incompatible", `runtime_start_failed:${failure}`, false);
+      // 先终止并等 stderr 收敛再读尾部：set_model 拒绝时响应可能早于 stderr 数据到达。
+      await runtime.dispose(2_000).catch(() => null);
       this.writeStartDiagnostics(failure, start.detail, runtime);
-      await runtime.dispose(2_000);
       return this.failure(session, `runtime_start_failed:${failure}`, null, null, null);
     }
     piPid = runtime.processId;
