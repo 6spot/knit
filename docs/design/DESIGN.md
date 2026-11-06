@@ -214,6 +214,8 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 
 业务 status/stage/outcome、run 生命周期、检查资格、规范审阅、操作与归档展示分别建模。未知实例、无效输入和未核实副作用优先阻止相关后续动作；纯记录与诊断不因代码阶段排他而全部被锁住。
 
+人读输出以标题与阶段显示名为先、稳定 ID 为后：任务称「标题」加短 ID（类型前缀与前 6 位，如 `k-8ed2d4`），标题超过 20 字截断加省略号；阶段显示生效流程的 `name`，内置锚点固定为准备／收尾，与阶段 id 并列（如 `检查 check`）。`knit status`、`knit run status`、桥接通知与回合上下文共用这一口径；JSON 保留完整任务 ID、run ID、标题与阶段 id，展示缩写不进入协议。
+
 ### 3.10 父子任务结构
 
 父子任务以稳定任务身份关联：子任务在 frontmatter 写 `parent`，父任务不保存重复的子任务清单，子任务集合由扫描 `parent` 派生。因此目录改名、归档移动和路径线索变化都不改变关联，也不按目录名称推断层级。
@@ -317,7 +319,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task search <query...> [--scope task/archive/run/git] [--limit n] | 按用户查询意愿只读检索任务、归档、run 与 Git，返回 path:line／run／commit 来源；默认 20 条、上限 100；无匹配返回空数组 |
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
 | task rename / list / use / clear | 按授权管理身份、位置与当前原生路径选择 |
-| task ready [id] | 保存讨论确认，不自动实施 |
+| task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required` |
 | task update [id] --kind clarify/change | 明确变更类型，可用 --file 或 stdin；活动 run 中只保存当前草案 |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
@@ -697,7 +699,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 调用入口见第 4.3 节；`doctor` 只读检查状态与引用，`storage` 显示容量及告警。首版保留恢复资料，不实现自动 gc。
 
-首版列表采集当前项目活动区及 archive/YYYY-MM。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed、stage=deliver、outcome 为 completed 或 cancelled）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history，显示「Git 历史已归档（只读）」；字段有效但未被跟踪为 local-only（「未入库」）；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存沿用 task.md 文件指纹（目录结构、dev／inode／size／mtimeNs）：Knit 自身归档提交伴随目录结构变化而使缓存失效；纯外部 git add／commit 只改索引、不改文件时不会触发失效，属已知限制，由新进程重新计算恢复。
+首版列表采集当前项目活动区及 archive/YYYY-MM。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed；outcome=completed 时 stage=deliver，cancelled／superseded 保留停止时的非空 stage）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history，显示「Git 历史已归档（只读）」；字段有效但未被跟踪为 local-only（「未入库」）；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存沿用 task.md 文件指纹（目录结构、dev／inode／size／mtimeNs）：Knit 自身归档提交伴随目录结构变化而使缓存失效；纯外部 git add／commit 只改索引、不改文件时不会触发失效，属已知限制，由新进程重新计算恢复。
 
 历史检索同样只读，仅在用户以自然语言明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时使用；不按固定关键词或任务编号判定，不因话题与旧任务相关就主动检索，也不建立持续索引／缓存或第二套历史权威。检索范围为当前任务资料（task.md、plan.md、design.md、research/）、归档任务、实际 run 记录（`.knit/.runtime/runs/<run-id>/`，兼容 `.knit/runs/`）与 Git 提交；查询词按 AND 语义匹配文件或提交，命中返回 `path:line`、`run:<id>` 或 `commit:<sha>` 来源。无匹配返回空结果并说明未找到；找到相关记录只证明内容或时间相关，不能包装为某次修改导致问题的根因结论，缺少复现、对照或验证证据时必须说明因果缺口。
 
