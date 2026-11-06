@@ -89,4 +89,10 @@ title: 主会话实施的完成凭据与强制收口
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-main-session-implementation-evidence
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-f3ac8ea88818 -->
+- 任务资料提交: b37433d696a5cda050de8eafe79652348f9dd958
+- 归档目标: .knit/tasks/archive/2026-11/11-06-main-session-implementation-evidence
+
 <!-- knit:progress:end -->
