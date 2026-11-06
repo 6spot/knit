@@ -161,11 +161,11 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 
 ## 11. 收尾与封存
 
-业务完成与 Git 收尾分开。`task close --outcome completed` 按 verification 核对当前目标、成果与验证后记录业务完成并写完成凭据；不要求 Git 提交。拥有直接子任务的任务（`children` 非空）还须满足：所有子任务均已结束（归档视为结束），且 `--reason` 给出总体验收依据；未满足分别返回 `children_incomplete`／`parent_acceptance_missing`。子任务完成不自动结束父任务，父任务总体验收由主会话执行。`deliver` 逐任务提交产物、任务资料并归档；archive 只处理可归档资料或继续已有归档，不能绕过完成资格。多个任务可以先完成、最后逐项提交，任务资料与业务产物分开；完成不自动授予提交／推送授权。
+业务完成与 Git 收尾分开。`task close --outcome completed` 按 verification 核对当前目标、成果与验证后记录业务完成并写完成凭据；不要求 Git 提交。`self` 的实施事实可以是已接收 implement run，也可以是 `task implement` 记录的主会话／用户实施（输入摘要、成果路径指纹与实际验证）；没有证据而用户明确要求时，`task close --force --reason` 跳过核对，凭据记 `forced` 与原因，`independent` 拒绝 force。拥有直接子任务的任务（`children` 非空）还须满足：所有子任务均已结束（归档视为结束），且 `--reason` 给出总体验收依据；未满足分别返回 `children_incomplete`／`parent_acceptance_missing`。子任务完成不自动结束父任务，父任务总体验收由主会话执行。`deliver` 逐任务提交产物、任务资料并归档；archive 只处理可归档资料或继续已有归档，不能绕过完成资格。多个任务可以先完成、最后逐项提交，任务资料与业务产物分开；完成不自动授予提交／推送授权。
 
 | 步骤 | 完成证据 |
 | --- | --- |
-| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束；规范候选未审阅不阻塞；正常完成另需有效完成资格（self／none／independent 按任务 verification）和主 Agent 完成判断 |
+| preflight | --branch 的完整本地 ref 与绑定／实际分支一致，授权来源可追溯、工具已结束；规范候选未审阅不阻塞；正常完成另需有效完成资格（self／none／independent 按任务 verification；self 接受 run 或主会话实施记录，forced 凭据须带原因）和主 Agent 完成判断 |
 | artifact_commit | 限定业务产物路径与目标树，核实真实 OID、范围与 index 保护；无产物则跳过并记原因 |
 | metadata_commit | 最终记录后限定任务资料路径；与产物提交分开核对 |
 | prepare_archive | 完整结果、验证、产物／资料提交和结束结果进入记录 |

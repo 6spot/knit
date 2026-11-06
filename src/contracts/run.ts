@@ -323,25 +323,25 @@ export const RunExpectationSchema = obj(
 );
 export type RunExpectation = Static<typeof RunExpectationSchema>;
 
+/** 成果条目：路径 + 当时指纹；主会话实施记录复用同一结构。 */
+export const ScopeEntrySchema = obj({
+  path: str({ minLength: 1 }),
+  digest: union([str({ minLength: 1 }), nul()]),
+  absent: bool(),
+  /** 指纹种类；旧记录缺省视为 file（DESIGN §5.3 类型核对，任务027）。 */
+  factsKind: opt(union([lit("file"), lit("directory"), lit("link"), lit("absent")])),
+  /** 八进制模式；目录／缺失为 null。 */
+  mode: opt(union([str({ minLength: 1 }), nul()])),
+});
+export type ScopeEntryFile = Static<typeof ScopeEntrySchema>;
+
 /** 按 Task 累积的成果范围；路径带当前指纹，检查据此判断目标版本。 */
 export const ScopeFileSchema = obj(
   {
     schemaVersion: lit(1),
     taskId: str({ minLength: 1 }),
     runIds: arr(str({ minLength: 1 })),
-    entries: arr(
-      obj(
-        {
-          path: str({ minLength: 1 }),
-          digest: union([str({ minLength: 1 }), nul()]),
-          absent: bool(),
-          /** 指纹种类；旧记录缺省视为 file（DESIGN §5.3 类型核 smoked，任务027）。 */
-          factsKind: opt(union([lit("file"), lit("directory"), lit("link"), lit("absent")])),
-          /** 八进制模式；目录／缺失为 null。 */
-          mode: opt(union([str({ minLength: 1 }), nul()])),
-        },
-      ),
-    ),
+    entries: arr(ScopeEntrySchema),
     digest: str({ minLength: 1 }),
     updatedAt: str({ minLength: 1 }),
   },

@@ -510,6 +510,7 @@ test("完成资格：self 需要匹配的获准实施，independent 需要有效
     currentScopeDigest: "scope",
     scopeCurrent: true,
     lastImplement: { runId: "run-1", inputsDigest: "in", scopeDigest: "scope" },
+    implementationRecord: null,
     checkQualification: "missing",
     checkRunId: null,
   };

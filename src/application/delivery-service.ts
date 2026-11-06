@@ -361,11 +361,16 @@ export class DeliveryService {
     taskId: string,
     taskDir: string,
   ): Promise<{ artifacts: string[]; metadata: string[]; selected: string[] }> {
-    const scope = loadScope(new RunStore(root), taskId, this.now().toISOString());
+    const runs = new RunStore(root);
+    const scope = loadScope(runs, taskId, this.now().toISOString());
+    // 主会话实施没有 run scope：记录里的路径同样属于业务产物范围。
+    const implementation = runs.readImplementation(taskId);
     const review = await this.reviewForTask(taskId);
     const taskDirRelative = relative(root, taskDir).split("\\").join("/");
-    const artifactPaths = scope.entries
-      .map((entry) => entry.path)
+    const artifactPaths = [...new Set([
+      ...scope.entries.map((entry) => entry.path),
+      ...(implementation?.entries.map((entry) => entry.path) ?? []),
+    ])]
       .filter((path) => path !== taskDirRelative && !path.startsWith(`${taskDirRelative}/`))
       .filter((path) => path !== RUNTIME_PREFIX && !path.startsWith(`${RUNTIME_PREFIX}/`));
     const artifactSet = new Set(artifactPaths);
@@ -901,7 +906,8 @@ export class DeliveryService {
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const message = `${messagePrefix} ${op.taskId} (${op.operationId})`;
+    const forced = new RunStore(root).readCompletion(op.taskId)?.forced === true;
+    const message = `${messagePrefix} ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
     const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取提交后 HEAD", this.git);
     if (commit.code !== 0) {
@@ -1037,7 +1043,8 @@ export class DeliveryService {
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const message = `knit: archive ${op.taskId} (${op.operationId})`;
+    const forced = new RunStore(root).readCompletion(op.taskId)?.forced === true;
+    const message = `knit: archive ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
     const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取归档提交后 HEAD", this.git);
     if (commit.code !== 0) {

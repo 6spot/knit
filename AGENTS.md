@@ -35,6 +35,7 @@
 - 先找出受影响的结构、字段、命令、信任、配置、引用和验收场景，再同步修改。模块和协议按 [ARCHITECTURE.md](docs/design/ARCHITECTURE.md)，状态枚举／转移按 [STATES.md](docs/design/STATES.md)，依赖与技术取舍按 [TECHNOLOGY.md](docs/design/TECHNOLOGY.md)，执行细则按 [OPERATIONS.md](docs/design/OPERATIONS.md)，术语按 [GLOSSARY.md](docs/design/GLOSSARY.md)。只加载当前任务所需资料。
 - 修改命名或路径时，核对创建、复制交接、Worktree 后续设计、分支、绑定、列表、恢复和归档的完整链路。区分可读名称、稳定身份和实际执行位置，沿用产品规范中的用途。
 - 首版只持久化必要业务事实，观察值和内存资源不升级为独立状态机；输入更新由主 Agent 声明 clarify/change。测试按副作用和不变量选择，不给只读事件套崩溃矩阵。
+- 主会话直接实施的任务在收尾前用 `knit task implement` 记录实施事实（改动路径、实际验证），再 `task close`；只有用户明确要求时才用 `task close --force --reason`，凭据会记 `forced`。
 - 阶段执行复用本机 Pi CLI／公开 stdin-stdout 协议，主桥接使用宿主公开 API；不引 Pi SDK 或 RpcClient，不另建模型／鉴权运行时。缺少能力先报告，不借 SDK 补齐。
 - 原生恢复默认 prefer：旧记录不可用时沿原客户端自动新会话读任务资料续做，先确认旧执行结束；保留来源，不重置任务阶段／修复次数／scope。原生文件由客户端写，跨 run 保存在稳定位置；未落盘不能宣称可恢复。
 - 开发者模式只增白名单诊断，不改业务规则或自动增加模型轮次；日志不作权威回执，开关应有规范化业务等价验证。

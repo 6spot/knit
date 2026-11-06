@@ -20,6 +20,7 @@ export const TaskToolSchema = obj(
       lit("ready"),
       lit("update"),
       lit("record"),
+      lit("implement"),
       lit("close"),
       lit("adopt"),
       lit("verification"),
@@ -60,6 +61,14 @@ export const TaskToolSchema = obj(
     reason: opt(str()),
     outcome: opt(union([lit("completed"), lit("cancelled"), lit("superseded")])),
     runsSettled: opt(bool()),
+    /** 主会话实施事实：实际改动路径、验证与未验证项。 */
+    paths: opt(arr(str({ minLength: 1 }))),
+    validations: opt(arr(str({ minLength: 1 }))),
+    unverified: opt(arr(str({ minLength: 1 }))),
+    summary: opt(str()),
+    executor: opt(union([lit("main-session"), lit("user")])),
+    /** task close：跳过完成资格证据核对，必须有 reason。 */
+    force: opt(bool()),
     applyPending: opt(bool()),
     withdrawPending: opt(bool()),
     expectPending: opt(str()),

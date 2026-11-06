@@ -286,6 +286,42 @@ test("057：业务产物与任务资料分开提交，归档单独提交", async
   }
 });
 
+test("主会话实施：记录路径进入产物提交并正常交付", async () => {
+  const dir = project("record-deliver");
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "record-deliver", branch: BRANCH, verification: "self" });
+    writeFileSync(join(dir, "app.txt"), "new\n");
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    await s.tasks.implement({ dir, taskId: task.taskId, paths: ["app.txt"], validations: ["手动检查通过"] });
+    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+    assert.equal(closed.forced, false);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    const paths = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", result.workCommit]).split("\n").filter(Boolean);
+    assert.deepEqual(paths, ["app.txt"]);
+    assert.doesNotMatch(git(dir, ["log", "-1", "--format=%s", result.workCommit]), /forced/);
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("强制完成：交付提交带 forced 标记，凭据保留原因", async () => {
+  const dir = project("forced-deliver");
+  const s = services(dir);
+  try {
+    const task = await taskWithWork(dir, s, { title: "forced", path: "app.txt", content: "new\n" });
+    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true, force: true, reason: "用户要求强制收口" });
+    assert.equal(closed.forced, true);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    for (const commit of [result.workCommit, result.metadataCommit, result.archiveCommit]) {
+      assert.match(git(dir, ["log", "-1", "--format=%s", commit]), /, forced\)$/);
+    }
+    const credential = new RunStore(dir).readCompletion(task.taskId);
+    assert.equal(credential?.forced, true);
+    assert.equal(credential?.forcedReason, "用户要求强制收口");
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("057：批量收尾逐任务提交，跨任务同路径在执行前报告冲突", async () => {
   const dir = project("batch");
   const s = services(dir);

@@ -198,7 +198,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
 
-业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，`independent` 依据当前有效的正式检查；`none` 只在用户明确选择时使用，并记录未验证项。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
+业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效的正式检查；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
 
 task update 直接写入／保存输入时须声明 --kind clarify/change 及说明；apply/withdraw-pending 使用第3.8节的独立模式，应用时复用草案保存的 kind。clarify 保持当前阶段，摘要变化使检查 stale；当前为 deliver 且 stale 时 independent 回到最近检查阶段、self／none 回到最近工作阶段并清 completed。change 改变目标、条件、范围或业务约束，回 open/start。核心只验摘要、版本与结构，主 Agent 判断类型；新引用带来新要求不能标 clarify，摘要未变不迁移，clarify 不重置修复次数。
 
@@ -324,6 +324,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task update [id] --kind clarify/change | 明确变更类型，可用 --file 或 stdin；活动 run 中只保存当前草案 |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
+| task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝 |
 | run prepare/start --stage <id> --task <id> [--rex/--local] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主 |
@@ -333,7 +334,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome |
 | deliver [id...] --branch <ref> [--authorization-ref <ref>] [--plan] | 逐任务收尾；业务产物与任务资料分开提交，--plan 只读预检；完整目标 ref 明示，桥接声明授权来源，不默认启动 worker |
 | archive [id] --branch <ref> [--authorization-ref <ref>] | 归档资料／继续步骤；提交同样核实目标及授权，不绕正常交付条件 |
-| task close <id> --outcome <值> [--reason <说明>] | 业务结束并核对完成资格；父任务完成还要求子任务全部结束并给出总体验收说明；不要求 Git 提交，不等于已归档 |
+| task close <id> --outcome <值> [--reason <说明>] [--force] | 业务结束并核对完成资格（`self` 接受 run 或主会话实施记录）；父任务完成还要求子任务全部结束并给出总体验收说明；`--force` 仅限用户明确要求且 `independent` 除外，凭据记 `forced` 与原因；不要求 Git 提交，不等于已归档 |
 | status [id] [--run <id>] | 耗时、最近模型／工具活动、心跳；--events 仅观察 |
 | session list/history | 查询身份和关系，由所属客户端读原生历史 |
 | standards list/propose/review/apply/pending/migrate | 项目级候选、审阅决定与采纳；旧任务候选只读兼容并幂等迁移 |

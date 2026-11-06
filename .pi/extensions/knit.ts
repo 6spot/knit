@@ -450,6 +450,7 @@ export default function (pi: any) {
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
       lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
       lines.push("继续或补充已有任务用 task list 查看活跃任务（归档用 task list --archive）并按稳定 ID 选择。授权不覆盖提交／发布。");
+      lines.push("主会话直接实施的任务，收尾前用 task implement 记录改动路径与实际验证；只有用户明确要求时才用 task close --force --reason。");
     }
     lines.push(...SESSION_BEHAVIOR_GUIDANCE);
     return { text: lines.join("\n"), taskId };
@@ -875,11 +876,18 @@ export default function (pi: any) {
       } else if (params.action === "record") {
         args.push("--dir", root);
         return toolResult(core(args, params.body ?? ""));
+      } else if (params.action === "implement") {
+        for (const path of params.paths ?? []) args.push("--path", path);
+        for (const line of params.validations ?? []) args.push("--validation", line);
+        for (const line of params.unverified ?? []) args.push("--unverified", line);
+        if (typeof params.summary === "string" && params.summary !== "") args.push("--summary", params.summary);
+        if (params.executor === "user" || params.executor === "main-session") args.push("--by", params.executor);
       } else if (params.action === "close") {
         if (!params.outcome) return failText("task close 需要 outcome");
         args.push("--outcome", params.outcome);
         if (params.reason) args.push("--reason", params.reason);
         if (params.runsSettled === true) args.push("--runs-settled");
+        if (params.force === true) args.push("--force");
       }
       args.push("--dir", root);
       return toolResult(core(args), (data) => (params.action === "list" ? describeQuery(["task", "list"], data) : null));

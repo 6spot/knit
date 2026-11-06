@@ -1,4 +1,4 @@
-/** task 命令组：new/rename/list/search/record/ready/update/close（DESIGN.md 第4.1节）。 */
+/** task 命令组：new/rename/list/search/record/implement/ready/update/close（DESIGN.md 第4.1节）。 */
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +19,11 @@ const RUNTIME_DIR = ".knit/.runtime";
 const VERIFICATIONS = new Set(["none", "self", "independent"]);
 const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const ARCHIVE_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** 可重复选项收集。 */
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 /** `task list` 默认视图：未归档任务按业务状态分段，归档只给条数与入口。 */
 interface TaskListActiveView {
@@ -479,6 +484,43 @@ export function registerTaskCommands(program: Command): void {
       }, (result) => !result.saved);
     });
 
+  task
+    .command("implement <taskId>")
+    .description("记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证（无 worker run 的完成路径）")
+    .option("--path <path>", "实际改动路径（可重复）", collect, [] as string[])
+    .option("--validation <text>", "实际运行的验证与结果（可重复）", collect, [] as string[])
+    .option("--unverified <text>", "已知未验证项（可重复）", collect, [] as string[])
+    .option("--summary <text>", "实施摘要")
+    .option("--by <executor>", "执行者：main-session 或 user", "main-session")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-implement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (!["main-session", "user"].includes(options.by)) {
+        const reason = `未知 --by "${options.by}"`;
+        if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
+        else console.error(`knit: ${reason}`);
+        process.exitCode = 1;
+        return;
+      }
+      await withService(
+        requestId,
+        options.dir,
+        (service) =>
+          service.implement({
+            dir: options.dir,
+            taskId,
+            paths: options.path,
+            validations: options.validation,
+            unverified: options.unverified,
+            summary: options.summary ?? null,
+            executor: options.by,
+          }),
+        (result) => {
+          console.log(`实施事实已记录: ${result.taskId}（${result.executor}）· 路径 ${result.paths.length} · 验证 ${result.validations}`);
+        },
+      );
+    });
+
   const material = task.command("material").description("任务规划资料：plan/design/research（task.md 仍是业务状态唯一权威）");
 
   material
@@ -679,6 +721,7 @@ export function registerTaskCommands(program: Command): void {
     .requiredOption("--outcome <outcome>", "completed、cancelled 或 superseded")
     .option("--reason <reason>", "完成判断或结束说明；写入完成凭据")
     .option("--runs-settled", "确认该任务活动／未知运行与待接收结果已收敛", false)
+    .option("--force", "强制完成：跳过完成资格证据核对，必须在 --reason 写明原因", false)
     .option("--dir <dir>", "项目目录", ".")
     .action(async (taskId, options) => {
       const requestId = `task-close-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -692,9 +735,17 @@ export function registerTaskCommands(program: Command): void {
       await withService(
         requestId,
         options.dir,
-        (service) => service.close({ dir: options.dir, taskId, outcome: options.outcome, reason: options.reason, runsSettled: options.runsSettled === true }),
+        (service) =>
+          service.close({
+            dir: options.dir,
+            taskId,
+            outcome: options.outcome,
+            reason: options.reason,
+            runsSettled: options.runsSettled === true,
+            force: options.force === true,
+          }),
         (result) => {
-          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.verification ? `（${result.verification}）` : ""}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
+          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.verification ? `（${result.verification}${result.forced ? "，强制" : ""}）` : ""}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
         },
       );
     });

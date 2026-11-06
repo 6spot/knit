@@ -37,6 +37,7 @@ import {
 } from "../contracts/run.js";
 import { AcceptanceJournalSchema, type AcceptanceJournal } from "../contracts/acceptance.js";
 import { CompletionFileSchema, type CompletionFile } from "../contracts/completion.js";
+import { ImplementationFileSchema, type ImplementationFile } from "../contracts/implementation.js";
 import { atomicWrite, readWithVersion } from "./atomic.js";
 import { InfrastructureError } from "./errors.js";
 import { normalizeRoot } from "./paths.js";
@@ -319,6 +320,34 @@ export class RunStore {
 
   removeCompletion(taskId: string): void {
     rmSync(this.completionPath(taskId), { force: true });
+  }
+
+  implementationPath(taskId: string): string {
+    if (!/^k-[0-9a-f]{12}$/.test(taskId)) throw new InfrastructureError("io_error", `非法 task ID：${taskId}`);
+    return join(this.root, ".knit", ".runtime", "implementations", `${taskId}.json`);
+  }
+
+  readImplementation(taskId: string): ImplementationFile | null {
+    return parseJson<ImplementationFile>(this.implementationPath(taskId), ImplementationFileSchema, "implementation.json");
+  }
+
+  /** 主会话实施事实可重写；任务重新讨论或输入变化后旧记录不再有效。 */
+  writeImplementation(taskId: string, record: ImplementationFile): void {
+    if (!checkSchema(ImplementationFileSchema, record)) {
+      throw new InfrastructureError("io_error", "implementation 结构不符");
+    }
+    const path = this.implementationPath(taskId);
+    privateDir(join(this.root, ".knit", ".runtime", "implementations"));
+    atomicWrite({
+      path,
+      data: Buffer.from(JSON.stringify(record, null, 2) + "\n"),
+      expectedSha256: readWithVersion(path)?.sha256 ?? null,
+      mode: 0o600,
+    });
+  }
+
+  removeImplementation(taskId: string): void {
+    rmSync(this.implementationPath(taskId), { force: true });
   }
 
   checkPath(runId: string): string {

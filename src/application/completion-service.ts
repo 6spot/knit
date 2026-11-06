@@ -19,6 +19,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { validateCheckEvidence } from "./check-validation.js";
+import { currentEntry, type ScopeEntry } from "./scope.js";
 import type { TaskDocument } from "./task-document.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
 
@@ -72,6 +73,7 @@ export class CompletionService {
     }
 
     const lastImplement: ImplementEvidence | null = input.binding.lastImplement ?? null;
+    const implementation = runs.readImplementation(input.taskId);
     return completionDecision({
       status: input.document.frontmatter.status,
       stage: input.document.frontmatter.stage,
@@ -83,6 +85,13 @@ export class CompletionService {
       currentScopeDigest: scope.digest,
       scopeCurrent: scopeEntriesCurrent(root, scope.entries),
       lastImplement,
+      implementationRecord:
+        implementation === null
+          ? null
+          : {
+              inputsDigest: implementation.inputsDigest,
+              entriesCurrent: scopeEntriesCurrent(root, implementation.entries as ScopeEntry[]),
+            },
       checkQualification,
       checkRunId,
     });
@@ -107,9 +116,12 @@ export class CompletionService {
       verification,
       inputsDigest: inputsDigestOf(input.raw.toString("utf8")),
       scopeDigest: scope.digest,
+      implementedBy: input.decision.implementedBy,
       implementRunId: input.decision.implementRunId,
       checkRunId: input.decision.checkRunId,
       unverified: input.decision.unverified,
+      forced: input.decision.implementedBy === "forced",
+      forcedReason: input.decision.implementedBy === "forced" ? (input.decision.forcedReason ?? null) : null,
       reason: input.reason ?? null,
       completedAt: this.now().toISOString(),
     };
@@ -143,6 +155,12 @@ export class CompletionService {
     }
     if (completion.scopeDigest !== scope.digest) return { valid: false, reason: "completion_scope_changed" };
     if (!scopeEntriesCurrent(root, scope.entries)) return { valid: false, reason: "completion_scope_changed" };
+    if (completion.forced === true) {
+      if (completion.forcedReason === null || (completion.forcedReason ?? "").trim() === "") {
+        return { valid: false, reason: "completion_forced_reason_missing" };
+      }
+      return { valid: true, completion };
+    }
     if (completion.verification === "independent") {
       if (completion.checkRunId === null) return { valid: false, reason: "completion_check_missing" };
       const check = runs.readCheck(completion.checkRunId);
@@ -160,6 +178,17 @@ export class CompletionService {
       } catch {
         return { valid: false, reason: "completion_check_stale" };
       }
+    }
+    if (completion.verification === "self" && completion.implementedBy === "record") {
+      const implementation = runs.readImplementation(input.taskId);
+      if (implementation === null) return { valid: false, reason: "completion_implementation_missing" };
+      if (implementation.inputsDigest !== inputsDigestOf(input.raw.toString("utf8"))) {
+        return { valid: false, reason: "completion_inputs_changed" };
+      }
+      if (!scopeEntriesCurrent(root, implementation.entries as ScopeEntry[])) {
+        return { valid: false, reason: "completion_scope_changed" };
+      }
+      return { valid: true, completion };
     }
     if (completion.verification === "self" && completion.implementRunId === null) {
       return { valid: false, reason: "completion_implementation_missing" };

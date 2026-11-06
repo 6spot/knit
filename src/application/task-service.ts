@@ -38,6 +38,7 @@ import { GuardError } from "./guard-error.js";
 import { formalStandardsDigest } from "./standards.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { currentEntry, scopeDigest, type ScopeEntry } from "./scope.js";
 import { readWithVersion, atomicWrite } from "../infrastructure/atomic.js";
 import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
@@ -354,6 +355,28 @@ export interface TaskUpdateResult {
   pendingDraftDigest: string | null;
 }
 
+/** 主会话／用户实施事实：没有 worker run 时用于完成资格核对。 */
+export interface TaskImplementInput {
+  dir: string;
+  taskId: string;
+  /** 实际改动路径；至少一条。 */
+  paths: string[];
+  /** 实际运行的验证；至少一条，否则应改用 task close --force。 */
+  validations: string[];
+  unverified?: string[];
+  summary?: string | null;
+  executor?: "main-session" | "user";
+}
+
+export interface TaskImplementResult {
+  taskId: string;
+  executor: "main-session" | "user";
+  paths: string[];
+  validations: number;
+  inputsDigest: string;
+  scopeDigest: string;
+}
+
 export interface TaskCloseInput {
   dir: string;
   taskId: string;
@@ -362,6 +385,8 @@ export interface TaskCloseInput {
   runsSettled: boolean;
   /** 完成判断的用户说明；写入完成凭据。 */
   reason?: string | null;
+  /** 用户明确强制完成：跳过完成资格证据核对；必须给 reason。 */
+  force?: boolean;
 }
 
 export interface TaskCloseResult {
@@ -375,6 +400,9 @@ export interface TaskCloseResult {
   verification?: VerificationMode;
   implementRunId?: string | null;
   checkRunId?: string | null;
+  /** 强制完成：凭据带 forced 标记与原因。 */
+  forced?: boolean;
+  unverified?: string[];
 }
 
 export interface TaskRunActivityPort {
@@ -1269,6 +1297,7 @@ export class TaskService {
         });
       }
       new RunStore(root).removeCompletion(input.taskId);
+      new RunStore(root).removeImplementation(input.taskId);
       return {
         taskId: input.taskId,
         branch,
@@ -1331,6 +1360,7 @@ export class TaskService {
         });
       }
       new RunStore(root).removeCompletion(input.taskId);
+      new RunStore(root).removeImplementation(input.taskId);
       return { taskId: input.taskId, verification: input.verification, stage: document.frontmatter.stage, changed: true };
     } finally {
       this.locks.release(lock);
@@ -1386,7 +1416,10 @@ export class TaskService {
           relativePath: binding.relativePath.replace(currentName, newName),
         });
       }
-      if (!input.equivalent) new RunStore(root).removeCompletion(input.taskId);
+      if (!input.equivalent) {
+        new RunStore(root).removeCompletion(input.taskId);
+        new RunStore(root).removeImplementation(input.taskId);
+      }
     } finally {
       this.locks.release(lock);
     }
@@ -1637,6 +1670,7 @@ export class TaskService {
     }
     if (digestChanged || input.kind === "change" || document.frontmatter.status === "closed") {
       new RunStore(root).removeCompletion(input.taskId);
+      new RunStore(root).removeImplementation(input.taskId);
     }
     return {
       taskId: input.taskId,
@@ -1713,6 +1747,7 @@ export class TaskService {
         stopReason: transition.stopReason,
       });
       new RunStore(root).removeCompletion(input.taskId);
+      new RunStore(root).removeImplementation(input.taskId);
       return {
         taskId: input.taskId,
         applied: "pending_applied",
@@ -1832,7 +1867,69 @@ export class TaskService {
         });
       }
       new RunStore(root).removeCompletion(input.taskId);
+      new RunStore(root).removeImplementation(input.taskId);
       return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /**
+   * task implement：记录主会话或用户实施事实（DESIGN §3.8）。
+   * 没有 worker run 时，完成资格以本记录代替实施 run：输入摘要 + 成果路径指纹 + 实际验证。
+   * 记录只在任务锁内写；输入变化、ready 或重新讨论后旧记录失效并被清理。
+   */
+  async implement(input: TaskImplementInput): Promise<TaskImplementResult> {
+    const root = normalizeRoot(input.dir);
+    const paths = [...new Set(input.paths.map((path) => path.trim()).filter((path) => path !== ""))];
+    if (paths.length === 0) throw new TaskGuardError("invalid_request", "至少给出一个 --path（实际改动路径）");
+    const validations = input.validations.map((line) => line.trim()).filter((line) => line !== "");
+    if (validations.length === 0) {
+      throw new TaskGuardError("invalid_request", "至少给出一条 --validation；没有验证请改用 task close --force");
+    }
+    const executor = input.executor ?? "main-session";
+    assertFormalTaskEnvironment(root);
+    const lock = await this.locks.acquire({
+      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
+      action: "task.implement",
+    });
+    try {
+      const located = this.locate(root, input.taskId);
+      if (located.archived) throw new TaskGuardError("task_archived", "已归档任务不能再记录实施事实");
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      if (document.frontmatter.status !== "open") throw new TaskGuardError("task_not_open", "已结束任务不能记录实施事实");
+      const binding = await this.store.bindings.get(input.taskId);
+      if (binding !== null && binding.pendingDraft !== null) {
+        throw new TaskGuardError("pending_draft_exists", "存在未应用输入草案，先应用或撤回再记录实施");
+      }
+      const entries: ScopeEntry[] = paths.map((path) => {
+        safeJoin(root, path);
+        return currentEntry(root, path, { factsKind: true });
+      });
+      const digest = scopeDigest(entries);
+      new RunStore(root).writeImplementation(input.taskId, {
+        schemaVersion: 1,
+        taskId: input.taskId,
+        executor,
+        inputsDigest: inputsDigestOf(before.data.toString("utf8")),
+        entries,
+        scopeDigest: digest,
+        validations,
+        unverified: (input.unverified ?? []).map((line) => line.trim()).filter((line) => line !== ""),
+        summary: input.summary ?? null,
+        recordedAt: this.now().toISOString(),
+      });
+      return {
+        taskId: input.taskId,
+        executor,
+        paths,
+        validations: validations.length,
+        inputsDigest: inputsDigestOf(before.data.toString("utf8")),
+        scopeDigest: digest,
+      };
     } finally {
       this.locks.release(lock);
     }
@@ -1882,8 +1979,30 @@ export class TaskService {
       facts.pendingKind = pendingKind;
       const workflow = workflowOf(root);
       const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
+      const verification = verificationModeOf(document.frontmatter);
+      if (input.force === true) {
+        if (input.outcome !== "completed") {
+          throw new TaskGuardError("invalid_request", "--force 只能与 --outcome completed 同用");
+        }
+        if (verification === "independent") {
+          throw new TaskGuardError("invalid_request", "independent 验证不能用 --force 跳过正式检查");
+        }
+        if ((input.reason ?? "").trim() === "") {
+          throw new TaskGuardError("invalid_request", "强制完成必须给出 --reason，写入完成凭据");
+        }
+      }
       const completion = input.outcome === "completed"
-        ? await completionService.assess({ root, taskId: input.taskId, document, raw: before.data, binding })
+        ? input.force === true
+          ? {
+              allowed: true as const,
+              mode: verification,
+              implementedBy: "forced" as const,
+              implementRunId: binding.lastImplement?.runId ?? null,
+              checkRunId: null,
+              unverified: ["用户强制完成：未核对实施记录与正式检查"],
+              forcedReason: input.reason ?? null,
+            }
+          : await completionService.assess({ root, taskId: input.taskId, document, raw: before.data, binding })
         : null;
       if (completion !== null && completion.allowed === false) {
         throw new TaskGuardError(completion.reason, `任务不能完成: ${completion.reason}`);
@@ -1927,7 +2046,10 @@ export class TaskService {
           stopReason: transition.stopReason,
         });
       }
-      if (input.outcome !== "completed") new RunStore(root).removeCompletion(input.taskId);
+      if (input.outcome !== "completed") {
+        new RunStore(root).removeCompletion(input.taskId);
+        new RunStore(root).removeImplementation(input.taskId);
+      }
       return {
         taskId: input.taskId,
         status: transition.status,
@@ -1939,6 +2061,8 @@ export class TaskService {
               verification: completion.mode,
               implementRunId: completion.implementRunId,
               checkRunId: completion.checkRunId,
+              forced: completion.implementedBy === "forced",
+              unverified: completion.unverified,
             }
           : {}),
       };

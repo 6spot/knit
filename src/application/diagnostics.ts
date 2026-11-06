@@ -14,6 +14,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { withReadOnlyDatabase } from "../infrastructure/sqlite-readonly.js";
 import { countGcCandidates } from "./gc.js";
+import { parseTaskDocument } from "./task-document.js";
 
 const RUNTIME = ".knit/.runtime";
 const DB = join(RUNTIME, "metadata.db");
@@ -134,6 +135,32 @@ function metadataCounts(path: string): Record<string, number> {
   }
 }
 
+/** 未归档已完成任务缺完成凭据：手工改状态的痕迹；只告警，不改业务状态。 */
+function completionEvidenceGaps(root: string): string[] {
+  const tasksRoot = join(root, ".knit", "tasks");
+  const gaps: string[] = [];
+  let entries;
+  try {
+    entries = readdirSync(tasksRoot, { withFileTypes: true });
+  } catch {
+    return gaps;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === "archive") continue;
+    const file = join(tasksRoot, entry.name, "task.md");
+    if (!existsSync(file)) continue;
+    try {
+      const document = parseTaskDocument(readFileSync(file, "utf8"), file);
+      const facts = document.frontmatter;
+      if (facts.status !== "closed" || facts.outcome !== "completed") continue;
+      if (!existsSync(join(root, ".knit", ".runtime", "completions", `${facts.id}.json`))) gaps.push(facts.id);
+    } catch {
+      // task.md 结构问题由列表与读取路径报告，这里不重复。
+    }
+  }
+  return gaps;
+}
+
 export function doctor(input: { dir: string; piBin?: string; locksRoot?: string }): DoctorResult {
   const root = normalizeRoot(input.dir);
   const checks: DiagnosticCheck[] = [];
@@ -213,6 +240,12 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
       add("locks", "warn", `锁记录无法读取: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  const completionGaps = completionEvidenceGaps(root);
+  add(
+    "completion-evidence",
+    completionGaps.length === 0 ? "ok" : "warn",
+    completionGaps.length === 0 ? "未归档已完成任务均有完成凭据" : `未归档已完成任务缺完成凭据: ${completionGaps.join(", ")}`,
+  );
   return {
     ok: checks.every((check) => check.status !== "fail"),
     projectRoot: root,
