@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
+import { defaultConfig } from "./config.js";
 import type { FileOwnership } from "./init-manifest.js";
 
 /** 模板文件清单：项目内相对路径 → 所有权。桥接最后发布（顺序由 init 流程控制）。 */
@@ -48,15 +49,15 @@ export function readTemplate(relative: string): string {
   return readFileSync(join(templateRoot(), assetPath), "utf8");
 }
 
-/** config.json 的模板指纹：代码生成的默认配置文本。 */
+/** 模板目标内容：config.json 由 defaultConfig() 生成，其余读取安装包资产。 */
+export function templateContent(relative: string): string {
+  if (relative === ".knit/config.json") return JSON.stringify(defaultConfig(), null, 2) + "\n";
+  return readTemplate(relative);
+}
+
+/** 模板指纹：模板目标文本的 SHA-256（config.json 与初始化写入内容一致）。 */
 export function templateDigest(relative: string): string {
-  if (relative === ".knit/config.json") {
-    // 与 initialization.ts 生成内容一致：defaultConfig 序列化 + 换行
-    // 延迟导入避免循环依赖
-    const { defaultConfig } = require("./config.js") as typeof import("./config.js");
-    return sha256Text(JSON.stringify(defaultConfig(), null, 2) + "\n");
-  }
-  return sha256Text(readTemplate(relative));
+  return sha256Text(templateContent(relative));
 }
 
 /** AGENTS.md 受管标记块内容（从模板生成）。 */

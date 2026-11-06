@@ -19,6 +19,8 @@ export interface ManifestItem {
   currentSha256?: string | null;
   /** 本次写入内容的指纹（managed 基线）。 */
   baselineSha256?: string | null;
+  /** --force 覆盖前的原文件备份路径。 */
+  backupPath?: string | null;
   error?: string | null;
 }
 
@@ -31,6 +33,10 @@ export const InitManifestSchema = obj(
     templateVersion: str(),
     startedAt: str(),
     updatedAt: str(),
+    /** 本次 --force 覆盖项目模板文件的计数与备份信息；未覆盖时为 0／null／空数组。 */
+    overwriteCount: opt(int({ minimum: 0 })),
+    backupRoot: opt(union([str(), nul()])),
+    backups: opt(arr(obj({ path: str(), backupPath: str() }, { open: true }))),
     items: arr(
       obj(
         {
@@ -46,6 +52,7 @@ export const InitManifestSchema = obj(
           ]),
           currentSha256: opt(union([str(), nul()])),
           baselineSha256: opt(union([str(), nul()])),
+          backupPath: opt(union([str(), nul()])),
           error: opt(union([str(), nul()])),
         },
         { open: true },

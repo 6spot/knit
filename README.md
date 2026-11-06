@@ -29,11 +29,11 @@ validation/        可追溯研究、实验与验收材料
 ```sh
 npm run pack:install
 knit --version
-knit init --client pi --dir <项目>
-knit start --dir <项目>
+knit init --pi --dir <项目>
+knit start --pi --dir <项目>
 ```
 
-在仓库根目录执行。脚本先通过 `npm ci --include=dev` 按锁文件重新安装依赖，再由 `npm pack` 的 `prepack` 构建，生成并保留根目录的 `knit-<版本>.tgz`，最后从 tgz 安装到 npm 全局位置并校验安装版本。需要下载依赖；任一步失败会停止并返回非零退出码。重复执行会更新该位置已安装的 Knit。
+在仓库根目录执行。脚本先通过 `npm ci --include=dev` 按锁文件重新安装依赖，再由 `npm pack` 的 `prepack` 构建，生成并保留根目录的 `knit-<版本>.tgz`，最后从 tgz 安装到 npm 全局位置并校验安装版本。需要下载依赖；任一步失败会停止并返回非零退出码。重复执行会更新该位置已安装的 Knit。`init`／`start` 的 `--pi` 可省略（当前默认客户端）；未注册的客户端开关会被拒绝。`knit init` 默认不覆盖已有项目文件；只有显式 `knit init --force` 才按当前模板覆盖，并先把原文件备份到 `.knit/.runtime/init-backup/<时间戳>/`。
 
 指定安装位置（例如使用用户目录，避免全局目录权限问题）：
 

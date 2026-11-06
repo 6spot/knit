@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +135,11 @@ test("init：模板已移除文件只报告不删除，不阻断 ready", async (
     assert.deepEqual(result.orphans.map((item) => item.path), [".knit/agents/deliver.md", ".knit/workflow.md"]);
     assert.ok(existsSync(join(dir, ".knit", "workflow.md")), "默认不删除");
     assert.ok(existsSync(join(dir, ".knit", "agents", "deliver.md")), "默认不删除旧角色文件");
+    const forced = await init(service, dir, { force: true });
+    assert.equal(forced.ready, true);
+    assert.deepEqual(forced.orphans.map((item) => item.path), [".knit/agents/deliver.md", ".knit/workflow.md"]);
+    assert.ok(existsSync(join(dir, ".knit", "workflow.md")), "--force 也不删除模板已移除文件");
+    assert.ok(existsSync(join(dir, ".knit", "agents", "deliver.md")), "--force 也不删除旧角色文件");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -197,20 +202,21 @@ test("init：无 Pi 依赖、无 Git 提交、无依赖安装", async () => {
   }
 });
 
-test("init：项目资料只补缺，受管冲突不覆盖，--force 显式更新", async () => {
+test("init：项目资料默认沿用，受管冲突不覆盖，--force 覆盖并备份", async () => {
   const dir = freshProject("conflict");
   try {
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
     await init(service, dir);
     // 人工修改项目正文、受管桥接、AGENTS 正文
-    writeFileSync(join(dir, ".knit", "workflow.yaml"), "# 项目自定义流程\nversion: 1\nstages:\n  - id: implement\n");
+    const customWorkflow = "# 项目自定义流程\nversion: 1\nstages:\n  - id: implement\n";
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), customWorkflow);
     writeFileSync(join(dir, ".pi", "extensions", "knit.ts"), "// 人工改动\n");
     const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
     writeFileSync(join(dir, "AGENTS.md"), `${agents}人工补充规则\n`);
     const result = await init(service, dir);
     assert.equal(result.ready, false);
     assert.deepEqual(result.conflicts, [".pi/extensions/knit.ts"]);
-    assert.equal(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8"), "# 项目自定义流程\nversion: 1\nstages:\n  - id: implement\n", "项目配置不覆盖");
+    assert.equal(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8"), customWorkflow, "默认沿用项目配置");
     assert.equal(readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8"), "// 人工改动\n", "受管冲突不覆盖");
     assert.ok(readFileSync(join(dir, "AGENTS.md"), "utf8").endsWith("人工补充规则\n"), "AGENTS 正文保留");
     // 清单 failed，逐项 conflict
@@ -218,13 +224,105 @@ test("init：项目资料只补缺，受管冲突不覆盖，--force 显式更�
     assert.equal(manifest.state, "failed");
     const bridgeItem = manifest.items.find((item) => item.path === ".pi/extensions/knit.ts");
     assert.equal(bridgeItem.state, "conflict");
-    // --force 更新受管内容
+    // --force 覆盖项目模板与受管内容，并备份项目原文件
     const forced = await init(service, dir, { force: true });
     assert.equal(forced.ready, true);
     assert.ok(readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8").includes("Knit 项目薄桥接"));
-    assert.ok(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8").startsWith("# 项目自定义流程"), "force 仍不覆盖项目资料");
+    assert.deepEqual(forced.overwritten, [".knit/workflow.yaml"], "force 覆盖项目模板文件");
+    assert.equal(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8"), readFileSync(join(import.meta.dirname, "..", "assets", "templates", ".knit", "workflow.yaml"), "utf8"));
+    assert.ok(forced.backupRoot, "覆盖时返回备份根");
+    assert.equal(readFileSync(join(forced.backupRoot, ".knit", "workflow.yaml"), "utf8"), customWorkflow, "备份内容为原文");
     // 受管 AGENTS 块与基线一致时人工改动不受影响
     assert.ok(readFileSync(join(dir, "AGENTS.md"), "utf8").endsWith("人工补充规则\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init --force：覆盖项目模板并备份原文，--check 只预览", async () => {
+  const dir = freshProject("force-overwrite");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const workflowPath = join(dir, ".knit", "workflow.yaml");
+    const configPath = join(dir, ".knit", "config.json");
+    const promptPath = join(dir, ".knit", "agents", "implement.md");
+    const customWorkflow = "# 项目自定义流程\nversion: 1\n";
+    const customConfig = JSON.stringify({ schemaVersion: 1, custom: true }, null, 2) + "\n";
+    const customPrompt = "# 项目自定义实施提示\n";
+    writeFileSync(workflowPath, customWorkflow);
+    writeFileSync(configPath, customConfig);
+    writeFileSync(promptPath, customPrompt);
+    writeFileSync(join(dir, ".knit", "notes.md"), "用户自建文件\n");
+
+    const cliPreview = JSON.parse(execFileSync(process.execPath, [CLI, "init", "--json", "--check", "--force", "--dir", dir], { encoding: "utf8" }));
+    assert.equal(cliPreview.data.force, true);
+    assert.equal(cliPreview.data.overwriteCount, 3, "CLI --check --force 只输出覆盖预览");
+    assert.ok(!existsSync(join(dir, ".knit", ".runtime", "init-backup")), "CLI --check 不创建备份目录");
+
+    const plan = service.check(dir, { force: true });
+    assert.equal(plan.force, true);
+    assert.equal(plan.overwriteCount, 3, "预览三个与模板不同的项目文件");
+    assert.deepEqual(
+      plan.items.filter((item) => item.overwrite).map((item) => item.path).sort(),
+      [".knit/agents/implement.md", ".knit/config.json", ".knit/workflow.yaml"],
+    );
+    assert.ok(plan.items.filter((item) => item.overwrite).every((item) => item.action === "update"));
+    assert.ok(plan.items.filter((item) => item.overwrite).every((item) => item.reason.includes("--force")));
+    assert.ok(!existsSync(join(dir, ".knit", ".runtime", "init-backup")), "--check 不创建备份目录");
+    assert.equal(readFileSync(workflowPath, "utf8"), customWorkflow, "--check 不写文件");
+
+    const result = await init(service, dir, { force: true });
+    assert.equal(result.ready, true, "覆盖成功不降级");
+    assert.equal(result.overwriteCount, 3);
+    assert.deepEqual(result.overwritten.sort(), [".knit/agents/implement.md", ".knit/config.json", ".knit/workflow.yaml"]);
+    assert.deepEqual(result.backups.map((item) => item.path).sort(), result.overwritten);
+    assert.ok(result.backupRoot);
+    assert.equal(statSync(result.backupRoot).mode & 0o777, 0o700, "备份根目录 0700");
+    assert.equal(readFileSync(join(result.backupRoot, ".knit", "workflow.yaml"), "utf8"), customWorkflow, "备份为原文");
+    assert.equal(readFileSync(join(result.backupRoot, ".knit", "config.json"), "utf8"), customConfig);
+    assert.equal(readFileSync(join(result.backupRoot, ".knit", "agents", "implement.md"), "utf8"), customPrompt);
+    assert.equal(readFileSync(workflowPath, "utf8"), readFileSync(join(import.meta.dirname, "..", "assets", "templates", ".knit", "workflow.yaml"), "utf8"));
+    assert.equal(readFileSync(configPath, "utf8"), JSON.stringify(defaultConfig(), null, 2) + "\n");
+    assert.equal(readFileSync(promptPath, "utf8"), readFileSync(join(import.meta.dirname, "..", "assets", "templates", ".knit", "agents", "implement.md"), "utf8"));
+    assert.equal(readFileSync(join(dir, ".knit", "notes.md"), "utf8"), "用户自建文件\n", "不删除用户自建非模板文件");
+    const manifest = JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "init-manifest.json"), "utf8"));
+    assert.equal(manifest.state, "ready");
+    assert.equal(manifest.overwriteCount, 3, "清单记录覆盖计数");
+    assert.equal(manifest.backupRoot, result.backupRoot, "清单记录备份根");
+    assert.deepEqual(manifest.backups.map((item) => item.path).sort(), result.overwritten);
+    assert.equal(manifest.items.find((item) => item.path === ".knit/workflow.yaml").state, "updated");
+    assert.equal(manifest.items.find((item) => item.path === ".knit/workflow.yaml").backupPath, join(result.backupRoot, ".knit", "workflow.yaml"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init --force：内容已一致时不重写、不建备份", async () => {
+  const dir = freshProject("force-identical");
+  try {
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    await init(service, dir);
+    const workflowPath = join(dir, ".knit", "workflow.yaml");
+    const configPath = join(dir, ".knit", "config.json");
+    const before = { workflow: statSync(workflowPath).ino, config: statSync(configPath).ino };
+    const result = await init(service, dir, { force: true });
+    assert.equal(result.ready, true);
+    assert.equal(result.overwriteCount, 0);
+    assert.deepEqual(result.overwritten, []);
+    assert.equal(result.backupRoot, null, "无覆盖不返回备份根");
+    assert.deepEqual(result.backups, []);
+    assert.deepEqual(result.alreadyCurrent.sort(), [
+      ".knit/agents/check.md",
+      ".knit/agents/implement.md",
+      ".knit/agents/runtimes/pi.md",
+      ".knit/config.json",
+      ".knit/standards/index.md",
+      ".knit/workflow.yaml",
+    ]);
+    assert.equal(statSync(workflowPath).ino, before.workflow, "已一致不重写");
+    assert.equal(statSync(configPath).ino, before.config, "已一致不重写");
+    assert.ok(!existsSync(join(dir, ".knit", ".runtime", "init-backup")), "未发生覆盖不创建备份目录");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -533,18 +631,43 @@ test("模板：阶段契约文档覆盖职责、停止条件、报告与 Trellis
   assert.match(doc, /GSD 来源映射/);
 });
 
-test("CLI：init --json 输出协议响应；未知客户端拒绝", async () => {
-  const dir = freshProject("cli-json");
+test("CLI：init --json 输出协议响应；--pi 与无开关等价，未注册客户端开关被拒绝", async () => {
+  const withFlag = freshProject("cli-pi");
+  const defaultFlag = freshProject("cli-default");
   try {
-    const out = execFileSync(process.execPath, [CLI, "init", "--json", "--dir", dir], { encoding: "utf8" });
-    const response = JSON.parse(out);
-    assert.equal(response.protocolVersion, 1);
-    assert.equal(response.outcome, "completed");
-    assert.equal(response.data.ready, true);
-    const bad = execFileSync(process.execPath, [CLI, "init", "--json", "--client", "codex", "--dir", dir], { encoding: "utf8" });
-    const badResponse = JSON.parse(bad);
-    assert.equal(badResponse.outcome, "error");
-    assert.equal(badResponse.reasonCode, "invalid_request");
+    const flagged = JSON.parse(execFileSync(process.execPath, [CLI, "init", "--json", "--pi", "--dir", withFlag], { encoding: "utf8" }));
+    const fallback = JSON.parse(execFileSync(process.execPath, [CLI, "init", "--json", "--dir", defaultFlag], { encoding: "utf8" }));
+    assert.equal(flagged.protocolVersion, 1);
+    assert.equal(flagged.outcome, "completed");
+    assert.equal(flagged.data.ready, true);
+    assert.equal(fallback.outcome, "completed");
+    assert.equal(fallback.data.ready, true);
+    assert.deepEqual(flagged.data.created.sort(), fallback.data.created.sort(), "--pi 与无开关等价");
+    const manifestOf = (dir) => JSON.parse(readFileSync(join(dir, ".knit", ".runtime", "init-manifest.json"), "utf8"));
+    assert.equal(manifestOf(withFlag).client, "pi");
+    assert.equal(manifestOf(defaultFlag).client, "pi");
+    for (const oldArgs of [["--codex"], ["--client", "pi"]]) {
+      const bad = spawnSync(process.execPath, [CLI, "init", "--json", ...oldArgs, "--dir", withFlag], { encoding: "utf8" });
+      assert.notEqual(bad.status, 0, `${oldArgs.join(" ")} 应失败`);
+      assert.match(bad.stderr, /unknown option/, `${oldArgs.join(" ")} 由 commander 拒绝`);
+    }
+  } finally {
+    rmSync(withFlag, { recursive: true, force: true });
+    rmSync(defaultFlag, { recursive: true, force: true });
+  }
+});
+
+test("CLI：start 未初始化提示使用 --pi，未注册客户端开关被拒绝", () => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-008-start-"));
+  try {
+    const missing = spawnSync(process.execPath, [CLI, "--json", "start", "--dir", dir], { encoding: "utf8" });
+    assert.notEqual(missing.status, 0);
+    const response = JSON.parse(missing.stdout);
+    assert.equal(response.reasonCode, "needs_context");
+    assert.match(response.data.error, /knit init --pi/);
+    const unknown = spawnSync(process.execPath, [CLI, "start", "--codex", "--dir", dir], { encoding: "utf8" });
+    assert.notEqual(unknown.status, 0);
+    assert.match(unknown.stderr, /unknown option '--codex'/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

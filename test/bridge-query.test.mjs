@@ -34,7 +34,7 @@ function project(prefix) {
   writeFileSync(join(dir, "a.txt"), "alpha\n");
   execFileSync("git", ["add", "."], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
-  execFileSync(process.execPath, [CLI, "init", "--client", "pi", "--dir", dir], { encoding: "utf8" });
+  execFileSync(process.execPath, [CLI, "init", "--pi", "--dir", dir], { encoding: "utf8" });
   return dir;
 }
 

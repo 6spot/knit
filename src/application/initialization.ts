@@ -9,17 +9,18 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { atomicWrite } from "../infrastructure/atomic.js";
-import { enforcePrivateDatabase, enforcePrivateFile, ensurePrivateRuntimeRoot } from "../infrastructure/private-mode.js";
+import { enforcePrivateDatabase, enforcePrivateFile, ensurePrivateDir, ensurePrivateRuntimeRoot } from "../infrastructure/private-mode.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
-import { fileFacts, sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
+import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
-import { defaultConfig } from "./config.js";
+import { defaultClientIds } from "./clients.js";
 import {
   AGENTS_MANAGED_MARKER_BEGIN,
   AGENTS_MANAGED_MARKER_END,
   agentsManagedBlock,
   readTemplate,
   TEMPLATE_SPECS,
+  templateContent,
   templateDigest,
   templateVersion,
 } from "./templates.js";
@@ -32,6 +33,8 @@ export interface InitPlanItem {
   ownership: "project" | "managed";
   action: "create" | "keep" | "update" | "conflict";
   reason: string;
+  /** --force 预览：已存在且与当前模板不同，执行时按模板覆盖并先备份。 */
+  overwrite?: boolean;
 }
 
 /**
@@ -54,6 +57,10 @@ export interface InitPlan {
   resolvedFrom: string | null;
   gitWarning: string | null;
   items: InitPlanItem[];
+  /** 预览是否按 --force 计算（只读，不代表已覆盖）。 */
+  force: boolean;
+  /** --force 预览中将被覆盖的项目模板文件数。 */
+  overwriteCount: number;
   /** 模板已移除、仍留在项目中的文件；执行 init 同样只报告不删除。 */
   orphans: InitOrphan[];
   agentsHasManagedBlock: boolean;
@@ -70,6 +77,16 @@ export interface InitResult {
   ready: boolean;
   /** 桥接文件已发布且清单 ready；缺映射或未 ready 不能声称可调用。 */
   bridgeReady: boolean;
+  /** --force 下按模板覆盖的项目模板文件。 */
+  overwritten: string[];
+  /** 覆盖计数（overwritten.length）。 */
+  overwriteCount: number;
+  /** 本次覆盖的备份根；未发生覆盖时为 null，不创建备份目录。 */
+  backupRoot: string | null;
+  /** 覆盖前的原文件备份路径清单。 */
+  backups: Array<{ path: string; backupPath: string }>;
+  /** --force 下内容已与模板一致、未重写的项目文件。 */
+  alreadyCurrent: string[];
   /** 模板已移除、仍留在项目中的文件；只报告，不删除。 */
   orphans: InitOrphan[];
   gitWarning: string | null;
@@ -206,14 +223,17 @@ export class InitializationService {
   }
 
   /**
-   * 逐文件计划（只读）。项目文件存在即 keep；受管文件与当前模板基线一致 → update，
-   * 不一致 → conflict（人工改动报告差异，不静默覆盖）；AGENTS.md 按受管块单独处理。
+   * 逐文件计划（只读）。项目文件默认存在即 keep；--force 预览时与当前模板不同则标为将覆盖。
+   * 受管文件与当前模板基线一致 → update，不一致 → conflict（人工改动报告差异，不静默覆盖）；
+   * AGENTS.md 按受管块单独处理。
    */
-  plan(root: string): InitPlan {
+  plan(root: string, options: { force?: boolean } = {}): InitPlan {
+    const force = options.force ?? false;
     const { root: resolved, isGitRepo, resolvedFrom } = resolveProjectRoot(root);
     const previous = this.readManifestIfExists(resolved);
     const orphans = this.orphanedTemplateItems(resolved, previous);
     const items: InitPlanItem[] = [];
+    let overwriteCount = 0;
     let agentsHasManagedBlock = false;
     for (const spec of TEMPLATE_SPECS) {
       const target = join(resolved, spec.path);
@@ -222,7 +242,22 @@ export class InitializationService {
         continue;
       }
       if (spec.ownership === "project") {
-        items.push({ path: spec.path, ownership: spec.ownership, action: "keep", reason: "项目资料只补缺，已存在则沿用" });
+        if (!force) {
+          items.push({ path: spec.path, ownership: spec.ownership, action: "keep", reason: "项目资料只补缺，已存在则沿用" });
+          continue;
+        }
+        const current = sha256Text(readFileSync(target, "utf8"));
+        const next = sha256Text(templateContent(spec.path));
+        if (current === next) {
+          items.push({ path: spec.path, ownership: spec.ownership, action: "keep", reason: "已与当前模板一致" });
+          continue;
+        }
+        const recordedBaseline = previous?.items.find((item) => item.path === spec.path)?.baselineSha256 ?? null;
+        const reason = recordedBaseline !== null && current === recordedBaseline
+          ? "模板已更新，--force 将按当前模板覆盖并备份"
+          : "与当前模板不同，--force 将按模板覆盖并备份";
+        items.push({ path: spec.path, ownership: spec.ownership, action: "update", reason, overwrite: true });
+        overwriteCount += 1;
         continue;
       }
       const current = sha256Text(readFileSync(target, "utf8"));
@@ -249,29 +284,31 @@ export class InitializationService {
       );
     }
     const gitWarning = isGitRepo ? runtimeIgnoreWarning(resolved, true) : "非 Git 目录：资料可初始化；正式任务执行需 Git 仓库、可读 HEAD 与本地分支";
-    return { root: resolved, isGitRepo, resolvedFrom, gitWarning, items, orphans, agentsHasManagedBlock };
+    return { root: resolved, isGitRepo, resolvedFrom, gitWarning, items, force, overwriteCount, orphans, agentsHasManagedBlock };
   }
 
-  /** --check：只读计划与现状说明，不写文件、不建锁目录。 */
-  check(root: string): InitPlan {
-    return this.plan(root);
+  /** --check：只读计划与现状说明，不写文件、不建锁目录；--force 只预览将覆盖项。 */
+  check(root: string, options: { force?: boolean } = {}): InitPlan {
+    return this.plan(root, options);
   }
 
   /**
    * 执行初始化。与其他项目写操作共用项目占用（OPERATIONS.md 第1节）。
    * 冲突/失败不中断其余项；ready 要求全部项成功且桥接已发布。
    */
-  async execute(input: { dir: string; client: string; force?: boolean }): Promise<InitResult> {
+  async execute(input: { dir: string; clients?: string[]; client?: string; force?: boolean }): Promise<InitResult> {
+    const requestedClients = input.clients ?? (input.client !== undefined ? [input.client] : []);
+    const clients = requestedClients.length > 0 ? requestedClients : defaultClientIds();
     const { root, isGitRepo } = resolveProjectRoot(input.dir);
     const acquired = await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "init" });
     try {
-      return this.executeLocked({ root, isGitRepo, client: input.client, force: input.force ?? false });
+      return this.executeLocked({ root, isGitRepo, clients, force: input.force ?? false });
     } finally {
       this.locks.release(acquired);
     }
   }
 
-  private executeLocked(input: { root: string; isGitRepo: boolean; client: string; force: boolean }): InitResult {
+  private executeLocked(input: { root: string; isGitRepo: boolean; clients: string[]; force: boolean }): InitResult {
     const { root } = input;
     const previous = this.readManifestIfExists(root);
     const orphans = this.orphanedTemplateItems(root, previous);
@@ -282,13 +319,29 @@ export class InitializationService {
         `项目由更新版本 ${previous.templateVersion} 初始化，当前安装包 ${currentVersion} 不能降级覆盖；请安装匹配版本`,
       );
     }
-    const manifest = newManifest({ client: input.client, templateVersion: currentVersion, now: this.now().toISOString() });
+    const manifest = newManifest({ client: input.clients.join(","), templateVersion: currentVersion, now: this.now().toISOString() });
     const items: ManifestItem[] = [];
     const created: string[] = [];
     const kept: string[] = [];
     const updated: string[] = [];
     const conflicts: string[] = [];
     const failed: Array<{ path: string; error: string }> = [];
+    const overwritten: string[] = [];
+    const backups: Array<{ path: string; backupPath: string }> = [];
+    const alreadyCurrent: string[] = [];
+    let backupRoot: string | null = null;
+    /** 首次实际覆盖时才建 0700 备份根；同毫秒重复运行时追加序号避免覆盖旧备份。 */
+    const ensureBackupRoot = (): string => {
+      if (backupRoot !== null) return backupRoot;
+      const base = join(this.runtimeDir(root), "init-backup", this.now().toISOString().replace(/[:.]/g, "-"));
+      let candidate = base;
+      let suffix = 1;
+      while (existsSync(candidate)) candidate = `${base}-${suffix++}`;
+      ensurePrivateDir(join(this.runtimeDir(root), "init-backup"));
+      ensurePrivateDir(candidate);
+      backupRoot = candidate;
+      return candidate;
+    };
     const record = (
       path: string,
       ownership: "project" | "managed",
@@ -340,16 +393,33 @@ export class InitializationService {
     manifest.items = [...items, ...previous?.items.filter((item) => !items.some((current) => current.path === item.path)) ?? []];
     this.writeManifest(root, manifest);
 
-    // 3. 项目资料补缺（配置、流程配置、阶段提示词、规范索引；存在即沿用）
+    // 3. 项目资料：默认只补缺（存在即沿用）；--force 时与模板不同则先备份再按模板覆盖。
     for (const spec of TEMPLATE_SPECS.filter((s) => !s.bridge)) {
       const target = join(root, spec.path);
       try {
+        const content = templateContent(spec.path);
+        const nextSha = sha256Text(content);
         if (!existsSync(target)) {
-          const content = spec.path === ".knit/config.json" ? JSON.stringify(defaultConfig(), null, 2) + "\n" : readTemplate(spec.path);
           atomicWrite({ path: target, data: Buffer.from(content, "utf8"), expectedSha256: null, mode: 0o644 });
-          record(spec.path, spec.ownership, "created", { baselineSha256: sha256Text(content) });
+          record(spec.path, spec.ownership, "created", { baselineSha256: nextSha });
         } else {
-          record(spec.path, spec.ownership, "kept", { currentSha256: fileFacts(target).sha256 });
+          const currentBytes = readFileSync(target);
+          const currentSha = sha256Bytes(currentBytes);
+          if (!input.force) {
+            record(spec.path, spec.ownership, "kept", { currentSha256: currentSha });
+          } else if (currentSha === nextSha) {
+            // 已一致不重写，也不建备份目录。
+            record(spec.path, spec.ownership, "kept", { currentSha256: currentSha, baselineSha256: nextSha });
+            alreadyCurrent.push(spec.path);
+          } else {
+            const rootForBackup = ensureBackupRoot();
+            const backupPath = join(rootForBackup, spec.path);
+            atomicWrite({ path: backupPath, data: currentBytes, expectedSha256: null, mode: 0o600 });
+            backups.push({ path: spec.path, backupPath });
+            atomicWrite({ path: target, data: Buffer.from(content, "utf8"), expectedSha256: currentSha, mode: 0o644 });
+            record(spec.path, spec.ownership, "updated", { baselineSha256: nextSha, backupPath });
+            overwritten.push(spec.path);
+          }
         }
       } catch (error) {
         record(spec.path, spec.ownership, "failed", { error: String(error) });
@@ -422,6 +492,9 @@ export class InitializationService {
 
     // 7. 收束：全部项成功 → ready；否则 failed（保留逐项结果，中断续做不冒充成功）。
     // 最终清单仍合并旧项：已消失的旧受管路径留作历史基线证据，不丢失（任务039）。
+    manifest.overwriteCount = overwritten.length;
+    manifest.backupRoot = backupRoot;
+    manifest.backups = backups;
     manifest.items = [...items, ...(previous?.items ?? []).filter((item) => !items.some((current) => current.path === item.path))];
     manifest.state = isReady(manifest, bridgeSpec.path) ? "ready" : "failed";
     this.writeManifest(root, manifest);
@@ -437,6 +510,11 @@ export class InitializationService {
       failed,
       ready: manifest.state === "ready",
       bridgeReady: manifest.state === "ready" && existsSync(bridgeTarget),
+      overwritten,
+      overwriteCount: overwritten.length,
+      backupRoot,
+      backups,
+      alreadyCurrent,
       orphans,
       gitWarning,
     };

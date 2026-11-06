@@ -26,7 +26,7 @@ function project(prefix) {
   writeFileSync(join(dir, "a.txt"), "alpha\n");
   git(dir, ["add", "."]);
   git(dir, ["commit", "-q", "-m", "init"]);
-  execFileSync(process.execPath, [CLI, "init", "--client", "pi", "--dir", dir], { encoding: "utf8" });
+  execFileSync(process.execPath, [CLI, "init", "--pi", "--dir", dir], { encoding: "utf8" });
   return dir;
 }
 

@@ -117,13 +117,14 @@ export function outcomeForError(error: unknown): Outcome {
   return "error";
 }
 
-/** 人类可读计划行。 */
-export function formatPlanItem(item: { path: string; action: string; reason: string }): string {
+/** 人类可读计划行；--force 预览的覆盖项显式标为“覆盖”。 */
+export function formatPlanItem(item: { path: string; action: string; reason: string; overwrite?: boolean }): string {
   const actionLabel: Record<string, string> = {
     create: "创建",
     keep: "沿用",
     update: "更新",
     conflict: "冲突",
   };
-  return `  ${actionLabel[item.action] ?? item.action}  ${item.path}  — ${item.reason}`;
+  const label = item.overwrite ? "覆盖" : (actionLabel[item.action] ?? item.action);
+  return `  ${label}  ${item.path}  — ${item.reason}`;
 }
