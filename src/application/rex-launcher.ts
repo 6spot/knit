@@ -8,7 +8,8 @@
  *   4. 写 rex.json 与 rex/ 私有事实，订阅 bridge 状态、rex events 与 state.json 兜底；
  *   5. 返回最后 assistant 文本、sessionFile、pid 与 outcome，后续报告校验/接收仍走 StageRunner。
  *
- * 本模块不写核心 state/result，不改变验收资格；失败只以返回值表达。
+ * 终态由 StageRunner 调用 closeLayer() 关闭本次浮层；terminate() 只保留取消／失败的终止语义，
+ * 两者共用同一套 rex.json 关联解析且幂等。本模块不写核心 state/result，不改变验收资格；失败只以返回值表达。
  */
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
@@ -253,6 +254,7 @@ export class RexLauncher {
   private wake: (() => void) | null = null;
   private stopRequestedAt: number | null = null;
   private terminated = false;
+  private layerClosed = false;
   private bridgeClosed = false;
 
   constructor(options: RexLauncherOptions) {
@@ -728,22 +730,36 @@ export class RexLauncher {
     await this.terminate();
   }
 
+  /**
+   * 终态关闭本 run 的浮层：优先 rex.json 的 layerId，缺失时按 blockId 反查；幂等。
+   * closeOnSettle=false 时保留浮层（测试／调试）；关闭失败只忽略，不改变已落盘 run 结果。
+   */
+  async closeLayer(): Promise<void> {
+    if (!this.closeOnSettle) return;
+    await this.closeAssociatedLayer();
+  }
+
+  /** 关闭与 rex.json 关联的浮层；不按 label 冒认，也不关闭其他窗口或 layer。 */
+  private async closeAssociatedLayer(): Promise<void> {
+    if (this.layerClosed) return;
+    const association = this.association;
+    if (association === null) return;
+    let layerId = association.layerId;
+    if (layerId === null) layerId = await this.findLayerForBlock(association.blockId);
+    if (layerId === null) return;
+    this.layerClosed = true;
+    try {
+      await this.rex.closeLayer(layerId);
+    } catch {
+      // 浮层可能已被用户或 worker 关闭；关闭失败不影响 run 结果。
+    }
+  }
+
   /** 终止本 run 的浮层与已记录 Pi 进程；只处理 rex.json/state 记录的自有对象。 */
   async terminate(): Promise<void> {
     if (this.terminated) return;
     this.terminated = true;
-    const association = this.association;
-    let layerId = association?.layerId ?? null;
-    if (layerId === null && association !== null) {
-      layerId = await this.findLayerForBlock(association.blockId);
-    }
-    if (layerId !== null) {
-      try {
-        await this.rex.closeLayer(layerId);
-      } catch {
-        // 浮层可能已关闭；继续核对进程。
-      }
-    }
+    await this.closeAssociatedLayer();
     const pid = this.latestState?.pid ?? null;
     if (pid !== null && procStartTicks(pid) !== null) {
       const tree = processTreePids(pid);

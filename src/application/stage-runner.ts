@@ -929,6 +929,9 @@ export class StageRunner {
         nativeReadable,
       );
     } finally {
+      // 终态统一收口：completed／aborted／error 与恢复发现路径都在此关闭本次浮层；
+      // terminate() 已关闭时 closeLayer() 幂等跳过，关闭失败不改变已落盘结果。
+      if (typeof launcher.closeLayer === "function") await launcher.closeLayer().catch(() => {});
       await launcher.dispose().catch(() => {});
       const pid = execution?.pid ?? piPid;
       try {

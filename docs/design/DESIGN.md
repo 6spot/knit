@@ -474,7 +474,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 3. `auto` 同时满足 `REX_SESSION` 与 `REX_BLOCK`、`rex` CLI 可执行（`REX_BIN_DIR` 或 PATH）、`rex api list --json` 含 7 个必需方法时才使用 REX；否则回退 local 并记录原因。探测复用 `RexApi.check()` 与 `REX_REQUIRED_METHODS`，不新写协议。
 4. `--rex` 或 `host: "rex"` 不可用时报 `rex_unavailable` 并保留具体原因（环境缺失、CLI 缺失、连接失败或缺方法），不静默回退。
 
-选择 REX 后，local worker 仍在项目内完成认领、输入冻结和快照；StageRunner 在 REX session 内用 `session.new_layer` 新建可见终端，运行 Pi TUI + worker 扩展，标签为 `knit <run-id>`，通过 bridge 观察状态、steer 与 stop。已有 `rex.json` 时按标签与身份恢复发现，不重复建浮层。REX window 对应 session 内的窗口／标签页。
+选择 REX 后，local worker 仍在项目内完成认领、输入冻结和快照；StageRunner 在 REX session 内用 `session.new_layer` 新建可见终端，运行 Pi TUI + worker 扩展，标签为 `knit <run-id>`，通过 bridge 观察状态、steer 与 stop。已有 `rex.json` 时按标签与身份恢复发现，不重复建浮层。REX window 对应 session 内的窗口／标签页。浮层创建后即最小化；run 到达终态（completed／aborted／error，含恢复发现）时，宿主按 `rex.json` 的 `layerId`（缺失时按 `blockId` 反查）调用 `session.close_layer`，取消／失败走同一路径，关闭失败只忽略、不改变已落盘结果；`closeOnSettle=false` 仅用于测试／调试时保留浮层。
 
 `presentation`、`presentationSource`（explicit/config/auto）与 `presentationFallbackReason` 写入不可变 request；活动 run 的呈现不可变，`run resume` 沿用旧值。浮层创建或阶段 Pi 启动后的失败不切换宿主，沿用 `rex_start_failed:*` 与既有失败语义；用户重新派发时按当时检测结果重新解析。`run list`／`run status`／`knit status --run` 显示实际宿主、来源与回退原因。`run check --scope` 为非正式检查，仍不支持 REX。桥接 `knit_run` 不传 `--rex` 时继承扩展进程环境，按同一规则自动生效。
 
