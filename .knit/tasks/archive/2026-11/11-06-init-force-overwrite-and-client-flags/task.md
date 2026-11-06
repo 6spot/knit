@@ -105,4 +105,10 @@ title: init 强制覆盖与按客户端的初始化开关（--force 覆盖项目
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-init-force-overwrite-and-client-flags
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-939a2fddf590 -->
+- 任务资料提交: 30c381f2757f3fb9da7fd3945f78b300f9934706
+- 归档目标: .knit/tasks/archive/2026-11/11-06-init-force-overwrite-and-client-flags
+
 <!-- knit:progress:end -->
