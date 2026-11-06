@@ -82,4 +82,10 @@ title: 展示标签：任务标题与阶段名优先，ID 退居次要
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-05-human-readable-labels
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-372e2fdf2ae1 -->
+- 任务资料提交: 84895dc3a69c6f5d39d4e9bbdb881e402815ed9a
+- 归档目标: .knit/tasks/archive/2026-11/11-05-human-readable-labels
+
 <!-- knit:progress:end -->
