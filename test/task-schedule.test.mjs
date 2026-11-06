@@ -184,11 +184,11 @@ test("列表与执行入口一致：父子优先级不同仍按稳定顺序展�
     assert.deepEqual(ids(service.list({ dir })), [child.taskId, parent.taskId]);
     assert.deepEqual(service.next({ dir }).entries.map((entry) => entry.taskId), [child.taskId, parent.taskId]);
 
-    const listRows = cli(dir, "task", "list").split("\n").filter((line) => /^\s+(↳ )?P[0-3]\s+k-/.test(line));
+    const listRows = cli(dir, "task", "list").split("\n").filter((line) => /^\s+P[0-3]\s+k-/.test(line));
     const listIds = listRows.map((line) => line.match(/k-[0-9a-f]{12}/)?.[0]);
     assert.deepEqual(listIds, [child.taskId, parent.taskId], "task list 行顺序与 next 相同");
-    assert.match(listRows[0] ?? "", new RegExp(`\\[父任务 ${parent.taskId}\\]`), "子任务行标注父任务稳定 ID");
-    assert.match(listRows[1] ?? "", /\[子任务 0\/1\]/, "父任务行标注子任务进度");
+    assert.doesNotMatch(listRows[0] ?? "", /\[父任务|\[子任务/, "列表行不再带父子标注");
+    assert.doesNotMatch(listRows[1] ?? "", /\[父任务|\[子任务/, "列表行不再带父子标注");
 
     const nextRows = cli(dir, "task", "next").split("\n").filter((line) => /^P[0-3]\s+k-/.test(line));
     assert.deepEqual(nextRows.map((line) => line.match(/k-[0-9a-f]{12}/)?.[0]), [child.taskId, parent.taskId]);

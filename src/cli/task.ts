@@ -4,7 +4,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { RunActivityService } from "../application/run-activity.js";
-import { TaskService, type TaskUpdateResult } from "../application/task-service.js";
+import { TaskService, type TaskListResult, type TaskSummary, type TaskUpdateResult } from "../application/task-service.js";
+import type { TaskListProblem } from "../application/task-history.js";
+import { workflowOf } from "../application/workflow.js";
+import { workflowStageDisplayName } from "../domain/workflow.js";
+import { displayWidth, padDisplay } from "./display.js";
 import { SessionService } from "../application/session-service.js";
 import { searchHistory } from "../application/history-search.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -14,6 +18,109 @@ import { gitSync } from "../infrastructure/process.js";
 const RUNTIME_DIR = ".knit/.runtime";
 const VERIFICATIONS = new Set(["none", "self", "independent"]);
 const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
+const ARCHIVE_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** `task list` 默认视图：未归档任务按业务状态分段，归档只给条数与入口。 */
+interface TaskListActiveView {
+  root: string;
+  scope: "active";
+  active: TaskSummary[];
+  archivedCount: number;
+  problems: TaskListProblem[];
+}
+
+/** `task list --archive` 视图：按月分组的归档条目。 */
+interface TaskListArchiveView {
+  root: string;
+  scope: "archive";
+  archived: TaskSummary[];
+  archivedCount: number;
+  month?: string;
+  problems: TaskListProblem[];
+}
+
+/** 归档路径里的月份与创建月日：tasks/archive/2026-11/11-02-slug。 */
+function archiveLocation(relativePath: string): { month: string; date: string } | null {
+  const match = /^tasks\/archive\/(\d{4}-\d{2})\/(\d{2}-\d{2})-/.exec(relativePath);
+  return match === null ? null : { month: match[1] ?? "", date: match[2] ?? "" };
+}
+
+/** 默认视图：进行中／待归档／已取消三段，固定列对齐；阻塞只计数。 */
+function renderActiveList(view: TaskListActiveView, dir: string): void {
+  const workflow = workflowOf(cliMainRoot(dir));
+  const groups = [
+    { title: "进行中", rows: view.active.filter((task) => task.status === "open") },
+    { title: "待归档", rows: view.active.filter((task) => task.status !== "open" && task.outcome !== "cancelled" && task.outcome !== "superseded") },
+    { title: "已取消", rows: view.active.filter((task) => task.status !== "open" && (task.outcome === "cancelled" || task.outcome === "superseded")) },
+  ].map((group) => ({
+    title: group.title,
+    blocked: group.rows.filter((task) => task.blocked.length > 0).length,
+    rows: group.rows.map((task) => ({
+      priority: task.priority,
+      taskId: task.taskId,
+      stage: workflowStageDisplayName(workflow, task.stage),
+      title: task.title,
+    })),
+  }));
+  const cells = groups.flatMap((group) => group.rows);
+  const priorityWidth = Math.max(displayWidth("优先级"), ...cells.map((row) => displayWidth(row.priority)));
+  const taskIdWidth = Math.max(displayWidth("ID"), ...cells.map((row) => displayWidth(row.taskId)));
+  const stageWidth = Math.max(displayWidth("阶段"), ...cells.map((row) => displayWidth(row.stage)));
+  const line = (row: { priority: string; taskId: string; stage: string; title: string }): string =>
+    `  ${padDisplay(row.priority, priorityWidth)}  ${padDisplay(row.taskId, taskIdWidth)}  ${padDisplay(row.stage, stageWidth)}  ${row.title}`;
+  let headerPrinted = false;
+  for (const group of groups) {
+    console.log(`${group.title}（${group.rows.length}）`);
+    if (group.rows.length === 0) continue;
+    if (!headerPrinted) {
+      console.log(`  ${padDisplay("优先级", priorityWidth)}  ${padDisplay("ID", taskIdWidth)}  ${padDisplay("阶段", stageWidth)}  标题`);
+      headerPrinted = true;
+    }
+    for (const row of group.rows) console.log(line(row));
+  }
+  console.log(`进行中 ${groups[0]?.rows.length ?? 0} · 待归档 ${groups[1]?.rows.length ?? 0} · 已取消 ${groups[2]?.rows.length ?? 0} · 阻塞 ${groups[0]?.blocked ?? 0} · 归档 ${view.archivedCount}（knit task list --archive）`);
+  if (view.problems.length > 0) {
+    console.log(`列表问题（${view.problems.length}）：`);
+    for (const problem of view.problems) console.log(`  ${problem.path}  ${problem.message}`);
+  }
+}
+
+/** 归档视图：按月分组、组内按创建月日倒序；异常与跨机历史只做汇总。 */
+function renderArchiveList(view: TaskListArchiveView): void {
+  const rows = view.archived.map((task) => {
+    const location = archiveLocation(task.relativePath);
+    return {
+      month: location?.month ?? "未知",
+      date: location?.date ?? "-",
+      taskId: task.taskId,
+      outcome: task.outcome ?? "-",
+      title: task.title,
+    };
+  });
+  const dateWidth = Math.max(displayWidth("日期"), ...rows.map((row) => displayWidth(row.date)));
+  const taskIdWidth = Math.max(displayWidth("ID"), ...rows.map((row) => displayWidth(row.taskId)));
+  const outcomeWidth = Math.max(displayWidth("结论"), ...rows.map((row) => displayWidth(row.outcome)));
+  const line = (row: (typeof rows)[number]): string =>
+    `  ${padDisplay(row.date, dateWidth)}  ${padDisplay(row.taskId, taskIdWidth)}  ${padDisplay(row.outcome, outcomeWidth)}  ${row.title}`;
+  const months = [...new Set(rows.map((row) => row.month))].sort().reverse();
+  if (months.length === 0) console.log(view.month === undefined ? "归档（0）" : `归档 ${view.month}（0）`);
+  for (const month of months) {
+    const group = rows.filter((row) => row.month === month).sort((left, right) => right.date.localeCompare(left.date));
+    console.log(`归档 ${month}（${group.length}）`);
+    if (month === months[0]) {
+      console.log(`  ${padDisplay("日期", dateWidth)}  ${padDisplay("ID", taskIdWidth)}  ${padDisplay("结论", outcomeWidth)}  标题`);
+    }
+    for (const row of group) console.log(line(row));
+  }
+  const invalid = view.archived.filter((task) => task.history?.kind === "invalid");
+  const gitHistory = view.archived.filter((task) => task.history?.kind === "git-history").length;
+  const abnormal = invalid.length + view.problems.length;
+  if (gitHistory > 0 || abnormal > 0) {
+    console.log(`跨机历史 ${gitHistory} 条 · 档案异常 ${abnormal} 条`);
+    for (const task of invalid) console.log(`  ${task.relativePath}/task.md  ${(task.history?.problems ?? []).join("；")}`);
+    for (const problem of view.problems) console.log(`  ${problem.path}  ${problem.message}`);
+  }
+}
 
 function openStore(dir: string): SqliteMetadataStore {
   // 元数据库固定在主检出；worktree 内不新建。
@@ -287,43 +394,38 @@ export function registerTaskCommands(program: Command): void {
 
   task
     .command("list")
-    .description("列出活跃与归档任务（从任务目录派生）")
+    .description("列出进行中／待归档／已取消任务；归档用 --archive 按月查看")
     .option("--dir <dir>", "项目目录", ".")
+    .option("--archive", "列出归档任务（按月分组）")
+    .option("--month <month>", "只列指定归档月份 YYYY-MM（隐含 --archive）")
     .action(async (options) => {
+      const month = typeof options.month === "string" ? options.month : undefined;
+      if (month !== undefined && !ARCHIVE_MONTH_PATTERN.test(month)) {
+        console.error(`knit: 非法归档月份 ${month}，应为 YYYY-MM`);
+        process.exitCode = 1;
+        return;
+      }
+      const archiveView = options.archive === true || month !== undefined;
       const requestId = `task-list-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await withService(requestId, options.dir, (service) => Promise.resolve(service.list({ dir: options.dir })), (result) => {
-        const marker = (history: { kind: string; problems: string[] } | null): string => {
-          if (history === null) return "";
-          if (history.kind === "git-history") return "  [Git 历史已归档（只读）]";
-          if (history.kind === "invalid") return "  [档案异常]";
-          return history.problems.length > 0 ? "  [未入库／Git 跟踪状态不可判定]" : "  [未入库]";
-        };
-        const row = (t: { taskId: string; title: string; status: string; stage: string; outcome: string | null; verification: string; relativePath: string; history: { kind: string; problems: string[] } | null; children: string[]; openChildren: string[]; priority: string; parent: string | null; blocked: { taskId: string; problem: string }[] }) => {
-          // 活跃分区按服务层派生的稳定执行顺序逐行展示；父子关系用 ↳ 与父任务 ID 标注，
-          // 不再把子任务重排到父任务之下（DESIGN §3.10、§3.11）。
-          const child = t.parent === null ? "" : "↳ ";
-          const parentRef = t.parent === null ? "" : `  [父任务 ${t.parent}]`;
-          const tree = t.children.length > 0
-            ? `  [子任务 ${t.children.length - t.openChildren.length}/${t.children.length}]`
-            : "";
-          const blocked = t.blocked.length > 0
-            ? `  ⛔ ${t.blocked.map((entry) => `${entry.taskId}(${entry.problem})`).join(", ")}`
-            : "";
-          return `  ${child}${t.priority}  ${t.taskId}  [${t.status}/${t.stage}${t.outcome ? `/${t.outcome}` : ""}]  verify=${t.verification}  ${t.title}  (${t.relativePath})${parentRef}${tree}${blocked}${marker(t.history)}`;
-        };
-        console.log(`活跃任务（${result.active.length}）:`);
-        // result.active 已按 priority → order → createdAt 排序；直接逐行展示以与 task next 一致。
-        for (const t of result.active) console.log(row(t));
-        console.log(`归档任务（${result.archived.length}）:`);
-        for (const t of result.archived) {
-          console.log(row(t));
-          for (const problem of t.history?.problems ?? []) console.log(`    问题: ${problem}`);
-        }
-        if (result.problems.length > 0) {
-          console.log(`列表问题（${result.problems.length}）:`);
-          for (const problem of result.problems) console.log(`  ${problem.path}  ${problem.message}`);
-        }
-      });
+      await withService(
+        requestId,
+        options.dir,
+        (service): Promise<TaskListActiveView | TaskListArchiveView> => {
+          const result: TaskListResult = service.list({ dir: options.dir });
+          // 月份过滤同时约束问题明细：其它月份的诊断不混进本次视图。
+          const problems = month === undefined ? result.problems : result.problems.filter((problem) => problem.path.includes(`/archive/${month}/`));
+          if (archiveView) {
+            const archived = month === undefined ? result.archived : result.archived.filter((task) => archiveLocation(task.relativePath)?.month === month);
+            const payload: TaskListArchiveView = { root: result.root, scope: "archive", archived, archivedCount: result.archived.length, problems };
+            return Promise.resolve(month === undefined ? payload : { ...payload, month });
+          }
+          return Promise.resolve({ root: result.root, scope: "active", active: result.active, archivedCount: result.archived.length, problems });
+        },
+        (view) => {
+          if (view.scope === "archive") renderArchiveList(view);
+          else renderActiveList(view, options.dir);
+        },
+      );
     });
 
   task

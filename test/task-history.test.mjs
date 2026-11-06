@@ -374,24 +374,70 @@ test("CLI：文本归档条目带历史标注，JSON 输出含 history 与 probl
   try {
     writeArchive(dir, "2026-10", "10-01-cli", archiveMarkdown({ id: "k-333333333333" }));
     commitAll(dir, "track archive");
-    const text = execFileSync(process.execPath, [CLI, "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8", env });
-    assert.match(text, /归档任务（1）/);
-    assert.match(text, /Git 历史已归档（只读）/);
+    const text = execFileSync(process.execPath, [CLI, "task", "list", "--archive", "--dir", dir], { cwd: dir, encoding: "utf8", env });
+    assert.match(text, /归档 2026-10（1）/);
+    assert.match(text, /跨机历史 1 条/);
 
-    const json = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8", env }));
+    const json = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--archive", "--dir", dir], { cwd: dir, encoding: "utf8", env }));
     assert.equal(json.outcome, "completed");
+    assert.equal(json.data.scope, "archive");
     assert.equal(json.data.archived[0].history.kind, "git-history");
     assert.deepEqual(json.data.archived[0].history.problems, []);
     assert.deepEqual(json.data.problems, []);
 
     writeArchive(dir, "2026-10", "10-02-broken", "broken-not-yaml\n");
-    const withProblem = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8", env }));
+    const withProblem = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--archive", "--dir", dir], { cwd: dir, encoding: "utf8", env }));
     assert.equal(withProblem.data.archived.length, 1);
     assert.equal(withProblem.data.problems.length, 1);
     assert.match(withProblem.data.problems[0].path, /10-02-broken\/task\.md$/);
-    const textWithProblem = execFileSync(process.execPath, [CLI, "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8", env });
-    assert.match(textWithProblem, /列表问题（1）/);
+    const textWithProblem = execFileSync(process.execPath, [CLI, "task", "list", "--archive", "--dir", dir], { cwd: dir, encoding: "utf8", env });
+    assert.match(textWithProblem, /档案异常 1 条/);
     assert.match(textWithProblem, /10-02-broken/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI：task list --archive 按月分组，--month 过滤且隐含归档视图", () => {
+  const dir = gitProject("archive-months");
+  const env = { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") };
+  const run = (...args) => execFileSync(process.execPath, [CLI, ...args, "--dir", dir], { cwd: dir, encoding: "utf8", env });
+  try {
+    writeArchive(dir, "2026-10", "10-01-older", archiveMarkdown({ id: "k-111111111111", title: "十月任务", createdAt: "2026-10-01T00:00:00.000Z" }));
+    writeArchive(dir, "2026-11", "11-02-newer", archiveMarkdown({ id: "k-222222222222", title: "十一月任务", outcome: "cancelled", createdAt: "2026-11-02T00:00:00.000Z" }));
+
+    const summary = run("task", "list");
+    assert.match(summary, /归档 2（knit task list --archive）/);
+
+    const all = run("task", "list", "--archive");
+    assert.match(all, /归档 2026-11（1）/);
+    assert.match(all, /归档 2026-10（1）/);
+    assert.ok(all.indexOf("2026-11") < all.indexOf("2026-10"), "月份倒序");
+    assert.match(all, /  日期 +ID +结论 +标题/);
+    assert.match(all, /11-02 +k-222222222222 +cancelled +十一月任务/);
+    assert.match(all, /10-01 +k-111111111111 +completed +十月任务/);
+
+    const month = run("task", "list", "--month", "2026-10");
+    assert.match(month, /归档 2026-10（1）/);
+    assert.doesNotMatch(month, /2026-11/);
+    assert.doesNotMatch(month, /十一月任务/);
+
+    const json = JSON.parse(run("--json", "task", "list", "--archive", "--month", "2026-11"));
+    assert.equal(json.data.scope, "archive");
+    assert.equal(json.data.month, "2026-11");
+    assert.equal(json.data.archived.length, 1);
+    assert.equal(json.data.archivedCount, 2);
+
+    assert.match(run("task", "list", "--month", "2026-09"), /归档 2026-09（0）/);
+
+    let invalid = null;
+    try {
+      run("task", "list", "--month", "2026-13");
+    } catch (error) {
+      invalid = error;
+    }
+    assert.ok(invalid, "非法归档月份应拒绝");
+    assert.match(String(invalid.stderr), /非法归档月份/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

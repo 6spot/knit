@@ -2,7 +2,7 @@
 
 ## 开发入口与任务管理
 
-本仓库使用 Knit 管理后续正式开发任务。先读本文件、[文档索引](docs/README.md)和 [.knit/workflow.yaml](.knit/workflow.yaml)，再用 `npx --no-install knit task list` 查询任务；需要阶段上下文时使用桥接的 `knit_task`、`knit_context` 和 `knit_run`。
+本仓库使用 Knit 管理后续正式开发任务。先读本文件、[文档索引](docs/README.md)和 [.knit/workflow.yaml](.knit/workflow.yaml)，再用 `npx --no-install knit task list` 查看活跃任务（归档用 `npx --no-install knit task list --archive`）；需要阶段上下文时使用桥接的 `knit_task`、`knit_context` 和 `knit_run`。
 
 - 是否建任务由用户决定，既有明确授权或持续授权可以沿用。研究、代码修改、复杂度、委派和保存报告本身都不要求建任务。未建任务时直接使用宿主工具和子 Agent，不为委派暗建任务。
 - 正式任务保存在 `.knit/tasks/`，各任务的 `task.md` 是需求入口与业务状态唯一权威；通过 Knit 工具或 CLI 管理身份、输入、阶段和状态。复杂任务按需在任务目录补充 `plan.md`、`design.md` 或 `research/`，不建立另一份全局任务状态表。
@@ -53,7 +53,7 @@
 
 本块由 Knit 生成并按基线维护；人工改动会因与基线不一致而报告差异，不静默覆盖。
 
-- 任务列表：`.knit/tasks/`（`npx --no-install knit task list`）
+- 任务列表：活跃用 `npx --no-install knit task list`，归档用 `npx --no-install knit task list --archive`（`.knit/tasks/`）
 - 流程配置：`.knit/workflow.yaml`（默认 准备 → 实现 → 检查 → 收尾；启动用 `npx --no-install knit start`；阶段顺序、提示词、工具与报告字段以此文件为准）
 - 主会话入口：是否建任务由用户决定；新事项先问是否建任务再展开需求，暂不创建时继续讨论，转到实施前再确认；明确不创建时同一事项持续有效，不重复追问；实施前仍无有效选择先补问，不能用“你做吧”代替。创建任务不等于需求确认或实施授权；创建同意不等于实施授权；任务创建同意不等于需求确认或实施授权；用户明确“按这个做”等可同时确认范围与授权实施。普通问答／只读调查直接完成。
 - 需求澄清门：关键缺口先讨论，呈现缺口与选项；需求明确直接登记；想法登记时标注“需求未确认，仅登记想法”；Agent 假设、方案与验收建议标注“（Agent 建议，待确认）”；复杂需求先拆分任务并确认范围。讨论收束时归纳问题、范围、完成条件与待决事项写入 task.md；仍有需用户取舍的事项先澄清，不带未决问题进入实施。

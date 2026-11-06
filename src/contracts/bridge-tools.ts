@@ -36,6 +36,10 @@ export const TaskToolSchema = obj(
     scope: opt(union([lit("task"), lit("archive"), lit("run"), lit("git")])),
     /** 历史检索最多返回条数；默认 20，核心上限 100。 */
     limit: opt(int({ minimum: 1 })),
+    /** task list：默认只列未归档任务；archive 改为按月查看归档。 */
+    archive: opt(bool()),
+    /** task list --archive 的归档月份过滤（YYYY-MM，隐含 archive）。 */
+    month: opt(str()),
     /** 创建或挂接的父任务稳定身份；解除关联用 detach。 */
     parentId: opt(str({ minLength: 1 })),
     detach: opt(bool()),

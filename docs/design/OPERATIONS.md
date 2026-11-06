@@ -106,6 +106,8 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 历史检索只在用户明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时执行，不按固定关键词或任务编号判定，也不因话题相关自动检索。入口为 `knit task search <query...> [--scope task|archive|run|git] [--limit n]` 或桥接 `knit_task action=search`；默认检索全部范围、最多 20 条（上限 100）。实现（任务 k-322284b57ad9）：`src/application/history-search.ts` 直接读取任务资料、`.knit/.runtime/runs/`（兼容 `.knit/runs/`）与 `git log --all --grep`，不打开元数据库、不写任务或 runtime、不建索引／缓存。命中返回 `path:line`、`run:<id>` 或 `commit:<sha>`；无匹配返回空数组并说明未找到。相关记录只代表内容或时间相关，因果结论仍须复现、对照或验证证据。
 
+任务列表默认只回答“还有哪些活没做完／没归档”：实现（任务 k-c06c5a41092f）`knit task list` 按 进行中（`open`）／待归档（`closed` 且 outcome 非取消）／已取消（`cancelled`／`superseded`）分段，行内固定四列（优先级、ID、阶段显示名、标题），列宽按显示宽度补齐；`--archive` 按月分组列归档（`--month` 过滤），归档行给日期、ID、结论与标题，跨机历史与档案异常只在末尾汇总。`TaskService.list` 仍返回 `{active, archived}`，`task next`、依赖阻塞与父子判定不变；`--json` 默认带 `scope="active"` 与 `archivedCount`，归档数组只在 `--archive` 时返回。列表读取成本仍随归档规模增长，另由任务 k-3d730c8907b3 跟进。
+
 ## 5. 用量、存储与诊断
 
 默认 `agent.resume: "prefer"` 优先由原客户端加载原生记录；旧记录无法恢复时自动新建会话，读取当前任务要求、正式规范、进度、已有执行事实与当前代码续做。先确认旧执行和工具结束，核对任务／目录及模型；不把模型不可用或未知工具状态当作换会话的理由。报告新建原因和旧来源，新会话可用后更新阶段引用；新建失败不循环创建。Task ID、阶段、修复次数和累计成果保持，由核心维护，不能接受模型自报值来重置或迁移；参见 DESIGN 第 9.4 节。
@@ -136,7 +138,7 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
 
-实现（任务 k-c5f416d61c3d）：父子关系只写子任务 frontmatter `parent`；`task new --parent` 在创建项目锁内、`task parent`／`--detach` 在项目＋任务锁内按稳定 ID 核对目标存在、未归档、未结束与成环；归档任务关系冻结，不再挂接或解除，归档父任务不接收新子任务；结构变化不使输入摘要或检查资格失效。父任务完成在任务锁内扫描直接子任务：仍有 `open` 子任务返回 `children_incomplete`，缺 `--reason` 返回 `parent_acceptance_missing`，验收说明写入完成凭据。`task list` 活跃分区按稳定执行顺序逐行展示，子任务行以 `↳` 前缀并标注父任务稳定 ID；父任务行标注子任务结束进度，`knit status <taskId>` 给出父任务与子任务状态。
+实现（任务 k-c5f416d61c3d）：父子关系只写子任务 frontmatter `parent`；`task new --parent` 在创建项目锁内、`task parent`／`--detach` 在项目＋任务锁内按稳定 ID 核对目标存在、未归档、未结束与成环；归档任务关系冻结，不再挂接或解除，归档父任务不接收新子任务；结构变化不使输入摘要或检查资格失效。父任务完成在任务锁内扫描直接子任务：仍有 `open` 子任务返回 `children_incomplete`，缺 `--reason` 返回 `parent_acceptance_missing`，验收说明写入完成凭据。`task list` 默认只列未归档任务并按进行中／待归档／已取消分段，行内只给优先级、稳定 ID、阶段显示名与标题；父子结束进度与逐项阻塞由 `knit status <taskId>`／`task next` 给出，归档条目用 `task list --archive` 按月查看。
 实现（任务055–057）：`task close --outcome completed` 在任务锁内按 `verification` 核对当前输入、成果和完成凭据；业务完成不要求 Git 提交、回执或归档，完成凭据写 `.knit/.runtime/completions/<task-id>.json`。`deliver <id...>` 支持批量逐项处理，先以 `--plan` 只读预检业务产物／任务资料分类、已暂存业务路径及任务资料、跨任务同路径冲突；有冲突时不执行。任务资料的用户暂存内容也在服务取得占用后、创建操作与修改Task前重核；拒绝时保留index、HEAD及Task。重试仅接受当前HEAD和预期路径／blob匹配的未完成操作暂存检查点；资料部分暂存始终停止，不能借retry覆盖新改动。每个任务先提交业务产物（`knit: artifact`），再写最终记录并单独提交任务资料（`knit: metadata`），随后封存、移动和归档提交；多个任务不合并为整仓提交。任一项失败保留已生效提交和后续任务现场，按操作 ID 与显式 retry 继续，不重复提交。
 
 ## 6. 数据版本与升级
@@ -168,4 +170,4 @@ M3A 才启用 .runtime/diagnostics/<对象ID>/<写入者ID>.jsonl，每进程独
 Pi 会话开关仅影响当前原生会话后续调用，切会话、fork 或 reload 默认关闭，不写项目／用户配置，不改已启动 worker 的请求。CLI --dev 仅本次及其 worker，不继承 Pi 开关。
 
 诊断版本为 diagnosticVersion:1，M3A 按 event/stepKey、输入版本和对象关系对齐，忽略墙钟、耗时、随机 ID、token 指纹与 diagnosticsRef；不另做 compare 命令。完整日志仍不自动进模型上下文，用户明确排查时按需读取。
-实现（任务 k-802d3edc053c）：`priority`／`dependsOn`／`order` 写入 task.md frontmatter，缺省 P2、无依赖、`order=null`；三者不参与需求摘要，调整不改写输入或使检查 stale。`src/domain/schedule.ts` 提供排序、依赖阻塞与重排纯函数；`task list`／`task next` 共用同一排序与阻塞判定，优先级内已调整的按 order、未调整的按 createdAt，创建时间相同才用稳定 ID；`task list` 活跃分区直接按该顺序逐行展示，父子关系以 `↳` 与父任务 ID 标注，不重排执行顺序。`task ready` 与 implement 的 `run prepare` 在推进／启动前核对依赖，未满足返回 `dependency_unmet` 并列出原因；依赖自环、缺失与成环在 `task depends`／`task new --depends-on` 时拒绝。`task order` 在项目锁内只重排目标优先级分组，`--before`／`--after` 跨级参照返回 `order_reference_priority_mismatch`；只写该分组的 order，不修改 createdAt，其它优先级与同级未涉及任务的先后不变。
+实现（任务 k-802d3edc053c）：`priority`／`dependsOn`／`order` 写入 task.md frontmatter，缺省 P2、无依赖、`order=null`；三者不参与需求摘要，调整不改写输入或使检查 stale。`src/domain/schedule.ts` 提供排序、依赖阻塞与重排纯函数；`task list`／`task next` 共用同一排序与阻塞判定，优先级内已调整的按 order、未调整的按 createdAt，创建时间相同才用稳定 ID；`task list` 默认视图按该顺序分段展示、不重排，阻塞只在汇总行计数，逐项原因见 `task next`。`task ready` 与 implement 的 `run prepare` 在推进／启动前核对依赖，未满足返回 `dependency_unmet` 并列出原因；依赖自环、缺失与成环在 `task depends`／`task new --depends-on` 时拒绝。`task order` 在项目锁内只重排目标优先级分组，`--before`／`--after` 跨级参照返回 `order_reference_priority_mismatch`；只写该分组的 order，不修改 createdAt，其它优先级与同级未涉及任务的先后不变。

@@ -87,9 +87,9 @@ export default function (pi: any) {
   const configuredWorkflow = readConfiguredWorkflow();
   const configuredStages = configuredWorkflow?.ids ?? null;
 
-  /** 阶段显示名：优先当前生效流程，缺失退回 id。 */
+  /** 阶段显示名：优先当前生效流程，缺锚点用内置名，再退回 id。 */
   function stageNameOf(stage: string): string {
-    return configuredWorkflow?.names[stage] ?? stage;
+    return configuredWorkflow?.names[stage] ?? ({ start: "准备", deliver: "收尾" } as Record<string, string>)[stage] ?? stage;
   }
 
   /** 短 ID：类型前缀 + 前 6 位（k-8ed2d4、run-f991c4）。 */
@@ -449,7 +449,7 @@ export default function (pi: any) {
       lines.push("不建任务时使用宿主工具／通用子 Agent；Knit run 只服务正式任务，不派发无任务 worker。");
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
       lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
-      lines.push("继续或补充已有任务用 task list 查看并按稳定 ID 选择。授权不覆盖提交／发布。");
+      lines.push("继续或补充已有任务用 task list 查看活跃任务（归档用 task list --archive）并按稳定 ID 选择。授权不覆盖提交／发布。");
     }
     lines.push(...SESSION_BEHAVIOR_GUIDANCE);
     return { text: lines.join("\n"), taskId };
@@ -518,14 +518,41 @@ export default function (pi: any) {
       if (data.length > 50) lines.push(`  - …共 ${data.length} 条`);
       return lines.join("\n");
     }
-    // task list：{ active: [...], archived: [...] }
-    if (Array.isArray(data.active) && Array.isArray(data.archived)) {
+    // task list 默认视图：{ scope: "active", active: [...], archivedCount }。
+    if (data.scope === "active" && Array.isArray(data.active)) {
+      const groups = [
+        { title: "进行中", rows: data.active.filter((entry: any) => entry.status === "open") },
+        { title: "待归档", rows: data.active.filter((entry: any) => entry.status !== "open" && entry.outcome !== "cancelled" && entry.outcome !== "superseded") },
+        { title: "已取消", rows: data.active.filter((entry: any) => entry.status !== "open" && (entry.outcome === "cancelled" || entry.outcome === "superseded")) },
+      ];
+      const row = (entry: any): string =>
+        `  - ${entry.priority ?? "?"} · ${taskLabel(entry)}${entry.stage ? ` · ${stageNameOf(entry.stage)}` : ""}`;
       const lines: string[] = [];
-      lines.push(`活跃任务（${data.active.length}）：`);
-      lines.push(...(data.active.length > 0 ? data.active.map(joinOutcome) : ["  - （无）"]));
-      lines.push(`已归档（${data.archived.length}）：`);
-      lines.push(...(data.archived.length > 0 ? data.archived.slice(0, 20).map(joinOutcome) : ["  - （无）"]));
-      if (data.archived.length > 20) lines.push(`  - …共 ${data.archived.length} 条`);
+      for (const group of groups) {
+        lines.push(`${group.title}（${group.rows.length}）：`);
+        lines.push(...(group.rows.length > 0 ? group.rows.map(row) : ["  - （无）"]));
+      }
+      const blocked = groups[0].rows.filter((entry: any) => Array.isArray(entry.blocked) && entry.blocked.length > 0).length;
+      lines.push(`进行中 ${groups[0].rows.length} · 待归档 ${groups[1].rows.length} · 已取消 ${groups[2].rows.length} · 阻塞 ${blocked} · 归档 ${data.archivedCount ?? 0}（task list --archive）`);
+      return lines.join("\n");
+    }
+    // task list --archive：{ scope: "archive", archived: [...], archivedCount }。
+    if (data.scope === "archive" && Array.isArray(data.archived)) {
+      const groups = new Map<string, any[]>();
+      for (const entry of data.archived) {
+        const match = /^tasks\/archive\/(\d{4}-\d{2})\//.exec(String(entry.relativePath ?? ""));
+        const month = match?.[1] ?? "未知";
+        groups.set(month, [...(groups.get(month) ?? []), entry]);
+      }
+      const lines: string[] = [];
+      for (const month of [...groups.keys()].sort().reverse()) {
+        const rows = groups.get(month) ?? [];
+        lines.push(`归档 ${month}（${rows.length}）：`);
+        lines.push(...rows.slice(0, 30).map((entry: any) => `  - ${shortId(entry.taskId)}${entry.outcome ? ` · ${entry.outcome}` : ""} · ${entry.title ?? ""}`));
+        if (rows.length > 30) lines.push(`  - …本月共 ${rows.length} 条`);
+      }
+      if (groups.size === 0) lines.push("归档（0）：");
+      if (typeof data.archivedCount === "number") lines.push(`全部归档 ${data.archivedCount} 条`);
       return lines.join("\n");
     }
     // 项目概览：{ tasks: [...], activeRuns: [...] }
@@ -710,7 +737,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
+    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；list 默认只列未归档任务，archive=true 查归档；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       // 历史检索不需要 taskId，也不写任务状态。
@@ -772,6 +799,10 @@ export default function (pi: any) {
         return toolResult(created);
       }
       const args = ["task", params.action];
+      if (params.action === "list") {
+        if (params.archive === true) args.push("--archive");
+        if (typeof params.month === "string" && params.month !== "") args.push("--month", params.month);
+      }
       // ready／record／close 允许省略 taskId：使用本轮 session resolve 的当前任务；
       // 其他动作保持原语义（next 不接受任务参数，其余需要显式 taskId 的动作由核心报错）。
       let taskId = params.taskId;
@@ -851,7 +882,7 @@ export default function (pi: any) {
         if (params.runsSettled === true) args.push("--runs-settled");
       }
       args.push("--dir", root);
-      return toolResult(core(args));
+      return toolResult(core(args), (data) => (params.action === "list" ? describeQuery(["task", "list"], data) : null));
     },
   });
 

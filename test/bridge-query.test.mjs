@@ -13,6 +13,8 @@ import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { RunStore } from "../dist/infrastructure/run-store.js";
+import { renderInitialTaskBody } from "../dist/application/task-service.js";
+import { renderTaskDocument } from "../dist/application/task-document.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const BRIDGE_TEMPLATE = join(import.meta.dirname, "..", "assets", "templates", "pi", "extensions", "knit.ts");
@@ -125,7 +127,7 @@ test("桥接命令展示结构化查询结果：task list、status、按任务�
     await host.commands.get("knit").handler("task list", host.ctx);
     const listNotice = host.notifications.at(-1);
     assert.equal(listNotice.level, "info");
-    assert.match(listNotice.text, /活跃任务（1）/);
+    assert.match(listNotice.text, /进行中（1）/);
     assert.match(listNotice.text, /桥接查询/);
 
     // /knit status（项目概览）。
@@ -157,10 +159,11 @@ test("桥接命令展示结构化查询结果：task list、status、按任务�
     assert.equal(failureNotice.level, "warning");
     assert.notEqual(failureNotice.text, "Knit 命令已完成");
 
-    // 空列表：归档空列表显示（无）。
+    // 空列表：默认视图仍给出三段与汇总，归档只提示条数。
     host.notifications.length = 0;
     await host.commands.get("knit").handler("task list", host.ctx);
-    assert.match(host.notifications.at(-1).text, /已归档（0）：\n  - （无）/s);
+    assert.match(host.notifications.at(-1).text, /进行中（1）：/);
+    assert.match(host.notifications.at(-1).text, /归档 0（task list --archive）/);
 
     rmSync(join(dir, ".pi", "extensions"), { recursive: true, force: true });
     rmSync(join(dir, "node_modules"), { recursive: true, force: true });
@@ -591,6 +594,51 @@ test("knit_task ready／record／close 未传 taskId 使用当前选择；无选
     assert.equal(closed.isError, false, closed.content?.[0]?.text ?? "");
     assert.equal(closed.details.taskId, taskId);
     assert.equal(closed.details.outcome, "cancelled");
+
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 归档夹具：按 task.md 结构直接落盘，仅用于列表渲染。 */
+function writeArchivedTask(dir, month, name, overrides = {}) {
+  const frontmatter = {
+    id: "k-bbbbbbbbbbbb",
+    status: "closed",
+    stage: "deliver",
+    outcome: "completed",
+    branch: "refs/heads/main",
+    createdAt: "2026-11-02T00:00:00.000Z",
+    title: "归档旧任务",
+    ...overrides,
+  };
+  const file = join(dir, ".knit", "tasks", "archive", month, name, "task.md");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, renderTaskDocument({ frontmatter, ...renderInitialTaskBody(frontmatter.title), trailingBody: "" }));
+  return file;
+}
+
+test("knit_task action=list：默认只列活跃并提示归档条数，archive 走按月视图（k-c06c5a41092f）", async () => {
+  const dir = project("list-scope");
+  try {
+    const { host } = await loadBridge(dir);
+    writeArchivedTask(dir, "2026-11", "11-02-legacy", { id: "k-bbbbbbbbbbbb", title: "归档旧任务" });
+
+    const tool = host.tools.get("knit_task");
+    const active = await tool.execute("l1", { action: "list" }, null, null, host.ctx);
+    assert.equal(active.isError, false, active.content?.[0]?.text ?? "");
+    const activeText = active.content[0].text;
+    assert.match(activeText, /进行中（0）/);
+    assert.match(activeText, /归档 1（task list --archive）/);
+    assert.doesNotMatch(activeText, /归档旧任务/, "默认不展开归档明细");
+
+    const archived = await tool.execute("l2", { action: "list", archive: true }, null, null, host.ctx);
+    assert.equal(archived.isError, false, archived.content?.[0]?.text ?? "");
+    const archivedText = archived.content[0].text;
+    assert.match(archivedText, /归档 2026-11（1）/);
+    assert.match(archivedText, /归档旧任务/);
+    assert.match(archivedText, /全部归档 1 条/);
 
     await host.handlers.get("session_shutdown")();
   } finally {

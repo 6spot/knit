@@ -87,7 +87,7 @@ AGENTS.md                         # 保留原规则，添加 Knit 受管入口
 | 任务的本机执行位置与阶段 Session 引用 | 本机 binding 仓储（SQLite 元数据库） |
 | 阶段请求、状态与结果回执 | 执行目录 `.knit/.runtime/runs/<run-id>/` |
 | 代码、分支与提交状态 | 文件系统与 Git |
-| 任务列表与归档列表 | 从当前项目的任务目录派生；后续增加 Worktree 列表 |
+| 任务列表与归档列表 | 从当前项目的任务目录派生；默认只列未归档任务（进行中／待归档／已取消），归档用 `task list --archive` 按月查看；后续增加 Worktree 列表 |
 
 Session 索引保存身份和关系，任务绑定保存执行位置，运行回执保存每次执行结果。正文中的业务事实以任务资料为准，执行结果以实际产物和验证为准。主 Session 与子 Session 均可从索引查询，历史原文由对应客户端读取。
 
@@ -224,7 +224,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 - 内容分工：父任务自身 `task.md` 保存总体需求、拆分映射与跨子任务完成条件；子任务各自保存范围、产出与验证要求，不复制父任务总需求。父子关系只影响展示与父任务完成核验，不合并输入、scope 或运行状态。
 - 结构核对：父任务必须存在、未归档且 status 为 `open`；子任务必须未归档且未结束；拒绝自我挂接与成环（沿 parent 链向上核查）。归档任务的关系冻结：已归档任务不能再挂接或解除父任务，归档父任务不再接收新子任务；归档子任务仍计入父任务结束情况。
 - 摘要与资格：`parent` 属于结构身份，与 `id`／`status`／`stage`／`branch` 一样不参与需求摘要，挂接或解除既不改写输入，也不使既有检查 stale。
-- 展示：`task list` 活跃分区按稳定执行顺序逐行展示，父任务行标注子任务结束进度（`[子任务 2/3]`），子任务行以 `↳` 前缀并标注父任务稳定 ID；父子层级不改变执行顺序。`knit status <taskId>` 同时给出父任务与直接子任务的结束情况。
+- 展示：`task list` 默认只列未归档任务，行内只给优先级、稳定 ID、阶段显示名与标题，父子层级不改变执行顺序，也不占用列表行内字段；父任务与直接子任务的结束情况由 `knit status <taskId>` 给出，归档条目用 `task list --archive` 按月分组查看。
 - 总体验收：子任务完成只表示分项结束，不自动使父任务可完成。父任务 `task close --outcome completed` 要求所有直接子任务都已结束（归档任务视为已结束），并要求主会话给出 `--reason` 作为总体验收依据；该依据写入完成凭据。子任务全部结束后父任务仍按自身目标、成果与验证要求评估完成资格，不能仅凭子任务状态收尾。
 - 取消／替代父任务不自动结束子任务：子任务保持各自状态与资料，仍可独立继续或分别取消。
 
@@ -244,7 +244,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 - 依赖铁律：`task ready` 与实施 `run prepare` 在推进／启动前核对直接前置依赖，未满足时分别返回 `dependency_unmet` 并列出未满足项；优先级和用户明确指定任务都不能绕过。只核对直接依赖；传递依赖由各前置任务在自身启动时按同一规则处理，守卫不重算已发生的历史。检查、交付、记录与只读查询仍可用于已实施任务。
 - 结构核对：依赖必须引用已存在的任务，拒绝自依赖与成环；已取消／替代或已归档但未完成的前置保留为可诊断阻塞（`dependency_not_completed`／`dependency_archived`），由用户显式调整依赖，不静默移除。
 - 摘要与资格：`priority`／`dependsOn`／`order` 是调度事实，不改变工作内容与验收条件，因此不参与需求摘要；调整它们不改写输入，也不使既有检查 stale。
-- 一致性：`task list` 与 `task next` 共用同一排序与阻塞判定，活跃分区直接按该执行顺序逐行展示，输出优先级、执行顺序与不能启动的原因；主会话按同一视图选择任务，不各自排序。`task next` 只读，不推进阶段、不派发运行。
+- 一致性：`task list` 与 `task next` 共用同一排序与阻塞判定；`task list` 默认视图按该顺序分段展示，行内给优先级、稳定 ID、阶段显示名与标题，阻塞只在汇总行计数，逐项原因与下一项由 `task next` 给出；主会话按同一视图选择任务，不各自排序。`task next` 只读，不推进阶段、不派发运行。
 
 ## 4. 阶段编排（配置驱动）
 
@@ -318,7 +318,8 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task next | 按稳定执行顺序列出活跃任务与不能启动的原因；只读，不派发运行 |
 | task search <query...> [--scope task/archive/run/git] [--limit n] | 按用户查询意愿只读检索任务、归档、run 与 Git，返回 path:line／run／commit 来源；默认 20 条、上限 100；无匹配返回空数组 |
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
-| task rename / list / use / clear | 按授权管理身份、位置与当前原生路径选择 |
+| task list [--archive] [--month YYYY-MM] | 默认按进行中／待归档／已取消分段列出未归档任务，行内给优先级、稳定 ID、阶段显示名与标题，末尾汇总条数；--archive 按月列出归档（--month 过滤月份）；JSON 带 scope，默认不返回归档数组 |
+| task rename / use / clear | 按授权管理身份、位置与当前原生路径选择 |
 | task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required` |
 | task update [id] --kind clarify/change | 明确变更类型，可用 --file 或 stdin；活动 run 中只保存当前草案 |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
@@ -338,6 +339,8 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | standards list/propose/review/apply/pending/migrate | 项目级候选、审阅决定与采纳；旧任务候选只读兼容并幂等迁移 |
 | doctor / storage | 只读诊断，容量及 Knit 基线引用统计 |
 | snapshot show / restore / unlock | 对照、明确恢复与解除，细则见 OPERATIONS |
+
+`task list` 的输出契约：默认视图只有进行中／待归档／已取消三段，按优先级、ID、阶段、标题四列按显示宽度对齐，只打表头与汇总行；不打印资料路径、验证方式、父子进度与逐项阻塞原因。归档视图按月分组，行内给日期、稳定 ID、结论与标题，跨机历史与档案异常只在末尾汇总。`--json` 附 `scope` 与 `archivedCount`，归档数组只在 `--archive` 时返回。
 
 run 返回 run ID，context 返回输入，deliver 返回操作 ID，不设同名 run 别名。prepare 先持久化目标 ID；持有本次调用的桥接或直接 CLI 入口取得并保存 ID 后确认 start，之前无模型或项目业务副作用。确认是入口内部协议，不是新增的人类许可，也不要求用户手敲两条命令。start 响应丢失按原 ID／status 核实，不创建替代运行。新 run ID／操作执行 token 隔离旧取消，不引请求级取消协议。CLI --wait 退出只结束观察，Pi 桥接执行工具取消须另向核心请求。
 
@@ -699,7 +702,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 调用入口见第 4.3 节；`doctor` 只读检查状态与引用，`storage` 显示容量及告警。首版保留恢复资料，不实现自动 gc。
 
-首版列表采集当前项目活动区及 archive/YYYY-MM。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed；outcome=completed 时 stage=deliver，cancelled／superseded 保留停止时的非空 stage）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history，显示「Git 历史已归档（只读）」；字段有效但未被跟踪为 local-only（「未入库」）；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存沿用 task.md 文件指纹（目录结构、dev／inode／size／mtimeNs）：Knit 自身归档提交伴随目录结构变化而使缓存失效；纯外部 git add／commit 只改索引、不改文件时不会触发失效，属已知限制，由新进程重新计算恢复。
+首版列表采集当前项目活动区及 archive/YYYY-MM；默认视图只列未归档任务（进行中／待归档／已取消），归档条目由 `task list --archive` 按月查看。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed；outcome=completed 时 stage=deliver，cancelled／superseded 保留停止时的非空 stage）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history；字段有效但未被跟踪为 local-only；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。归档视图末尾只按条数汇总跨机历史与档案异常，逐条明细只列档案问题；默认视图不逐行标注这些分类。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存沿用 task.md 文件指纹（目录结构、dev／inode／size／mtimeNs）：Knit 自身归档提交伴随目录结构变化而使缓存失效；纯外部 git add／commit 只改索引、不改文件时不会触发失效，属已知限制，由新进程重新计算恢复。
 
 历史检索同样只读，仅在用户以自然语言明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时使用；不按固定关键词或任务编号判定，不因话题与旧任务相关就主动检索，也不建立持续索引／缓存或第二套历史权威。检索范围为当前任务资料（task.md、plan.md、design.md、research/）、归档任务、实际 run 记录（`.knit/.runtime/runs/<run-id>/`，兼容 `.knit/runs/`）与 Git 提交；查询词按 AND 语义匹配文件或提交，命中返回 `path:line`、`run:<id>` 或 `commit:<sha>` 来源。无匹配返回空结果并说明未找到；找到相关记录只证明内容或时间相关，不能包装为某次修改导致问题的根因结论，缺少复现、对照或验证证据时必须说明因果缺口。
 

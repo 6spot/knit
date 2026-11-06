@@ -114,9 +114,14 @@ test("status：按月归档任务进入项目概览，与 task list／按 ID sta
     assert.notEqual(listed, undefined, "归档任务出现在项目状态概览");
     assert.equal(listed.archived, true);
     assert.match(listed.relativePath, /^tasks\/archive\/2026-11\//);
-    // 与 task list、按 ID status 一致。
+    // 与 task list 一致：默认视图只提示归档条数，归档数组用 --archive 查。
     const list = jsonCli(dir, ["task", "list"]);
-    assert.ok(list.parsed.data.archived.some((entry) => entry.taskId === task.taskId));
+    assert.equal(list.parsed.data.scope, "active");
+    assert.equal(list.parsed.data.archivedCount, 1);
+    assert.equal("archived" in list.parsed.data, false, "默认视图不返回归档数组");
+    const archiveList = jsonCli(dir, ["task", "list", "--archive"]);
+    assert.equal(archiveList.parsed.data.scope, "archive");
+    assert.ok(archiveList.parsed.data.archived.some((entry) => entry.taskId === task.taskId));
     const byId = jsonCli(dir, ["status", task.taskId]);
     assert.equal(byId.parsed.data.taskId, task.taskId);
     assert.equal(byId.parsed.data.archived, true);

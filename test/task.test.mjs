@@ -1058,13 +1058,50 @@ test("CLI：task new/list/record 真实进程冒烟", async () => {
   try {
     execFileSync(process.execPath, [CLI, "task", "new", "--title", "CLI 任务", "--slug", "cli", "--dir", dir], { env: { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") } });
     const list = execFileSync(process.execPath, [CLI, "task", "list", "--dir", dir], { encoding: "utf8", env: { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") } });
-    assert.match(list, /活跃任务（1）/);
-    assert.match(list, /tasks\/11-\d{2}-cli/);
+    assert.match(list, /进行中（1）/);
+    assert.match(list, /CLI 任务/);
+    assert.match(list, /进行中 1 · 待归档 0 · 已取消 0 · 阻塞 0 · 归档 0（knit task list --archive）/);
     const json = execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { encoding: "utf8", env: { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") } });
     const response = JSON.parse(json);
     assert.equal(response.protocolVersion, 1);
     assert.equal(response.outcome, "completed");
+    assert.equal(response.data.scope, "active");
     assert.equal(response.data.active.length, 1);
+    assert.equal(response.data.archivedCount, 0);
+    assert.equal("archived" in response.data, false, "默认 JSON 不返回归档数组");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("task list：默认按进行中／待归档／已取消分段，行内只留优先级、ID、阶段与标题", () => {
+  const dir = gitProject("list-sections");
+  const env = { ...process.env, KNIT_LOCKS_ROOT: join(dir, ".lock-root") };
+  const run = (...args) => execFileSync(process.execPath, [CLI, ...args, "--dir", dir], { encoding: "utf8", env });
+  try {
+    const open = JSON.parse(run("--json", "task", "new", "--title", "进行中的任务", "--slug", "open-task")).data.taskId;
+    const blocker = JSON.parse(run("--json", "task", "new", "--title", "前置任务", "--slug", "blocker")).data.taskId;
+    const done = JSON.parse(run("--json", "task", "new", "--title", "已完成任务", "--slug", "done-task"));
+    run("task", "depends", open, "--add", blocker);
+    run("task", "close", JSON.parse(run("--json", "task", "new", "--title", "取消任务", "--slug", "cancelled-task")).data.taskId, "--outcome", "cancelled", "--runs-settled");
+    // 待归档夹具直接写 frontmatter：close completed 需完成守卫，不在本用例范围内。
+    const doneFile = join(dir, ".knit", done.data.relativePath);
+    writeFileSync(doneFile, readFileSync(doneFile, "utf8").replace(/^status: open$/m, "status: closed").replace(/^stage: start$/m, "stage: deliver").replace(/^outcome: null$/m, "outcome: completed"));
+
+    const text = run("task", "list");
+    assert.match(text, /^进行中（2）$/m);
+    assert.match(text, /^待归档（1）$/m);
+    assert.match(text, /^已取消（1）$/m);
+    assert.match(text, /^进行中 2 · 待归档 1 · 已取消 1 · 阻塞 1 · 归档 0（knit task list --archive）$/m);
+    // 行内不再出现资料路径、验证方式与逐项阻塞原因。
+    assert.doesNotMatch(text, /tasks\/11-/);
+    assert.doesNotMatch(text, /verify=/);
+    assert.doesNotMatch(text, /⛔/);
+    // 表头只打一次，前三列定宽对齐。
+    assert.equal(text.match(/优先级/g)?.length, 1);
+    assert.match(text, /  优先级  ID +阶段  标题/);
+    assert.match(text, new RegExp(`  P2 +${blocker}  准备  前置任务`));
+    assert.match(text, new RegExp(`  P2 +${done.data.taskId}  收尾  已完成任务`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -256,8 +256,10 @@ test("CLI：task new --parent、task parent 与 list 树形展示", async () => 
 
     execFileSync(process.execPath, [CLI, "task", "parent", childId, parentId, "--dir", dir], { cwd: dir, encoding: "utf8" });
     const listed = execFileSync(process.execPath, [CLI, "task", "list", "--dir", dir], { cwd: dir, encoding: "utf8" });
-    assert.match(listed, new RegExp(`${parentId}.*\\[子任务 0/1\\]`));
-    assert.match(listed, new RegExp(`↳ P2  ${childId}`));
+    // 列表行只给优先级、ID、阶段与标题；父子进度由 status 给出，不再占行内字段。
+    assert.match(listed, new RegExp(`P2 +${parentId} +准备 +父任务`));
+    assert.match(listed, new RegExp(`P2 +${childId} +准备 +子任务`));
+    assert.doesNotMatch(listed, /↳|\[子任务 \d+\/\d+\]/);
 
     const childStatus = execFileSync(process.execPath, [CLI, "status", childId, "--dir", dir], { cwd: dir, encoding: "utf8" });
     assert.match(childStatus, new RegExp(`父任务: ${parentId}`));

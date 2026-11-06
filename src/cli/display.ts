@@ -31,3 +31,43 @@ export function stageLabel(name: string, id: string, style: "space" | "paren"): 
   if (name === "" || name === id) return id;
   return style === "space" ? `${name} ${id}` : `${name}（${id}）`;
 }
+
+/**
+ * 终端显示宽度：CJK／全角与常见 emoji 计 2，组合符计 0。
+ * 只用于对齐，不参与任何业务判定。
+ */
+export function displayWidth(text: string): number {
+  let width = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || (code >= 0x7f && code < 0xa0)) continue;
+    if (
+      (code >= 0x1100 && code <= 0x115f) ||
+      (code >= 0x2e80 && code <= 0x303e) ||
+      (code >= 0x3041 && code <= 0x33ff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0xa000 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff) ||
+      (code >= 0x20000 && code <= 0x3fffd)
+    ) {
+      width += 2;
+    } else if (code >= 0x300 && code <= 0x36f) {
+      width += 0;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
+/** 按显示宽度右侧补空格到目标列宽；已超宽时原样返回。 */
+export function padDisplay(text: string, width: number): string {
+  const gap = width - displayWidth(text);
+  return gap > 0 ? `${text}${" ".repeat(gap)}` : text;
+}
