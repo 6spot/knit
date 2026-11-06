@@ -142,6 +142,8 @@ export const DeliverToolSchema = obj(
     branch: str({ pattern: "^refs/heads/.+" }),
     authorizationRef: opt(str()),
     retry: opt(bool()),
+    /** 产物提交文案文件：单任务给路径；批量用 <taskId>=<path>，可重复。 */
+    messageFile: opt(union([str({ minLength: 1 }), arr(str({ minLength: 1 }), { minItems: 1 })])),
   },
 );
 

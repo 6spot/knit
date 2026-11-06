@@ -763,8 +763,10 @@ test("8) 合入后 deliver --branch <target> 定位资料并通过完成校验�
     assert.equal(git(f.root, ["rev-parse", `${result.metadataCommit}^`]), headAfterMerge, "资料提交接在合入提交之后");
     assert.equal(git(f.root, ["rev-parse", `${result.archiveCommit}^`]), result.metadataCommit, "归档提交接在资料提交之后");
     const subjects = git(f.root, ["log", "--format=%s", "-4"]).split("\n");
-    assert.equal(subjects[0], `knit: archive ${setup.task.taskId} (${result.operationId})`);
-    assert.equal(subjects[1], `knit: metadata ${setup.task.taskId} (${result.operationId})`);
+    assert.equal(subjects[0].startsWith("chore(task): archive "), true);
+    assert.equal(subjects[1].startsWith("chore(task): "), true);
+    assert.match(git(f.root, ["log", "-1", "--format=%B", result.archiveCommit]), /Knit-Stage: archive/);
+    assert.match(git(f.root, ["log", "-1", "--format=%B", result.metadataCommit]), /Knit-Stage: metadata/);
     assert.equal(subjects[2], `knit: merge ${setup.task.taskId} (${merged.opId})`);
     const archived = parseTaskDocument(readFileSync(join(f.root, result.archivePath, "task.md"), "utf8"), "task.md");
     assert.equal(archived.frontmatter.branch, MAIN);

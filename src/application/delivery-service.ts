@@ -9,6 +9,7 @@ import { basename, dirname, join, relative } from "node:path";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type {
   AuthorizationSource,
+  DeliveryMessage,
   DeliveryOperation,
   DeliveryRecord,
   DeliveryResult,
@@ -43,6 +44,8 @@ import {
   commitExists,
   commitMessage,
   commitPaths,
+  commitSubject,
+  composeCommitMessage,
   currentBranch,
   defaultBranchCandidate,
   dirtyPaths,
@@ -50,7 +53,9 @@ import {
   isAncestor,
   indexTreeFor,
   isFullBranch,
+  isStageCommit,
   policyVersion,
+  readMessageFile,
   recheckAuthorization,
   resolveAuthorization,
   sameSet,
@@ -58,7 +63,10 @@ import {
   stagedSnapshot,
   sameTree,
   treeSnapshot,
+  truncateMessageSubject,
+  type DeliveryStage,
   type GitRunner,
+  type MessageDraft,
 } from "./delivery.js";
 
 const SEAL_MARKER = ".knit-sealed";
@@ -77,8 +85,16 @@ export interface DeliveryInput {
   branch: string;
   authorizationRef?: string | null;
   caller?: "cli" | "agent";
+  /** 产物提交文案文件；metadata／archive 不接受文案。 */
+  messageFile?: string | null;
   /** 显式重试 needs_attention：先核验已完成效果，不盲目重复提交。 */
   retry?: boolean;
+}
+
+export interface DeliveryPlanMessage {
+  source: "agent" | "template";
+  subject: string;
+  bodyLines: number;
 }
 
 export interface DeliveryPlanItem {
@@ -92,6 +108,8 @@ export interface DeliveryPlanItem {
   stagedMetadata: string[];
   status: "ready" | "conflict";
   reason: string | null;
+  /** 产物提交文案预览：主会话文案或模板兜底。 */
+  message: DeliveryPlanMessage;
 }
 
 export interface DeliveryPlan {
@@ -126,6 +144,14 @@ interface Prepared {
   defaultBranch: DeliveryResult["defaultBranch"];
   authorization: AuthorizationSource;
   policyVersion: string;
+  /** 本次调用已校验的主会话文案；已有持久化文案时忽略新文件。 */
+  messageDraft: MessageDraft | null;
+  messageIgnored: boolean;
+}
+
+interface MessageInput {
+  draft: MessageDraft | null;
+  ignored: boolean;
 }
 
 export class DeliveryService {
@@ -180,6 +206,7 @@ export class DeliveryService {
         stagedMetadata,
         status: hasStagedConflict ? "conflict" : "ready",
         reason: hasStagedConflict ? "preexisting_staged" : null,
+        message: this.planMessage(located.document, input.taskId, input.messageFile),
       });
     }
     const owners = new Map<string, string[]>();
@@ -232,9 +259,10 @@ export class DeliveryService {
       if (stagedMetadata.length > 0) {
         throw new GuardError("preexisting_staged", `任务资料已有用户暂存内容，请先整理index: ${stagedMetadata.join(", ")}`);
       }
-      const operation = latest ?? (await this.createOperation(root, input, caller));
+      const messageInput = this.messageInputFor(input, latest);
+      const operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft));
       recheckAuthorization(root, operation.authorization, caller);
-      const prepared = await this.prepare(root, input, operation, caller);
+      const prepared = await this.prepare(root, input, operation, caller, messageInput);
       return await this.execute(prepared, operation);
     } finally {
       this.locks.release(lock);
@@ -277,10 +305,54 @@ export class DeliveryService {
     return (candidates.at(-1) as DeliveryOperation | undefined) ?? null;
   }
 
+  /** --plan 预览：主会话文案与模板兜底都显示来源、首行与正文行数。 */
+  private planMessage(
+    document: ReturnType<typeof parseTaskDocument>,
+    taskId: string,
+    messageFile: string | null | undefined,
+  ): DeliveryPlanMessage {
+    const draft = messageFile === null || messageFile === undefined || messageFile === ""
+      ? null
+      : readMessageFile(messageFile);
+    if (draft !== null) {
+      return { source: "agent", subject: draft.subject, bodyLines: draft.body.split("\n").length };
+    }
+    const verification = document.frontmatter.verification ?? "independent";
+    const body = ["结果：completed", `验证：${verification} — 未记录`];
+    return {
+      source: "template",
+      subject: truncateMessageSubject(`${document.frontmatter.title} (${taskId})`),
+      bodyLines: body.length,
+    };
+  }
+
+  /**
+   * 新操作在落盘前校验文案；已有持久化文案（或已提交）时忽略新文件并记录证据。
+   * 校验失败时尚未创建操作，不产生 Task／index／提交副作用。
+   */
+  private messageInputFor(
+    input: DeliveryInput & { mode: "deliver" | "archive" },
+    latest: DeliveryOperation | null,
+  ): MessageInput {
+    if (input.mode !== "deliver") return { draft: null, ignored: false };
+    const supplied = input.messageFile !== null && input.messageFile !== undefined && input.messageFile !== "";
+    const artifactCommitted = latest !== null && (
+      latest.messages?.artifact !== undefined ||
+      latest.workCommit !== null ||
+      latest.steps.some((step) => (step.kind === "artifact_commit" || step.kind === "work_commit") && step.state === "completed")
+    );
+    if (artifactCommitted) {
+      return { draft: null, ignored: supplied };
+    }
+    if (!supplied) return { draft: null, ignored: false };
+    return { draft: readMessageFile(input.messageFile!), ignored: false };
+  }
+
   private async createOperation(
     root: string,
     input: DeliveryInput & { mode: "deliver" | "archive" },
     caller: "cli" | "agent",
+    messageDraft: MessageDraft | null,
   ): Promise<DeliveryOperation> {
     if (!isFullBranch(input.branch)) throw new GuardError("branch_invalid", "--branch 必须是完整 refs/heads/...");
     const located = locateTaskDocument(root, input.taskId);
@@ -321,8 +393,9 @@ export class DeliveryService {
       after: null,
       evidence: null,
     }));
+    const operationId = `op-${this.randomHex(6)}`;
     const operation: DeliveryOperation = {
-      operationId: `op-${this.randomHex(6)}`,
+      operationId,
       kind: input.mode === "deliver" ? "delivery.deliver" : "delivery.archive",
       mode: input.mode,
       taskId: input.taskId,
@@ -343,6 +416,19 @@ export class DeliveryService {
       metadataCommit: null,
       archiveCommit: null,
       sealDigest: null,
+      ...(messageDraft === null ? {} : {
+        messages: {
+          artifact: {
+            source: "agent" as const,
+            text: composeCommitMessage(messageDraft, {
+              taskId: input.taskId,
+              operationId,
+              stage: "artifact",
+              verification: located.document.frontmatter.verification ?? "independent",
+            }),
+          },
+        },
+      }),
       steps,
     };
     await this.store.operations.save(operation);
@@ -392,6 +478,7 @@ export class DeliveryService {
     input: DeliveryInput & { mode: "deliver" | "archive" },
     operation: DeliveryOperation,
     caller: "cli" | "agent",
+    messageInput: MessageInput,
   ): Promise<Prepared> {
     if (operation.branch !== input.branch) {
       throw new GuardError("branch_mismatch", `继续操作的分支 ${operation.branch} 与本次 --branch 不一致`);
@@ -508,6 +595,8 @@ export class DeliveryService {
       defaultBranch,
       authorization,
       policyVersion: operation.policyVersion,
+      messageDraft: messageInput.draft,
+      messageIgnored: messageInput.ignored,
     };
   }
 
@@ -546,6 +635,19 @@ export class DeliveryService {
       }
       await save({ state: op.state === "planned" ? "running" : op.state });
     };
+    // 同一阶段只生成一次文案并落盘；重试直接复用，不按当前文件重拟。
+    const stageMessage = async (
+      stage: "artifact" | "metadata" | "archive",
+      build: () => DeliveryMessage,
+    ): Promise<string> => {
+      const existing = op.messages?.[stage];
+      if (existing !== undefined) return existing.text;
+      const message = build();
+      await save({ messages: { ...(op.messages ?? {}), [stage]: message } });
+      return message.text;
+    };
+    const messageEvidence = (evidence: Record<string, string>): Record<string, string> =>
+      prepared.messageIgnored ? { ...evidence, message_ignored_on_retry: "true" } : evidence;
 
     // 1. 正常完成收束为 closed/completed；取消／替代已在 task close 完成。
     if (op.mode === "deliver") {
@@ -557,11 +659,12 @@ export class DeliveryService {
     if (op.mode === "deliver") {
       if (step("artifact_commit") !== undefined) {
         if (!alreadyArchived) {
-          const artifact = await this.commitSelected(prepared, op, prepared.artifacts, "artifact_commit", "knit: artifact", checkpoint);
+          const message = await stageMessage("artifact", () => this.artifactMessage(prepared, op));
+          const artifact = await this.commitSelected(prepared, op, prepared.artifacts, "artifact_commit", "artifact", message, checkpoint);
           if (artifact.commit !== null) await save({ workCommit: artifact.commit });
           else if (artifact.attention === null) await save({ workCommit: null });
-          if (artifact.attention !== null) return attention("artifact_commit", artifact.attention, artifact.evidence);
-          await completeStep("artifact_commit", artifact.evidence);
+          if (artifact.attention !== null) return attention("artifact_commit", artifact.attention, messageEvidence(artifact.evidence));
+          await completeStep("artifact_commit", messageEvidence(artifact.evidence));
         }
       } else {
       if (op.mode === "deliver") {
@@ -579,7 +682,7 @@ export class DeliveryService {
           } else {
             const archive = step("archive_commit");
             const archiveStarted = archive?.state === "completed" || op.archiveCommit !== null ||
-              this.findOperationCommit(prepared.root, op.operationId, "knit: archive") !== null;
+              this.findOperationCommit(prepared.root, op.operationId, "archive") !== null;
             if (!archiveStarted) {
               const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
               if (head !== oid) return attention("work_commit", "work_commit_head_advanced", { commit: oid, head });
@@ -588,7 +691,7 @@ export class DeliveryService {
         } else if (op.workCommit !== null) {
           // 上次已产生提交但被 hook 等置 needs_attention：显式重试只核实，不重复提交。
           if (!commitExists(prepared.root, op.workCommit, this.git)) return attention("work_commit", "step_effect_missing");
-          if (!commitMessage(prepared.root, op.workCommit, this.git).includes(op.operationId)) {
+          if (!isStageCommit(commitMessage(prepared.root, op.workCommit, this.git), "deliver", op.operationId)) {
             return attention("work_commit", "commit_message_mismatch", { commit: op.workCommit });
           }
           const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
@@ -644,7 +747,8 @@ export class DeliveryService {
 
     // 3.5 任务资料提交（最终记录已写入，业务产物已单独提交）。
     if (op.mode === "deliver" && step("metadata_commit") !== undefined && !alreadyArchived) {
-      const metadata = await this.commitSelected(prepared, op, prepared.metadata, "metadata_commit", "knit: metadata", checkpoint);
+      const message = await stageMessage("metadata", () => this.metadataMessage(prepared, op));
+      const metadata = await this.commitSelected(prepared, op, prepared.metadata, "metadata_commit", "metadata", message, checkpoint);
       if (metadata.commit !== null) await save({ metadataCommit: metadata.commit });
       else if (metadata.attention === null) await save({ metadataCommit: null });
       if (metadata.attention !== null) return attention("metadata_commit", metadata.attention, metadata.evidence);
@@ -658,7 +762,7 @@ export class DeliveryService {
     if (seal?.state === "completed") {
       const marker = this.readSeal(prepared.taskDir);
       const archiveAlreadyCommitted = step("archive_commit")?.state === "completed" ||
-        this.findOperationCommit(prepared.root, op.operationId, "knit: archive") !== null;
+        this.findOperationCommit(prepared.root, op.operationId, "archive") !== null;
       if (marker === null) {
         if (!archiveAlreadyCommitted) return attention("seal", "step_effect_missing");
       } else if (op.sealDigest === null || !marker.includes(op.sealDigest)) {
@@ -732,7 +836,7 @@ export class DeliveryService {
       this.removeSeal(join(prepared.root, op.archivePath ?? ""));
     } else if (op.archiveCommit !== null) {
       if (!commitExists(prepared.root, op.archiveCommit, this.git)) return attention("archive_commit", "step_effect_missing");
-      if (!commitMessage(prepared.root, op.archiveCommit, this.git).includes(op.operationId)) {
+      if (!isStageCommit(commitMessage(prepared.root, op.archiveCommit, this.git), "archive", op.operationId)) {
         return attention("archive_commit", "archive_message_mismatch", { commit: op.archiveCommit });
       }
       const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
@@ -762,7 +866,8 @@ export class DeliveryService {
       await completeStep("archive_commit", { commit: op.archiveCommit, recovered: "true" });
       this.removeSeal(join(prepared.root, op.archivePath ?? ""));
     } else {
-      const result = await this.archiveCommit(prepared, op, checkpoint);
+      const message = await stageMessage("archive", () => this.archiveMessage(prepared, op));
+      const result = await this.archiveCommit(prepared, op, message, checkpoint);
       // 未通过核验的候选提交不能写成权威 archiveCommit；否则用户清理额外历史后
       // 会一直指向废弃提交，无法用同一操作恢复。成功时再落盘。
       if (result.attention === null && result.commit !== "") await save({ archiveCommit: result.commit });
@@ -803,19 +908,112 @@ export class DeliveryService {
     });
   }
 
-  /** 回执丢失时按唯一操作 ID 在历史中核实已生效提交，不重复提交。 */
-  private findOperationCommit(root: string, operationId: string, prefix: string): string | null {
-    const result = this.git(["log", "--all", "--format=%H", "--all-match", "--fixed-strings", `--grep=${prefix}`, `--grep=${operationId}`], root);
+  /** 验证依据：独立检查 run、主会话实施记录或强制完成原因；缺失写「未记录」。 */
+  private verificationBasis(prepared: Prepared, op: DeliveryOperation): string {
+    if (prepared.check !== null) return `检查 ${prepared.check.runId} 通过`;
+    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    if (completion?.forced === true) {
+      return completion.forcedReason === null || completion.forcedReason === undefined || completion.forcedReason === ""
+        ? "用户强制完成"
+        : `用户强制完成：${completion.forcedReason}`;
+    }
+    if (completion?.implementedBy === "record") return "主会话实施记录";
+    if (completion?.implementRunId !== null && completion?.implementRunId !== undefined) return `实施 ${completion.implementRunId}`;
+    return "未记录";
+  }
+
+  /** 产物提交：主会话文案优先；无文案时使用事实型模板正文。 */
+  private artifactMessage(prepared: Prepared, op: DeliveryOperation): DeliveryMessage {
+    const verification = prepared.document.frontmatter.verification ?? "independent";
+    if (prepared.messageDraft !== null) {
+      return {
+        source: "agent",
+        text: composeCommitMessage(prepared.messageDraft, {
+          taskId: op.taskId,
+          operationId: op.operationId,
+          stage: "artifact",
+          verification,
+        }),
+      };
+    }
+    const outcome = op.mode === "deliver" ? "completed" : (prepared.document.frontmatter.outcome ?? "未记录");
+    const body = [
+      `结果：${outcome}`,
+      `验证：${verification} — ${this.verificationBasis(prepared, op)}`,
+    ].join("\n");
+    return {
+      source: "template",
+      text: composeCommitMessage({
+        subject: truncateMessageSubject(`${prepared.document.frontmatter.title} (${op.taskId})`),
+        body,
+      }, { taskId: op.taskId, operationId: op.operationId, stage: "artifact", verification }),
+    };
+  }
+
+  /** 任务资料提交：确定性模板，记录结果、验证依据与产物提交引用。 */
+  private metadataMessage(prepared: Prepared, op: DeliveryOperation): DeliveryMessage {
+    const verification = prepared.document.frontmatter.verification ?? "independent";
+    const outcome = op.mode === "deliver" ? "completed" : (prepared.document.frontmatter.outcome ?? "cancelled");
+    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    const body = [
+      `结果：${outcome}`,
+      `验证：${verification} — ${this.verificationBasis(prepared, op)}`,
+      `产物提交：${shortHash(op.workCommit)}`,
+      `资料：任务记录${completion === null ? "" : "、完成凭据"}`,
+    ].join("\n");
+    return {
+      source: "template",
+      text: composeCommitMessage({
+        subject: truncateMessageSubject(`chore(task): ${prepared.document.frontmatter.title} (${op.taskId})`),
+        body,
+      }, { taskId: op.taskId, operationId: op.operationId, stage: "metadata", verification }),
+    };
+  }
+
+  /** 归档提交：确定性模板，记录移动两端与产物／资料提交引用。 */
+  private archiveMessage(prepared: Prepared, op: DeliveryOperation): DeliveryMessage {
+    const name = basename(dirname(op.taskPath));
+    const target = (op.archivePath ?? this.archivePath(prepared.root, prepared.taskDir)).replace(/^\.knit\//, "");
+    const body = [
+      `移动：tasks/${name} → ${target}`,
+      `产物提交：${shortHash(op.workCommit)}`,
+      `资料提交：${shortHash(op.metadataCommit ?? null)}`,
+    ].join("\n");
+    return {
+      source: "template",
+      text: composeCommitMessage({
+        subject: truncateMessageSubject(`chore(task): archive ${name} (${op.taskId})`),
+        body,
+      }, {
+        taskId: op.taskId,
+        operationId: op.operationId,
+        stage: "archive",
+        verification: prepared.document.frontmatter.verification ?? "independent",
+      }),
+    };
+  }
+
+  /** 回执丢失时用操作 ID 缩小候选（新旧格式都含该 ID），再按 trailer／旧前缀定位阶段提交。 */
+  private findOperationCommit(root: string, operationId: string, stage: DeliveryStage): string | null {
+    const result = this.git(
+      ["log", "--all", "--format=%H", "--all-match", "--fixed-strings", `--grep=${operationId}`],
+      root,
+    );
     if (result.code !== 0) return null;
     for (const oid of result.stdout.split(/\s+/).filter(Boolean)) {
-      const message = commitMessage(root, oid, this.git);
-      if (message.includes(`${prefix} `) && message.includes(operationId)) return oid;
+      if (isStageCommit(commitMessage(root, oid, this.git), stage, operationId)) return oid;
     }
     return null;
   }
 
+  /** 产物步骤兼容升级前的 `knit: deliver` 工作提交。 */
+  private isOperationCommit(message: string, stage: DeliveryStage, operationId: string): boolean {
+    return isStageCommit(message, stage, operationId) ||
+      (stage === "artifact" && isStageCommit(message, "deliver", operationId));
+  }
+
   private async workCommit(prepared: Prepared, op: DeliveryOperation, checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
-    return this.commitSelected(prepared, op, prepared.selected, "work_commit", "knit: deliver", checkpoint);
+    return this.commitSelected(prepared, op, prepared.selected, "work_commit", "deliver", null, checkpoint);
   }
 
   private async commitSelected(
@@ -823,7 +1021,8 @@ export class DeliveryService {
     op: DeliveryOperation,
     selected: string[],
     stepKind: string,
-    messagePrefix: string,
+    stage: DeliveryStage,
+    message: string | null,
     checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>,
   ): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
     const root = prepared.root;
@@ -831,17 +1030,17 @@ export class DeliveryService {
     if (stagedMetadata.length > 0) {
       return { commit: null, evidence: { reason: "preexisting_staged", paths: stagedMetadata.join("\n") }, attention: "preexisting_staged" };
     }
-    let recovered = this.findOperationCommit(root, op.operationId, messagePrefix);
+    let recovered = this.findOperationCommit(root, op.operationId, stage);
     // 兼容升级前已产生、message 仍是 knit: deliver 的首次工作提交；仍按当前步骤范围核对。
     if (recovered === null && stepKind === "artifact_commit") {
-      recovered = this.findOperationCommit(root, op.operationId, "knit: deliver");
+      recovered = this.findOperationCommit(root, op.operationId, "deliver");
     }
     if (recovered === null && stepKind === "artifact_commit" && op.workCommit !== null) {
       recovered = op.workCommit;
     }
     const prior = op.steps.find((item) => item.kind === stepKind)?.evidence ?? {};
     if (recovered !== null && isAncestor(root, recovered, "HEAD", this.git)) {
-      if (!commitMessage(root, recovered, this.git).includes(op.operationId)) {
+      if (!this.isOperationCommit(commitMessage(root, recovered, this.git), stage, op.operationId)) {
         return { commit: recovered, evidence: { reason: "commit_message_mismatch", commit: recovered }, attention: "commit_message_mismatch" };
       }
       const actual = commitPaths(root, recovered, this.git);
@@ -907,11 +1106,12 @@ export class DeliveryService {
       expectedTree: JSON.stringify(expectedTree),
     });
     const forced = new RunStore(root).readCompletion(op.taskId)?.forced === true;
-    const message = `${messagePrefix} ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
-    const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
+    // 旧 work_commit 仍用旧单行格式；新阶段使用已持久化的完整文案。
+    const messageText = message ?? `knit: ${stage} ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
+    const commit = runCommit(root, ["commit", "-m", messageText, "--only", "--", ...addable], this.git);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取提交后 HEAD", this.git);
     if (commit.code !== 0) {
-      if (afterHead !== beforeHead && commitMessage(root, afterHead, this.git).includes(op.operationId)) {
+      if (afterHead !== beforeHead && this.isOperationCommit(commitMessage(root, afterHead, this.git), stage, op.operationId)) {
         // 回执丢失但提交已生效：按真实提交继续核对，不重复提交。
       } else {
         return { commit: null, evidence: { reason: "git_commit_failed", stderr: commit.stderr.trim().slice(0, 500) }, attention: "git_commit_failed" };
@@ -920,7 +1120,7 @@ export class DeliveryService {
     if (afterHead === beforeHead) {
       return { commit: null, evidence: { reason: "commit_not_created" }, attention: "commit_not_created" };
     }
-    if (!commitMessage(root, afterHead, this.git).includes(op.operationId)) {
+    if (!this.isOperationCommit(commitMessage(root, afterHead, this.git), stage, op.operationId)) {
       return { commit: afterHead, evidence: { reason: "commit_message_mismatch", commit: afterHead }, attention: "commit_message_mismatch" };
     }
     const parent = gitOrThrow(root, ["rev-parse", `${afterHead}^`], "读取提交父节点", this.git);
@@ -967,10 +1167,10 @@ export class DeliveryService {
     return { commit: afterHead, evidence, attention: null };
   }
 
-  private async archiveCommit(prepared: Prepared, op: DeliveryOperation, checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>): Promise<{ commit: string; evidence: Record<string, string>; attention: string | null }> {
+  private async archiveCommit(prepared: Prepared, op: DeliveryOperation, message: string, checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>): Promise<{ commit: string; evidence: Record<string, string>; attention: string | null }> {
     const root = prepared.root;
     if (op.archivePath === null) return { commit: "", evidence: { reason: "archive_path_missing" }, attention: "archive_path_missing" };
-    const recovered = this.findOperationCommit(root, op.operationId, "knit: archive");
+    const recovered = this.findOperationCommit(root, op.operationId, "archive");
     const prior = op.steps.find((item) => item.kind === "archive_commit")?.evidence ?? {};
     if (recovered !== null && isAncestor(root, recovered, "HEAD", this.git)) {
       const actual = commitPaths(root, recovered, this.git);
@@ -1043,18 +1243,19 @@ export class DeliveryService {
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const forced = new RunStore(root).readCompletion(op.taskId)?.forced === true;
-    const message = `knit: archive ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
     const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取归档提交后 HEAD", this.git);
     if (commit.code !== 0) {
-      if (afterHead !== beforeHead && commitMessage(root, afterHead, this.git).includes(op.operationId)) {
+      if (afterHead !== beforeHead && isStageCommit(commitMessage(root, afterHead, this.git), "archive", op.operationId)) {
         // 回执丢失但提交已生效。
       } else {
         return { commit: "", evidence: { reason: "archive_commit_failed", stderr: commit.stderr.trim().slice(0, 500) }, attention: "archive_commit_failed" };
       }
     }
     if (afterHead === beforeHead) return { commit: "", evidence: { reason: "archive_commit_not_created" }, attention: "archive_commit_not_created" };
+    if (!isStageCommit(commitMessage(root, afterHead, this.git), "archive", op.operationId)) {
+      return { commit: afterHead, evidence: { reason: "commit_message_mismatch", commit: afterHead }, attention: "commit_message_mismatch" };
+    }
     const parent = gitOrThrow(root, ["rev-parse", `${afterHead}^`], "读取归档提交父节点", this.git);
     if (parent !== beforeHead) return { commit: afterHead, evidence: { reason: "archive_parent_mismatch", commit: afterHead }, attention: "archive_parent_mismatch" };
     const actual = commitPaths(root, afterHead, this.git);
@@ -1269,6 +1470,12 @@ export class DeliveryService {
   }
 
   private resultOf(op: DeliveryOperation, complete: boolean): DeliveryResult {
+    const messageOf = (stage: "artifact" | "metadata" | "archive") => {
+      const message = op.messages?.[stage];
+      return message === undefined
+        ? null
+        : { source: message.source, subject: commitSubject(message.text) };
+    };
     return {
       operationId: op.operationId,
       taskId: op.taskId,
@@ -1283,8 +1490,18 @@ export class DeliveryService {
       defaultBranch: op.defaultBranch,
       authorization: op.authorization,
       needsAttention: !complete || op.state === "needs_attention",
+      messages: {
+        artifact: messageOf("artifact"),
+        metadata: messageOf("metadata"),
+        archive: messageOf("archive"),
+      },
     };
   }
+}
+
+/** 提交引用短哈希；无提交时明确写「无」。 */
+function shortHash(oid: string | null): string {
+  return oid === null ? "无" : oid.slice(0, 8);
 }
 
 /** 内部 Git 调用，避免在服务内重复 import 逻辑。 */

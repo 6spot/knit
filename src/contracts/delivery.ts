@@ -49,6 +49,27 @@ export const DeliveryStepSchema = obj(
 );
 export type DeliveryStep = Static<typeof DeliveryStepSchema>;
 
+export const DeliveryMessageSourceSchema = union([lit("agent"), lit("template")]);
+export type DeliveryMessageSource = Static<typeof DeliveryMessageSourceSchema>;
+
+/** 已持久化的最终提交说明：重试复用，不随新文件静默改词。 */
+export const DeliveryMessageSchema = obj(
+  {
+    source: DeliveryMessageSourceSchema,
+    text: str({ minLength: 1 }),
+  },
+);
+export type DeliveryMessage = Static<typeof DeliveryMessageSchema>;
+
+export const DeliveryMessagesSchema = obj(
+  {
+    artifact: opt(DeliveryMessageSchema),
+    metadata: opt(DeliveryMessageSchema),
+    archive: opt(DeliveryMessageSchema),
+  },
+);
+export type DeliveryMessages = Static<typeof DeliveryMessagesSchema>;
+
 export const DeliveryRecordSchema = obj(
   {
     operationId: str({ minLength: 1 }),
@@ -73,12 +94,19 @@ export const DeliveryRecordSchema = obj(
     metadataCommit: opt(union([str(), nul()])),
     archiveCommit: union([str(), nul()]),
     sealDigest: union([str(), nul()]),
+    /** 按阶段持久化的最终提交说明；旧记录没有该字段。 */
+    messages: opt(DeliveryMessagesSchema),
     steps: arr(DeliveryStepSchema),
   },
 );
 export type DeliveryRecord = Static<typeof DeliveryRecordSchema>;
 
 export type DeliveryOperation = DeterministicOperation & DeliveryRecord;
+
+export interface DeliveryCommitMessage {
+  source: DeliveryMessageSource;
+  subject: string;
+}
 
 export interface DeliveryResult {
   operationId: string;
@@ -94,4 +122,10 @@ export interface DeliveryResult {
   defaultBranch: DefaultBranch;
   authorization: AuthorizationSource;
   needsAttention: boolean;
+  /** 三类提交的文案来源与首行；旧操作记录可为 null。 */
+  messages: {
+    artifact: DeliveryCommitMessage | null;
+    metadata: DeliveryCommitMessage | null;
+    archive: DeliveryCommitMessage | null;
+  };
 }

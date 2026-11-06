@@ -411,7 +411,7 @@ export default function (pi: any) {
     "授权边界：创建任务不等于需求确认或实施授权；用户明确“按这个做”可同时确认范围与实施授权，仅认可思路且实施意愿不明时补问；授权不覆盖提交／发布。",
     "规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提决定，未明确内容用 standards propose 存项目候选；正常回复末尾告知内容、适用范围与位置。",
     "历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。",
-    "交付：实施与检查结果由主会话接收、核对完成条件并汇总报告；提交、推送、发布另行授权。",
+    "交付：实施与检查结果由主会话接收、核对完成条件并汇总报告；交付前起草一次产物提交文案并向用户展示，不虚构验证；提交、推送、发布另行授权。",
     "完整规则见 AGENTS.md；流程配置见 .knit/workflow.yaml。",
   ];
 
@@ -1067,6 +1067,11 @@ export default function (pi: any) {
       if (params.action === "plan") args.push("--plan");
       if (params.authorizationRef) args.push("--authorization-ref", params.authorizationRef);
       if (params.retry === true) args.push("--retry");
+      if (params.messageFile !== undefined) {
+        if (params.action === "archive") return failText("archive 不接受提交文案；文案只用于产物提交");
+        const messageFiles = Array.isArray(params.messageFile) ? params.messageFile : [params.messageFile];
+        for (const value of messageFiles) args.push("--message-file", String(value));
+      }
       return toolResult(core(args));
     },
   });

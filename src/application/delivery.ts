@@ -209,6 +209,162 @@ export function commitMessage(root: string, oid: string, git: GitRunner = gitSyn
   return result.stdout;
 }
 
+/** 交付提交的阶段标识；deliver 只用于升级前的旧工作提交。 */
+export type DeliveryStage = "artifact" | "metadata" | "archive" | "deliver";
+
+/** 主会话提供的提交文案：首行可读标题 + 正文。 */
+export interface MessageDraft {
+  subject: string;
+  body: string;
+}
+
+export interface KnitTrailers {
+  task: string;
+  operation: string;
+  stage: string;
+  verification: string | null;
+}
+
+export const MAX_MESSAGE_BYTES = 8 * 1024;
+export const MAX_MESSAGE_SUBJECT_CODE_POINTS = 72;
+export const MAX_MESSAGE_BODY_CODE_POINTS = 4000;
+
+/** 行尾空白与结尾空行归一；保留 CRLF 输入的可读内容。 */
+function normalizeMessageText(raw: string): string {
+  const lines = raw
+    .replace(/^\uFEFF/u, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/u, ""));
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return `${lines.join("\n")}\n`;
+}
+
+function codePointLength(value: string): number {
+  return [...value].length;
+}
+
+/** `k-<id>`／`op-<id>` 以外没有业务词时拒绝纯回执式标题。 */
+function subjectOnlyIdentifiers(subject: string): boolean {
+  const pattern = /\b(?:k-[0-9a-f]{12}|op-[0-9a-f]+)\b/gi;
+  const ids = subject.match(pattern) ?? [];
+  if (ids.length === 0) return false;
+  const remainder = subject.replace(pattern, "");
+  return !/[\p{L}\p{N}]/u.test(remainder);
+}
+
+/**
+ * 校验并规范化主会话文案（DESIGN §10.2）。只做格式判断，不判断内容真实性。
+ * 失败使用稳定原因码：message_empty／message_subject_invalid／message_body_missing／
+ * message_too_long／message_trailer_conflict。
+ */
+export function parseMessageDraft(raw: string): MessageDraft {
+  if (Buffer.byteLength(raw, "utf8") > MAX_MESSAGE_BYTES) {
+    throw new GuardError("message_too_long", `提交文案不得超过 ${MAX_MESSAGE_BYTES / 1024} KB`);
+  }
+  const text = normalizeMessageText(raw);
+  if (text.trim() === "") throw new GuardError("message_empty", "提交文案不能为空");
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  const subject = lines[0] ?? "";
+  if (subject.trim() === "") throw new GuardError("message_subject_invalid", "提交文案首行不能为空");
+  if (codePointLength(subject) > MAX_MESSAGE_SUBJECT_CODE_POINTS) {
+    throw new GuardError("message_subject_invalid", `提交文案首行不得超过 ${MAX_MESSAGE_SUBJECT_CODE_POINTS} 个字符`);
+  }
+  if (subject.startsWith("knit: ")) {
+    throw new GuardError("message_subject_invalid", "提交文案首行不能使用旧机器格式 knit: 前缀");
+  }
+  if (subjectOnlyIdentifiers(subject)) {
+    throw new GuardError("message_subject_invalid", "提交文案首行不能只含任务或操作 ID");
+  }
+  if (lines.length < 3 || (lines[1] ?? "").trim() !== "") {
+    throw new GuardError("message_body_missing", "提交文案首行与正文之间必须有一个空行，正文不能为空");
+  }
+  const bodyLines = lines.slice(2);
+  const body = bodyLines.join("\n").trimEnd();
+  if (body === "") throw new GuardError("message_body_missing", "提交文案正文不能为空");
+  if (codePointLength(body) > MAX_MESSAGE_BODY_CODE_POINTS) {
+    throw new GuardError("message_too_long", `提交文案正文不得超过 ${MAX_MESSAGE_BODY_CODE_POINTS} 个字符`);
+  }
+  if (bodyLines.some((line) => line.startsWith("Knit-"))) {
+    throw new GuardError("message_trailer_conflict", "提交文案正文不能包含 Knit- 开头的机器字段");
+  }
+  return { subject, body };
+}
+
+/** 读取并校验 UTF-8 文案文件；文件错误也在创建操作前拒绝。 */
+export function readMessageFile(path: string): MessageDraft {
+  let buffer: Buffer;
+  try {
+    buffer = readFileSync(path);
+  } catch {
+    throw new GuardError("message_file_missing", `无法读取提交文案文件: ${path}`);
+  }
+  if (buffer.byteLength > MAX_MESSAGE_BYTES) {
+    throw new GuardError("message_too_long", `提交文案不得超过 ${MAX_MESSAGE_BYTES / 1024} KB`);
+  }
+  let raw: string;
+  try {
+    raw = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new GuardError("message_encoding_invalid", "提交文案必须是 UTF-8 文本");
+  }
+  return parseMessageDraft(raw);
+}
+
+/** 首行按码点截断到 72 字符以内，保证模板标题可读。 */
+export function truncateMessageSubject(subject: string): string {
+  const chars = [...subject];
+  if (chars.length <= MAX_MESSAGE_SUBJECT_CODE_POINTS) return subject;
+  return `${chars.slice(0, MAX_MESSAGE_SUBJECT_CODE_POINTS - 1).join("")}…`;
+}
+
+/** 拼装最终提交说明：人读首行／正文在前，机器 trailer 在末尾。 */
+export function composeCommitMessage(
+  draft: MessageDraft,
+  facts: { taskId: string; operationId: string; stage: DeliveryStage; verification: string },
+): string {
+  return [
+    draft.subject,
+    "",
+    draft.body.trimEnd(),
+    "",
+    `Knit-Task: ${facts.taskId}`,
+    `Knit-Operation: ${facts.operationId}`,
+    `Knit-Stage: ${facts.stage}`,
+    `Knit-Verification: ${facts.verification}`,
+  ].join("\n") + "\n";
+}
+
+/** 解析提交说明中的 Knit trailer；缺少 Task／Operation／Stage 时返回 null。 */
+export function readKnitTrailers(message: string): KnitTrailers | null {
+  const found = new Map<string, string>();
+  for (const line of message.split(/\r?\n/)) {
+    const match = /^Knit-(Task|Operation|Stage|Verification): (.+)$/.exec(line);
+    if (match === null) continue;
+    found.set(match[1] ?? "", match[2] ?? "");
+  }
+  const task = found.get("Task");
+  const operation = found.get("Operation");
+  const stage = found.get("Stage");
+  if (task === undefined || operation === undefined || stage === undefined) return null;
+  return { task, operation, stage, verification: found.get("Verification") ?? null };
+}
+
+/** 按 trailer 判定阶段提交；无 trailer 时回退旧格式 `knit: <stage> ...`。 */
+export function isStageCommit(message: string, stage: string, operationId: string): boolean {
+  const trailers = readKnitTrailers(message);
+  if (trailers !== null) return trailers.stage === stage && trailers.operation === operationId;
+  return message
+    .split(/\r?\n/)
+    .some((line) => line.startsWith(`knit: ${stage} `) && line.includes(operationId));
+}
+
+/** 取提交说明首行；用于交付结果与 --plan 展示文案来源。 */
+export function commitSubject(message: string): string {
+  return message.split(/\r?\n/, 1)[0] ?? "";
+}
+
 export function commitExists(root: string, oid: string, git: GitRunner = gitSync): boolean {
   return runGit(root, ["cat-file", "-e", `${oid}^{commit}`], git).code === 0;
 }

@@ -7,6 +7,7 @@ import { LockManager } from "../infrastructure/locks.js";
 import type { DeliveryResult } from "../contracts/delivery.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
+import { GuardError } from "../application/guard-error.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -17,6 +18,16 @@ function render(result: DeliveryResult): void {
   if (result.workCommit !== null) console.log(`业务产物提交: ${result.workCommit}`);
   if (result.metadataCommit !== null) console.log(`任务资料提交: ${result.metadataCommit}`);
   if (result.archiveCommit !== null) console.log(`归档提交: ${result.archiveCommit}`);
+  for (const [label, message] of [
+    ["产物提交文案", result.messages.artifact],
+    ["资料提交文案", result.messages.metadata],
+    ["归档提交文案", result.messages.archive],
+  ] as const) {
+    if (message !== null) console.log(`${label}: ${message.source} — ${message.subject}`);
+  }
+  if (result.workCommit !== null && result.messages.artifact?.source === "template") {
+    console.log("提示: 未提供产物提交文案，使用模板正文");
+  }
   if (result.archivePath !== null) console.log(`归档目录: ${result.archivePath}`);
   const candidate = result.defaultBranch.ref === null
     ? "unknown"
@@ -31,6 +42,8 @@ function renderPlan(plan: DeliveryPlan): void {
     console.log(`\n${task.taskId}: ${task.status}${task.reason === null ? "" : `（${task.reason}）`}`);
     console.log(`  业务产物: ${task.artifacts.length === 0 ? "无" : task.artifacts.join(", ")}`);
     console.log(`  任务资料: ${task.metadata.join(", ")}`);
+    console.log(`  提交文案: ${task.message.source} — ${task.message.subject}（正文 ${task.message.bodyLines} 行）`);
+    if (task.message.source === "template") console.log("  提示: 未提供产物提交文案，将使用模板正文");
     if (task.stagedArtifacts.length > 0) console.log(`  已暂存业务路径: ${task.stagedArtifacts.join(", ")}`);
     if (task.stagedMetadata.length > 0) console.log(`  已暂存任务资料: ${task.stagedMetadata.join(", ")}`);
   }
@@ -48,6 +61,31 @@ interface DeliveryOptions {
   locks?: string;
   retry?: boolean;
   plan?: boolean;
+  messageFile?: string[];
+}
+
+const TASK_ID_PATTERN = /^k-[0-9a-f]{12}$/;
+
+/** 解析单值路径与批量 <taskId>=<path>；用法错误在服务调用前拒绝。 */
+function messageFileMap(taskIds: string[], values: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const value of values) {
+    const separator = value.indexOf("=");
+    const key = separator > 0 ? value.slice(0, separator) : null;
+    if (key !== null && TASK_ID_PATTERN.test(key)) {
+      const path = value.slice(separator + 1).trim();
+      if (path === "") throw new GuardError("invalid_request", `--message-file 缺少路径: ${value}`);
+      if (!taskIds.includes(key)) throw new GuardError("invalid_request", `--message-file 指定了本次未交付的任务: ${key}`);
+      if (map.has(key)) throw new GuardError("invalid_request", `任务 ${key} 重复指定 --message-file`);
+      map.set(key, path);
+      continue;
+    }
+    if (value.trim() === "") throw new GuardError("invalid_request", "--message-file 路径不能为空");
+    if (taskIds.length !== 1) throw new GuardError("invalid_request", "批量交付的 --message-file 必须使用 <taskId>=<path>");
+    if (values.length !== 1) throw new GuardError("invalid_request", "单任务只能指定一个 --message-file");
+    map.set(taskIds[0]!, value);
+  }
+  return map;
 }
 
 export function registerDeliveryCommands(program: Command): void {
@@ -73,13 +111,18 @@ export function registerDeliveryCommands(program: Command): void {
     }
   };
 
-  const inputOf = (taskId: string, options: DeliveryOptions): DeliveryInput => ({
+  const inputOf = (
+    taskId: string,
+    options: DeliveryOptions,
+    messageFiles: Map<string, string> = new Map(),
+  ): DeliveryInput => ({
     dir: options.dir,
     taskId,
     branch: options.branch,
     authorizationRef: options.authorizationRef ?? null,
     caller: options.caller === "agent" ? "agent" : "cli",
     retry: options.retry === true,
+    messageFile: messageFiles.get(taskId) ?? null,
   });
 
   const fail = (requestId: string, error: unknown): void => {
@@ -100,10 +143,17 @@ export function registerDeliveryCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--retry", "显式重试 needs_attention：先核验已完成效果")
     .option("--plan", "只读预检：输出任务产物／资料分类与冲突，不写 Git", false)
+    .option(
+      "--message-file <value>",
+      "产物提交文案文件（单任务给路径；批量用 <taskId>=<path>，可重复）",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .action(async (taskIds: string[], options: DeliveryOptions) => {
       const requestId = `deliver-${Date.now()}`;
       try {
-        const inputs = taskIds.map((taskId) => inputOf(taskId, options));
+        const messageFiles = messageFileMap(taskIds, options.messageFile ?? []);
+        const inputs = taskIds.map((taskId) => inputOf(taskId, options, messageFiles));
         const plan = await withService(options, (service) => service.plan(inputs));
         if (plan === null) return;
         if (options.plan === true) {
@@ -119,7 +169,7 @@ export function registerDeliveryCommands(program: Command): void {
           return;
         }
         if (taskIds.length === 1) {
-          const result = await withService(options, (service) => service.deliver(inputOf(taskIds[0] ?? "", options)));
+          const result = await withService(options, (service) => service.deliver(inputOf(taskIds[0] ?? "", options, messageFiles)));
           if (result === null) return;
           if (result.needsAttention) process.exitCode = 1;
           if (jsonMode()) emit(jsonResponse(requestId, result.needsAttention ? "needs_attention" : "completed", result, result.needsAttention ? "external_effect_unknown" : undefined));
@@ -134,7 +184,7 @@ export function registerDeliveryCommands(program: Command): void {
             continue;
           }
           try {
-            const result = await withService(options, (service) => service.deliver(inputOf(taskId, options)));
+            const result = await withService(options, (service) => service.deliver(inputOf(taskId, options, messageFiles)));
             if (result === null) { failed = true; break; }
             results.push({ taskId, result });
             if (result.needsAttention) failed = true;

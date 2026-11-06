@@ -1,7 +1,7 @@
 /** 055–057：用户选择的完成验证、业务完成守卫、资料／产物分开提交与批量收尾。 */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -278,8 +278,8 @@ test("057：业务产物与任务资料分开提交，归档单独提交", async
     assert.deepEqual(artifactPaths, ["app.txt"]);
     assert.ok(metadataPaths.every((path) => path.startsWith(".knit/tasks/")));
     assert.ok(metadataPaths.some((path) => path.endsWith("/task.md")));
-    assert.equal(git(dir, ["log", "-1", "--format=%s", result.workCommit]).startsWith("knit: artifact"), true);
-    assert.equal(git(dir, ["log", "-1", "--format=%s", result.metadataCommit]).startsWith("knit: metadata"), true);
+    assert.match(git(dir, ["log", "-1", "--format=%B", result.workCommit]), /Knit-Stage: artifact/);
+    assert.match(git(dir, ["log", "-1", "--format=%B", result.metadataCommit]), /Knit-Stage: metadata/);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -304,7 +304,7 @@ test("主会话实施：记录路径进入产物提交并正常交付", async ()
   } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("强制完成：交付提交带 forced 标记，凭据保留原因", async () => {
+test("强制完成：交付模板记录强制完成原因，凭据保留原因", async () => {
   const dir = project("forced-deliver");
   const s = services(dir);
   try {
@@ -313,9 +313,10 @@ test("强制完成：交付提交带 forced 标记，凭据保留原因", async 
     assert.equal(closed.forced, true);
     const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
     assert.equal(result.state, "completed", result.reason ?? "");
-    for (const commit of [result.workCommit, result.metadataCommit, result.archiveCommit]) {
-      assert.match(git(dir, ["log", "-1", "--format=%s", commit]), /, forced\)$/);
+    for (const commit of [result.workCommit, result.metadataCommit]) {
+      assert.match(git(dir, ["log", "-1", "--format=%B", commit]), /用户强制完成：用户要求强制收口/);
     }
+    assert.match(git(dir, ["log", "-1", "--format=%B", result.archiveCommit]), /Knit-Stage: archive/);
     const credential = new RunStore(dir).readCompletion(task.taskId);
     assert.equal(credential?.forced, true);
     assert.equal(credential?.forcedReason, "用户要求强制收口");
@@ -338,15 +339,30 @@ test("057：批量收尾逐任务提交，跨任务同路径在执行前报告�
 
     const ids = [first.taskId, second.taskId];
     for (const taskId of ids) await s.tasks.close({ dir, taskId, outcome: "completed", runsSettled: true });
-    const output = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "deliver", ...ids, "--branch", BRANCH, "--dir", dir], { cwd: dir, encoding: "utf8" }));
+    const firstMessage = join(dir, "first-message.txt");
+    const secondMessage = join(dir, "second-message.txt");
+    writeFileSync(firstMessage, "批量一\n\n第一个任务的正文。\n");
+    writeFileSync(secondMessage, "批量二\n\n第二个任务的正文。\n");
+    const bare = spawnSync(process.execPath, [
+      CLI, "deliver", ...ids, "--branch", BRANCH, "--dir", dir, "--message-file", firstMessage,
+    ], { cwd: dir, encoding: "utf8" });
+    assert.equal(bare.status, 1, "批量裸路径是用法错误");
+    assert.match(bare.stderr, /批量交付的 --message-file 必须使用/);
+    const output = JSON.parse(execFileSync(process.execPath, [
+      CLI, "--json", "deliver", ...ids, "--branch", BRANCH, "--dir", dir,
+      "--message-file", `${first.taskId}=${firstMessage}`,
+      "--message-file", `${second.taskId}=${secondMessage}`,
+    ], { cwd: dir, encoding: "utf8" }));
     assert.equal(output.outcome, "completed");
     assert.equal(output.data.results.length, 2);
+    assert.equal(output.data.results[0].result.messages.artifact.subject, "批量一");
+    assert.equal(output.data.results[1].result.messages.artifact.subject, "批量二");
     const artifactCommits = output.data.results.map((entry) => entry.result.workCommit);
     const metadataCommits = output.data.results.map((entry) => entry.result.metadataCommit);
     assert.equal(new Set(artifactCommits).size, 2);
     assert.equal(new Set(metadataCommits).size, 2);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: artifact")).length, 2);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: metadata")).length, 2);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: artifact"]).split("\n").filter(Boolean).length, 2);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: metadata"]).split("\n").filter(Boolean).length, 2);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -440,6 +456,15 @@ test("057：CLI deliver --plan 只读预检，不创建提交", async () => {
     assert.equal(output.outcome, "completed");
     assert.equal(output.data.readOnly, true);
     assert.deepEqual(output.data.tasks[0].artifacts, ["app.txt"]);
+    assert.equal(output.data.tasks[0].message.source, "template");
+    assert.equal(output.data.tasks[0].message.subject, `plan (${task.taskId})`);
+    const messageFile = join(dir, "plan-message.txt");
+    writeFileSync(messageFile, "计划文案\n\n正文。\n");
+    const agentOutput = JSON.parse(execFileSync(process.execPath, [
+      CLI, "--json", "deliver", task.taskId, "--branch", BRANCH, "--dir", dir, "--plan", "--message-file", messageFile,
+    ], { cwd: dir, encoding: "utf8" }));
+    assert.equal(agentOutput.data.tasks[0].message.source, "agent");
+    assert.equal(agentOutput.data.tasks[0].message.subject, "计划文案");
     assert.equal(git(dir, ["rev-parse", "HEAD"]), head, "plan 不提交");
   } finally {
     s.store.close();

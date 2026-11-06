@@ -39,6 +39,7 @@ import {
   currentBranch,
   isAncestor,
   isFullBranch,
+  isStageCommit,
 } from "./delivery.js";
 import type { AuthorizationSource } from "../contracts/delivery.js";
 import { porcelainStatusPaths } from "./git-status.js";
@@ -654,7 +655,8 @@ function findMergeCommit(mainRoot: string, taskId: string, opId: string): string
   if (result.code !== 0) return null;
   for (const oid of result.stdout.split(/\s+/).filter(Boolean)) {
     if (!commitExists(mainRoot, oid)) continue;
-    if (!commitMessage(mainRoot, oid).includes(message)) continue;
+    // 与交付阶段共用 trailer／旧前缀识别，避免两套 message 判定漂移。
+    if (!isStageCommit(commitMessage(mainRoot, oid), "merge", opId)) continue;
     if (!isAncestor(mainRoot, oid, "HEAD")) continue;
     return oid;
   }
@@ -1062,7 +1064,7 @@ export class WorktreeMergeService {
     const receiptCommit = receipt.merge?.commit ?? null;
     const recordedCommit = recovered
       ?? (receiptCommit !== null && commitExists(mainRoot, receiptCommit)
-        && commitMessage(mainRoot, receiptCommit).includes(opId)
+        && isStageCommit(commitMessage(mainRoot, receiptCommit), "merge", opId)
         && isAncestor(mainRoot, receiptCommit, "HEAD")
         ? receiptCommit
         : null);
@@ -1138,7 +1140,7 @@ export class WorktreeMergeService {
       const after = gitSync(["rev-parse", "HEAD"], mainRoot);
       const afterHead = after.code === 0 ? after.stdout.trim() : null;
       const commitCreated = afterHead !== null && afterHead !== beforeHead
-        && commitMessage(mainRoot, afterHead).includes(opId);
+        && isStageCommit(commitMessage(mainRoot, afterHead), "merge", opId);
       if (result.code === 0 || commitCreated) {
         if (afterHead === null) {
           const reason = "合入后无法读取 HEAD";
@@ -1176,7 +1178,7 @@ export class WorktreeMergeService {
           const sourceAncestor = plan.source === null
             ? "unknown"
             : ancestorState(mainRoot, plan.source.branch, "HEAD");
-          if (!commitMessage(mainRoot, afterHead).includes(opId) || parentOid !== beforeHead || sourceAncestor !== "yes") {
+          if (!isStageCommit(commitMessage(mainRoot, afterHead), "merge", opId) || parentOid !== beforeHead || sourceAncestor !== "yes") {
             const reason = "合入提交核验不符（message／父节点／祖先关系）";
             merge = {
               kind: "merge",

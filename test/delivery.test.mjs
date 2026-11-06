@@ -17,6 +17,7 @@ import { parseTaskDocument, renderTaskDocument } from "../dist/application/task-
 import { RunStore } from "../dist/infrastructure/run-store.js";
 import { gitSync } from "../dist/infrastructure/process.js";
 import { sha256Text } from "../dist/infrastructure/fingerprint.js";
+import { searchHistory } from "../dist/application/history-search.js";
 
 const NOW = new Date("2026-11-02T10:00:00.000Z");
 const BRANCH = "refs/heads/main";
@@ -170,7 +171,8 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
     assert.ok(text.includes("### 交付记录"));
     assert.ok(text.includes(`工作提交: ${result.workCommit}`));
     assert.ok(!existsSync(join(dir, result.archivePath, ".knit-sealed")));
-    assert.equal(git(dir, ["log", "-1", "--format=%s"]), `knit: archive ${task.taskId} (${result.operationId})`);
+    assert.equal(git(dir, ["log", "-1", "--format=%s"]), `chore(task): archive 11-02-delivery (${task.taskId})`);
+    assert.match(git(dir, ["log", "-1", "--format=%B"]), /Knit-Stage: archive/);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -439,7 +441,7 @@ test("回执丢失但提交已生效：按操作 ID 核实并继续，不重复�
     const resumed = await s.delivery.archive({ dir, taskId: task.taskId, branch: BRANCH });
     assert.equal(resumed.state, "completed", resumed.reason ?? "");
     assert.equal(resumed.archiveCommit, result.archiveCommit);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: archive")).length, 1);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: archive"]).split("\n").filter(Boolean).length, 1);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -639,7 +641,7 @@ test("归档提交 pre-commit 拒绝后 retry：旧任务路径删除与新路�
     assert.equal(existsSync(task.taskFile), false);
     assert.equal(existsSync(join(dir, retry.archivePath, "task.md")), true);
     assert.equal(git(dir, ["ls-tree", "--name-only", "HEAD", "--", task.taskFile]).trim(), "");
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: archive")).length, 1);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: archive"]).split("\n").filter(Boolean).length, 1);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -686,7 +688,8 @@ test("归档提交后出现同 message 额外提交：不落盘错误候选，�
     const expected = git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", baseArchive]).split("\n").filter(Boolean).sort().join("\n");
     writeFileSync(join(dir, "extra.txt"), "outside\n");
     git(dir, ["add", "extra.txt"]);
-    git(dir, ["commit", "-q", "-m", `knit: archive ${task.taskId} (${op.operationId})`]);
+    assert.ok(op.messages?.archive?.text);
+    git(dir, ["commit", "-q", "-m", op.messages.archive.text]);
     const extraCommit = git(dir, ["rev-parse", "HEAD"]).trim();
     const steps = op.steps.map((item) => item.kind === "archive_commit"
       ? { ...item, state: "needs_attention", evidence: { before, expectedPaths: expected }, after: { before, expectedPaths: expected } }
@@ -755,15 +758,21 @@ test("CLI deliver --json 走协议输出并真实归档", async () => {
     task = await makeDeliverable(dir, s);
     s.store.close();
     const cli = join(process.cwd(), "dist", "cli", "knit.js");
+    const messageFile = join(dir, "cli-message.txt");
+    writeFileSync(messageFile, "CLI 文案\n\nCLI 正文。\n");
     const output = execFileSync(process.execPath, [
       cli, "--json", "deliver", task.taskId,
       "--branch", BRANCH,
       "--dir", dir,
       "--locks", join(dir, ".cli-locks"),
+      "--message-file", messageFile,
     ], { encoding: "utf8" });
     const response = JSON.parse(output);
     assert.equal(response.outcome, "completed");
     assert.equal(response.data.state, "completed");
+    assert.equal(response.data.messages.artifact.source, "agent");
+    assert.equal(response.data.messages.artifact.subject, "CLI 文案");
+    assert.match(git(dir, ["log", "-1", "--format=%B", response.data.workCommit]), /^CLI 文案\n\nCLI 正文。/m);
     assert.ok(response.data.archiveCommit);
   } finally {
     try { s.store.close(); } catch { /* already closed */ }
@@ -788,7 +797,7 @@ test("显式 retry：hook 失败现场清理后核实原提交并继续，不重
     assert.equal(retry.state, "completed", retry.reason ?? "");
     assert.equal(retry.workCommit, first.workCommit);
     assert.ok(retry.archiveCommit);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: artifact")).length, 1);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: artifact"]).split("\n").filter(Boolean).length, 1);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -829,7 +838,7 @@ test("凭据扫描：限定提交命中即暂停、无新提交、结果不回�
       (error) => error.guardReason === "credential_scan_hit" && !String(error.message).includes(fakeKey),
     );
     const log = git(dir, ["log", "--oneline"]);
-    assert.equal(log.split("\n").filter((line) => line.includes("knit: deliver")).length, 0, "命中后无交付提交");
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: artifact"]).split("\n").filter(Boolean).length, 0, "命中后无交付提交");
     // 移除命中内容并恢复检查时的同一字节后，重试可继续（scope 现状重核与凭据扫描都通过）。
     writeFileSync(join(dir, "app.txt"), "new\n");
     const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
@@ -1028,7 +1037,7 @@ test("移动成功但 move 检查点丢失：核实目标后继续，不重复�
     assert.equal(recovered.archiveCommit, result.archiveCommit);
     assert.equal(existsSync(join(dir, result.archivePath, "task.md")), true);
     assert.equal(existsSync(task.taskFile), false);
-    assert.equal(git(dir, ["log", "--format=%s"]).split("\n").filter((line) => line.startsWith("knit: archive")).length, 1);
+    assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: archive"]).split("\n").filter(Boolean).length, 1);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -1081,6 +1090,184 @@ test("跨月重试沿用操作首次 archivePath，不按当前月份改目标",
     assert.equal(resumed.state, "completed", resumed.reason ?? "");
     assert.ok(resumed.archivePath?.includes("/2026-11/"), resumed.archivePath ?? "");
     assert.equal(existsSync(join(dir, resumed.archivePath, "task.md")), true);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("主会话文案：产物提交保留首行／正文并追加 trailer，资料与归档使用模板", async () => {
+  const dir = project("agent-message");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const messageFile = join(dir, "message.txt");
+    writeFileSync(messageFile, "交付可读文案\n\n为什么改这条：说明背景。\n改了什么：说明范围。\n验证：说明证据。\n");
+    const result = await s.delivery.deliver({
+      dir,
+      taskId: task.taskId,
+      branch: BRANCH,
+      messageFile,
+      authorizationRef: "workflow:AGENTS.md#交付授权",
+    });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    assert.equal(result.messages.artifact?.source, "agent");
+    assert.equal(result.messages.artifact?.subject, "交付可读文案");
+    assert.equal(result.messages.metadata?.source, "template");
+    assert.equal(result.messages.archive?.source, "template");
+
+    const artifactBody = git(dir, ["log", "-1", "--format=%B", result.workCommit]);
+    assert.match(artifactBody, /^交付可读文案\n\n为什么改这条/m);
+    assert.match(artifactBody, /Knit-Task: k-[0-9a-f]{12}/);
+    assert.match(artifactBody, new RegExp(`Knit-Operation: ${result.operationId}`));
+    assert.match(artifactBody, /Knit-Stage: artifact/);
+    assert.match(artifactBody, /Knit-Verification: independent/);
+
+    const metadataBody = git(dir, ["log", "-1", "--format=%B", result.metadataCommit]);
+    assert.match(metadataBody, /^chore\(task\): 交付测试 \(k-[0-9a-f]{12}\)/m);
+    assert.match(metadataBody, /结果：completed/);
+    assert.match(metadataBody, /验证：independent — 检查 run-[0-9a-f]+ 通过/);
+    assert.match(metadataBody, new RegExp(`产物提交：${result.workCommit.slice(0, 8)}`));
+    assert.match(metadataBody, /Knit-Stage: metadata/);
+
+    const archiveBody = git(dir, ["log", "-1", "--format=%B", result.archiveCommit]);
+    assert.match(archiveBody, /^chore\(task\): archive 11-02-delivery \(k-[0-9a-f]{12}\)/m);
+    assert.match(archiveBody, /移动：tasks\/11-02-delivery → tasks\/archive\/2026-11\/11-02-delivery/);
+    assert.match(archiveBody, new RegExp(`资料提交：${result.metadataCommit.slice(0, 8)}`));
+    assert.match(archiveBody, /Knit-Stage: archive/);
+
+    const hits = searchHistory({ dir, query: "为什么改这条", scope: "git" });
+    assert.equal(hits.length > 0, true, "新正文可被历史检索命中");
+    assert.equal(hits[0]?.path, "git");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("无文案：产物提交回落事实模板并报告 template 来源", async () => {
+  const dir = project("template-message");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "completed", result.reason ?? "");
+    assert.equal(result.messages.artifact?.source, "template");
+    assert.equal(result.messages.artifact?.subject, `交付测试 (${task.taskId})`);
+    const body = git(dir, ["log", "-1", "--format=%B", result.workCommit]);
+    assert.match(body, /结果：completed/);
+    assert.match(body, /验证：independent — 检查 run-[0-9a-f]+ 通过/);
+    assert.match(body, /Knit-Stage: artifact/);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("非法文案在创建操作与提交前拒绝，不留下部分状态", async () => {
+  const dir = project("invalid-message");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const beforeHead = git(dir, ["rev-parse", "HEAD"]).trim();
+    const beforeIndex = git(dir, ["diff", "--cached", "--name-only"]);
+    const beforeOperations = (await s.store.operations.list()).length;
+    const bad = join(dir, "bad-message.txt");
+    writeFileSync(bad, "只有标题\n");
+    await assert.rejects(
+      () => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, messageFile: bad }),
+      (error) => error.guardReason === "message_body_missing",
+    );
+    assert.equal(git(dir, ["rev-parse", "HEAD"]).trim(), beforeHead, "不产生提交");
+    assert.equal(git(dir, ["diff", "--cached", "--name-only"]), beforeIndex, "index 不变");
+    assert.equal((await s.store.operations.list()).length, beforeOperations, "不创建交付操作");
+    assert.equal(existsSync(task.taskFile), true, "任务资料未移动");
+    assert.equal(git(dir, ["status", "--porcelain"]).includes("app.txt"), true, "业务改动保留");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("重试复用已持久化文案，新文件被忽略并记录证据", async () => {
+  const dir = project("message-retry");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nif [ ! -f .git/failed-once ]; then touch .git/failed-once; exit 1; fi\nexit 0\n");
+    chmodSync(hook, 0o755);
+    const firstFile = join(dir, "first-message.txt");
+    writeFileSync(firstFile, "第一次文案\n\n第一版正文。\n");
+    const first = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, messageFile: firstFile });
+    assert.equal(first.state, "needs_attention");
+    const stored = await s.store.operations.get(first.operationId);
+    assert.equal(stored?.messages?.artifact?.text.includes("第一版正文。"), true);
+
+    const secondFile = join(dir, "second-message.txt");
+    writeFileSync(secondFile, "第二次文案\n\n第二版正文。\n");
+    const retry = await s.delivery.deliver({
+      dir,
+      taskId: task.taskId,
+      branch: BRANCH,
+      messageFile: secondFile,
+      retry: true,
+    });
+    assert.equal(retry.state, "completed", retry.reason ?? "");
+    const body = git(dir, ["log", "-1", "--format=%B", retry.workCommit]);
+    assert.match(body, /^第一次文案/m);
+    assert.match(body, /第一版正文。/);
+    assert.doesNotMatch(body, /第二版正文/);
+    const step = (await s.store.operations.get(retry.operationId))?.steps.find((entry) => entry.kind === "artifact_commit");
+    assert.equal(step?.evidence?.message_ignored_on_retry, "true");
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--plan 预览文案来源与首行，非法文案在预检阶段拒绝", async () => {
+  const dir = project("message-plan");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const templatePlan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH }]);
+    assert.equal(templatePlan.tasks[0]?.message.source, "template");
+    assert.equal(templatePlan.tasks[0]?.message.subject, `交付测试 (${task.taskId})`);
+    assert.equal(templatePlan.tasks[0]?.message.bodyLines, 2);
+
+    const messageFile = join(dir, "plan-message.txt");
+    writeFileSync(messageFile, "计划中的文案\n\n正文一。\n正文二。\n");
+    const agentPlan = await s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH, messageFile }]);
+    assert.equal(agentPlan.tasks[0]?.message.source, "agent");
+    assert.equal(agentPlan.tasks[0]?.message.subject, "计划中的文案");
+    assert.equal(agentPlan.tasks[0]?.message.bodyLines, 2);
+
+    writeFileSync(messageFile, "不合法\n");
+    await assert.rejects(
+      () => s.delivery.plan([{ dir, taskId: task.taskId, branch: BRANCH, messageFile }]),
+      (error) => error.guardReason === "message_body_missing",
+    );
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("commit-msg hook 改写 trailer：保留提交但 needs_attention，不把错误消息当完成", async () => {
+  const dir = project("message-hook");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const hook = join(dir, ".git", "hooks", "commit-msg");
+    writeFileSync(hook, '#!/bin/sh\nprintf "\\nKnit-Stage: rewritten\\n" >> "$1"\n');
+    chmodSync(hook, 0o755);
+    const result = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    assert.equal(result.state, "needs_attention");
+    assert.equal(result.reason, "commit_message_mismatch");
+    assert.ok(result.workCommit);
+    assert.equal(existsSync(task.taskFile), true);
+    assert.equal(git(dir, ["log", "-1", "--format=%B"]).includes("Knit-Stage: rewritten"), true);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
