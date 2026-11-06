@@ -18,6 +18,7 @@ import {
 } from "../dist/application/task-document.js";
 import {
   inputsDigestOf,
+  clarifyStateOf,
   progressRegionOf,
   PROGRESS_START,
   PROGRESS_END,
@@ -25,6 +26,7 @@ import {
   newTaskId,
 } from "../dist/contracts/task-inputs.js";
 import { LockManager } from "../dist/infrastructure/locks.js";
+import { StatusService } from "../dist/application/status-service.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 
@@ -1138,6 +1140,93 @@ test("CLI：task update/close 错误路径输出协议错误", async () => {
 
 test("newTaskId 与随机源：k- 前缀稳定身份", () => {
   assert.equal(newTaskId(() => "0123456789ab"), "k-0123456789ab");
+});
+
+test("待澄清：blocking 阻止 ready；assumed、空区段、无区段放行；status 计数（k-9197494d2657）", async () => {
+  const dir = gitProject("clarify-blocking");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId, relativePath } = await service.newTask({ dir, title: "澄清", verification: "self" });
+    const file = taskFile(dir, relativePath);
+    const created = readFileSync(file, "utf8");
+    assert.match(created, /## 待澄清/, "新任务模板含固定待澄清区段");
+    assert.match(created, /\[blocking\]/, "模板提示 blocking 标记");
+    assert.match(created, /\[assumed\]/, "模板提示 assumed 标记");
+    assert.ok(
+      created.indexOf("## 完成条件") < created.indexOf("## 待澄清") && created.indexOf("## 待澄清") < created.indexOf("## 输入引用"),
+      "待澄清位于完成条件之后、输入引用之前",
+    );
+
+    const statusService = new StatusService({ store });
+    const writeInputs = async (clarify, kind = "clarify") => {
+      const body = [
+        "# 澄清",
+        "",
+        "## 目标与边界",
+        "",
+        "目标",
+        "",
+        "## 完成条件",
+        "",
+        "条件",
+        "",
+        ...(clarify === null ? [] : ["## 待澄清", "", ...clarify, ""]),
+        "## 输入引用",
+        "",
+        "无",
+        "",
+      ].join("\n");
+      await service.update({ dir, taskId, kind, reason: "更新待澄清", content: body, runActive: false });
+    };
+
+    // 仅 assumed：不阻挡 ready，status 计入 assumed。
+    await writeInputs(["- [assumed] 批量交付暂不支持逐任务文案（Agent 建议，待确认）。"]);
+    assert.deepEqual((await statusService.taskStatus(dir, taskId)).clarify, { blocking: 0, assumed: 1 });
+    assert.equal((await service.ready({ dir, taskId })).stage, "implement");
+
+    // change 回 start 后登记 blocking；缩进与大小写变体不计入。
+    await writeInputs([
+      "- [blocking] 归档后旧索引是否保留？选项 A 保留（推荐）／B 删除；差异影响回滚路径。",
+      "- [blocking] 是否支持逐任务文案？选项 A 支持／B 不支持；影响交付模板。",
+      "- [blocking] 第三个决定",
+      "- [blocking] 第四个决定",
+      "  - [blocking] 缩进变体忽略",
+      "- [Blocking] 大小写变体忽略",
+      "- [assumed] 仍有一个假设",
+    ], "change");
+    assert.deepEqual((await statusService.taskStatus(dir, taskId)).clarify, { blocking: 4, assumed: 1 });
+    await assert.rejects(
+      () => service.ready({ dir, taskId }),
+      (error) => error.guardReason === "clarify_blocking"
+        && /4 项 \[blocking\]/.test(error.message)
+        && /归档后旧索引/.test(error.message)
+        && /第三个决定/.test(error.message)
+        && /第四个决定/.test(error.message) === false
+        && /另有 1 项/.test(error.message),
+      "blocking 拒绝 ready，消息含数量与前 3 条",
+    );
+
+    // 空区段放行；随后无区段也放行（兼容既有任务）。
+    await writeInputs([]);
+    assert.deepEqual((await statusService.taskStatus(dir, taskId)).clarify, { blocking: 0, assumed: 0 });
+    assert.equal((await service.ready({ dir, taskId })).stage, "implement");
+    await writeInputs(null, "change");
+    assert.deepEqual((await statusService.taskStatus(dir, taskId)).clarify, { blocking: 0, assumed: 0 });
+    assert.equal((await service.ready({ dir, taskId })).stage, "implement");
+
+    // 解析：只认输入区、固定标题与顶格前缀；长条目截断到 120 字符。
+    const progressExcluded = clarifyStateOf(
+      "# T\n\n## 待澄清\n\n- [blocking] 输入区\n\n## 输入引用\n\n<!-- knit:progress:start -->\n- [blocking] 记录区\n<!-- knit:progress:end -->\n",
+    );
+    assert.deepEqual(progressExcluded, { blocking: 1, assumed: 0, blockingItems: ["输入区"] });
+    const longItem = `- [blocking] ${"长".repeat(140)}`;
+    const parsedLong = clarifyStateOf(`# T\n\n## 待澄清\n\n${longItem}\n`);
+    assert.equal(Array.from(parsedLong.blockingItems[0]).length, 120, "单条截断到 120 字符");
+    assert.ok(parsedLong.blockingItems[0].endsWith("…"));
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任务不受阻；进度更新不重置（任务049）", async () => {

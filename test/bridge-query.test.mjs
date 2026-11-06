@@ -191,24 +191,30 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /不派发无任务 worker/);
     assert.match(first, /verification/);
     assert.match(first, /澄清门/);
-    assert.match(first, /关键缺口先讨论/);
-    assert.match(first, /需求明确直接登记/);
-    assert.match(first, /Agent 建议须标注待确认/);
-    assert.match(first, /拆分方案/);
+    assert.match(first, /先取证再提问/);
+    assert.match(first, /缺口清单为空或用户已裁决才登记/);
+    assert.match(first, /（Agent 建议，待确认）/);
+    assert.match(first, /复杂需求先拆分/);
+    assert.match(first, /blocking 未清零不 task ready/);
+    assert.match(first, /不得以“完整方案＋是否正确”作为唯一确认/);
     assert.match(first, /任务选择：/);
     assert.match(first, /遗漏选择先补问/);
     assert.match(first, /创建任务不等于需求确认或实施授权/);
     assert.match(first, /明确“按这个做”/);
     assert.match(first, /规范沉淀：/);
+    assert.match(first, /需求澄清：/);
     assert.match(first, /交付：实施与检查结果由主会话接收/);
     assert.match(first, /完整规则见 AGENTS\.md/);
     assert.match(first, /流程配置见 \.knit\/workflow\.yaml/);
     assert.doesNotMatch(first, /workflow\.md/);
     assert.match(first, /历史查询/);
+    assert.match(first, /需求澄清取证时可用/);
+    assert.match(first, /普通对话仅在用户明确表达/);
     assert.match(first, /knit_task action=search/);
     assert.match(first, /未表达意愿不主动检索/);
     assert.match(first, /相关记录不等于因果结论/);
     assert.equal((first.match(/历史查询:/g) ?? []).length, 1, "无任务注入的历史查询只出现一次");
+    assert.doesNotMatch(first, /待澄清: \d+ 项/, "无任务不显示未决数量");
 
     // 创建并选择任务后，下轮注入当前任务状态。
     await host.commands.get("knit").handler("task new --title 注入任务 --slug inject", host.ctx);
@@ -233,8 +239,33 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(second, /遗漏选择先补问/);
     assert.match(second, /创建任务不等于需求确认或实施授权/);
     assert.match(second, /规范沉淀：/);
+    assert.match(second, /需求澄清：/);
     assert.match(second, /交付：实施与检查结果由主会话接收/);
     assert.equal((second.match(/历史查询:/g) ?? []).length, 1, "任务注入的历史查询只出现一次");
+    assert.doesNotMatch(second, /待澄清: \d+ 项/, "无未决项不显示噪音");
+    assert.doesNotMatch(second, /假设待确认: \d+ 项/, "无假设不显示噪音");
+
+    // 「待澄清」计数进入注入与 status；blocking 阻止 ready。
+    const taskFile = join(dir, ".knit", listJson.data.active[0].relativePath, "task.md");
+    const templateBody = readFileSync(taskFile, "utf8");
+    writeFileSync(
+      taskFile,
+      templateBody.replace(
+        /## 待澄清\n\n<!--[\s\S]*?-->\n/,
+        "## 待澄清\n\n- [blocking] 归档后旧索引是否保留？选项 A 保留／B 删除\n- [blocking] 是否支持逐任务文案？选项 A 支持／B 不支持\n- [assumed] 批量交付暂不支持逐任务文案（Agent 建议，待确认）\n",
+      ),
+    );
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const clarifyInjected = host.systemPromptOptions.sections.knit;
+    assert.match(clarifyInjected, /待澄清: 2 项/);
+    assert.match(clarifyInjected, /假设待确认: 1 项/);
+    const statusJson = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", taskId, "--dir", dir], { encoding: "utf8" }));
+    assert.deepEqual(statusJson.data.clarify, { blocking: 2, assumed: 1 }, "status 暴露「待澄清」计数");
+    const blockedReady = spawnSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    assert.notEqual(blockedReady.status, 0, "blocking 阻止 ready");
+    assert.match(JSON.parse(blockedReady.stdout).data.error, /2 项 \[blocking\]/, "ready 错误带上未决数量");
+    writeFileSync(taskFile, templateBody);
 
     // 阶段行使用配置显示名；不显示内部 id 作为主标签。
     execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });

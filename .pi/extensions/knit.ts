@@ -410,7 +410,8 @@ export default function (pi: any) {
     "任务选择：是否建任务由用户决定；新事项先问是否建任务再展开需求，不按类型或预估大小跳过；暂不创建可继续讨论，实施前再确认，遗漏选择先补问，不能用“你做吧”代替；明确不创建时同一事项持续有效，不重复追问。",
     "授权边界：创建任务不等于需求确认或实施授权；用户明确“按这个做”可同时确认范围与实施授权，仅认可思路且实施意愿不明时补问；授权不覆盖提交／发布。",
     "规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提决定，未明确内容用 standards propose 存项目候选；正常回复末尾告知内容、适用范围与位置。",
-    "历史查询: 用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时，用 knit_task action=search（或 /knit task search）只读检索并引用 path:line、run ID 或 commit；未表达意愿不主动检索；相关记录不等于因果结论。",
+    "需求澄清：先查代码、测试、配置、文档、规范与任务历史（含归档、run、提交说明）再提问，仓库证据只证明现状，产品意图、范围与验收仍由用户决定；按目标、范围、验收、约束、冲突、副作用、回滚、时序逐项扫缺口，证据已解决的不问、不硬造问题。需决定时每问给决定、为什么重要、推荐与代价，一轮最多 3 个且一问一事；推荐不替用户选择，不答按推荐推进须标 [assumed] 与“（Agent 建议，待确认）”；与既有决定冲突先给影响与替代方案，已明确决定不重复建议。未决项写 task.md「待澄清」的 - [blocking]／- [assumed]，解决后折入正文并删除；blocking 未清零不 task ready；收敛摘要等用户明确批准，不能以“完整方案＋是否正确”作为唯一确认。",
+    "历史查询: 需求澄清取证时可用 knit_task action=search（或 /knit task search）检索任务历史、归档与提交并引用 path:line、run ID 或 commit；普通对话仅在用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时检索；未表达意愿不主动检索；相关记录不等于因果结论。",
     "交付：实施与检查结果由主会话接收、核对完成条件并汇总报告；交付前起草一次产物提交文案并向用户展示，不虚构验证；提交、推送、发布另行授权。",
     "完整规则见 AGENTS.md；流程配置见 .knit/workflow.yaml。",
   ];
@@ -438,6 +439,11 @@ export default function (pi: any) {
       lines.push(`当前任务：${currentTaskText(data, taskId)}`);
       lines.push(`阶段：${stageText(data.stageName, data.stage ?? "?", "paren")}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
       if (data.pendingDraft) lines.push(`待应用草案: ${data.pendingDraft.kind ?? "?"}（${data.pendingDraft.digest?.slice(0, 12) ?? ""}）——先应用或撤回再进入后续阶段`);
+      const clarify = data.clarify;
+      if (clarify !== null && typeof clarify === "object") {
+        if (typeof clarify.blocking === "number" && clarify.blocking > 0) lines.push(`待澄清: ${clarify.blocking} 项`);
+        if (typeof clarify.assumed === "number" && clarify.assumed > 0) lines.push(`假设待确认: ${clarify.assumed} 项`);
+      }
       if (activeRuns.length > 0) lines.push(`活动运行: ${activeRuns.map((run: any) => `${run.runId}(${run.state ?? "?"})`).join(", ")}——活动运行使用冻结输入`);
       lines.push(`任务入口: .knit/${data.relativePath ?? `tasks/…`}`);
       if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
@@ -448,7 +454,7 @@ export default function (pi: any) {
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
       lines.push("不建任务时使用宿主工具／通用子 Agent；Knit run 只服务正式任务，不派发无任务 worker。");
       lines.push("用户要求正式跟踪时再提议 task new；已有持续授权可直接创建。正式任务创建时选择 completion verification（none／self／independent，默认 self）。");
-      lines.push("建任务前先过澄清门：关键缺口先讨论，需求明确直接登记，Agent 建议须标注待确认，复杂需求先给拆分方案。");
+      lines.push("建任务前先过澄清门：先取证再提问（代码、测试、配置、文档、规范与任务历史，含归档），仓库证据只证明现状、产品意图仍由用户决定；按目标、范围、验收、约束、冲突、副作用等维度扫缺口，缺口清单为空或用户已裁决才登记；需决定时每问给决定、原因、推荐与代价，一轮最多 3 个；假设写 [assumed] 并标“（Agent 建议，待确认）”；blocking 未清零不 task ready，不得以“完整方案＋是否正确”作为唯一确认；复杂需求先拆分并确认范围。");
       lines.push("继续或补充已有任务用 task list 查看活跃任务（归档用 task list --archive）并按稳定 ID 选择。授权不覆盖提交／发布。");
       lines.push("主会话直接实施的任务，收尾前用 task implement 记录改动路径与实际验证；只有用户明确要求时才用 task close --force --reason。");
     }

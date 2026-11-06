@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
   DEFAULT_VERIFICATION,
+  clarifyStateOf,
   inputsDigestOf,
   pendingDraftDigest,
   newTaskId,
@@ -91,6 +92,10 @@ export function renderInitialTaskBody(title: string): { inputsBody: string; prog
       "## 完成条件",
       "",
       "<!-- 可验证结果与必需验收 -->",
+      "",
+      "## 待澄清",
+      "",
+      "<!-- 未决项用固定前缀、必须顶格：- [blocking] 需用户取舍且影响实施的决定（选项与差异）；- [assumed] Agent 假定，待确认。解决后折入目标与完成条件并删除本行，全部解决可删除本区段。 -->",
       "",
       "## 输入引用",
       "",
@@ -433,15 +438,26 @@ export class TaskGuardError extends GuardError {
 }
 
 /**
- * ready 结构核对（任务049）：只机械核对已承诺的规划——plan.md 存在（复杂任务已承诺持久规划）
- * 但内容为空时拒绝。目标占位是否已确认属主 Agent 语义判断（DESIGN §4.2），不由核心机械拒绝；
+ * ready 结构核对（任务049、k-9197494d2657）：只机械核对可确定性的事实——
+ * plan.md 存在（复杂任务已承诺持久规划）但内容为空时拒绝；task.md「待澄清」区段仍有
+ * `- [blocking] ` 项时拒绝（无区段、空区段或只有 assumed 放行）。目标占位是否已确认、
+ * assumed 是否已确认属主 Agent 语义判断（DESIGN §4.2），不由核心机械拒绝；
  * 可选 design／research 缺失不阻挡。既有 stage 与 ready 入口不变，不新增规划状态机。
  */
 function assertReadyStructural(document: TaskDocument, taskDir: string): void {
-  void document;
   const planPath = join(taskDir, PLAN_FILE);
   if (existsSync(planPath) && readFileSync(planPath, "utf8").trim() === "") {
     throw new TaskGuardError("ready_plan_incomplete", "plan.md 为空；复杂任务的实施计划未完成");
+  }
+  const clarify = clarifyStateOf(document.inputsBody);
+  if (clarify.blocking > 0) {
+    const items = clarify.blockingItems.map((item) => `「${item}」`).join("；");
+    const rest = clarify.blocking - clarify.blockingItems.length;
+    const more = rest > 0 ? `；另有 ${rest} 项` : "";
+    throw new TaskGuardError(
+      "clarify_blocking",
+      `「待澄清」仍有 ${clarify.blocking} 项 [blocking] 未决，需用户取舍：${items}${more}。先与用户确认并折入目标与完成条件，或删除已解决项`,
+    );
   }
 }
 

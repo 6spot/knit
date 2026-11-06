@@ -8,7 +8,7 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
-import { priorityOf, verificationModeOf, type TaskPriority, type VerificationMode } from "../contracts/task-inputs.js";
+import { clarifyStateOf, priorityOf, verificationModeOf, type TaskPriority, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
 import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
@@ -69,6 +69,8 @@ export interface TaskStatusView {
   /** 前置依赖与当前阻塞原因；未满足时实施入口不启动。 */
   dependsOn: string[];
   blocked: Array<{ taskId: string; problem: string; status: string | null; outcome: string | null }>;
+  /** task.md「待澄清」计数；blocking > 0 时 `task ready` 拒绝，无区段为 0。 */
+  clarify: { blocking: number; assumed: number };
   lastCheckRunId: string | null;
   completion: CompletionFile | null;
   runs: RunStatusView[];
@@ -156,6 +158,7 @@ export class StatusService {
     const located = locateTaskDocument(root, taskId);
     const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
     const workflow = loadWorkflow(root).workflow;
+    const clarify = clarifyStateOf(document.inputsBody);
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
     const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
@@ -191,6 +194,7 @@ export class StatusService {
       priority: priorityOf(document.frontmatter),
       dependsOn: document.frontmatter.dependsOn ?? [],
       blocked: dependencyBlockersOf(root, taskId),
+      clarify: { blocking: clarify.blocking, assumed: clarify.assumed },
       lastCheckRunId: binding?.lastCheckRunId ?? null,
       completion: new RunStore(root).readCompletion(taskId),
       runs,

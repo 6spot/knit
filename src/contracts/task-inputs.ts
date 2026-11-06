@@ -143,6 +143,52 @@ function withoutStatusFields(region: string): string {
   return `---\n${body}\n---${match[2] ?? ""}${region.slice(match[0].length)}`;
 }
 
+/** task.md「待澄清」区段：固定二级标题，位置在完成条件之后、输入引用之前。 */
+export const CLARIFY_HEADING = "## 待澄清";
+/** 未决项行前缀（区分大小写，必须顶格）；缩进或大小写变体不作为未决项。 */
+export const CLARIFY_BLOCKING_PREFIX = "- [blocking] ";
+export const CLARIFY_ASSUMED_PREFIX = "- [assumed] ";
+
+/** 「待澄清」区段解析结果：计数与错误消息所需的前 3 条 blocking 正文。 */
+export interface ClarifyState {
+  blocking: number;
+  assumed: number;
+  /** 前 3 条 blocking 项正文，单条最多 120 字符；超出以省略号结尾。 */
+  blockingItems: string[];
+}
+
+/** 单条未决项截断：按码点计 120 字符，超出用省略号占位。 */
+function clarifyItemText(text: string): string {
+  const chars = Array.from(text.trim());
+  return chars.length > 120 ? `${chars.slice(0, 119).join("")}…` : chars.join("");
+}
+
+/**
+ * 解析输入区的「待澄清」区段（任务 k-9197494d2657）：只认固定标题与顶格前缀，
+ * 区段到下一个一级／二级标题为止。无区段、空区段或只有 assumed 不阻挡 ready。
+ */
+export function clarifyStateOf(taskMarkdown: string): ClarifyState {
+  let inSection = false;
+  let blocking = 0;
+  let assumed = 0;
+  const blockingItems: string[] = [];
+  for (const line of inputsRegionOf(taskMarkdown).split(/\r?\n/)) {
+    if (line.trimEnd() === CLARIFY_HEADING) {
+      inSection = true;
+      continue;
+    }
+    if (!inSection) continue;
+    if (/^#{1,2}\s/.test(line)) break;
+    if (line.startsWith(CLARIFY_BLOCKING_PREFIX)) {
+      blocking += 1;
+      if (blockingItems.length < 3) blockingItems.push(clarifyItemText(line.slice(CLARIFY_BLOCKING_PREFIX.length)));
+    } else if (line.startsWith(CLARIFY_ASSUMED_PREFIX)) {
+      assumed += 1;
+    }
+  }
+  return { blocking, assumed, blockingItems };
+}
+
 /** 提取输入区（记录区标记之外的正文，含 frontmatter）；未找到标记时全文即输入。 */
 export function inputsRegionOf(taskMarkdown: string): string {
   const start = taskMarkdown.indexOf(PROGRESS_START);

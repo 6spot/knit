@@ -61,20 +61,30 @@ test("init：首次初始化 ready，逐项清单与私有权限", async () => {
   }
 });
 
-test("init：AGENTS 受管块含创建前需求澄清门与复杂拆分提示（k-efc748322ccf）", async () => {
+test("init：AGENTS 受管块含需求澄清协议与复杂拆分提示（k-efc748322ccf、k-9197494d2657）", async () => {
   const dir = freshProject("clarify-gate");
   try {
     const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
     await init(service, dir);
     const agents = readFileSync(join(dir, "AGENTS.md"), "utf8");
-    assert.match(agents, /关键缺口先讨论/, "关键缺口先讨论");
-    assert.match(agents, /需求明确直接登记/, "需求明确直接登记");
+    assert.match(agents, /先取证再提问/, "取证优先");
+    assert.match(agents, /任务历史（含归档任务、run 记录与提交说明）/, "取证包含任务历史");
+    assert.match(agents, /目标与成功判据、范围与非目标、验收与证据/, "缺口维度概览");
+    assert.match(agents, /每问给出要定的决定、为什么重要、推荐项与选另一项的代价/, "每问四要素");
+    assert.match(agents, /一轮最多 3 个/, "一轮提问上限");
+    assert.match(agents, /冲突时先指出冲突、影响与替代方案/, "冲突须给替代方案");
+    assert.match(agents, /\[blocking\]/, "blocking 标记");
+    assert.match(agents, /\[assumed\]/, "assumed 假设标记");
+    assert.match(agents, /待澄清/, "待澄清区段");
+    assert.match(agents, /blocking.*未清零时.*task ready.*拒绝/, "blocking 阻止 ready");
+    assert.match(agents, /不得以“完整方案＋是否正确”作为唯一确认/, "禁止一次性总确认");
     assert.match(agents, /想法登记/, "想法登记路径");
     assert.match(agents, /（Agent 建议，待确认）/, "Agent 建议标注");
     assert.match(agents, /复杂需求先拆分/, "复杂需求拆分提示");
     assert.match(agents, /创建同意不等于实施授权/, "创建同意与实施授权分开");
     assert.match(agents, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
-    assert.match(agents, /历史查询意愿/, "历史查询意愿触发规则");
+    assert.match(agents, /历史查询：需求澄清取证时可直接用/, "澄清取证可主动检索历史");
+    assert.match(agents, /普通对话仅在用户明确表达/, "普通对话仍按意愿检索");
     assert.match(agents, /knit task search/, "历史检索入口");
     assert.match(agents, /相关记录不等于证明因果/, "相关性与因果边界");
     assert.match(agents, /新事项先问是否建任务/, "先问任务选择");
@@ -82,7 +92,7 @@ test("init：AGENTS 受管块含创建前需求澄清门与复杂拆分提示（
     assert.match(agents, /明确不创建时同一事项持续有效/, "拒绝创建持续有效");
     assert.match(agents, /不能用“你做吧”代替/, "实施前补问任务选择");
     assert.match(agents, /用户明确“按这个做”等可同时确认范围与授权实施/, "明确实施可合并确认");
-    assert.match(agents, /归纳问题、范围、完成条件与待决事项/, "讨论可实施时归纳结构");
+    assert.match(agents, /收敛时给最终摘要（目标、范围内外、验收、关键决定、风险与延期、资料状态）/, "收敛摘要结构");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -617,6 +627,9 @@ test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
   assert.ok(block.includes("交付：主会话"));
   assert.ok(block.includes("创建任务不等于需求确认或实施授权"));
   assert.equal((block.match(/历史查询：/g) ?? []).length, 1, "受管块历史查询只出现一次");
+  assert.equal((block.match(/需求澄清门：/g) ?? []).length, 1, "受管块需求澄清协议只出现一次");
+  assert.ok(block.includes("不得以“完整方案＋是否正确”作为唯一确认"));
+  assert.ok(block.includes("「待澄清」区段"));
 });
 
 test("模板：阶段契约文档覆盖职责、停止条件、报告与 Trellis／GSD 来源", () => {
