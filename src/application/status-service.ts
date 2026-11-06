@@ -3,7 +3,7 @@
  * 查询不接收结果、不推进阶段、不重派 worker；耗时与活动只作观察。
  */
 import { existsSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
@@ -14,6 +14,7 @@ import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
 import { readWithVersion } from "../infrastructure/atomic.js";
 import { executionRouteOf } from "./worktree-routing.js";
+import { loadWorkflow, workflowStageOf } from "./workflow.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
@@ -26,6 +27,12 @@ export interface RunHeartbeat {
 }
 
 export interface RunStatusView extends RunStatusProjection {
+  /** 任务标题；任务文档缺失或不可读时为 null（归档任务仍可读到）。 */
+  taskTitle: string | null;
+  /** 任务目录名去掉日期前缀；任务文档缺失时为 null。 */
+  taskSlug: string | null;
+  /** 阶段显示名：生效流程中的 name，缺失或降级时退回 phase。 */
+  stageName: string;
   elapsedMs: number;
   /** 本 run 的执行目录；主检出路由为主检出根，worktree 路由为 worktree 路径（任务17）。 */
   executionDir: string;
@@ -41,6 +48,8 @@ export interface TaskStatusView {
   status: string;
   /** 任务阶段：锚点 start／deliver 或当前流程配置里的阶段 id。 */
   stage: string;
+  /** 阶段显示名：生效流程中的 name，缺失或降级时退回 stage。 */
+  stageName: string;
   outcome: string | null;
   branch: string | null;
   relativePath: string;
@@ -74,6 +83,7 @@ export interface StatusOverview {
     title: string;
     status: string;
     stage: string;
+    stageName: string;
     outcome: string | null;
     relativePath: string;
     archived: boolean;
@@ -126,8 +136,13 @@ export class StatusService {
         : null;
     // 心跳按本 run 的执行目录观察：worktree 路由的 project 锁不再占用主检出键（任务17）。
     const executionDir = await this.executionDirOf(root, runId);
+    const task = this.taskDocumentOf(root, projection.taskId);
+    const workflow = loadWorkflow(root).workflow;
     return {
       ...projection,
+      taskTitle: task?.title ?? null,
+      taskSlug: task?.slug ?? null,
+      stageName: workflowStageOf(workflow, projection.phase)?.name ?? projection.phase,
       elapsedMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
       executionDir,
       lastActivityAt,
@@ -139,6 +154,7 @@ export class StatusService {
   async taskStatus(root: string, taskId: string, locksRoot?: string): Promise<TaskStatusView> {
     const located = locateTaskDocument(root, taskId);
     const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
+    const workflow = loadWorkflow(root).workflow;
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
     const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
@@ -159,6 +175,7 @@ export class StatusService {
       title: document.frontmatter.title,
       status: document.frontmatter.status,
       stage: document.frontmatter.stage,
+      stageName: workflowStageOf(workflow, document.frontmatter.stage)?.name ?? document.frontmatter.stage,
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       relativePath: relative(root, join(located.dir, "task.md")),
@@ -183,6 +200,7 @@ export class StatusService {
 
   async overview(root: string, locksRoot?: string): Promise<StatusOverview> {
     const tasks: StatusOverview["tasks"] = [];
+    const workflow = loadWorkflow(root).workflow;
     const runsRoot = new RunStore(root).listRunIds();
     const allRuns: RunStatusView[] = [];
     for (const runId of runsRoot) {
@@ -199,6 +217,7 @@ export class StatusService {
         title: task.title,
         status: task.status,
         stage: task.stage,
+        stageName: workflowStageOf(workflow, task.stage)?.name ?? task.stage,
         outcome: task.outcome,
         relativePath: task.relativePath,
         archived: task.archived,
@@ -236,6 +255,18 @@ export class StatusService {
       }
     }
     return result;
+  }
+
+  /** 只读定位任务文档（含归档）；缺失或损坏按展示缺失处理，不影响 run 状态。 */
+  private taskDocumentOf(root: string, taskId: string): { title: string | null; slug: string } | null {
+    try {
+      const located = locateTaskDocument(root, taskId);
+      const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
+      const title = document.frontmatter.title.trim();
+      return { title: title === "" ? null : title, slug: basename(located.dir).replace(/^\d{2}-\d{2}-/, "") };
+    } catch {
+      return null;
+    }
   }
 
   private async taskRuns(root: string, taskId: string, locksRoot?: string): Promise<RunStatusView[]> {

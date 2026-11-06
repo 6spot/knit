@@ -54,10 +54,10 @@ export default function (pi: any) {
   const schemas = loadSchemas();
 
   /**
-   * 读取当前生效流程的阶段 id，供桥接 schema 派生。
+   * 读取当前生效流程的阶段 id 与显示名，供桥接 schema 与文本派生。
    * 配置不可读或已降级时返回 null：schema 保留字符串参数，由核心返回合法阶段清单。
    */
-  function readConfiguredStages(): string[] | null {
+  function readConfiguredWorkflow(): { ids: string[]; names: Record<string, string> } | null {
     const installation = readJson(join(root, ".knit", ".runtime", "installation.json"));
     if (typeof installation?.cliEntry !== "string" || !existsSync(installation.cliEntry)) return null;
     const result = spawnSync(process.execPath, [installation.cliEntry, "--json", "workflow", "show", "--dir", root], {
@@ -77,9 +77,69 @@ export default function (pi: any) {
     if (response?.outcome !== "completed" || data?.mode !== "config" || data?.validation?.ok !== true) return null;
     const stages = Array.isArray(data?.workflow?.stages) ? data.workflow.stages : [];
     const ids = stages.map((stage: any) => stage?.id).filter((id: any) => typeof id === "string" && id !== "");
-    return ids.length > 0 ? ids : null;
+    const names: Record<string, string> = {};
+    for (const stage of stages) {
+      if (typeof stage?.id !== "string" || stage.id === "") continue;
+      names[stage.id] = typeof stage.name === "string" && stage.name !== "" ? stage.name : stage.id;
+    }
+    return ids.length > 0 ? { ids, names } : null;
   }
-  const configuredStages = readConfiguredStages();
+  const configuredWorkflow = readConfiguredWorkflow();
+  const configuredStages = configuredWorkflow?.ids ?? null;
+
+  /** 阶段显示名：优先当前生效流程，缺失退回 id。 */
+  function stageNameOf(stage: string): string {
+    return configuredWorkflow?.names[stage] ?? stage;
+  }
+
+  /** 短 ID：类型前缀 + 前 6 位（k-8ed2d4、run-f991c4）。 */
+  function shortId(value: string): string {
+    const dash = value.indexOf("-");
+    if (dash === -1) return value;
+    return `${value.slice(0, dash + 1)}${value.slice(dash + 1, dash + 7)}`;
+  }
+
+  /** 人读标题上限 20 字，超出加省略号；JSON 保留全文。 */
+  function truncateTitle(value: string): string {
+    const chars = Array.from(value);
+    return chars.length > 20 ? `${chars.slice(0, 20).join("")}…` : value;
+  }
+
+  function titleOf(data: any): string | null {
+    for (const key of ["taskTitle", "title"]) {
+      if (typeof data?.[key] === "string" && data[key].trim() !== "") return data[key].trim();
+    }
+    return null;
+  }
+
+  /** 任务称呼：标题优先，缺失退 slug，再缺退短 ID。 */
+  function taskName(data: any, fallbackTaskId?: string): string {
+    const title = titleOf(data);
+    if (title !== null) return `「${truncateTitle(title)}」`;
+    if (typeof data?.taskSlug === "string" && data.taskSlug !== "") return data.taskSlug;
+    return shortId(typeof data?.taskId === "string" ? data.taskId : fallbackTaskId ?? "");
+  }
+
+  /** 标题／slug 后附短任务 ID；已经退回短 ID 时不重复。 */
+  function taskLabel(data: any, fallbackTaskId?: string): string {
+    const name = taskName(data, fallbackTaskId);
+    const taskId = shortId(typeof data?.taskId === "string" ? data.taskId : fallbackTaskId ?? "");
+    if (name === taskId) return taskId;
+    return titleOf(data) !== null ? `${name}${taskId}` : `${name}（${taskId}）`;
+  }
+
+  /** 阶段展示：显示名与 id 不同时并列。 */
+  function stageText(name: unknown, id: string, style: "space" | "paren"): string {
+    const label = typeof name === "string" && name !== "" ? name : id;
+    if (label === id) return id;
+    return style === "space" ? `${label} ${id}` : `${label}（${id}）`;
+  }
+
+  function currentTaskText(data: any, taskId: string): string {
+    const name = taskName(data, taskId);
+    const short = shortId(taskId);
+    return name === short ? short : `${name}（${short}）`;
+  }
 
   function stageEnum(values: string[]): any {
     return { anyOf: values.map((value) => ({ const: value })) };
@@ -159,13 +219,18 @@ export default function (pi: any) {
     return { code: result.code, response, stderr: result.stderr };
   }
 
-  function toolResult(result: { code: number; response: any; stderr: string; error?: string }) {
+  function toolResult(
+    result: { code: number; response: any; stderr: string; error?: string },
+    formatter?: (data: any) => string | null,
+  ) {
     const ok = result.error === undefined && result.code === 0 && result.response?.outcome === "completed";
-    const text = result.error ?? (result.response === null ? result.stderr : JSON.stringify(result.response));
+    const data = result.response?.data ?? null;
+    const readable = ok && formatter !== undefined ? formatter(data) : null;
+    const text = result.error ?? (result.response === null ? result.stderr : readable ?? JSON.stringify(result.response));
     return {
       isError: !ok,
       content: [{ type: "text", text: text || (ok ? "{}" : "Knit 调用失败") }],
-      details: result.response?.data ?? null,
+      details: data,
     };
   }
 
@@ -299,9 +364,12 @@ export default function (pi: any) {
       const signature = `${view.runId}:${resultState ?? view.state}`;
       if (notified(ctx).has(signature)) continue;
       const pending = resultState === "completed" && acceptanceState !== "completed";
+      const stage = typeof view.stageName === "string" && view.stageName !== "" ? view.stageName : view.phase;
+      const shortRunId = shortId(view.runId);
+      const outcome = view.result?.report?.verdict ?? resultState ?? view.state;
       const text = pending
-        ? `Knit run ${view.runId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
-        : `Knit run ${view.runId} ${resultState ?? view.state}${view.result?.report?.verdict ? ` / ${view.result.report.verdict}` : ""}；下一步：查看 status 或 resume。`;
+        ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
+        : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
       try {
         const busy = typeof ctx.isIdle === "function" ? !ctx.isIdle() : false;
         pi.sendMessage(
@@ -365,8 +433,8 @@ export default function (pi: any) {
       const materials = core(["task", "material", "list", taskId, "--dir", root]);
       const materialList: string[] = Array.isArray(materials.response?.data) ? materials.response.data : [];
       const activeRuns: any[] = Array.isArray(data.runs) ? data.runs.filter((run: any) => run.state === "running") : [];
-      lines.push(`当前任务: ${taskId}${data.title ? `「${data.title}」` : ""}`);
-      lines.push(`阶段: ${data.stage ?? "?"}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
+      lines.push(`当前任务：${currentTaskText(data, taskId)}`);
+      lines.push(`阶段：${stageText(data.stageName, data.stage ?? "?", "paren")}；状态: ${data.status ?? "?"}${data.outcome ? `；结果: ${data.outcome}` : ""}${data.branch ? `；分支: ${data.branch}` : ""}`);
       if (data.pendingDraft) lines.push(`待应用草案: ${data.pendingDraft.kind ?? "?"}（${data.pendingDraft.digest?.slice(0, 12) ?? ""}）——先应用或撤回再进入后续阶段`);
       if (activeRuns.length > 0) lines.push(`活动运行: ${activeRuns.map((run: any) => `${run.runId}(${run.state ?? "?"})`).join(", ")}——活动运行使用冻结输入`);
       lines.push(`任务入口: .knit/${data.relativePath ?? `tasks/…`}`);
@@ -434,7 +502,8 @@ export default function (pi: any) {
       const children = Array.isArray(entry.children) && entry.children.length > 0
         ? ` · 子任务 ${entry.children.length - (Array.isArray(entry.openChildren) ? entry.openChildren.length : 0)}/${entry.children.length}`
         : "";
-      return `  - ${entry.taskId}「${entry.title ?? "无标题"}」${entry.stage ? ` · ${entry.stage}` : ""}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
+      const stage = entry.stage ? ` · 阶段：${stageText(entry.stageName, entry.stage, "paren")}` : "";
+      return `  - ${taskLabel(entry)}${stage}${entry.outcome ? ` · ${entry.outcome}` : ""}${entry.archived ? " · 已归档" : ""}${parent}${children}`;
     };
     // task search：命中数组，每项带 kind／path／line／ref／snippet。
     if (tokens[0] === "task" && tokens[1] === "search" && Array.isArray(data)) {
@@ -463,15 +532,26 @@ export default function (pi: any) {
       const lines = [`任务（${data.tasks.length}）：`];
       lines.push(...(data.tasks.length > 0 ? data.tasks.map((entry: any) => joinOutcome({ ...entry, archived: entry.archived === true })) : ["  - （无）"]));
       lines.push(`活跃运行（${runs.length}）：`);
-      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}`) : ["  - （无）"]));
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${taskLabel(run)}${typeof run.stageName === "string" ? run.stageName : run.phase ?? "?"} · ${shortId(run.runId)} · ${run.state ?? "?"}`) : ["  - （无）"]));
+      return lines.join("\n");
+    }
+    // run 状态（status --run）：{ runId, taskId, phase, stageName, state, result, acceptance, ... }。
+    if (tokens[0] === "status" && typeof data.runId === "string" && typeof data.taskId === "string" && !Array.isArray(data.runs)) {
+      const lines = [
+        `任务：${taskLabel(data)}（阶段：${stageText(data.stageName, data.phase ?? "?", "space")}）`,
+        `  run ${data.runId}: ${data.state ?? "?"}（启动 ${data.launchState ?? "?"}，尝试 ${data.attempts ?? "?"}）；任务 ID: ${data.taskId}`,
+      ];
+      if (data.result) lines.push(`  结果: ${data.result.state ?? "?"}${data.result.report?.verdict ? ` / ${data.result.report.verdict}` : ""}`);
+      if (data.acceptance) lines.push(`  接收: ${data.acceptance.state ?? "?"}${data.acceptance.reason ? `（${data.acceptance.reason}）` : ""}`);
       return lines.join("\n");
     }
     // 按任务查询（仅 status <taskId>）：{ taskId, title, stage, status, runs, ... }（任务042）。
     if (tokens[0] === "status" && tokens.length >= 2 && typeof data.taskId === "string") {
       const runs = Array.isArray(data.runs) ? data.runs : [];
       const lines = [
-        `${data.taskId}「${data.title ?? "无标题"}」`,
-        `  状态: ${data.status ?? "?"} · 阶段: ${data.stage ?? "?"}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
+        taskLabel(data),
+        `  任务 ID: ${data.taskId}`,
+        `  状态: ${data.status ?? "?"} · 阶段：${stageText(data.stageName, data.stage ?? "?", "paren")}${data.outcome ? ` · 结果: ${data.outcome}` : ""}${data.archived ? " · 已归档" : ""}${data.branch ? ` · 分支: ${data.branch}` : ""}`,
       ];
       if (data.parent) lines.push(`  父任务: ${data.parent}`);
       if (Array.isArray(data.children) && data.children.length > 0) {
@@ -480,7 +560,7 @@ export default function (pi: any) {
       }
       if (data.pendingDraft) lines.push(`  待应用草案: ${data.pendingDraft.kind ?? "?"}`);
       lines.push(`  运行（${runs.length}）：`);
-      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${run.runId} · ${run.phase ?? "?"} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
+      lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${shortId(run.runId)} · ${stageText(run.stageName, run.phase ?? "?", "paren")} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
       return lines.join("\n");
     }
     // 其它对象：键值摘要，不混入诊断。
@@ -582,7 +662,7 @@ export default function (pi: any) {
         if (id === null) return failText(`非法 taskId: ${params.taskId}`);
         args.splice(1, 0, id);
       }
-      return toolResult(core(args));
+      return toolResult(core(args), (data) => describeQuery(["status"], data));
     },
   });
 
@@ -807,10 +887,29 @@ export default function (pi: any) {
       const model = ctx?.model;
       const provider = params.provider ?? (typeof model?.provider === "string" ? model.provider : undefined);
       const modelId = params.model ?? (typeof model?.id === "string" ? model.id : undefined);
-      if (params.action === "list") return toolResult(core(["run", "list", "--dir", root]));
+      if (params.action === "list") {
+        return toolResult(core(["run", "list", "--dir", root]), (data) => {
+          if (!Array.isArray(data)) return null;
+          if (data.length === 0) return "暂无 run。";
+          const taskCache = new Map<string, any>();
+          const lines = [`run（${data.length}）：`];
+          for (const run of data) {
+            let taskData = taskCache.get(run.taskId);
+            if (taskData === undefined) {
+              const taskStatus = core(["status", run.taskId, "--dir", root]);
+              taskData = taskStatus.code === 0 && taskStatus.response?.outcome === "completed" ? taskStatus.response.data : null;
+              taskCache.set(run.taskId, taskData);
+            }
+            const label = taskLabel({ ...(taskData ?? {}), taskId: run.taskId });
+            const stage = typeof run.stageName === "string" && run.stageName !== "" ? run.stageName : stageNameOf(run.phase);
+            lines.push(`  - ${label}${stage}：${shortId(run.runId)} ${run.state ?? "?"}${run.presentation ? `（${run.presentation}）` : ""}`);
+          }
+          return lines.join("\n");
+        });
+      }
       if (params.action === "status") {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run status 需要合法 runId");
-        return toolResult(core(["status", "--run", params.runId, "--dir", root]));
+        return toolResult(core(["status", "--run", params.runId, "--dir", root]), (data) => describeQuery(["status"], data));
       }
       if (params.action === "resume") {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run resume 需要合法 runId");
@@ -844,7 +943,16 @@ export default function (pi: any) {
         const status = waitForRun(runId);
         if (status.response?.data?.state !== undefined) data = { ...data, status: status.response.data };
       }
-      return toolResult({ code: 0, response: { ...prepared.response, data }, stderr: started.stderr });
+      return toolResult({ code: 0, response: { ...prepared.response, data }, stderr: started.stderr }, (resultData) => {
+        const taskStatus = core(["status", params.taskId, "--dir", root]);
+        const taskData = taskStatus.code === 0 && taskStatus.response?.outcome === "completed" ? taskStatus.response.data : null;
+        const stage = typeof taskData?.stageName === "string" && taskData.stageName !== "" ? taskData.stageName : stageNameOf(String(params.action));
+        const header = `任务：${taskLabel({ ...(taskData ?? {}), taskId: params.taskId })}（阶段：${stageText(stage, String(params.action), "space")}）`;
+        const runInfo = typeof resultData?.request?.runId === "string"
+          ? `run ${resultData.request.runId}: ${resultData?.launch?.state ?? resultData?.state ?? "已准备"}`
+          : "";
+        return [header, runInfo, JSON.stringify(resultData)].filter((line) => line !== "").join("\n");
+      });
     },
   });
 

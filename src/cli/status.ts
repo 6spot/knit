@@ -32,6 +32,38 @@ function terminal(state: string): boolean {
   return state === "completed" || state === "cancelled" || state === "failed";
 }
 
+/** 短 ID：类型前缀 + 前 6 位（k-8ed2d4、run-f991c4）。 */
+function shortId(id: string): string {
+  const dash = id.indexOf("-");
+  if (dash === -1) return id;
+  return `${id.slice(0, dash + 1)}${id.slice(dash + 1, dash + 7)}`;
+}
+
+/** 人读标题上限 20 字，超出加省略号；JSON 保留全文。 */
+function truncateTitle(title: string): string {
+  const chars = Array.from(title);
+  return chars.length > 20 ? `${chars.slice(0, 20).join("")}…` : title;
+}
+
+/** 任务标签：标题优先，缺失退 slug，再缺退短 ID；有标题时短 ID 紧随其后。 */
+function taskLabel(view: {
+  taskId: string;
+  title?: string | null;
+  taskTitle?: string | null;
+  taskSlug?: string | null;
+}): string {
+  const title = (view.taskTitle ?? view.title ?? "").trim();
+  if (title !== "") return `「${truncateTitle(title)}」${shortId(view.taskId)}`;
+  if (typeof view.taskSlug === "string" && view.taskSlug !== "") return `${view.taskSlug}（${shortId(view.taskId)}）`;
+  return shortId(view.taskId);
+}
+
+/** 阶段展示：显示名与 id 不同时并列，避免只看到配置 id。 */
+function stageLabel(name: string, id: string, style: "space" | "paren"): string {
+  if (name === "" || name === id) return id;
+  return style === "space" ? `${name} ${id}` : `${name}（${id}）`;
+}
+
 export function registerStatusCommands(program: Command): void {
   const jsonMode = () => program.opts().json || process.env.KNIT_JSON === "1";
   const fail = (requestId: string, error: unknown): void => {
@@ -82,8 +114,9 @@ export function registerStatusCommands(program: Command): void {
           return;
         }
         if ("taskId" in result && "latestRun" in result) {
-          console.log(`任务 ${result.taskId}: ${result.status}/${result.stage}${result.outcome ? `/${result.outcome}` : ""}`);
-          console.log(`标题: ${result.title}`);
+          console.log(`任务：${taskLabel(result)}${result.archived ? "（已归档）" : ""}`);
+          console.log(`任务 ID: ${result.taskId}；状态: ${result.status}${result.outcome ? `/${result.outcome}` : ""}`);
+          console.log(`阶段：${stageLabel(result.stageName, result.stage, "paren")}`);
           console.log(`分支: ${result.branch ?? "未绑定"}；位置: ${result.relativePath}${result.archived ? "（已归档）" : ""}`);
           console.log(`运行: ${result.runs.length} 个（活动 ${result.activeRuns}）；完成验证: ${result.verification}；最近检查: ${result.lastCheckRunId ?? "无"}`);
           console.log(`优先级: ${result.priority}；前置依赖: ${result.dependsOn.length === 0 ? "无" : result.dependsOn.join(", ")}`);
@@ -103,6 +136,7 @@ export function registerStatusCommands(program: Command): void {
             if (run.heartbeat !== null) console.log(`心跳: ${run.heartbeat.at}（${run.heartbeat.verdict}）`);
           }
         } else if ("runId" in result && "elapsedMs" in result) {
+          console.log(`任务：${taskLabel(result)}（阶段：${stageLabel(result.stageName, result.phase, "space")}）`);
           console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}）`);
           console.log(`任务: ${result.taskId} / ${result.phase}；耗时 ${formatMs(result.elapsedMs)}`);
           console.log(`呈现: ${result.presentation}（来源 ${result.presentationSource}）${result.presentationFallbackReason ? `；回退原因: ${result.presentationFallbackReason}` : ""}`);
@@ -124,10 +158,10 @@ export function registerStatusCommands(program: Command): void {
         } else {
           console.log(`项目状态 ${result.generatedAt}：活动任务 ${result.tasks.filter((task) => !task.archived).length}，活动 run ${result.activeRuns.length}`);
           for (const task of result.tasks.filter((item) => !item.archived)) {
-            console.log(`  ${task.taskId}  ${task.status}/${task.stage}  ${task.title}${task.activeRuns > 0 ? `  (run ${task.activeRuns})` : ""}`);
+            console.log(`  ${taskLabel({ taskId: task.taskId, title: task.title })}  ${task.status}/${stageLabel(task.stageName, task.stage, "paren")}${task.activeRuns > 0 ? `  (run ${task.activeRuns})` : ""}`);
           }
           for (const run of result.activeRuns) {
-            console.log(`  ${run.runId}  ${run.phase}/${run.state}  ${formatMs(run.elapsedMs)}  ${run.lastEvent ?? ""}`);
+            console.log(`  ${taskLabel(run)}${stageLabel(run.stageName, run.phase, "paren")}  ${shortId(run.runId)}  ${run.state}  ${formatMs(run.elapsedMs)}  ${run.lastEvent ?? ""}`);
           }
         }
       } catch (error) {

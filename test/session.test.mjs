@@ -595,13 +595,15 @@ test("CLI task ready：无参拒绝；--session 使用已落盘选择并区分 p
     const missingHuman = spawnSync(process.execPath, [CLI, "task", "ready", "--dir", dir], { encoding: "utf8" });
     assert.equal(missingHuman.status, 1);
     assert.doesNotMatch(missingHuman.stdout + missingHuman.stderr, /undefined/);
-    assert.match(missingHuman.stderr, /task_id_required/);
+    assert.match(missingHuman.stderr, /缺少 taskId：knit task ready <taskId>；或先 knit task use <taskId> --session <id> 再用 --session 解析（task_id_required）/);
 
     const task = await tasks.newTask({ dir, title: "ready session", slug: "ready-session" });
     const attached = await session.attach({ dir, kind: "main", role: "implement" });
     const noSelection = run(["task", "ready", "--session", attached.record.knitSessionId]);
     assert.equal(noSelection.status, 1);
     assert.equal(JSON.parse(noSelection.stdout).data.reason, "selection_missing");
+    const noSelectionHuman = spawnSync(process.execPath, [CLI, "task", "ready", "--session", attached.record.knitSessionId, "--dir", dir], { encoding: "utf8" });
+    assert.match(noSelectionHuman.stderr, /当前会话没有可用任务选择：先 knit task use <taskId> --session <id>，或直接提供 <taskId>（selection_missing）/);
 
     await session.useTask({
       dir,
@@ -612,6 +614,8 @@ test("CLI task ready：无参拒绝；--session 使用已落盘选择并区分 p
     const pending = run(["task", "ready", "--session", attached.record.knitSessionId]);
     assert.equal(pending.status, 1);
     assert.equal(JSON.parse(pending.stdout).data.reason, "selection_pending");
+    const pendingHuman = spawnSync(process.execPath, [CLI, "task", "ready", "--session", attached.record.knitSessionId, "--dir", dir], { encoding: "utf8" });
+    assert.match(pendingHuman.stderr, /当前会话的任务选择尚未落盘：先结束当前轮次让选择落盘，或直接提供 <taskId>（selection_pending）/);
 
     // 落盘的原生选择才是可用权威；ready 直接使用该任务，无需再传 taskId。
     const nativeId = "ready-native";

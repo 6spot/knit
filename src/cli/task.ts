@@ -448,15 +448,18 @@ export function registerTaskCommands(program: Command): void {
     .action(async (taskId, options) => {
       const requestId = `task-ready-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       let resolvedTaskId = typeof taskId === "string" ? taskId.trim() : "";
-      const rejectBeforeResolve = (reason: string): void => {
+      const rejectBeforeResolve = (reason: string, message: string): void => {
         process.exitCode = 1;
         if (jsonMode()) emit(jsonResponse(requestId, "error", { reason }, "invalid_request"));
-        else console.error(`knit: ${reason}`);
+        else console.error(`knit: ${message}（${reason}）`);
       };
       if (resolvedTaskId === "") {
         const sessionId = typeof options.session === "string" ? options.session.trim() : "";
         if (sessionId === "") {
-          rejectBeforeResolve("task_id_required");
+          rejectBeforeResolve(
+            "task_id_required",
+            "缺少 taskId：knit task ready <taskId>；或先 knit task use <taskId> --session <id> 再用 --session 解析",
+          );
           return;
         }
         const store = openStore(options.dir);
@@ -469,7 +472,12 @@ export function registerTaskCommands(program: Command): void {
             const pending =
               resolution.reason === "selection_not_persisted" ||
               (record !== null && record.selection !== null && record.selection.persisted === false);
-            rejectBeforeResolve(pending ? "selection_pending" : "selection_missing");
+            rejectBeforeResolve(
+              pending ? "selection_pending" : "selection_missing",
+              pending
+                ? "当前会话的任务选择尚未落盘：先结束当前轮次让选择落盘，或直接提供 <taskId>"
+                : "当前会话没有可用任务选择：先 knit task use <taskId> --session <id>，或直接提供 <taskId>",
+            );
             return;
           }
         } catch (error) {

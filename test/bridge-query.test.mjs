@@ -11,9 +11,20 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
+import { RunStore } from "../dist/infrastructure/run-store.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const BRIDGE_TEMPLATE = join(import.meta.dirname, "..", "assets", "templates", "pi", "extensions", "knit.ts");
+
+function shortId(id) {
+  const dash = id.indexOf("-");
+  return `${id.slice(0, dash + 1)}${id.slice(dash + 1, dash + 7)}`;
+}
+
+function truncateTitle(title) {
+  return `${Array.from(title).slice(0, 20).join("")}…`;
+}
 
 function project(prefix) {
   const dir = mkdtempSync(join(tmpdir(), `knit-042-${prefix}-`));
@@ -32,12 +43,14 @@ function project(prefix) {
 function makeHostStub() {
   const commands = new Map();
   const notifications = [];
+  const messages = [];
   const handlers = new Map();
   const tools = new Map();
   const pi = {
     on: (name, handler) => handlers.set(name, handler),
     registerCommand: (name, definition) => commands.set(name, definition),
     registerTool: (definition) => tools.set(definition.name, definition),
+    sendMessage: (message, options) => messages.push({ message, options }),
     appendEntry: (customType, data) => {
       entries.push({ type: "custom", customType, id: `entry-${entries.length + 1}`, parentId: null, data });
       // 与真实宿主一致：条目自然落盘到会话文件（resolveSelection 读原生路径）。
@@ -59,7 +72,7 @@ function makeHostStub() {
       getEntries: () => entries,
     },
   };
-  return { commands, notifications, pi, ctx, handlers, tools, systemPromptOptions, setSessionFile: (path) => { sessionFile = path; } };
+  return { commands, notifications, messages, pi, ctx, handlers, tools, systemPromptOptions, setSessionFile: (path) => { sessionFile = path; } };
 }
 
 /** 生成带 session 头与选择条目的原生会话文件（stub 会话管理器的真实文件）。 */
@@ -208,8 +221,8 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     host.systemPromptOptions.sections = {};
     await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
     const second = host.systemPromptOptions.sections.knit;
-    assert.match(second, new RegExp(taskId));
-    assert.match(second, /阶段: start/);
+    assert.match(second, new RegExp(`当前任务：「注入任务」（${shortId(taskId)}）`));
+    assert.match(second, /阶段：start/);
     assert.match(second, /任务入口: \.knit\//);
     assert.match(second, /按当前阶段推进/);
     assert.doesNotMatch(second, /workflow\.md/);
@@ -219,6 +232,12 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(second, /规范沉淀：/);
     assert.match(second, /交付：实施与检查结果由主会话接收/);
     assert.equal((second.match(/历史查询:/g) ?? []).length, 1, "任务注入的历史查询只出现一次");
+
+    // 阶段行使用配置显示名；不显示内部 id 作为主标签。
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    assert.match(host.systemPromptOptions.sections.knit, /阶段：实现（implement）/);
 
     // 规划资料出现在注入。
     execFileSync(process.execPath, [CLI, "--json", "task", "material", "save", taskId, "plan.md", "--dir", dir], { encoding: "utf8", input: "# 计划\n" });
@@ -346,6 +365,116 @@ test("桥接读取坏配置失败时退回字符串参数，不静默通过（P6
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit_run 文本同口径", async () => {
+  const dir = project("display-labels");
+  try {
+    const title = "桥接通知标题用于验证展示截断行为并超过二十字";
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+
+    await host.commands.get("knit").handler(`task new --title ${title} --slug bridge-display`, host.ctx);
+    const list = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { encoding: "utf8" }));
+    const taskId = list.data.active[0].taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    const taskFile = join(dir, ".knit", list.data.active[0].relativePath, "task.md");
+    writeFileSync(taskFile, readFileSync(taskFile, "utf8").replace(/^stage: .*$/m, "stage: check"));
+
+    const runA = prepareBridgeRun(dir, taskId, "check");
+    finishBridgeRun(dir, runA, "pass");
+    const dbPath = join(dir, ".knit", ".runtime", "metadata.db");
+    const db = new SqliteMetadataStore(dbPath);
+    await db.operations.setState(runA.acceptanceOperationId, "completed");
+    db.close();
+
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(host.messages.length, 1, "终态通知已投递");
+    const notice = host.messages[0].message.content;
+    assert.match(notice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runA.runId)} pass；下一步：`), "通知先给标题与阶段名，run 用短 ID");
+    assert.match(notice, new RegExp(runA.runId), "下一步保留完整 run ID");
+
+    // 待同步：结果已发布但尚未接收；保留“不要重复实施”措辞。
+    const runB = prepareBridgeRun(dir, taskId, "check");
+    finishBridgeRun(dir, runB, "pass");
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(host.messages.length, 2);
+    const pendingNotice = host.messages[1].message.content;
+    assert.match(pendingNotice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runB.runId)} 已完成，结果待同步`));
+    assert.match(pendingNotice, /不要重复实施/);
+
+    // 每轮上下文：标题与短任务 ID 同行，阶段行带配置显示名。
+    execFileSync(process.execPath, [CLI, "--json", "task", "use", taskId, "--session", resolveMain(dir), "--entry", "sel-display", "--persisted", "--dir", dir], { encoding: "utf8" });
+    appendFileSync(nativeFile, JSON.stringify({ timestamp: "2026-11-02T00:00:02.000Z", type: "custom", customType: "knit.selection", id: "sel-display", parentId: null, data: { taskId, branch: "refs/heads/main", operationId: "sel-display-op" } }) + "\n");
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const context = host.systemPromptOptions.sections.knit;
+    assert.match(context, new RegExp(`当前任务：「${truncateTitle(title)}」（${shortId(taskId)}）`));
+    assert.match(context, /阶段：检查（check）/);
+
+    // knit_status／knit_run 的文本结果同样标题与阶段名优先。
+    const statusTool = await host.tools.get("knit_status").execute("s1", { runId: runA.runId }, null, null, host.ctx);
+    assert.equal(statusTool.isError, false, statusTool.content?.[0]?.text ?? "");
+    assert.match(statusTool.content[0].text, new RegExp(`^任务：「${truncateTitle(title)}」${shortId(taskId)}（阶段：检查 check）`));
+    const runTool = await host.tools.get("knit_run").execute("r1", { action: "status", runId: runA.runId }, null, null, host.ctx);
+    assert.equal(runTool.isError, false, runTool.content?.[0]?.text ?? "");
+    assert.match(runTool.content[0].text, new RegExp(`^任务：「${truncateTitle(title)}」${shortId(taskId)}（阶段：检查 check）`));
+    const runList = await host.tools.get("knit_run").execute("r2", { action: "list" }, null, null, host.ctx);
+    assert.equal(runList.isError, false, runList.content?.[0]?.text ?? "");
+    assert.match(runList.content[0].text, new RegExp(`「${truncateTitle(title)}」${shortId(taskId)}检查：${shortId(runA.runId)}`));
+
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function prepareBridgeRun(dir, taskId, stage) {
+  const prepared = JSON.parse(execFileSync(process.execPath, [
+    CLI, "--json", "run", "prepare", "--stage", stage, "--task", taskId,
+    "--client", "pi", "--native", "stub-session", "--provider", "test", "--model", "fake", "--dir", dir,
+  ], { encoding: "utf8" }));
+  assert.equal(prepared.outcome, "completed", prepared.data?.error ?? "");
+  return prepared.data.request;
+}
+
+function finishBridgeRun(dir, request, verdict) {
+  const now = new Date().toISOString();
+  const runs = new RunStore(dir);
+  runs.writeState(request.runId, {
+    schemaVersion: 1,
+    runId: request.runId,
+    taskId: request.taskId,
+    phase: request.phase,
+    workflowMode: request.workflowMode ?? "config",
+    state: "completed",
+    worker: { workerId: "stub-worker", pid: 1, bootId: "stub-boot", procStartTicks: null, hostname: "stub-host" },
+    claimedAt: now,
+    updatedAt: now,
+    prepared: true,
+    preparedAt: now,
+    snapshot: { state: "ready", digest: null, entries: null, reason: null },
+    reason: null,
+  });
+  runs.writeResult(request.runId, {
+    schemaVersion: 1,
+    runId: request.runId,
+    taskId: request.taskId,
+    phase: request.phase,
+    state: "completed",
+    report: { summary: "展示标签测试", validation: ["bridge fixture"], blockers: [], verdict },
+    reportSummary: "展示标签测试",
+    nativeEntries: { startEntryId: null, leafEntryId: null },
+    usage: { inputTokens: null, outputTokens: null },
+    session: null,
+    actualChangedPaths: [],
+    acceptanceOperationId: request.acceptanceOperationId,
+    recordedAt: now,
+    failureReason: null,
+    workflowMode: request.workflowMode ?? "config",
+  });
+}
 
 function resolveMain(dir) {
   const sessionJson = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "session", "list", "--dir", dir], { encoding: "utf8" }));
