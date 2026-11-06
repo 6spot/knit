@@ -74,4 +74,10 @@ title: 统一 run status 展示口径：标题与阶段名、去掉重复的旧�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-unify-run-status-labels
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-402e41c8e813 -->
+- 任务资料提交: 480a4694b2c2a2e76817546d7b0e939035d20439
+- 归档目标: .knit/tasks/archive/2026-11/11-06-unify-run-status-labels
+
 <!-- knit:progress:end -->
