@@ -91,4 +91,10 @@ self：实施者运行受影响测试、`npm test`（全量失败若是既有环
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-bridge-notice-wake-only-actionable
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-73d1ead907b5 -->
+- 任务资料提交: 6ada8e0629ab1b05792607cbdab42012d6c09126
+- 归档目标: .knit/tasks/archive/2026-11/11-06-bridge-notice-wake-only-actionable
+
 <!-- knit:progress:end -->
