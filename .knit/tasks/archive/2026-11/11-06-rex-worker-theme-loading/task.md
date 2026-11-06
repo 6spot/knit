@@ -86,4 +86,10 @@ self：实施者运行受影响测试与 `npm test`（全量失败若是既有�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-rex-worker-theme-loading
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d6e06fbc8081 -->
+- 任务资料提交: 930d77fb2a1be5e6f1b8a764b5402b489a9076ca
+- 归档目标: .knit/tasks/archive/2026-11/11-06-rex-worker-theme-loading
+
 <!-- knit:progress:end -->
