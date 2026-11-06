@@ -107,4 +107,10 @@ A–F 已确认，协议与实现点落在 design.md；未实施。
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-requirement-intake-depth
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1fa9c2507943 -->
+- 任务资料提交: 398b02f312d981b546c82f29acedc431ffa4fcfb
+- 归档目标: .knit/tasks/archive/2026-11/11-06-requirement-intake-depth
+
 <!-- knit:progress:end -->
