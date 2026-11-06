@@ -81,4 +81,10 @@ fake pi 在 `set_model` 失败时先写 stderr 再回响应；响应经 stdout �
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-startup-stderr-race
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d2dc6bfab98c -->
+- 任务资料提交: 19aca8ece92428747bf2d3bc34c193b551c533f6
+- 归档目标: .knit/tasks/archive/2026-11/11-06-startup-stderr-race
+
 <!-- knit:progress:end -->
