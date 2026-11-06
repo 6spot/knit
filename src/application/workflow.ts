@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import type { RunStageDefinition } from "../contracts/run.js";
-import { DEFAULT_WORKFLOW_YAML, parseWorkflow, type WorkflowDefinition, type WorkflowLoadResult, type WorkflowStage } from "../domain/workflow.js";
+import { DEFAULT_WORKFLOW_YAML, WORKFLOW_ANCHOR_NAMES, parseWorkflow, workflowStageDisplayName, type WorkflowDefinition, type WorkflowLoadResult, type WorkflowStage } from "../domain/workflow.js";
 import { isDecisionStage } from "../domain/report.js";
 import type { WorkflowMode } from "../contracts/workflow.js";
 import { defaultConfig, parseConfig } from "./config.js";
@@ -83,19 +83,14 @@ export function legalStageList(workflow: WorkflowDefinition, includeAnchors = tr
   return ids.length === 0 ? "无" : ids.join("、");
 }
 
-const ANCHOR_NAMES: Record<string, string> = {
-  start: "准备",
-  deliver: "收尾",
-};
-
 const ANCHOR_DESCRIPTIONS: Record<string, string> = {
   start: "需求澄清、任务选择与实施授权",
   deliver: "交付协调、归档与结果汇报",
 };
 
 function displayNameOf(workflow: WorkflowDefinition, stage: string, frozen: WorkflowStage | null = null): string {
-  if (stage in ANCHOR_NAMES) return ANCHOR_NAMES[stage]!;
-  return workflowStageOf(workflow, stage)?.name ?? (frozen?.id === stage ? frozen.name : stage);
+  return workflowStageOf(workflow, stage)?.name
+    ?? (frozen?.id === stage ? frozen.name : workflowStageDisplayName(workflow, stage));
 }
 
 function completionConditionOf(
@@ -135,11 +130,11 @@ export function stageBriefOf(
   fallbackReason: string | null = null,
   frozenStage: WorkflowStage | null = null,
 ): string {
-  const chain = ["准备", ...workflow.stages.map((entry) => entry.name), "收尾"].join(" → ");
+  const chain = [WORKFLOW_ANCHOR_NAMES.start, ...workflow.stages.map((entry) => entry.name), WORKFLOW_ANCHOR_NAMES.deliver].join(" → ");
   const current = displayNameOf(workflow, stage, frozenStage);
   const definition = workflowStageOf(workflow, stage);
   const effective = definition ?? (frozenStage?.id === stage ? frozenStage : null);
-  const fallbackLegacy = mode === "fallback" && effective === null && !(stage in ANCHOR_NAMES);
+  const fallbackLegacy = mode === "fallback" && effective === null && !(stage in WORKFLOW_ANCHOR_NAMES);
   const configuredGoal = stage in ANCHOR_DESCRIPTIONS ? ANCHOR_DESCRIPTIONS[stage] : effective?.description;
   const goal = fallbackLegacy
     ? "配置降级：按默认 agent 行为执行"

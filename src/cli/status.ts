@@ -9,6 +9,7 @@ import { StatusService } from "../application/status-service.js";
 import { doctor, storage } from "../application/diagnostics.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
+import { shortId, stageLabel, taskLabel } from "./display.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -30,38 +31,6 @@ function formatMs(ms: number): string {
 
 function terminal(state: string): boolean {
   return state === "completed" || state === "cancelled" || state === "failed";
-}
-
-/** 短 ID：类型前缀 + 前 6 位（k-8ed2d4、run-f991c4）。 */
-function shortId(id: string): string {
-  const dash = id.indexOf("-");
-  if (dash === -1) return id;
-  return `${id.slice(0, dash + 1)}${id.slice(dash + 1, dash + 7)}`;
-}
-
-/** 人读标题上限 20 字，超出加省略号；JSON 保留全文。 */
-function truncateTitle(title: string): string {
-  const chars = Array.from(title);
-  return chars.length > 20 ? `${chars.slice(0, 20).join("")}…` : title;
-}
-
-/** 任务标签：标题优先，缺失退 slug，再缺退短 ID；有标题时短 ID 紧随其后。 */
-function taskLabel(view: {
-  taskId: string;
-  title?: string | null;
-  taskTitle?: string | null;
-  taskSlug?: string | null;
-}): string {
-  const title = (view.taskTitle ?? view.title ?? "").trim();
-  if (title !== "") return `「${truncateTitle(title)}」${shortId(view.taskId)}`;
-  if (typeof view.taskSlug === "string" && view.taskSlug !== "") return `${view.taskSlug}（${shortId(view.taskId)}）`;
-  return shortId(view.taskId);
-}
-
-/** 阶段展示：显示名与 id 不同时并列，避免只看到配置 id。 */
-function stageLabel(name: string, id: string, style: "space" | "paren"): string {
-  if (name === "" || name === id) return id;
-  return style === "space" ? `${name} ${id}` : `${name}（${id}）`;
 }
 
 export function registerStatusCommands(program: Command): void {
@@ -137,8 +106,7 @@ export function registerStatusCommands(program: Command): void {
           }
         } else if ("runId" in result && "elapsedMs" in result) {
           console.log(`任务：${taskLabel(result)}（阶段：${stageLabel(result.stageName, result.phase, "space")}）`);
-          console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}）`);
-          console.log(`任务: ${result.taskId} / ${result.phase}；耗时 ${formatMs(result.elapsedMs)}`);
+          console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}；耗时 ${formatMs(result.elapsedMs)}）`);
           console.log(`呈现: ${result.presentation}（来源 ${result.presentationSource}）${result.presentationFallbackReason ? `；回退原因: ${result.presentationFallbackReason}` : ""}`);
           if (result.workflowMode !== null) console.log(`流程模式: ${result.workflowMode}`);
           // 执行目录锁是 project 锁的实际键；主检出路由与现在输出等价（任务17）。

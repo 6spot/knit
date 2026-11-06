@@ -65,6 +65,18 @@ export interface WorkflowDefinition {
   defaultMaxVisits: number | null;
 }
 
+/** 内置锚点显示名；配置阶段仍用各自声明的 name。 */
+export const WORKFLOW_ANCHOR_NAMES: Readonly<Record<WorkflowAnchor, string>> = {
+  start: "准备",
+  deliver: "收尾",
+};
+
+/** 阶段显示名：内置锚点用固定名，配置阶段用 name，缺失退回 id。 */
+export function workflowStageDisplayName(workflow: WorkflowDefinition, stage: string): string {
+  if (isWorkflowAnchor(stage)) return WORKFLOW_ANCHOR_NAMES[stage];
+  return workflow.stages.find((entry) => entry.id === stage)?.name ?? stage;
+}
+
 export interface ParseWorkflowOptions {
   /**
    * config.workflow.maxRepairRounds 的当前值，作为阶段 maxVisits 的缺省。

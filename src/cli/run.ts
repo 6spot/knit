@@ -13,6 +13,7 @@ import { reportStringArrayField, reportVerdictLabel } from "../contracts/run.js"
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
+import { stageLabel, taskLabel } from "./display.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
@@ -314,6 +315,7 @@ export function registerRunCommands(program: Command): void {
           const status = await new StatusService({ store, locksRoot: options.locks }).runStatus(root, runId, options.locks);
           if (jsonMode()) emit(jsonResponse("run-status", "completed", status));
           else {
+            console.log(`任务：${taskLabel(status)}（阶段：${stageLabel(status.stageName, status.phase, "space")}）`);
             console.log(`run ${status.runId}: ${status.state}（启动 ${status.launchState}，尝试 ${status.attempts}）`);
             console.log(`呈现: ${status.presentation}（来源 ${status.presentationSource}）${status.presentationFallbackReason ? `；回退原因: ${status.presentationFallbackReason}` : ""}`);
             console.log(`准备: ${status.prepared}；快照: ${status.snapshot?.state ?? "无"}；耗时 ${status.elapsedMs}ms`);

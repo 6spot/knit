@@ -14,7 +14,8 @@ import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
 import { readWithVersion } from "../infrastructure/atomic.js";
 import { executionRouteOf } from "./worktree-routing.js";
-import { loadWorkflow, workflowStageOf } from "./workflow.js";
+import { loadWorkflow } from "./workflow.js";
+import { workflowStageDisplayName } from "../domain/workflow.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
@@ -142,7 +143,7 @@ export class StatusService {
       ...projection,
       taskTitle: task?.title ?? null,
       taskSlug: task?.slug ?? null,
-      stageName: workflowStageOf(workflow, projection.phase)?.name ?? projection.phase,
+      stageName: workflowStageDisplayName(workflow, projection.phase),
       elapsedMs: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
       executionDir,
       lastActivityAt,
@@ -175,7 +176,7 @@ export class StatusService {
       title: document.frontmatter.title,
       status: document.frontmatter.status,
       stage: document.frontmatter.stage,
-      stageName: workflowStageOf(workflow, document.frontmatter.stage)?.name ?? document.frontmatter.stage,
+      stageName: workflowStageDisplayName(workflow, document.frontmatter.stage),
       outcome: document.frontmatter.outcome,
       branch: document.frontmatter.branch,
       relativePath: relative(root, join(located.dir, "task.md")),
@@ -217,7 +218,7 @@ export class StatusService {
         title: task.title,
         status: task.status,
         stage: task.stage,
-        stageName: workflowStageOf(workflow, task.stage)?.name ?? task.stage,
+        stageName: workflowStageDisplayName(workflow, task.stage),
         outcome: task.outcome,
         relativePath: task.relativePath,
         archived: task.archived,
