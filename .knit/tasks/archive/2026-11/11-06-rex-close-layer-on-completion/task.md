@@ -117,4 +117,10 @@ self：实施者运行 `npm test`，在报告写 `changedPaths` 与 `validation`
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-rex-close-layer-on-completion
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-ac2b10a52869 -->
+- 任务资料提交: c13bc423f995585d2341b85a9186ceff2a613c11
+- 归档目标: .knit/tasks/archive/2026-11/11-06-rex-close-layer-on-completion
+
 <!-- knit:progress:end -->
