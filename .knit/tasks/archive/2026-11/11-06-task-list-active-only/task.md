@@ -110,4 +110,10 @@ title: task list 默认只列活跃任务，归档走专门入口
 - 业务产物、任务资料、归档移动按 artifact／metadata／archive 三次提交完成，提交信息标 `(forced)`；
 - 流程缺口（主会话实施的任务无法走 self 完成）留作后续处理。
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:forced -->
+- 任务资料提交: 79fae41bdaa1338cfdedc6599fe1bd2b1d1dae9c
+- 归档目标: .knit/tasks/archive/2026-11/11-06-task-list-active-only
+
 <!-- knit:progress:end -->
