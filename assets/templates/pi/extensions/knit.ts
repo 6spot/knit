@@ -359,11 +359,14 @@ export default function (pi: any) {
       }
       const resultState = view.result?.state ?? null;
       const acceptanceState = view.acceptance?.state ?? null;
-      const terminal = ["completed", "cancelled", "failed"].includes(resultState ?? view.state);
+      const noticeState = resultState ?? view.state;
+      const terminal = ["completed", "cancelled", "failed"].includes(noticeState);
       if (!terminal) continue;
-      const signature = `${view.runId}:${resultState ?? view.state}`;
+      const signature = `${view.runId}:${noticeState}`;
       if (notified(ctx).has(signature)) continue;
       const pending = resultState === "completed" && acceptanceState !== "completed";
+      // 失败、取消或结果待接收才需要处理；完成且已接收的通知只进入下一轮上下文（DESIGN §9.3）。
+      const needsAction = noticeState === "failed" || noticeState === "cancelled" || (noticeState === "completed" && acceptanceState !== "completed");
       const stage = typeof view.stageName === "string" && view.stageName !== "" ? view.stageName : view.phase;
       const shortRunId = shortId(view.runId);
       const outcome = view.result?.report?.verdict ?? resultState ?? view.state;
@@ -371,13 +374,12 @@ export default function (pi: any) {
         ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
         : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
       try {
-        const busy = typeof ctx.isIdle === "function" ? !ctx.isIdle() : false;
         pi.sendMessage(
-          { customType: NOTICE_ENTRY, content: text, display: true, details: { runId: view.runId, state: resultState ?? view.state, acceptance: acceptanceState, signature } },
-          busy ? { deliverAs: "followUp", triggerTurn: true } : { triggerTurn: false },
+          { customType: NOTICE_ENTRY, content: text, display: true, details: { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature } },
+          needsAction ? { deliverAs: "followUp", triggerTurn: true } : { deliverAs: "nextTurn", triggerTurn: false },
         );
-        pi.appendEntry(NOTICE_ENTRY, { signature, runId: view.runId, state: resultState ?? view.state });
-        diag("notice_sent", { runId: view.runId, state: resultState ?? view.state });
+        pi.appendEntry(NOTICE_ENTRY, { signature, runId: view.runId, state: noticeState });
+        diag("notice_sent", { runId: view.runId, state: noticeState });
       } catch (error) {
         diag("notice_failed", { runId: view.runId, reason: String(error) });
       }

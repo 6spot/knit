@@ -430,3 +430,28 @@ test("CLI：--rex 与 --local 冲突报 invalid_request；帮助与桥接不再�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("桥接通知：仅需处理时唤醒，completed+accepted 以 nextTurn 进入下一轮", () => {
+  const bridge = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
+  assert.equal(bridge, readFileSync(join(ROOT, ".pi", "extensions", "knit.ts"), "utf8"), "两份桥接保持一致");
+
+  const rule = bridge.match(/const needsAction = ([^;]+);/);
+  assert.ok(rule, "桥接显式计算 needsAction");
+  const needsAction = new Function("noticeState", "acceptanceState", `return (${rule[1]});`);
+  assert.equal(needsAction("failed", null), true, "失败需处理");
+  assert.equal(needsAction("cancelled", null), true, "取消需处理");
+  assert.equal(needsAction("completed", null), true, "完成但结果未接收需处理");
+  assert.equal(needsAction("completed", "pending"), true, "结果待接收需处理");
+  assert.equal(needsAction("completed", "completed"), false, "完成且已接收不唤醒");
+
+  const delivery = bridge.match(/needsAction\s*\?\s*(\{[^}]*\})\s*:\s*(\{[^}]*\})/);
+  assert.ok(delivery, "投递策略按 needsAction 分流");
+  assert.match(delivery[1], /deliverAs: "followUp".*triggerTurn: true/, "需处理走 followUp 并唤醒");
+  assert.match(delivery[2], /deliverAs: "nextTurn".*triggerTurn: false/, "被动通知只进入下一轮上下文");
+  assert.doesNotMatch(bridge, /ctx\.isIdle|busy \?/, "不再按 busy 无差别唤醒");
+
+  const design = readFileSync(join(ROOT, "docs", "design", "DESIGN.md"), "utf8");
+  const section = design.slice(design.indexOf("### 9.3"), design.indexOf("### 9.4"));
+  assert.match(section, /失败、取消或结果待接收/, "DESIGN §9.3 记录唤醒条件");
+  assert.match(section, /nextTurn/, "DESIGN §9.3 记录被动投递");
+});

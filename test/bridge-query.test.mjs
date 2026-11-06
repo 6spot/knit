@@ -391,6 +391,7 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
 
     await host.handlers.get("agent_settled")({}, host.ctx);
     assert.equal(host.messages.length, 1, "终态通知已投递");
+    assert.deepEqual(host.messages[0].options, { deliverAs: "nextTurn", triggerTurn: false }, "完成且已接收：只进入下一轮上下文，不唤醒");
     const notice = host.messages[0].message.content;
     assert.match(notice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runA.runId)} pass；下一步：`), "通知先给标题与阶段名，run 用短 ID");
     assert.match(notice, new RegExp(runA.runId), "下一步保留完整 run ID");
@@ -400,9 +401,18 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
     finishBridgeRun(dir, runB, "pass");
     await host.handlers.get("agent_settled")({}, host.ctx);
     assert.equal(host.messages.length, 2);
+    assert.deepEqual(host.messages[1].options, { deliverAs: "followUp", triggerTurn: true }, "结果待接收：唤醒主 Agent");
     const pendingNotice = host.messages[1].message.content;
     assert.match(pendingNotice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runB.runId)} 已完成，结果待同步`));
     assert.match(pendingNotice, /不要重复实施/);
+
+    // 失败：仍需处理，保持唤醒。
+    const runC = prepareBridgeRun(dir, taskId, "check");
+    finishBridgeRun(dir, runC, "failed", "failed");
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(host.messages.length, 3, "失败终态通知已投递");
+    assert.deepEqual(host.messages[2].options, { deliverAs: "followUp", triggerTurn: true }, "失败：需处理并唤醒主 Agent");
+    assert.match(host.messages[2].message.content, /failed/, "失败通知如实展示终态");
 
     // 每轮上下文：标题与短任务 ID 同行，阶段行带配置显示名。
     execFileSync(process.execPath, [CLI, "--json", "task", "use", taskId, "--session", resolveMain(dir), "--entry", "sel-display", "--persisted", "--dir", dir], { encoding: "utf8" });
@@ -439,7 +449,7 @@ function prepareBridgeRun(dir, taskId, stage) {
   return prepared.data.request;
 }
 
-function finishBridgeRun(dir, request, verdict) {
+function finishBridgeRun(dir, request, verdict, state = "completed") {
   const now = new Date().toISOString();
   const runs = new RunStore(dir);
   runs.writeState(request.runId, {
@@ -448,7 +458,7 @@ function finishBridgeRun(dir, request, verdict) {
     taskId: request.taskId,
     phase: request.phase,
     workflowMode: request.workflowMode ?? "config",
-    state: "completed",
+    state,
     worker: { workerId: "stub-worker", pid: 1, bootId: "stub-boot", procStartTicks: null, hostname: "stub-host" },
     claimedAt: now,
     updatedAt: now,
@@ -462,16 +472,16 @@ function finishBridgeRun(dir, request, verdict) {
     runId: request.runId,
     taskId: request.taskId,
     phase: request.phase,
-    state: "completed",
-    report: { summary: "展示标签测试", validation: ["bridge fixture"], blockers: [], verdict },
-    reportSummary: "展示标签测试",
+    state,
+    report: state === "completed" ? { summary: "展示标签测试", validation: ["bridge fixture"], blockers: [], verdict } : null,
+    reportSummary: state === "completed" ? "展示标签测试" : null,
     nativeEntries: { startEntryId: null, leafEntryId: null },
     usage: { inputTokens: null, outputTokens: null },
     session: null,
     actualChangedPaths: [],
     acceptanceOperationId: request.acceptanceOperationId,
     recordedAt: now,
-    failureReason: null,
+    failureReason: state === "failed" ? "fixture failed" : null,
     workflowMode: request.workflowMode ?? "config",
   });
 }
