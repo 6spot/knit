@@ -39,7 +39,7 @@ stages:
     name: 实现
     description: 按 task.md 完成产出并运行范围验证
     prompt: .knit/agents/implement.md
-    tools: []
+    tools: [read, write, exec]
     report:
       changedPaths: paths
       unverified: string[]
@@ -47,7 +47,7 @@ stages:
     name: 检查
     description: 独立核对完成条件与实现成果
     prompt: .knit/agents/check.md
-    tools: []
+    tools: [read, exec]
     report:
       verdict: [pass, changes_requested, blocked]
       coverage: string[]

@@ -16,9 +16,13 @@
   "workflow": {
     "maxRepairRounds": 2
   },
-  "phases": {
-    "implement": { "model": "magpie/group/deepseek" },
-    "check": { "model": "magpie/group/deepseek" }
+  "scheduler": {
+    "maxConcurrent": 1,
+    "maxAttempts": 1
+  },
+  "worktree": {
+    "default": "off",
+    "cleanup": "manual"
   },
   "limits": {
     "heartbeatIntervalMs": 5000,
