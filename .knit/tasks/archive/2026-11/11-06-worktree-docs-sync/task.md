@@ -84,4 +84,10 @@ Worktree 已实现（CLI、8 个测试文件、6 个已完成任务、合入与�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-worktree-docs-sync
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1f975a8e5658 -->
+- 任务资料提交: 9eb1ce004236971e546ffd69ecedae8d4ce47d1b
+- 归档目标: .knit/tasks/archive/2026-11/11-06-worktree-docs-sync
+
 <!-- knit:progress:end -->
