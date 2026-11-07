@@ -29,7 +29,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { ensurePrivateDir } from "../infrastructure/private-mode.js";
 import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
-import { gitSync, machineBootId, procStartTicks } from "../infrastructure/process.js";
+import { gitSync, machineBootId, procStartTicks, sameProcessStart } from "../infrastructure/process.js";
 import { LockManager, orderKeys, type LockKey } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
@@ -673,7 +673,7 @@ function processAlive(pid: number, bootId: string, ticks: string | null): "alive
   }
   const current = procStartTicks(pid);
   if (current === null || ticks === null) return "alive";
-  return current === ticks ? "alive" : "not_alive";
+  return sameProcessStart(ticks, current) ? "alive" : "not_alive";
 }
 
 function lockActivity(locks: LockManager, keys: LockKey[]): ActivityVerdict {

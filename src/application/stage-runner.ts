@@ -72,6 +72,10 @@ export interface StageRunnerOptions {
   /** 与项目执行锁同源的锁管理器；传入后阶段独占该 Session 锁。 */
   locks?: LockManager;  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
   lostOwnership?: () => string | null;
+  /** Session 锁心跳间隔；缺省 5 秒，与项目配置 limits.heartbeatIntervalMs 一致。 */
+  heartbeatIntervalMs?: number;
+  /** 阶段 Pi 进程登记回调（worker 登记到执行目录锁 owner）；null 表示已退出。 */
+  onStageProcess?: (pid: number | null) => void;
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
   /** 测试注入；缺省创建真实 RexLauncher。 */
   rexLauncherFactory?: (options: RexLauncherOptions) => RexLauncher;
@@ -211,6 +215,10 @@ export class StageRunner {
   private readonly cancelGraceMs: number;
   private readonly locks: LockManager | null;
   private readonly lostOwnership: (() => string | null) | null;
+  private readonly heartbeatIntervalMs: number;
+  private readonly onStageProcess: ((pid: number | null) => void) | null;
+  /** 当前持有的 Session 锁；阶段进程登记与心跳使用。 */
+  private activeSessionLock: AcquiredLock | null = null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
   private readonly rexLauncherFactory: NonNullable<StageRunnerOptions["rexLauncherFactory"]>;
   private readonly workflow: WorkflowDefinition;
@@ -234,6 +242,8 @@ export class StageRunner {
     this.cancelGraceMs = options.cancelGraceMs ?? 5_000;
     this.locks = options.locks ?? null;
     this.lostOwnership = options.lostOwnership ?? null;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
+    this.onStageProcess = options.onStageProcess ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
     this.rexLauncherFactory = options.rexLauncherFactory ?? ((launcherOptions) => new RexLauncher(launcherOptions));
     const loaded = loadWorkflow(this.executionDir);
@@ -306,6 +316,28 @@ export class StageRunner {
         }
       }
     }
+    this.activeSessionLock = sessionLock;
+    for (const record of sessionLock?.reclaimed ?? []) {
+      this.runs.appendEvent(this.request.runId, {
+        event: "lock_reclaimed",
+        lockId: record.id,
+        previousAction: record.previousOwner.action,
+        previousPid: record.previousOwner.pid,
+        archive: record.archive,
+      });
+    }
+    // Session 锁随阶段长期持有：按心跳间隔刷新 heartbeatAt；失败只记事件，占用核实仍以进程身份为准。
+    const sessionHeartbeat = setInterval(() => {
+      const lock = this.activeSessionLock;
+      if (lock === null || this.locks === null) return;
+      void this.locks.heartbeat(lock).catch((error: unknown) => {
+        this.runs.appendEvent(this.request.runId, {
+          event: "session_lock_heartbeat_failed",
+          reason: error instanceof InfrastructureError ? error.code : "lock_heartbeat_failed",
+        });
+      });
+    }, this.heartbeatIntervalMs);
+    sessionHeartbeat.unref?.();
     try {
     if (this.request.presentation === "rex") {
       return await this.executeRexStage(session, systemPrompt, userPrompt, runtimeTools);
@@ -375,6 +407,7 @@ export class StageRunner {
       // 旧会话锁先释放再切换；新锁拿不到则按会话占用失败终止，不与其它 run 共用对象。
       if (sessionLock !== null && this.locks !== null) this.locks.release(sessionLock);
       sessionLock = fallbackSession.sessionLock;
+      this.activeSessionLock = sessionLock;
       if (this.locks !== null && sessionLock === null) {
         await runtime.dispose(1_000).catch(() => null);
         return this.failure(session, "session_lock_unavailable", null, null, null);
@@ -516,6 +549,8 @@ export class StageRunner {
           // 退出记录失败不覆盖已经产生的执行结果；现场仍可由 stage-process 旧版本与进程表核实。
         }
       }
+      clearInterval(sessionHeartbeat);
+      this.activeSessionLock = null;
       if (sessionLock !== null && this.locks !== null) this.locks.release(sessionLock);
     }
   }
@@ -554,6 +589,25 @@ export class StageRunner {
     }
   }
 
+  /**
+   * 把阶段 Pi 登记到 Session 锁与（经回调）执行目录锁 owner：worker 被强杀而 Pi 仍在时，
+   * 自动回收据此拒绝回收。登记失败不改变阶段结果，残留时仍需人工核实。
+   */
+  private registerStageProcess(pid: number | null): void {
+    if (this.activeSessionLock !== null && this.locks !== null) {
+      try {
+        this.locks.attachProcess(this.activeSessionLock, pid);
+      } catch {
+        // 版本冲突或 owner 丢失：心跳路径会报告占用异常
+      }
+    }
+    try {
+      this.onStageProcess?.(pid);
+    } catch {
+      // 同上
+    }
+  }
+
   private writeStageProcess(
     session: PreparedSession,
     state: "starting" | "running" | "exited",
@@ -561,6 +615,7 @@ export class StageRunner {
     startedAt: string,
   ): void {
     const identity = currentIdentity();
+    this.registerStageProcess(state === "running" ? piPid : null);
     this.runs.writeStageProcess(this.request.runId, {
       schemaVersion: 1,
       runId: this.request.runId,

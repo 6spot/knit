@@ -3,15 +3,16 @@
  * 不创建目录、不迁移数据库、不写日志；容量只作提示。
  */
 import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseConfig, defaultConfig, schedulerSettingsOf, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { loadWorkflow } from "./workflow.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { PROTOCOL_VERSION } from "../contracts/protocol.js";
-import { normalizeRoot } from "../infrastructure/paths.js";
-import { LockManager } from "../infrastructure/locks.js";
+import { hashKey, normalizeRoot } from "../infrastructure/paths.js";
+import { LockManager, heartbeatState, type LockEntry, type LockReclaimRecord } from "../infrastructure/locks.js";
 import { withReadOnlyDatabase } from "../infrastructure/sqlite-readonly.js";
 import { countGcCandidates } from "./gc.js";
 import { parseTaskDocument } from "./task-document.js";
@@ -161,6 +162,55 @@ function completionEvidenceGaps(root: string): string[] {
   return gaps;
 }
 
+/**
+ * 锁条目是否属于本项目（只读判定，不建目录）：
+ * project／task 键以主检出根、`<根>::`、`schedule:<根>` 或本项目 worktree 容器为前缀；
+ * session 键按本项目 run 阶段进程记录中的原生 ID，或与本项目锁 owner 同一进程身份判定。
+ */
+export function locksForProject<T extends LockEntry>(root: string, entries: T[]): T[] {
+  const worktreeRoots = [
+    join(root, ".knit", "worktrees") + "/",
+    join(homedir(), ".knit", "worktrees", `${basename(root)}-${hashKey(root).slice(0, 8)}`) + "/",
+  ];
+  const ownsKey = (key: string): boolean =>
+    key === root ||
+    key.startsWith(`${root}::`) ||
+    key === `schedule:${root}` ||
+    worktreeRoots.some((prefix) => key.startsWith(prefix));
+  const sessionKeys = new Set<string>();
+  const runsDir = join(root, RUNTIME, "runs");
+  try {
+    for (const name of readdirSync(runsDir)) {
+      const stage = readJson(join(runsDir, name, "stage-process.json"));
+      if (typeof stage?.nativeSessionId === "string") sessionKeys.add(`pi:${stage.nativeSessionId}`);
+    }
+  } catch {
+    // 无 run 记录
+  }
+  const projectOwners = new Set<string>();
+  for (const entry of entries) {
+    if (entry.scope !== "session" && entry.key !== null && ownsKey(entry.key) && entry.owner !== null) {
+      projectOwners.add(`${entry.owner.machineBootId}\u0000${entry.owner.pid}\u0000${entry.owner.procStartTicks ?? ""}`);
+    }
+  }
+  return entries.filter((entry) => {
+    if (entry.key === null) return false;
+    if (entry.scope !== "session") return ownsKey(entry.key);
+    if (sessionKeys.has(entry.key)) return true;
+    const owner = entry.owner;
+    return owner !== null && projectOwners.has(`${owner.machineBootId}\u0000${owner.pid}\u0000${owner.procStartTicks ?? ""}`);
+  });
+}
+
+/** 自动回收记录是否属于本项目：按回收时记录的业务键同规则判定。 */
+export function reclaimsForProject(root: string, records: LockReclaimRecord[]): LockReclaimRecord[] {
+  const asEntries = records.map((record) => ({
+    exists: true, owner: record.previousOwner, processVerdict: "not_alive" as const,
+    scope: record.scope, id: record.id, hash: record.id.split("/")[1] ?? "", path: "", key: record.key, record,
+  }));
+  return locksForProject(root, asEntries).map((entry) => entry.record);
+}
+
 export function doctor(input: { dir: string; piBin?: string; locksRoot?: string }): DoctorResult {
   const root = normalizeRoot(input.dir);
   const checks: DiagnosticCheck[] = [];
@@ -228,22 +278,35 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
     add("locks", "warn", "锁根尚未创建（首次代码阶段会创建）");
   } else {
     try {
-      const entries = new LockManager({ root: locksRoot }).list();
+      const manager = new LockManager({ root: locksRoot });
+      const entries = manager.list();
       const stale = entries.filter((entry) => entry.exists && entry.processVerdict === "not_alive").length;
+      const reclaimable = entries.filter((entry) => manager.reclaimable(entry)).length;
       const unknown = entries.filter((entry) => entry.exists && entry.processVerdict === "unknown").length;
       const alive = entries.filter((entry) => entry.processVerdict === "alive").length;
       const staleAfter = config.config?.limits.heartbeatStaleMs ?? defaultConfig().limits.heartbeatStaleMs;
-      const staleHeartbeat = entries.filter((entry) => {
-        if (entry.processVerdict !== "alive" || entry.owner === null) return false;
-        const at = Date.parse(entry.owner.heartbeatAt);
-        return Number.isFinite(at) && Date.now() - at > staleAfter;
-      }).length;
+      const nowMs = Date.now();
+      const aliveEntries = entries.filter((entry) => entry.processVerdict === "alive" && entry.owner !== null);
+      const staleHeartbeat = aliveEntries.filter((entry) => heartbeatState(entry.owner, nowMs, staleAfter) === "stale");
+      const freshHeartbeat = aliveEntries.filter((entry) => heartbeatState(entry.owner, nowMs, staleAfter) === "fresh").length;
+      const reclaims = reclaimsForProject(root, manager.listReclaimed());
+      const lastReclaim = reclaims[0];
+      const parts = [
+        `总计 ${entries.length}`,
+        `alive ${alive}（心跳正常 ${freshHeartbeat}，心跳超 ${staleAfter}ms ${staleHeartbeat.length}${staleHeartbeat.length > 0 ? `: ${staleHeartbeat.map((entry) => entry.id).join(", ")}` : ""}）`,
+        `stale ${stale}（下次取锁可自动回收 ${reclaimable}）`,
+        `unknown ${unknown}`,
+      ];
+      if (lastReclaim !== undefined) {
+        parts.push(`本项目自动回收 ${reclaims.length} 次，最近 ${lastReclaim.reclaimedAt} ${lastReclaim.id}（原 ${lastReclaim.previousOwner.action} pid=${lastReclaim.previousOwner.pid}）`);
+      }
       add(
         "locks",
-        entries.length === 0 || (stale === 0 && unknown === 0 && staleHeartbeat === 0) ? "ok" : "warn",
+        entries.length === 0 || (stale === 0 && unknown === 0 && staleHeartbeat.length === 0) ? "ok" : "warn",
         entries.length === 0
-          ? `${locksRoot}（无锁记录）`
-          : `${locksRoot}；总计 ${entries.length}，alive ${alive}，stale ${stale}，unknown ${unknown}，心跳超 ${staleAfter}ms ${staleHeartbeat}；解锁需 owner token 与 --force 限制`,
+          ? `${locksRoot}（无锁记录${lastReclaim === undefined ? "" : `；${parts[parts.length - 1]}`}）`
+          : `${locksRoot}；${parts.join("，")}；心跳超时只表示可疑，回收以进程核实为准；` +
+            "同一启动周期内确认已死的 owner 由下次取锁自动回收，unknown 需 knit locks 核实后 knit unlock <lock-id> --expect-token <token> [--force]",
       );
     } catch (error) {
       add("locks", "warn", `锁记录无法读取: ${error instanceof Error ? error.message : String(error)}`);

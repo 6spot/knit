@@ -1869,7 +1869,15 @@ test("SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有
       writes: [{ path: "README.md", content: "# orphan\n" }],
       report: { summary: "不应完成", changedPaths: ["README.md"] },
     });
-    await s.coordinator.start({ dir, runId: prepared.request.runId });
+    // 等假 Pi 收到 prompt（delayMs 计时器保活）再强杀 worker：prompt 未送达时假 Pi 事件循环为空会自然退出，
+    // 旧锁随即可自动回收，resume 就不再拒绝。
+    const promptFile = join(dir, ".knit", ".runtime", `prompt-${prepared.request.runId}.txt`);
+    process.env.KNIT_FAKE_PROMPT_FILE = promptFile;
+    try {
+      await s.coordinator.start({ dir, runId: prepared.request.runId });
+    } finally {
+      delete process.env.KNIT_FAKE_PROMPT_FILE;
+    }
     let status;
     for (let attempt = 0; attempt < 300; attempt += 1) {
       status = await s.coordinator.status({ dir, runId: prepared.request.runId });
@@ -1877,6 +1885,10 @@ test("SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     assert.equal(status?.stageProcess?.state, "running");
+    for (let attempt = 0; attempt < 300 && !existsSync(promptFile); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(existsSync(promptFile), true, "假 Pi 已收到 prompt");
     const launch = new RunStore(dir).readLaunch(prepared.request.runId);
     assert.notEqual(launch?.handle, null);
     process.kill(launch.handle.pid, "SIGKILL");

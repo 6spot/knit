@@ -9,9 +9,9 @@ import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { sha256Text, sha256Bytes, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fingerprint.js";
 import { normalizeRoot, hashKey, safeJoin } from "../dist/infrastructure/paths.js";
 import { InfrastructureError } from "../dist/infrastructure/errors.js";
-import { LockManager, orderKeys, currentIdentity, procStartTicks } from "../dist/infrastructure/locks.js";
+import { LockManager, orderKeys, currentIdentity, procStartTicks, heartbeatState, parseLockId } from "../dist/infrastructure/locks.js";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
-import { ArgvGitPort, NodeProcessPort, gitSync, processTreePids, signalProcessTree } from "../dist/infrastructure/process.js";
+import { ArgvGitPort, NodeProcessPort, gitSync, parseProcessTablePs, processTreePids, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
 import { decideStartStep, decideStepCheckpoint, decideComplete, decideAbandon, findStepByIdempotencyKey, newOperation } from "../dist/infrastructure/operations.js";
 
 function freshDir(prefix) {
@@ -196,6 +196,11 @@ test("文件事实：absent 如实记录，不抛错；链接按目标、文件�
   }
 });
 
+/** 必然存活的他者身份（pid 1 与其真实启动标识）：核实为 alive／unknown，绝不会被自动回收。 */
+function liveForeignIdentity() {
+  return { pid: 1, procStartTicks: procStartTicks(1), machineBootId: currentIdentity().machineBootId };
+}
+
 function lockManagerFor(root, overrides = {}) {
   return new LockManager({ root, now: () => new Date(), ...overrides });
 }
@@ -208,7 +213,7 @@ test("锁：占用互斥、owner 记录与 token 释放", async () => {
     const acquired = await manager.acquire({ keys: [key], action: "test" });
     assert.ok(acquired.token);
     // 第二个管理者（不同进程身份）被拒
-    const rival = lockManagerFor(root, { identity: { pid: 1, procStartTicks: "1", machineBootId: currentIdentity().machineBootId } });
+    const rival = lockManagerFor(root, { identity: liveForeignIdentity() });
     await assert.rejects(
       () => rival.acquire({ keys: [key], action: "rival" }),
       (error) => error.code === "lock_busy",
@@ -241,7 +246,7 @@ test("锁：多键失败按 token 释放本次已取得锁", async () => {
   const root = freshDir("locks-multi");
   try {
     const manager = lockManagerFor(root);
-    const rival = lockManagerFor(root, { identity: { pid: 2, procStartTicks: "2", machineBootId: currentIdentity().machineBootId } });
+    const rival = lockManagerFor(root, { identity: liveForeignIdentity() });
     // 对手先持有第二键
     const second = { scope: "session", rawKey: "pi/native-s-1" };
     await rival.acquire({ keys: [second], action: "rival" });
@@ -517,7 +522,7 @@ test("锁：同 Session 跨项目是同一把 session 锁", async () => {
     const sessionKey = { scope: "session", rawKey: "pi/01a1981c-6f75-749d-b9c2-7e5c897950a6" };
     await manager.acquire({ keys: [{ scope: "project", rawKey: "/tmp/project-a" }, sessionKey], action: "project-a" });
     // 另一项目复用同一原生会话：session 键冲突，即使项目键不同
-    const rival = lockManagerFor(root, { identity: { pid: 3, procStartTicks: "3", machineBootId: currentIdentity().machineBootId } });
+    const rival = lockManagerFor(root, { identity: liveForeignIdentity() });
     await assert.rejects(
       () => rival.acquire({ keys: [{ scope: "project", rawKey: "/tmp/project-b" }, sessionKey], action: "project-b" }),
       (error) => error.code === "lock_busy",
@@ -880,4 +885,201 @@ test("锁：权限不足显式失败，不创建假占用", async () => {
     chmodSync(parent, 0o700);
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+// k-6f0616f3779d：崩溃锁自动回收、心跳观察与 lock-id 解除。
+async function killedHolder(root, keys) {
+  const locksModule = join(import.meta.dirname, "..", "dist", "infrastructure", "locks.js");
+  const script = join(root, "killed-holder.mjs");
+  writeFileSync(
+    script,
+    `import { LockManager } from ${JSON.stringify(locksModule)};\n` +
+      `const m = new LockManager({ root: process.argv[2] });\n` +
+      `await m.acquire({ keys: JSON.parse(process.argv[3]), action: "crashed.worker" });\n` +
+      `console.log("HELD");\n` +
+      `setInterval(() => {}, 1000);\n`,
+  );
+  const holder = spawn(process.execPath, [script, join(root, "locks"), JSON.stringify(keys)], { stdio: ["ignore", "pipe", "inherit"] });
+  await new Promise((resolve, reject) => {
+    let output = "";
+    holder.stdout.on("data", (chunk) => {
+      output += String(chunk);
+      if (output.includes("HELD")) resolve();
+    });
+    holder.once("exit", (code) => reject(new Error(`holder exited early: ${code}`)));
+  });
+  const exited = new Promise((resolve) => holder.once("exit", resolve));
+  holder.kill("SIGKILL");
+  await exited;
+  return holder.pid;
+}
+
+test("锁回收：SIGKILL 后同启动周期 not_alive 的 project/session 锁由下次 acquire 原子回收并留记录", async () => {
+  const root = freshDir("locks-reclaim");
+  try {
+    const project = { scope: "project", rawKey: "/tmp/reclaim-project" };
+    const session = { scope: "session", rawKey: "pi:reclaim-session" };
+    const deadPid = await killedHolder(root, [project, session]);
+    const manager = new LockManager({ root: join(root, "locks") });
+    const before = manager.inspect(project);
+    assert.equal(before.processVerdict, "not_alive");
+    assert.equal(manager.reclaimable(before), true);
+    const acquired = await manager.acquire({ keys: [project, session], action: "next" });
+    assert.equal(acquired.reclaimed?.length, 2, "两把残留锁均被回收");
+    assert.deepEqual(acquired.reclaimed.map((record) => record.scope), ["project", "session"]);
+    for (const record of acquired.reclaimed) {
+      assert.equal(record.reason, "owner_not_alive");
+      assert.equal(record.previousOwner.pid, deadPid);
+      assert.equal(record.previousOwner.action, "crashed.worker");
+      assert.equal(record.reclaimedBy.action, "next");
+      assert.ok(existsSync(join(root, "locks", "reclaimed", record.archive, "reclaim.json")), "回收区保存记录");
+      assert.ok(existsSync(join(root, "locks", "reclaimed", record.archive, "owner.json")), "原 owner 随目录改名保留");
+      assert.equal(existsSync(join(root, "locks", "reclaimed", record.archive, ".reclaiming")), false, "回收守卫已清理");
+    }
+    assert.equal(manager.inspect(project).owner.token, acquired.token, "重建后由新 owner 持有");
+    const listed = manager.listReclaimed();
+    assert.equal(listed.length, 2);
+    assert.ok(listed.every((record) => record.previousOwner.pid === deadPid));
+    manager.release(acquired);
+    assert.equal(manager.inspect(project).exists, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("锁回收：owner 存活、跨启动周期 unknown、owner 缺失与附属进程存活时均不回收", async () => {
+  const root = freshDir("locks-no-reclaim");
+  try {
+    const key = { scope: "project", rawKey: "/tmp/no-reclaim" };
+    const holder = lockManagerFor(root);
+    const held = await holder.acquire({ keys: [key], action: "alive" });
+    const rival = lockManagerFor(root, { identity: liveForeignIdentity() });
+    await assert.rejects(() => rival.acquire({ keys: [key], action: "rival" }), (error) => {
+      assert.equal(error.code, "lock_busy");
+      assert.equal(error.details.processVerdict, "alive");
+      assert.equal(error.details.ownerAction, "alive");
+      assert.equal(error.details.ownerPid, process.pid);
+      assert.match(error.message, /action=alive pid=\d+ 进程核实=alive/);
+      assert.ok(error.details.nextActions.length > 0);
+      return true;
+    });
+    holder.release(held);
+
+    const ownerPath = join(root, "projects", hashKey(key.rawKey), "owner.json");
+    const deadOwner = (extra) => {
+      mkdirSync(dirname(ownerPath), { recursive: true });
+      writeFileSync(ownerPath, JSON.stringify({
+        protocol: 1, token: "dead1", action: "crashed", scope: "project", rawKey: key.rawKey,
+        machineBootId: currentIdentity().machineBootId, pid: 2 ** 22 + 12345, procStartTicks: "1",
+        startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(), ...extra,
+      }));
+    };
+    // 跨启动周期：unknown，不回收
+    deadOwner({ machineBootId: "other-boot" });
+    await assert.rejects(() => rival.acquire({ keys: [key], action: "rival" }), (error) => {
+      assert.equal(error.details.processVerdict, "unknown");
+      assert.match(error.details.nextActions.join(" "), /knit unlock project\/[0-9a-f]{32} --expect-token dead1 --force/);
+      return true;
+    });
+    // 附属进程（阶段 Pi）仍存活：not_alive 但不回收
+    deadOwner({ attached: [{ pid: process.pid, procStartTicks: procStartTicks(process.pid) }] });
+    await assert.rejects(() => rival.acquire({ keys: [key], action: "rival" }), (error) => {
+      assert.equal(error.details.processVerdict, "not_alive");
+      assert.equal(error.details.attachedAlive, true);
+      return true;
+    });
+    // owner 缺失：unknown 残留，不回收
+    rmSync(ownerPath);
+    await assert.rejects(() => rival.acquire({ keys: [key], action: "rival" }), (error) => error.details.processVerdict === "unknown");
+    assert.equal(rival.listReclaimed().length, 0, "上述情形均未回收");
+    // 附属进程也已死：回收
+    deadOwner({ attached: [{ pid: 2 ** 22 + 12346, procStartTicks: "2" }] });
+    const acquired = await rival.acquire({ keys: [key], action: "rival" });
+    assert.equal(acquired.reclaimed?.[0]?.previousOwner.token, "dead1");
+    rival.release(acquired);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("锁回收：另一回收者守卫进行中时 busy，守卫超时后清除重试", async () => {
+  const root = freshDir("locks-reclaim-guard");
+  try {
+    const key = { scope: "project", rawKey: "/tmp/reclaim-guard" };
+    const dir = join(root, "projects", hashKey(key.rawKey));
+    mkdirSync(join(dir, ".reclaiming"), { recursive: true });
+    writeFileSync(join(dir, "owner.json"), JSON.stringify({
+      protocol: 1, token: "t", action: "crashed", scope: "project", rawKey: key.rawKey,
+      machineBootId: currentIdentity().machineBootId, pid: 2 ** 22 + 12347, procStartTicks: "1",
+      startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(),
+    }));
+    const now = lockManagerFor(root);
+    await assert.rejects(() => now.acquire({ keys: [key], action: "a" }), (error) => error.code === "lock_busy");
+    const later = lockManagerFor(root, { now: () => new Date(Date.now() + 120_000) });
+    const acquired = await later.acquire({ keys: [key], action: "b" });
+    assert.equal(acquired.reclaimed?.length, 1);
+    later.release(acquired);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("锁心跳：heartbeat 推进 heartbeatAt，heartbeatState 区分正常与超时；attachProcess 登记附属进程", async () => {
+  const root = freshDir("locks-heartbeat");
+  try {
+    let clock = Date.parse("2026-11-07T00:00:00.000Z");
+    const manager = lockManagerFor(root, { now: () => new Date(clock) });
+    const key = { scope: "project", rawKey: "/tmp/heartbeat" };
+    const lock = await manager.acquire({ keys: [key], action: "beat" });
+    const first = manager.inspect(key).owner;
+    assert.equal(heartbeatState(first, clock + 1_000, 30_000), "fresh");
+    assert.equal(heartbeatState(first, clock + 31_000, 30_000), "stale");
+    assert.equal(heartbeatState(null, clock, 30_000), "unknown");
+    clock += 10_000;
+    await manager.heartbeat(lock);
+    const second = manager.inspect(key).owner;
+    assert.equal(second.heartbeatAt, new Date(clock).toISOString(), "心跳前进");
+    assert.equal(second.startedAt, first.startedAt);
+    manager.attachProcess(lock, process.pid);
+    assert.deepEqual(manager.inspect(key).owner.attached, [{ pid: process.pid, procStartTicks: procStartTicks(process.pid) }]);
+    await manager.heartbeat(lock);
+    assert.equal(manager.inspect(key).owner.attached.length, 1, "心跳保留附属进程登记");
+    manager.attachProcess(lock, null);
+    assert.deepEqual(manager.inspect(key).owner.attached, []);
+    manager.release(lock);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("锁 unlockById：按 scope/hash 解除，仍要求 token；非法 ID 拒绝", async () => {
+  const root = freshDir("locks-unlock-id");
+  try {
+    const manager = lockManagerFor(root);
+    const key = { scope: "task", rawKey: "/tmp/p::k-1" };
+    const lock = await manager.acquire({ keys: [key], action: "hold" });
+    const id = `task/${hashKey(key.rawKey)}`;
+    assert.deepEqual(parseLockId(id), { scope: "task", hash: hashKey(key.rawKey) });
+    assert.equal(parseLockId("task/xyz"), null);
+    assert.equal(parseLockId("bogus/" + hashKey("a")), null);
+    assert.throws(() => manager.unlockById({ id, expectToken: "wrong", force: true }), (error) => error.code === "lock_token_mismatch");
+    assert.throws(() => manager.unlockById({ id, expectToken: lock.token }), (error) => error.code === "lock_busy");
+    const removed = manager.unlockById({ id, expectToken: lock.token, force: true });
+    assert.equal(removed.removed, true);
+    assert.equal(removed.key, key.rawKey);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("进程身份：ps 回退带可执行名；同秒不同命令视为不同进程，旧格式只比 lstart", () => {
+  const table = parseProcessTablePs("  200 1 200 Tue Nov  3 10:20:30 2026 /usr/local/bin/node\n  201 1 201 Tue Nov  3 10:20:30 2026 sleep\n");
+  assert.equal(table.get(200).startTicks, "Tue Nov  3 10:20:30 2026|/usr/local/bin/node");
+  assert.equal(table.get(201).startTicks, "Tue Nov  3 10:20:30 2026|sleep");
+  assert.equal(sameProcessStart(table.get(200).startTicks, table.get(201).startTicks), false, "同秒 PID 复用：命令不同即不同");
+  assert.equal(sameProcessStart(table.get(200).startTicks, table.get(200).startTicks), true);
+  assert.equal(sameProcessStart("Tue Nov  3 10:20:30 2026", table.get(200).startTicks), true, "升级前记录只比 lstart");
+  assert.equal(sameProcessStart("Tue Nov  3 10:20:31 2026", table.get(200).startTicks), false);
+  assert.equal(sameProcessStart("123", "123"), true);
+  assert.equal(sameProcessStart("123", "124"), false, "Linux starttime 精确比较");
 });

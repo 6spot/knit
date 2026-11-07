@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { ensurePrivateDir } from "../infrastructure/private-mode.js";
-import { gitSync, machineBootId, procStartTicks } from "../infrastructure/process.js";
+import { gitSync, machineBootId, procStartTicks, sameProcessStart } from "../infrastructure/process.js";
 import { LockManager, orderKeys, type LockKey } from "../infrastructure/locks.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
@@ -504,7 +504,7 @@ function processAlive(pid: number, bootId: string, ticks: string | null): "alive
   }
   const current = procStartTicks(pid);
   if (current === null || ticks === null) return "alive";
-  return current === ticks ? "alive" : "not_alive";
+  return sameProcessStart(ticks, current) ? "alive" : "not_alive";
 }
 
 /** 任务锁核实：只读 inspect，不创建锁目录；旧根与新根都核对。 */

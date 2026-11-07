@@ -204,6 +204,17 @@ async function main(): Promise<number> {
     } catch (error) {
       return fail(error instanceof InfrastructureError && error.code === "lock_busy" ? "lock_busy" : "lock_unavailable");
     }
+    for (const record of lock.reclaimed ?? []) {
+      // 自动回收的残留锁：run 事件与 --dev 诊断都可查（详细记录在锁根 reclaimed/<archive>/reclaim.json）。
+      store.appendEvent(request.runId, {
+        event: "lock_reclaimed",
+        lockId: record.id,
+        previousAction: record.previousOwner.action,
+        previousPid: record.previousOwner.pid,
+        archive: record.archive,
+      });
+      diag("lock_reclaimed", { reason: record.id });
+    }
     store.appendEvent(request.runId, { event: "lock_acquired" });
     heartbeat = setInterval(() => {
       if (lock === null || heartbeatError !== null) return;
@@ -376,6 +387,10 @@ async function main(): Promise<number> {
         locks,
         cancelGraceMs: config.limits.cancelGraceMs,
         lostOwnership: () => heartbeatError,
+        heartbeatIntervalMs: config.limits.heartbeatIntervalMs,
+        onStageProcess: (pid) => {
+          if (lock !== null && heartbeatError === null) locks.attachProcess(lock, pid);
+        },
       }).execute();
     } catch (error) {
       const reason = error instanceof InfrastructureError ? error.code : "stage_error";

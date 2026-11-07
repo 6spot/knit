@@ -5,6 +5,7 @@
 import type { Command } from "commander";
 import { appendFileSync, existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { onLockReclaimed } from "../infrastructure/locks.js";
 
 const ALLOWED = new Set([
   "command",
@@ -22,6 +23,9 @@ const ALLOWED = new Set([
   "workerId",
   "snapshotState",
   "reason",
+  "lockId",
+  "previousAction",
+  "previousPid",
 ]);
 
 let startedAt: number | null = null;
@@ -58,6 +62,11 @@ function commandPath(command: Command): string {
 }
 
 export function installDiagnostics(program: Command): void {
+  // 自动回收残留锁：--dev 时输出诊断事件（锁根 reclaimed/ 另有持久记录，见 knit locks／doctor）。
+  onLockReclaimed((record) => {
+    if (!devEnabled(program)) return;
+    devEvent("lock_reclaimed", { lockId: record.id, previousAction: record.previousOwner.action, previousPid: record.previousOwner.pid });
+  });
   program.hook("preAction", (_thisCommand, actionCommand) => {
     if (!devEnabled(program)) return;
     startedAt = Date.now();

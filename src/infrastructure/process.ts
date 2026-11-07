@@ -10,7 +10,10 @@ import { kill as killProcess } from "node:process";
 import type { GitPort, ManagedProcess, ProcessPort } from "../ports/infrastructure.js";
 import { InfrastructureError } from "./errors.js";
 
-/** 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的 lstart 文本（同平台自洽，任务052/B001）。 */
+/**
+ * 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的「lstart|comm」文本
+ * （lstart 只精确到秒，追加可执行名降低同秒 PID 复用误判；同平台自洽，任务052/B001）。
+ */
 export function procStartTicks(pid: number): string | null {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -26,6 +29,22 @@ export function procStartTicks(pid: number): string | null {
 }
 
 export { currentIdentity } from "./locks.js";
+
+/** ps 回退身份中 lstart 与可执行名的分隔符；Linux starttime 纯数字，不含此字符。 */
+const PS_IDENTITY_SEPARATOR = "|";
+
+/**
+ * 比较记录的启动标识与当前读到的启动标识。
+ * 两侧都带可执行名时全量比较；任一侧是旧格式（只有 lstart）时只比 lstart，
+ * 避免升级前写入的 owner 因格式不同被误判为 PID 复用而遭回收。
+ */
+export function sameProcessStart(recorded: string, current: string): boolean {
+  if (recorded === current) return true;
+  if (!recorded.includes(PS_IDENTITY_SEPARATOR) || !current.includes(PS_IDENTITY_SEPARATOR)) {
+    return recorded.split(PS_IDENTITY_SEPARATOR)[0] === current.split(PS_IDENTITY_SEPARATOR)[0];
+  }
+  return false;
+}
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */
 const GIT_ENV: Record<string, string> = {
@@ -217,20 +236,23 @@ export function processTable(): Map<number, { ppid: number; pgid: number; startT
   }
 }
 
-/** ps 回退进程表（macOS 等）；固定C语言环境，按字段解析而不假设lstart列宽。 */
+/** ps 回退进程表（macOS 等）；固定C语言环境，按字段解析而不假设lstart列宽；comm 放最后一列（可含空格）。 */
 function processTablePs(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
-  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart="], {
+  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart=,comm="], {
     encoding: "utf8", env: { ...process.env, LC_ALL: "C" },
   });
   if (result.status !== 0 || !result.stdout) return new Map();
   return parseProcessTablePs(result.stdout);
 }
 
-/** 纯解析入口用于Linux／macOS的ps夹具；保留标准化lstart文本作为身份。 */
+/**
+ * 纯解析入口用于Linux／macOS的ps夹具；身份为标准化lstart文本，有 comm 列时追加「|comm」。
+ * lstart 只精确到秒，同秒复用 PID 时可执行名不同即可区分；同名同秒仍无法区分（已知限制）。
+ */
 export function parseProcessTablePs(output: string): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
   const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
   for (const line of output.split("\n")) {
-    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})$/.exec(line.trim());
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})(?:\s+(\S.*))?$/.exec(line.trim());
     if (match === null) continue;
     const pid = Number(match[1]);
     const ppid = Number(match[2]);
@@ -238,7 +260,8 @@ export function parseProcessTablePs(output: string): Map<number, { ppid: number;
     if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
     // 维持ps既有lstart文本的单日两列格式，避免同日不同空白产生不同身份。
     const startText = `${match[4]} ${match[5]} ${match[6]!.padStart(2, " ")} ${match[7]} ${match[8]}`;
-    table.set(pid, { ppid, pgid, startTicks: startText });
+    const comm = match[9]?.trim() ?? "";
+    table.set(pid, { ppid, pgid, startTicks: comm === "" ? startText : `${startText}${PS_IDENTITY_SEPARATOR}${comm}` });
   }
   return table;
 }

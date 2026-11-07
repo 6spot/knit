@@ -392,3 +392,81 @@ test("locks/unlock：只读列举、token 校验与显式强解，不改项目�
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("unlock <scope/hash>：位置参数反查 scope 与键，仍要求 token；--from-list 只用于 not_alive；locks --dir 只列本项目", async () => {
+  const root = mkdtempSync(join(tmpdir(), "knit-lock-id-"));
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "knit-lock-id-project-")));
+  try {
+    const { LockManager, currentIdentity } = await import("../dist/infrastructure/locks.js");
+    const { hashKey } = await import("../dist/infrastructure/paths.js");
+    const manager = new LockManager({ root });
+    const own = await manager.acquire({ keys: [{ scope: "task", rawKey: `${projectDir}::k-1` }], action: "mine" });
+    const other = await manager.acquire({ keys: [{ scope: "project", rawKey: "/tmp/knit-other-project" }], action: "other" });
+    const run = (args) => spawnSync(process.execPath, [CLI, "--json", ...args, "--locks", root], { encoding: "utf8" });
+
+    const listed = JSON.parse(run(["locks", "--dir", projectDir]).stdout);
+    assert.deepEqual(listed.data.entries.map((entry) => entry.key), [`${projectDir}::k-1`], "--dir 只列本项目");
+    assert.equal(JSON.parse(run(["locks"]).stdout).data.entries.length, 2);
+
+    const id = `task/${hashKey(`${projectDir}::k-1`)}`;
+    const missingToken = run(["unlock", id]);
+    assert.notEqual(missingToken.status, 0);
+    assert.match(JSON.parse(missingToken.stdout).data.error, /--expect-token/);
+    const fromListAlive = run(["unlock", id, "--from-list"]);
+    assert.notEqual(fromListAlive.status, 0, "alive 不接受 --from-list");
+    const wrong = run(["unlock", id, "--expect-token", "wrong", "--force"]);
+    assert.equal(JSON.parse(wrong.stdout).reasonCode, "needs_review");
+    const aliveNoForce = run(["unlock", id, "--expect-token", own.token]);
+    assert.notEqual(aliveNoForce.status, 0, "alive 仍需 --force");
+    const unlocked = JSON.parse(run(["unlock", id, "--expect-token", own.token, "--force"]).stdout);
+    assert.equal(unlocked.outcome, "completed", JSON.stringify(unlocked));
+    assert.equal(unlocked.data.removed, true);
+    assert.equal(unlocked.data.key, `${projectDir}::k-1`);
+
+    // 已确认死亡的 owner：位置参数 + --expect-token 无需 --force；--from-list 可便捷确认。
+    const deadOwner = (rawKey, token) => {
+      const dir = join(root, "tasks", hashKey(rawKey));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "owner.json"), JSON.stringify({
+        protocol: 1, token, action: "crashed", scope: "task", rawKey,
+        machineBootId: "other-boot-cannot-reclaim", pid: 2 ** 22 + 4242, procStartTicks: "1",
+        startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(),
+      }));
+      return `task/${hashKey(rawKey)}`;
+    };
+    const unknownId = deadOwner(`${projectDir}::k-2`, "tok-2");
+    const unknownFromList = run(["unlock", unknownId, "--from-list"]);
+    assert.notEqual(unknownFromList.status, 0, "unknown 不接受 --from-list");
+    assert.equal(JSON.parse(run(["unlock", unknownId, "--expect-token", "tok-2", "--force"]).stdout).data.removed, true);
+    const deadKey = `${projectDir}::k-3`;
+    const deadDir = join(root, "tasks", hashKey(deadKey));
+    mkdirSync(deadDir, { recursive: true });
+    writeFileSync(join(deadDir, "owner.json"), JSON.stringify({
+      protocol: 1, token: "tok-3", action: "crashed", scope: "task", rawKey: deadKey,
+      machineBootId: currentIdentity().machineBootId, pid: 2 ** 22 + 4243, procStartTicks: "1",
+      startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(),
+    }));
+    const deadId = `task/${hashKey(deadKey)}`;
+    const deadListed = JSON.parse(run(["locks", "--dir", projectDir]).stdout).data.entries.find((entry) => entry.id === deadId);
+    assert.equal(deadListed.processVerdict, "not_alive");
+    assert.equal(deadListed.reclaimable, true);
+    const viaList = JSON.parse(run(["unlock", deadId, "--from-list"]).stdout);
+    assert.equal(viaList.data.removed, true);
+    mkdirSync(deadDir, { recursive: true });
+    writeFileSync(join(deadDir, "owner.json"), JSON.stringify({
+      protocol: 1, token: "tok-4", action: "crashed", scope: "task", rawKey: deadKey,
+      machineBootId: currentIdentity().machineBootId, pid: 2 ** 22 + 4244, procStartTicks: "1",
+      startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString(),
+    }));
+    const plain = run(["unlock", deadId, "--expect-token", "tok-4"]);
+    assert.equal(plain.status, 0, plain.stdout + plain.stderr);
+    assert.equal(JSON.parse(plain.stdout).data.removed, true, "not_alive 只需 lock-id 与 token");
+    // 旧调用方式仍可用
+    const legacy = JSON.parse(run(["unlock", "--scope", "project", "--key", "/tmp/knit-other-project", "--expect-token", other.token, "--force"]).stdout);
+    assert.equal(legacy.data.removed, true);
+    assert.equal(manager.list().length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+});

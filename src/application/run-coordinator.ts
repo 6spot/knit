@@ -18,7 +18,7 @@ import {
 } from "../contracts/run.js";
 import { checkSchema } from "../contracts/schema.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
-import { machineBootId, procStartTicks, processTable, processTreePids, signalProcessTree } from "../infrastructure/process.js";
+import { machineBootId, procStartTicks, processTable, processTreePids, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
@@ -36,7 +36,7 @@ import { join, resolve } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
 import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
-import { LockManager } from "../infrastructure/locks.js";
+import { LockManager, type LockReclaimRecord } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
 
 const WORKER_SCRIPT = fileURLToPath(new URL("../worker/knit-worker.js", import.meta.url));
@@ -285,7 +285,23 @@ export class RunCoordinator {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
     const selection = await this.resolveHostSelection(root, input);
-    const active = this.findActive(runs, input.taskId, input.phase);
+    let active = this.findActive(runs, input.taskId, input.phase);
+    // 活动 run 的 worker 被强杀：同一启动周期且 worker 与阶段 Pi 都确认已死、没有结果时，
+    // 按 resume 语义收敛旧 run（failed／cancelled）再新建 run，避免复用无进程执行的旧 run。
+    let settledRun: RunRequestFile | null = null;
+    while (active !== null && this.settleDeadRun(runs, active.request.runId)) {
+      settledRun = active.request;
+      active = this.findActive(runs, input.taskId, input.phase);
+    }
+    // 与 resume 一致：未显式指定恢复会话（prefer 且无 nativeSessionId）时续用旧 run 的原生会话，
+    // 新阶段取同一 Session 锁时自动回收旧 run 残留的 Session 锁。
+    let recovery = input.recovery ?? { nativeSessionId: null, resume: "prefer" as const };
+    if (settledRun !== null && recovery.resume === "prefer" && recovery.nativeSessionId === null) {
+      const sessions = await this.store.sessions.list({ taskId: settledRun.taskId });
+      const prior = sessions.find((session) => session.runId === settledRun.runId);
+      const nativeSessionId = prior?.ref.nativeSessionId ?? settledRun.recovery.nativeSessionId;
+      if (nativeSessionId !== null) recovery = { nativeSessionId, resume: "prefer" };
+    }
     if (active !== null) {
       const activePresentation = active.request.presentation ?? "local";
       if (activePresentation !== selection.host) {
@@ -294,6 +310,7 @@ export class RunCoordinator {
           `已有活动 run 使用 ${activePresentation} 呈现；先取消或等待其结束后再切换到 ${selection.host}`,
         );
       }
+      this.recordReclaims(runs, active.request.runId, lock.reclaimed);
       return { request: active.request, launch: active.launch, reused: true };
     }
 
@@ -327,7 +344,7 @@ export class RunCoordinator {
       },
       model: input.model,
       toolPolicy: plan.toolPolicy,
-      recovery: input.recovery ?? { nativeSessionId: null, resume: "prefer" },
+      recovery,
       acceptanceOperationId,
       diagnostics: { enabled: input.diagnostics ?? false },
     };
@@ -342,6 +359,7 @@ export class RunCoordinator {
       recordedAt: createdAt,
     });
     const created = runs.create(request);
+    this.recordReclaims(runs, created.request.runId, lock.reclaimed);
     const launch = runs.readLaunch(runId);
     if (launch === null) throw new InfrastructureError("io_error", "launch 未写入");
     return { request: created.request, launch, reused: !created.created };
@@ -722,18 +740,18 @@ export class RunCoordinator {
       if (stageVerdict === "alive" || stageVerdict === "unknown" || (stage === null && ["running", "preparing"].includes(state.state))) {
         throw new GuardError("run_active", `旧阶段的 Pi／工具尚未确认结束: ${input.oldRunId}`);
       }
-      // 旧项目锁仍是现场事实；即使句柄已死，未显式清理前不得由新会话抢先续做。
-      if (locks.list().some((entry) => entry.scope === "project" && entry.key === root)) {
-        throw new GuardError("run_active", `旧执行的项目锁尚未释放: ${input.oldRunId}`);
+      // 旧项目锁仍是现场事实：同一启动周期且 owner（含登记的阶段进程）确认已死时，
+      // 后续 prepare 取锁会自动回收；其余（alive／unknown）未显式清理前不得由新会话抢先续做。
+      const leftover = locks.list().find((entry) => entry.scope === "project" && entry.key === root);
+      if (leftover !== undefined && !locks.reclaimable(leftover)) {
+        throw new GuardError(
+          "run_active",
+          `旧执行的项目锁尚未释放: ${input.oldRunId}（${leftover.id}，owner ${leftover.owner?.action ?? "未知"} pid=${leftover.owner?.pid ?? "?"}，核实=${leftover.processVerdict}）；` +
+            `确认原进程已停止后 knit unlock ${leftover.id} --expect-token ${leftover.owner?.token ?? "<token>"}${leftover.processVerdict === "not_alive" ? "" : " --force"}`,
+        );
       }
       // 已确认 worker 与阶段工具都结束且没有结果：关闭旧活动态，避免 prepare 复用为活动 run。
-      runs.writeState(input.oldRunId, {
-        ...state,
-        state: runs.readCancel(input.oldRunId) === null ? "failed" : "cancelled",
-        reason: runs.readCancel(input.oldRunId) === null ? "worker_exited_before_result" : "cancel_requested_worker_exited",
-        updatedAt: this.now().toISOString(),
-      });
-      runs.appendEvent(input.oldRunId, { event: "recovered_without_result", workerVerdict: alive, stageVerdict });
+      this.closeDeadRun(runs, input.oldRunId, state, { workerVerdict: alive, stageVerdict });
     }
     const acceptance = new RunAcceptanceService({ store: this.store, locks, now: this.now, randomHex: this.randomHex });
     if (result !== null) {
@@ -779,6 +797,51 @@ export class RunCoordinator {
     };
   }
 
+  /**
+   * prepare 遇到活动 run 时核实其进程：已有结果、未启动或 worker／阶段 Pi 存活／不可核实（含跨启动周期）
+   * 都保持复用保护；只有 worker 与阶段 Pi 都确认已死且没有结果时收敛旧 run 并返回 true。
+   */
+  private settleDeadRun(runs: RunStore, runId: string): boolean {
+    if (runs.readResult(runId) !== null) return false;
+    const state = runs.readState(runId);
+    if (state === null || !["claimed", "preparing", "running"].includes(state.state)) return false;
+    const launch = runs.readLaunch(runId);
+    if (launch === null || (launch.state !== "confirmed" && launch.state !== "starting")) return false;
+    const workerVerdict = this.handleVerdict(launch.handle);
+    if (workerVerdict !== "not_alive") return false;
+    const stage = runs.readStageProcess(runId);
+    const stageVerdict = this.stageProcessVerdict(stage);
+    if (stageVerdict === "alive" || stageVerdict === "unknown") return false;
+    if (stage === null && ["running", "preparing"].includes(state.state)) return false;
+    this.closeDeadRun(runs, runId, state, { workerVerdict, stageVerdict, by: "prepare" });
+    return true;
+  }
+
+  /** 关闭已确认无进程执行的旧活动 run：有取消请求记 cancelled，否则 failed。 */
+  private closeDeadRun(runs: RunStore, runId: string, state: RunStateFile, detail: Record<string, unknown>): void {
+    const cancelled = runs.readCancel(runId) !== null;
+    runs.writeState(runId, {
+      ...state,
+      state: cancelled ? "cancelled" : "failed",
+      reason: cancelled ? "cancel_requested_worker_exited" : "worker_exited_before_result",
+      updatedAt: this.now().toISOString(),
+    });
+    runs.appendEvent(runId, { event: "recovered_without_result", ...detail });
+  }
+
+  /** prepare 取锁时自动回收的残留锁写入 run 事件，诊断可查（锁根 reclaimed/ 另有完整记录）。 */
+  private recordReclaims(runs: RunStore, runId: string, reclaimed: LockReclaimRecord[] | undefined): void {
+    for (const record of reclaimed ?? []) {
+      runs.appendEvent(runId, {
+        event: "lock_reclaimed",
+        lockId: record.id,
+        previousAction: record.previousOwner.action,
+        previousPid: record.previousOwner.pid,
+        archive: record.archive,
+      });
+    }
+  }
+
   private findActive(
     runs: RunStore,
     taskId: string,
@@ -814,7 +877,7 @@ export class RunCoordinator {
       }
     }
     if (recordedTicks === null) return "unknown";
-    return ticks === recordedTicks ? "alive" : "not_alive";
+    return sameProcessStart(recordedTicks, ticks) ? "alive" : "not_alive";
   }
 
   private async waitForPrepared(
