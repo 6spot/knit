@@ -392,6 +392,30 @@ test("桥接按 workflow.yaml 派生阶段 schema；读取失败退回字符串�
   }
 });
 
+test("桥接 knit_workflow set-tools：all／[]／clear 与 show 回显一致", async () => {
+  const dir = project("workflow-set-tools");
+  try {
+    writeFileSync(join(dir, ".knit", "workflow.yaml"), "version: 1\nstages:\n  - id: build\n    tools: [read]\n");
+    const { host } = await loadBridge(dir);
+    const tool = host.tools.get("knit_workflow");
+    const toolsAfter = async (params) => {
+      const result = await tool.execute("w", { action: "set-tools", stageId: "build", ...params }, null, null, host.ctx);
+      assert.equal(result.isError, false, result.content?.[0]?.text ?? "");
+      const shown = await tool.execute("s", { action: "show" }, null, null, host.ctx);
+      const fromShow = shown.details.workflow.stages[0].tools;
+      assert.deepEqual(result.details.workflow.stages[0].tools, fromShow, "写入回显与 show 一致");
+      return fromShow;
+    };
+    assert.equal(await toolsAfter({ tools: "all" }), null, "all = 全部放开");
+    assert.deepEqual(await toolsAfter({ tools: [] }), [], "[] = 全部禁用");
+    assert.deepEqual(await toolsAfter({ tools: ["read", "exec"] }), ["read", "exec"]);
+    assert.equal(await toolsAfter({ clear: true }), null, "clear = 删除字段（全部放开）");
+    assert.equal(/tools:/.test(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("桥接读取坏配置失败时退回字符串参数，不静默通过（P6）", async () => {
   const dir = project("workflow-schema-bad");
   try {

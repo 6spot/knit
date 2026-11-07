@@ -119,7 +119,8 @@ export const WorkflowToolSchema = obj(
     name: opt(str()),
     description: opt(str()),
     prompt: opt(str({ minLength: 1 })),
-    tools: opt(arr(str({ minLength: 1 }))),
+    /** 阶段能力：字符串 `all` = 全部放开；`[]` = 全部禁用；非空数组 = 白名单；`clear` 删除字段（等同全部放开）。 */
+    tools: opt(union([str({ minLength: 1 }), arr(str({ minLength: 1 }))])),
     report: opt(map(str({ minLength: 1 }))),
     maxVisits: opt(int({ minimum: 0 })),
     field: opt(str({ minLength: 1 })),

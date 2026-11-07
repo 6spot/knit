@@ -22,7 +22,7 @@
 | 阶段／stage | 进行中任务下一步所需的业务步骤。取值为内置锚点 `start`／`deliver` 或 `.knit/workflow.yaml` 声明的阶段 id；取消／替代时保留停止位置，由 frontmatter 保存 |
 | 流程配置 | `.knit/workflow.yaml`：`version` 与有序 `stages`；每阶段声明提示词、能力白名单、报告字段、回退目标与访问上限。顺序即流转顺序，注释不参与解析或比较 |
 | 阶段提示词 | 阶段 `prompt` 指向的项目相对文件；缺省或缺失时使用核心默认 agent 指令。阶段可复用同一文件，不再单独建模为独立对象 |
-| 能力白名单 | 阶段 `tools` 声明的能力集合：`read`／`write`／`exec`／`task`／`external`／`network`；不写或空数组表示全部放开 |
+| 能力白名单 | 阶段 `tools` 声明的能力集合：`read`／`write`／`exec`／`task`／`external`／`network`；不写或 `all` 表示全部放开，`[]` 表示全部禁用 |
 | 流程降级 | 配置非法时生效流程退为 `start → deliver`，不套提示词；`workflowMode`、`workflow show`、顶部提示与 `doctor` 显示原因，在途 run 继续跑完 |
 | 模板已移除文件 | 上次 init 清单记录、当前模板不再生成但项目里仍存在的文件；init 默认只报告不删除 |
 | 业务结束／closed | 业务不再推进；收尾是否完成另看真实提交、归档和操作回执 |

@@ -955,6 +955,63 @@ test("配置在 prepare 后降级：自定义提示词／能力／报告按冻�
   }
 });
 
+test("tools: [] 全部禁用：工具策略为空能力，Pi 启动参数含 --no-tools；all 不传工具开关", async () => {
+  const dir = project("tools-disabled");
+  const s = services(dir);
+  const workflowFile = join(dir, ".knit", "workflow.yaml");
+  try {
+    writeFileSync(workflowFile, [
+      "version: 1",
+      "stages:",
+      "  - id: build",
+      "    tools: []",
+      "  - id: verify",
+      "    tools: all",
+      "",
+    ].join("\n"));
+    const task = await readyTask(dir, s, "禁用工具");
+
+    const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId, "build"));
+    assert.deepEqual(prepared.request.stageDefinition.tools, []);
+    assert.deepEqual(prepared.request.toolPolicy, {
+      mode: "read",
+      allow: [],
+      deny: ["write", "edit", "bash"],
+      capabilities: [],
+    });
+    const argvFile = hookPath(dir, "fake-argv-disabled.json");
+    process.env.KNIT_PI_BIN = FAKE_PI;
+    process.env.KNIT_FAKE_ARGS_FILE = argvFile;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, { report: { summary: "无工具" } });
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    assert.equal(started.confirmed, true);
+    const status = await waitTerminal(s, dir, prepared.request.runId);
+    assert.equal(status.state, "completed", status.result?.failureReason ?? status.reason ?? "");
+    const argv = JSON.parse(readFileSync(argvFile, "utf8"));
+    for (const flag of ["--no-tools", "--offline", "--no-mcp", "--no-skills", "--no-extensions"]) {
+      assert.equal(argv.includes(flag), true, `全部禁用应带 ${flag}`);
+    }
+    assert.equal(argv.includes("--tools"), false);
+
+    const verify = await s.coordinator.prepare(prepareInput(dir, task.taskId, "verify"));
+    assert.equal(verify.request.stageDefinition.tools, null, "all 归一为全部放开");
+    assert.equal(verify.request.toolPolicy.capabilities, null);
+    const allArgv = hookPath(dir, "fake-argv-all.json");
+    process.env.KNIT_FAKE_ARGS_FILE = allArgv;
+    process.env.KNIT_FAKE_ACTION = actionFile(dir, { report: { summary: "全部放开" } });
+    assert.equal((await s.coordinator.start({ dir, runId: verify.request.runId })).confirmed, true);
+    const verifyStatus = await waitTerminal(s, dir, verify.request.runId);
+    assert.equal(verifyStatus.state, "completed", verifyStatus.result?.failureReason ?? verifyStatus.reason ?? "");
+    const verifyArgv = JSON.parse(readFileSync(allArgv, "utf8"));
+    assert.equal(verifyArgv.includes("--tools"), false);
+    assert.equal(verifyArgv.includes("--no-tools"), false);
+  } finally {
+    clearFakeStageEnv();
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("配置在 prepare 后降级：自定义结论阶段按冻结定义接收并落到收尾", async () => {
   const dir = project("fallback-frozen-verify");
   const s = services(dir);

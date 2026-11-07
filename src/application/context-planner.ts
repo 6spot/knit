@@ -106,6 +106,10 @@ function toolPolicyFor(stage: WorkflowStage | null, fallback: boolean): ToolPoli
   if (stage.tools === null) {
     return { mode: "write", allow: [...ALL_PI_TOOLS], deny: [], capabilities: null };
   }
+  // `tools: []` = 全部禁用：allow 为空、deny 覆盖写与执行，启动参数落到 --no-tools。
+  if (stage.tools.length === 0) {
+    return { mode: "read", allow: [], deny: ["write", "edit", "bash"], capabilities: [] };
+  }
   const capabilities = [...stage.tools];
   const allow = [...new Set(capabilities.flatMap((capability) => CAPABILITY_TOOLS[capability]))];
   const deny: string[] = [];

@@ -1004,6 +1004,13 @@ export default function (pi: any) {
     },
   });
 
+  /** knit_workflow 的 tools 参数 → CLI 能力参数：字符串原样（如 all），空数组为 []（全部禁用）。 */
+  const toolsArg = (tools: unknown): string => {
+    if (typeof tools === "string") return tools;
+    if (Array.isArray(tools)) return tools.length === 0 ? "[]" : tools.map(String).join(",");
+    return String(tools);
+  };
+
   pi.registerTool({
     name: "knit_workflow",
     label: "Knit workflow",
@@ -1027,7 +1034,7 @@ export default function (pi: any) {
         if (params.before) args.push("--before", params.before);
         if (params.after) args.push("--after", params.after);
         if (params.maxVisits !== undefined) args.push("--max-visits", String(params.maxVisits));
-        if (Array.isArray(params.tools) && params.tools.length > 0) args.push("--tools", params.tools.join(","));
+        if (params.tools !== undefined) args.push("--tools", toolsArg(params.tools));
         if (params.report && typeof params.report === "object") {
           for (const [field, type] of Object.entries(params.report)) args.push("--report", `${field}:${String(type)}`);
         }
@@ -1040,7 +1047,8 @@ export default function (pi: any) {
         else if (params.prompt) args.push(params.prompt);
       } else if (action === "set-tools") {
         if (params.clear === true) args.push("--clear");
-        else if (Array.isArray(params.tools) && params.tools.length > 0) args.push(params.tools.join(","));
+        // all = 全部放开；[] = 全部禁用；非空数组 = 白名单；clear = 删除字段（等同全部放开）。
+        else if (params.tools !== undefined) args.push(toolsArg(params.tools));
       } else if (action === "set-report") {
         if (!params.field) return failText("knit_workflow set-report 需要 field");
         args.push(params.field);

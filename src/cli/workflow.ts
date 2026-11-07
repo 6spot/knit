@@ -19,6 +19,7 @@ import {
 } from "../domain/workflow.js";
 import {
   WORKFLOW_CONFIG_PATH,
+  TOOLS_ALL_REGEX,
   isReportEnum,
   type ReportFieldType,
   type ToolCapability,
@@ -106,6 +107,13 @@ function reportTypeLabel(type: ReportFieldType): string {
   return isReportEnum(type) ? `[${type.join("|")}]` : type;
 }
 
+/** 工具展示：null = 全部放开（不写或 all）；空数组 = 全部禁用；其余为白名单。 */
+function toolsLabel(tools: readonly ToolCapability[] | null): string {
+  if (tools === null) return "全部放开";
+  if (tools.length === 0) return "全部禁用";
+  return tools.join(", ");
+}
+
 function formatIssues(issues: readonly WorkflowIssue[]): string {
   return issues.map((issue) => `- ${issue.message}`).join("\n");
 }
@@ -132,7 +140,7 @@ function renderView(view: WorkflowView): string {
       lines.push(`  ${index + 1}. ${stage.id}（${stage.name}）→ ${view.summary.stages[index]?.next ?? "收尾"}`);
       if (stage.description !== null) lines.push(`     说明: ${stage.description}`);
       lines.push(`     提示词: ${stage.prompt ?? "（核心默认指令）"}`);
-      lines.push(`     工具: ${stage.tools === null ? "全部放开" : stage.tools.join(", ")}`);
+      lines.push(`     工具: ${toolsLabel(stage.tools)}`);
       const reportEntries = Object.entries(stage.report);
       if (reportEntries.length > 0) {
         lines.push(`     报告: ${reportEntries.map(([field, type]) => `${field}(${reportTypeLabel(type)})`).join("、")}`);
@@ -193,13 +201,24 @@ function indexOfStage(doc: any, id: string): number {
   return index;
 }
 
-function parseTools(values: readonly string[]): ToolCapability[] {
-  const tokens = values
+/**
+ * 解析 CLI 能力清单：
+ * - 单独一项 `all`（大小写不敏感）→ 标量 `all`（全部放开）；
+ * - `[]` 或 `none` → 空数组（全部禁用）；
+ * - 其余为白名单。列表里混入 `all`、未知能力都原样写入候选配置，
+ *   交给 parseWorkflow 产生带 YAML 行号的 invalid_tools。
+ */
+function parseTools(values: readonly string[]): string | ToolCapability[] {
+  const raw = values.map((value) => value.trim());
+  if (raw.length === 1 && (raw[0] === "[]" || raw[0]?.toLowerCase() === "none")) return [];
+  const tokens = raw
     .flatMap((value) => value.split(/[\s,]+/))
     .map((token) => token.trim())
     .filter((token) => token !== "");
-  if (tokens.length === 0) throw new GuardError("invalid_request", "tools 不能为空；要放开全部能力请用 --clear");
-  // 未知能力不在这里拦：交给 parseWorkflow 产生带 YAML 行号的 invalid_tools。
+  if (tokens.length === 0) {
+    throw new GuardError("invalid_request", "tools 不能为空；全部放开用 all 或 --clear，全部禁用用 [] 或 none");
+  }
+  if (tokens.length === 1 && TOOLS_ALL_REGEX.test(tokens[0]!)) return "all";
   return tokens as ToolCapability[];
 }
 
@@ -305,8 +324,18 @@ function setTools(doc: any, id: string, tools: string | undefined, options: Reco
     node.delete("tools");
     return;
   }
-  if (tools === undefined || tools === "") throw new GuardError("invalid_request", "set-tools 需要能力清单，或用 --clear");
-  node.set("tools", parseTools([tools]));
+  if (tools === undefined || tools === "") {
+    throw new GuardError("invalid_request", "set-tools 需要能力清单、all（全部放开）、[]／none（全部禁用），或用 --clear");
+  }
+  const parsed = parseTools([tools]);
+  // 空数组写成流式 []，便于阅读；非空列表沿用默认块式。
+  node.set("tools", Array.isArray(parsed) && parsed.length === 0 ? flowSeq(doc) : parsed);
+}
+
+function flowSeq(doc: any): any {
+  const seq = doc.createNode([]);
+  seq.flow = true;
+  return seq;
 }
 
 function setReport(doc: any, id: string, field: string, type: string | undefined, options: Record<string, any>): void {
@@ -496,7 +525,7 @@ export function registerWorkflowCommands(program: Command): void {
     .option("--name <name>", "显示名")
     .option("--description <text>", "本步说明")
     .option("--prompt <path>", "项目相对提示词路径")
-    .option("--tools <tools>", "能力白名单，逗号分隔（可重复）", collect, [])
+    .option("--tools <tools>", "能力白名单，逗号分隔（可重复）；all = 全部放开，[]／none = 全部禁用", collect, [])
     .option("--report <field:type>", "额外报告字段，如 verdict:[pass,blocked]（可重复）", collect, [])
     .option("--max-visits <n>", "访问上限（非负整数或 none）")
     .option("--before <id>", "插到该阶段之前")
@@ -542,10 +571,10 @@ export function registerWorkflowCommands(program: Command): void {
 
   workflow
     .command("set-tools")
-    .description("设置阶段能力白名单；--clear 放开全部能力")
+    .description("设置阶段能力：all 全部放开，[]／none 全部禁用，逗号清单为白名单；--clear 删除字段（等同全部放开）")
     .argument("<id>", "阶段 id")
-    .argument("[tools]", "能力清单，逗号分隔")
-    .option("--clear", "删除 tools")
+    .argument("[tools]", "能力清单（逗号分隔）、all，或 []／none")
+    .option("--clear", "删除 tools（等同全部放开）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (id, tools, options) => {
       await mutate("workflow-set-tools", options.dir, (doc) => setTools(doc, id, tools, options));

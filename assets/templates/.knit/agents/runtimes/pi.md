@@ -2,7 +2,7 @@
 
 本项目的阶段会话使用本机 Pi CLI（stdin-stdout RPC）：
 
-- 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或空数组 = 全部放开；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。
+- 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或 `all` = 全部放开，`[]` = 全部禁用（`--no-tools`），非空列表 = 白名单；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。
 - 用 read／write／edit／bash 读取实际任务资料、代码和验证入口；不得只凭描述猜测文件内容或测试结果。
 - `.knit/` 是受保护路径：阶段内不修改 task.md、规范、配置和任务资料；需要变更时记录问题并交回主会话，不能绕过核心直接改写。
 - 模型选择按项目配置 `phases.<stage>.model`（配置键名沿用 phases，值为阶段 id）；未配置时用启动时主 Agent 当前模型。

@@ -20,6 +20,7 @@ import {
   WORKFLOW_CONFIG_VERSION,
   WORKFLOW_STAGE_ID_REGEX,
   WORKFLOW_VERDICT_ANCHOR,
+  TOOLS_ALL_REGEX,
   WorkflowConfigSchema,
   isReportEnum,
   isWorkflowAnchor,
@@ -45,7 +46,7 @@ export interface WorkflowStage {
   description: string | null;
   /** 项目相对提示词路径；缺省 null，表示用核心默认 agent 指令。 */
   prompt: string | null;
-  /** 能力白名单；null 表示全部放开。 */
+  /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
   tools: readonly ToolCapability[] | null;
   /** 额外报告字段；空对象表示只校验固定字段。 */
   report: Readonly<Record<string, ReportFieldType>>;
@@ -107,7 +108,8 @@ export const DEFAULT_WORKFLOW_YAML = `# Knit 流程配置 .knit/workflow.yaml
 #   name        可选，显示名；缺省用 id。
 #   description 可选，本步说明；用于顶部提示与 workflow show。
 #   prompt      可选，项目相对路径；缺省或文件缺失时用核心默认 agent 指令。
-#   tools       可选，能力白名单；不写或写空数组 = 全部放开，写了非空 = 只允许列出的能力：
+#   tools       可选，能力白名单；不写或写 all = 全部放开，[] = 全部禁用，
+#               写了非空列表 = 只允许列出的能力（列表里不能写 all）：
 #                 read      只读：read／grep／find／ls
 #                 write     改文件：write／edit
 #                 exec      执行命令：bash（可能间接改文件）
@@ -124,7 +126,7 @@ export const DEFAULT_WORKFLOW_YAML = `# Knit 流程配置 .knit/workflow.yaml
 # 常见错误（都会降级为 start → deliver，并给出含行号的原因）：
 #   - 漏写 version 或写成 2；stages 为空；根节点不是映射
 #   - id 大写、超长、重复，或使用保留锚点 start／deliver
-#   - tools 写未知能力；report 写未知类型、空枚举数组或重复枚举值
+#   - tools 写未知能力，或在列表里混入 all（如 [all, read]）；report 写未知类型、空枚举数组或重复枚举值
 #   - onVerdict 指向不存在的阶段，或键未在 report 枚举中声明
 #   - 回退环上所有阶段都缺有限上限（maxVisits 为 null 且没有 workflow.maxRepairRounds）
 #   - YAML 缩进错误、冒号后缺空格、重复键
@@ -224,7 +226,7 @@ export function parseWorkflow(source: string, options: ParseWorkflowOptions = {}
   if (structuralProblems.length > 0) {
     return fallbackResult(
       defaultMaxVisits,
-      structuralProblems.map((error) => schemaIssue(error, positions)),
+      structuralProblems.map((error) => schemaIssue(error, positions, raw)),
     );
   }
 
@@ -519,12 +521,21 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number | n
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
     prompt: stage.prompt ?? null,
-    // 不写与写空数组都表示全部放开；只有非空数组才是白名单。
-    tools: stage.tools === undefined || stage.tools.length === 0 ? null : [...stage.tools],
+    tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
     onVerdict: { ...(stage.onVerdict ?? {}) },
     maxVisits: stage.maxVisits === undefined ? defaultMaxVisits : stage.maxVisits,
   };
+}
+
+/**
+ * `tools` 语义：不写或标量 `all`（大小写不敏感）→ null（全部放开）；
+ * `[]` → 空能力（全部禁用）；非空数组 → 白名单。schema 已拒绝列表里的 `all`。
+ */
+function normalizeTools(tools: WorkflowStageConfig["tools"]): ToolCapability[] | null {
+  if (tools === undefined) return null;
+  if (typeof tools === "string") return null;
+  return [...tools];
 }
 
 function copyReport(report: Readonly<Record<string, ReportFieldType>>): Record<string, ReportFieldType> {
@@ -591,9 +602,9 @@ function unexpectedYamlIssue(error: unknown): WorkflowIssue {
   return makeIssue("yaml_parse_error", { line: 1, column: 1 }, "", `YAML 解析失败：${message ?? "未知错误"}`);
 }
 
-function schemaIssue(error: ValidationError, positions: SourcePositions): WorkflowIssue {
+function schemaIssue(error: ValidationError, positions: SourcePositions, raw: unknown): WorkflowIssue {
   const code = schemaIssueCode(error.path);
-  return makeIssue(code, positions.at(error.path), error.path, schemaIssueMessage(code, error));
+  return makeIssue(code, positions.at(error.path), error.path, schemaIssueMessage(code, error, raw));
 }
 
 function schemaIssueCode(pointer: string): WorkflowIssueCode {
@@ -618,13 +629,12 @@ function schemaIssueCode(pointer: string): WorkflowIssueCode {
   return "invalid_structure";
 }
 
-function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError): string {
+function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw: unknown): string {
   const path = readablePath(error.path);
+  if (code === "invalid_tools") return toolsIssueMessage(error.path, path, raw);
   switch (code) {
     case "invalid_stage_id":
       return `${path} 缺失或不符合阶段 id 规则 ^[a-z][a-z0-9-]{0,31}$`;
-    case "invalid_tools":
-      return `${path} 含无效能力；只允许 read／write／exec／task／external／network`;
     case "invalid_report":
       return `${path} 含无效报告类型；只允许 string／string[]／paths／bool 或非空字符串枚举数组`;
     case "invalid_on_verdict":
@@ -637,6 +647,28 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError): st
       if (error.keyword === "additionalProperties") return `${path} 不是已知配置字段`;
       return `${path} 不符合配置结构（${error.message}）`;
   }
+}
+
+function toolsIssueMessage(pointer: string, path: string, raw: unknown): string {
+  const value = valueAtPointer(raw, pointer);
+  const isElement = pointerSegments(pointer).length > 3;
+  if (isElement && typeof value === "string" && TOOLS_ALL_REGEX.test(value)) {
+    return `${path} 不能在能力列表里写 all；全部放开请写标量 tools: all 或不写 tools，全部禁用写 tools: []`;
+  }
+  if (!isElement) {
+    return `${path} 只能是标量 all（全部放开）或能力数组（[] 为全部禁用）；能力只允许 read／write／exec／task／external／network`;
+  }
+  return `${path} 含无效能力；只允许 read／write／exec／task／external／network`;
+}
+
+function valueAtPointer(raw: unknown, pointer: string): unknown {
+  let current: unknown = raw;
+  for (const segment of pointerSegments(pointer)) {
+    if (Array.isArray(current)) current = current[Number(segment)];
+    else if (isRecord(current)) current = current[segment];
+    else return undefined;
+  }
+  return current;
 }
 
 function resolveDefaultMaxVisits(value: number | undefined): number | null {

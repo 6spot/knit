@@ -61,7 +61,8 @@ export type ContextExclusion = Static<typeof ContextExclusionSchema>;
 
 /**
  * 工具策略按阶段能力给出（设计 §7）：
- * - `capabilities: null` = 阶段未写 `tools`，全部放开；
+ * - `capabilities: null` = 阶段未写 `tools` 或写 `all`，全部放开；
+ * - `capabilities: []` = 阶段写 `tools: []`，全部禁用（allow 为空，启动参数 `--no-tools`）；
  * - 其余数组是白名单，`allow` 是展开后的 Pi 工具名／模式，`deny` 供展示与诊断。
  */
 export const ToolPolicySchema = obj(

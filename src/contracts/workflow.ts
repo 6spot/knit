@@ -6,7 +6,8 @@
  * 约定：
  * - 注释不属于配置值，也不参与任何比较。
  * - `stages` 的顺序就是流转顺序；`start`／`deliver` 是内置锚点，不写进 stages。
- * - 不写 `tools` 或写空数组都表示全部能力放开；写了非空数组就是白名单。
+ * - `tools` 不写或写标量 `all`（大小写不敏感）表示全部能力放开；空数组 `[]` 表示全部禁用；
+ *   非空数组是白名单，列表里不能混入 `all`。
  * - `report` 的值可以是 string／string[]／paths／bool，或非空字符串枚举数组。
  */
 import { arr, bool, int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
@@ -41,6 +42,14 @@ export const ToolCapabilitySchema = union([
   lit("network"),
 ]);
 export type ToolCapability = Static<typeof ToolCapabilitySchema>;
+
+/** `tools: all` 的标量写法；大小写不敏感（`ALL` 等同），只接受标量，不接受 `[all]`。 */
+export const TOOLS_ALL_PATTERN = "^[Aa][Ll][Ll]$";
+export const TOOLS_ALL_REGEX = /^all$/i;
+
+/** 阶段 `tools` 原始写法：标量 `all`（全部放开）或能力数组（空数组 = 全部禁用）。 */
+export const StageToolsSchema = union([str({ pattern: TOOLS_ALL_PATTERN }), arr(ToolCapabilitySchema)]);
+export type StageTools = Static<typeof StageToolsSchema>;
 
 export const TOOL_CAPABILITIES: readonly ToolCapability[] = [
   "read",
@@ -81,7 +90,8 @@ export const WorkflowStageConfigSchema = obj({
   description: opt(str()),
   /** 项目相对路径；文件缺失由核心用默认 agent 指令，不在这里判降级。 */
   prompt: opt(str({ minLength: 1 })),
-  tools: opt(arr(ToolCapabilitySchema)),
+  /** 不写或 `all` = 全部放开；`[]` = 全部禁用；非空数组 = 白名单。 */
+  tools: opt(StageToolsSchema),
   report: opt(map(ReportFieldTypeSchema)),
   /** 报告值 → 阶段 id 或 deliver；语义目标存在性由 domain 校验。 */
   onVerdict: opt(map(str({ minLength: 1 }))),

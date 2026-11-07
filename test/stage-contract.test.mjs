@@ -65,22 +65,54 @@ test("能力→Pi 参数：缺省收紧，external 放开扩展／MCP／技能�
   assert.equal("PI_OFFLINE" in env, false, "network 时环境不注入 PI_OFFLINE");
 });
 
-test("能力→Pi 参数：tools 写空数组等同不限制，不当作禁用", () => {
-  const yaml = [
+function stagesYaml(toolsLines) {
+  return [
     "version: 1",
     "stages:",
-    "  - id: implement",
-    "    name: 实现",
-    "    tools: []",
-    "  - id: check",
-    "    name: 检查",
-    "    tools: [read, exec]",
+    ...toolsLines.flatMap((line, index) => [
+      `  - id: s${index}`,
+      ...(line === null ? [] : [`    tools: ${line}`]),
+    ]),
   ].join("\n");
-  const parsed = parseWorkflow(yaml);
-  assert.equal(parsed.workflow.stages[0].tools, null, "空数组归一为全部放开");
-  assert.deepEqual(parsed.workflow.stages[1].tools, ["read", "exec"], "非空数组仍是白名单");
+}
+
+test("tools 解析：不写／all／ALL → 全部放开，[] → 全部禁用，非空列表 → 白名单", () => {
+  const parsed = parseWorkflow(stagesYaml([null, "all", "ALL", "[]", "[read, exec]"]));
+  assert.equal(parsed.validation.ok, true, JSON.stringify(parsed.validation.issues));
+  const tools = parsed.workflow.stages.map((stage) => stage.tools);
+  assert.equal(tools[0], null, "不写 = 全部放开");
+  assert.equal(tools[1], null, "all = 全部放开");
+  assert.equal(tools[2], null, "ALL 大小写不敏感");
+  assert.deepEqual(tools[3], [], "空数组 = 全部禁用，不再归一为全部放开");
+  assert.deepEqual(tools[4], ["read", "exec"], "非空数组仍是白名单");
+});
+
+test("tools 解析：列表混入 all、单元素 [all] 与非 all 标量都报 invalid_tools 并带行号", () => {
+  for (const [line, expectedLine] of [["[all, read]", 4], ["[read, ALL]", 4], ["[all]", 4], ["everything", 4], ["read", 4]]) {
+    const parsed = parseWorkflow(stagesYaml([line]));
+    assert.equal(parsed.mode, "fallback", line);
+    assert.equal(parsed.validation.reason, "invalid_tools", line);
+    const issue = parsed.validation.issues[0];
+    assert.equal(issue.code, "invalid_tools");
+    assert.equal(issue.line, expectedLine, line);
+    assert.match(issue.message, new RegExp(`^第 ${expectedLine} 行：`));
+  }
+  const mixed = parseWorkflow(stagesYaml(["[all, read]"]));
+  assert.match(mixed.validation.issues[0].message, /不能在能力列表里写 all/);
+});
+
+test("能力→Pi 参数：空能力全部禁用（--no-tools，离线并禁用扩展／MCP／技能）", () => {
+  const disabled = argsOf({ capabilities: [], tools: [] });
+  for (const flag of ["--no-tools", "--offline", "--no-mcp", "--no-skills", "--no-extensions"]) {
+    assert.equal(disabled.includes(flag), true, `全部禁用应带 ${flag}`);
+  }
+  assert.equal(disabled.includes("--tools"), false);
+
+  // all 与不写一样：不传 --tools／--no-tools。
+  const parsed = parseWorkflow(stagesYaml(["all"]));
   const unrestricted = argsOf({ capabilities: parsed.workflow.stages[0].tools, tools: null });
   assert.equal(unrestricted.includes("--no-tools"), false);
+  assert.equal(unrestricted.includes("--tools"), false);
   assert.equal(unrestricted.includes("--offline"), false);
 });
 

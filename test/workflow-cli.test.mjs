@@ -117,6 +117,51 @@ test("workflow add／move／set-*：写入后全量校验并回显新流程摘�
   }
 });
 
+test("workflow set-tools：all／[]／--clear 三种操作与 workflow show 回显一致；列表混入 all 带行号拒绝", () => {
+  const dir = project("set-tools");
+  try {
+    assert.equal(json(dir, ["workflow", "init"]).parsed.outcome, "completed");
+    const toolsOf = (data) => data.workflow.stages.find((stage) => stage.id === "implement").tools;
+
+    // all：写标量 all，生效为全部放开（null）。
+    const all = json(dir, ["workflow", "set-tools", "implement", "ALL"]);
+    assert.equal(all.parsed.outcome, "completed", all.stderr);
+    assert.equal(toolsOf(all.parsed.data), null);
+    assert.match(readFileSync(workflowPath(dir), "utf8"), /^ {4}tools: all$/m);
+    assert.equal(toolsOf(json(dir, ["workflow", "show"]).parsed.data), null);
+    assert.match(run(dir, ["workflow", "show"]).stdout, /工具: 全部放开/);
+
+    // []：写空数组，生效为全部禁用。
+    const disabled = json(dir, ["workflow", "set-tools", "implement", "[]"]);
+    assert.equal(disabled.parsed.outcome, "completed", disabled.stderr);
+    assert.deepEqual(toolsOf(disabled.parsed.data), []);
+    assert.match(readFileSync(workflowPath(dir), "utf8"), /^ {4}tools: \[\]$/m);
+    assert.deepEqual(toolsOf(json(dir, ["workflow", "show"]).parsed.data), []);
+    assert.match(run(dir, ["workflow", "show"]).stdout, /工具: 全部禁用/);
+    // none 是 [] 的别名。
+    assert.equal(json(dir, ["workflow", "set-tools", "implement", "read"]).parsed.outcome, "completed");
+    assert.deepEqual(toolsOf(json(dir, ["workflow", "set-tools", "implement", "none"]).parsed.data), []);
+
+    // --clear：删除字段，等同全部放开。
+    const cleared = json(dir, ["workflow", "set-tools", "implement", "--clear"]);
+    assert.equal(cleared.parsed.outcome, "completed", cleared.stderr);
+    assert.equal(toolsOf(cleared.parsed.data), null);
+    const implementBlock = readFileSync(workflowPath(dir), "utf8").split("- id: check")[0].split("- id: implement")[1];
+    assert.equal(/tools:/.test(implementBlock), false, "--clear 删除 tools 字段");
+    assert.equal(toolsOf(json(dir, ["workflow", "show"]).parsed.data), null);
+
+    // 列表里混入 all：invalid_tools 带行号，不改文件。
+    const before = readFileSync(workflowPath(dir), "utf8");
+    const mixed = json(dir, ["workflow", "set-tools", "implement", "all,read"]);
+    assert.equal(mixed.code, 1);
+    assert.equal(mixed.parsed.data.issues[0].code, "invalid_tools");
+    assert.match(mixed.parsed.data.issues[0].message, /^第 \d+ 行：.*不能在能力列表里写 all/);
+    assert.equal(readFileSync(workflowPath(dir), "utf8"), before, "非法写入不改文件");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("workflow 写入失败带行号并保持原文件；未创建时 add 先写入默认模板", () => {
   const dir = project("reject");
   try {
