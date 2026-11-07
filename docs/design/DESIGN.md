@@ -3,11 +3,11 @@
 初始记录日期：2026-10-31  
 状态：首版设计已实现至 Linux 候选（001–026）；macOS 后续验证。
 
-Knit 是独立 CLI 与项目辅助系统，负责项目初始化、任务记录、规范演进、配置驱动的阶段编排、模型选择、提交归档和恢复。内部按可插拔模块组织，已接入 Pi、local 与 REX；Worktree 和其他客户端具体实现后续增加。
+Knit 是独立 CLI 与项目辅助系统，负责项目初始化、任务记录、规范演进、配置驱动的阶段编排、模型选择、提交归档和恢复。内部按可插拔模块组织，已接入 Pi、local 与 REX；Worktree 执行环境已实现，其他客户端适配后续增加。
 
 日常主入口是用户在 Pi 中对话，由主 Agent 调 Knit；CLI 同时供本人直接操作。个人开发按单人设计，多会话、多分支和换机器只要求身份、资料和恢复不出错，不建设多人协作、共享调度或团队任务库。
 
-阅读入口：[首版范围](#151-首版闭环) · [架构](ARCHITECTURE.md) · [状态契约](STATES.md) · [技术选型](TECHNOLOGY.md) · [用户命令](#41-命令面) · [运行细则](OPERATIONS.md) · [术语](GLOSSARY.md)。后续 [Worktree](../research/WORKTREE.md)、[研究](../research/RESEARCH.md) 与 [开发约定](../../AGENTS.md) 分开维护。
+阅读入口：[首版范围](#151-首版闭环) · [架构](ARCHITECTURE.md) · [状态契约](STATES.md) · [技术选型](TECHNOLOGY.md) · [用户命令](#43-命令面) · [运行细则](OPERATIONS.md) · [术语](GLOSSARY.md)。[Worktree 概览](#6-worktree-现行规则) 与[细则](../research/WORKTREE.md)、[研究](../research/RESEARCH.md)、[开发约定](../../AGENTS.md) 分开维护。
 
 ## 1. 定位与原则
 
@@ -24,7 +24,7 @@ Knit 通过自身 CLI 和项目资料提供核心能力，Pi 是首个客户端�
 | 组件 | 职责 |
 | --- | --- |
 | Pi 本机 CLI／宿主公开 API | 首版阶段执行与主会话薄桥接；不引入 Pi SDK 依赖 |
-| Git | 首版用于状态核对与提交；合入、分支及 Worktree 管理用于后续能力 |
+| Git | 状态核对、限定路径提交、任务 Worktree 与本地合入；推送、PR 等远程操作不在核心范围 |
 | Knit 核心 | 独立 CLI、初始化、任务、规范演进、阶段、运行协议与恢复 |
 | ClientAdapter／AgentRuntime | 系统内部的客户端资料、原生会话与阶段执行适配 |
 | SoL-Pi 等 Extensions | 可选的上下文、计划或其他会话辅助 |
@@ -87,7 +87,7 @@ AGENTS.md                         # 保留原规则，添加 Knit 受管入口
 | 任务的本机执行位置与阶段 Session 引用 | 本机 binding 仓储（SQLite 元数据库） |
 | 阶段请求、状态与结果回执 | 执行目录 `.knit/.runtime/runs/<run-id>/` |
 | 代码、分支与提交状态 | 文件系统与 Git |
-| 任务列表与归档列表 | 从当前项目的任务目录派生；默认只列未归档任务（进行中／待归档／已取消），归档用 `task list --archive` 按月查看；后续增加 Worktree 列表 |
+| 任务列表与归档列表 | 从当前项目的任务目录派生；默认只列未归档任务（进行中／待归档／已取消），归档用 `task list --archive` 按月查看；Worktree 登记用 `worktree list` 单独查看，不混入任务列表 |
 
 Session 索引保存身份和关系，任务绑定保存执行位置，运行回执保存每次执行结果。正文中的业务事实以任务资料为准，执行结果以实际产物和验证为准。主 Session 与子 Session 均可从索引查询，历史原文由对应客户端读取。
 
@@ -112,7 +112,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 标题保存在 Markdown 一级标题。任务类型、负责人、日期等信息按实际需要增加。
 
-`id` 在改名、迁移和归档后保持不变。关联保存身份与路径线索，路径失效时按身份核对。一个工作目录中出现多个同 ID 文件时报告歧义。后续 Worktree 支持按执行绑定区分同 ID 的当前资料和历史副本。
+`id` 在改名、迁移和归档后保持不变。关联保存身份与路径线索，路径失效时按身份核对。一个工作目录中出现多个同 ID 文件时报告歧义。Worktree 绑定以稳定任务 ID 为键，记录当前执行目录、基线与实际任务路径；切换执行目录后旧位置只作历史线索。
 
 ### 3.2 目录命名与归档
 
@@ -125,7 +125,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 归档保留整个任务目录的名称和内容。外层 `YYYY-MM` 是归档月份，内层 `MM-DD` 是创建月日；跨月完成时两者分别保留各自含义。
 
-创建时核对当前分支可见的任务目录。名称被其他任务占用时，为 slug 添加短序号，例如 `11-01-fix-login-2`。后续 Worktree 与工作分支命名见 [WORKTREE.md](../research/WORKTREE.md#62-创建与连接)。
+创建时核对当前分支可见的任务目录。名称被其他任务占用时，为 slug 添加短序号，例如 `11-01-fix-login-2`。Worktree 与工作分支命名见 [WORKTREE.md](../research/WORKTREE.md#62-创建与连接)。
 
 任务后来改名时按稳定 ID 更新资料路径线索与绑定。归档目标已存在时按 ID 和操作回执区分断点恢复与其他任务占用；其他任务占用时停止归档并报告。
 
@@ -193,7 +193,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 文件在新分支不可见时暂停关联，不凭本机记录重建。多机缺少原检查凭据时重查；跨分支同名目录按 Git 冲突和稳定 ID 核对，首版不做全分支任务库或协作同步。
 
-换 Session 继续时核实当前分支可见任务、绑定与旧 run；状态未知时保留占用。绑定缺失时从本项目任务与回执核对重建；指向其他目录或身份不明时阻塞。跨目录关联见 [后续设计](../research/WORKTREE.md)。
+换 Session 继续时核实当前分支可见任务、绑定与旧 run；状态未知时保留占用。绑定缺失时从本项目任务与回执核对重建；指向其他目录或身份不明时阻塞。跨目录关联见 [Worktree 持久关联与继续执行](../research/WORKTREE.md#66-持久关联与继续执行)。
 
 ### 3.8 阶段权威与推导
 
@@ -338,12 +338,21 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝 |
-| run prepare/start --stage <id> --task <id> [--rex/--local] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主 |
+| run prepare/start --stage <id> --task <id> [--rex/--local] [--worktree on\|off] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主；--worktree 只覆盖本次派发的自动创建策略 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
 | context --task <id> [--stage <id>] | 生成阶段分层输入与顶部提示；阶段目标由生效流程派生 |
 | resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |
 | cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome |
-| deliver [id...] --branch <ref> [--authorization-ref <ref>] [--plan] | 逐任务收尾；业务产物与任务资料分开提交，--plan 只读预检；完整目标 ref 明示，桥接声明授权来源，不默认启动 worker |
+| worktree create --task <id> [--path/--branch/--global/--allow-dirty] | 从主检出当前已提交 HEAD 建立任务 worktree 并登记绑定；任务之外有未提交改动时须显式 --allow-dirty，默认拒绝 |
+| worktree connect --task <id> --path <dir> | 连接已有目录；核对 porcelain 登记、仓库归属与本地分支，不创建、不搬运 |
+| worktree handoff --task <id> [--to <dir>] | 交接本任务资料到已登记 worktree：快照、基线核对、冲突检测、回执与绑定切换 |
+| worktree prepare --task <id> [--rerun <step>] | 按 worktree.copy 白名单复制并核对基线，再顺序执行 worktree.postCreate；失败保留现场，--rerun 只续做指定步骤 |
+| worktree status --task <id> | 只读报告执行路由 state／dir／branch／layout／prepared／active／problem |
+| worktree repair [--task <id>] [--apply] | 项目或目录移动后核实并修复可证明的 Git 关联与定位；缺省只读，--apply 才写 binding 与 Session 定位 |
+| worktree cleanup --task <id> [--branch] [--discard-branch] [--discard-changes] [--apply --authorization-ref] | 已结束任务的授权清理；缺省只读预览，--apply 需授权引用，先保全任务资料与 Session 引用；删除分支与丢弃改动需显式选项 |
+| worktree merge --task <id> --into <ref> [--apply --authorization-ref] | 已按 completed 结束任务的授权合入；--into 必须是主检出当前分支，缺省只读预览，--apply 合入后转交任务资料与绑定 |
+| worktree list | 跨目录只读枚举绑定（state／目录／分支／布局／prepared／active／problem），invalid 条目与原因一并显示 |
+| deliver [id...] --branch <ref> [--authorization-ref <ref>] [--plan] [--merge] [--cleanup] | 逐任务收尾；业务产物与任务资料分开提交，--plan 只读预检；完整目标 ref 明示，桥接声明授权来源，不默认启动 worker；--merge／--cleanup 显式授权已绑定 worktree 的交付前合入与交付后清理 |
 | archive [id] --branch <ref> [--authorization-ref <ref>] | 归档资料／继续步骤；提交同样核实目标及授权，不绕正常交付条件 |
 | task close <id> --outcome <值> [--reason <说明>] [--force] | 业务结束并核对完成资格（`self` 接受 run 或主会话实施记录）；父任务完成还要求子任务全部结束并给出总体验收说明；`--force` 仅限用户明确要求且 `independent` 除外，凭据记 `forced` 与原因；不要求 Git 提交，不等于已归档 |
 | status [id] [--run <id>] | 耗时、最近模型／工具活动、心跳，任务视图含「待澄清」`blocking`／`assumed` 计数；--events 仅观察 |
@@ -515,9 +524,13 @@ Pi 桥接执行工具被取消时，向核心发送当前调用已关联的 run/
 
 统计按本 run 新发生的调用增量计，不重算恢复会话中的历史消费。归一化为总输入 `inputTokens`（含缓存）和输出 `outputTokens`，`totalTokens = inputTokens + outputTokens`；缓存读写是输入的子集，单列展示但不重复相加。供应商原始字段保留，无法无歧义映射时不伪造总数。费用按供应商规则另计，缓存用量不等于同价消费。完整约定见 [运行细则](OPERATIONS.md#5-用量存储与诊断)。
 
-## 6. Worktree
+## 6. Worktree 现行规则
 
-Worktree 创建、连接、枚举、交接、公共资料准备、迁移、修复、合入与清理已实现；完整规则独立保存在 [WORKTREE.md](../research/WORKTREE.md)，当前目录执行按第 3.7 节处理。各执行目录仍以自己的 `.knit/workflow.yaml` 决定阶段、提示词与工具；流程配置不跨执行目录合并。
+Worktree 执行环境已实现；本章是现行规则概览，命令语法见第 4.3 节，逐步行为、冲突与恢复细则独立保存在 [WORKTREE.md](../research/WORKTREE.md)，当前目录执行按第 3.7 节处理。各执行目录仍以自己的 `.knit/workflow.yaml` 决定阶段、提示词与工具；流程配置不跨执行目录合并。
+
+主链路为 `worktree create`（从主检出已提交 HEAD 建立并登记绑定）→ `worktree handoff`（交接本任务资料并切换绑定）→ `worktree prepare`（按 `worktree.copy` 白名单复制公共资料，再顺序执行 `worktree.postCreate`）。`worktree connect` 接管已有目录，`worktree status` 只读报告 state／目录／分支／布局／prepared／active／problem，`worktree repair` 在项目或目录移动后核实并修复可证明的 Git 关联与定位，`worktree list` 跨目录枚举绑定。合入与清理只面向已结束任务：`worktree merge` 要求任务已按 completed 结束（已归档任务记 noop），`--into` 必须是主检出当前分支；`worktree cleanup` 要求任务已关闭，并先保全任务资料与 Session 引用。两者缺省只读预览，写动作要求 `--apply` 与 `--authorization-ref`。交付顺序与授权见第 10 节。
+
+任务资料只保留一个当前写入位置：交接成功后绑定按稳定任务 ID 指向该 worktree，实施与检查在该执行目录运行；合入把资料与绑定转交回目标分支。同一执行目录一次一个执行者，不同执行目录可按各自项目锁并行，主检出路由仍串行（占用细节见[运行细则](OPERATIONS.md#2-占用与解除)）。
 
 项目默认由 `.knit/config.json` 的 `worktree.default` 决定（缺省 `off`）：`on` 时 `run prepare` 在派发当前生效流程的首个配置阶段前自动确保 worktree，顺序为主检出脏守卫 → `worktree create` → `worktree handoff` → `worktree prepare`；已存在且已交接的绑定按现有路由使用；自动创建中断、绑定已写入但交接未完成时，在策略 on 下续做交接／准备，不重建、不删除。失败时 prepare 返回明确原因（`worktree_dirty_source`、`git_head_required`、`detached_head`、`git_occupied` 等），不写 request、不创建 run。任务级 `run prepare --worktree on|off` 只覆盖本次派发：`on` 可打开项目默认 off，`off` 只抑制自动创建、不清除已有绑定。后续阶段、`run check --scope` 与主会话 `task implement` 不触发自动创建；主会话实施仍在主检出执行。
 
@@ -598,7 +611,7 @@ CLI 只使用与本次调用匹配的上下文。无上下文的正式任务调�
 
 输入变更先保存意图；活动 run 尚未终止时不改有效输入，后续代码阶段与交付需先应用或明确撤回该变更。输入与记录、启动／worker、取消、检查、选择、规范、操作和封存的完整规则见 [STATES.md](STATES.md)。各文件唯一写入方与意图／效果顺序见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-提交、阶段写回与归档的断点记录由本机 operation 元数据仓储保存，实现为 M0 选定的 SQLite 元数据库。原生工具记录仍由客户端保存，run 产物与元数据按版本核验，见 [版本约定](OPERATIONS.md#5-数据版本与升级)。
+提交、阶段写回与归档的断点记录由本机 operation 元数据仓储保存，实现为 M0 选定的 SQLite 元数据库。原生工具记录仍由客户端保存，run 产物与元数据按版本核验，见 [版本约定](OPERATIONS.md#6-数据版本与升级)。
 
 桥接在当前宿主内用一个可销毁的轻量定时器，默认每 5 秒调用 `knit status --run <run-id> --json` 查询自己发起的未结束 run，不建立常驻服务或新状态库。结束、会话／树切换或宿主关闭即停止相应观察；reload 后只从当前有效路径与绑定核实可观察引用。发消息前再次核对原生 Session、发起条目仍在有效路径及任务关联，按 run ID／终态版本检查已有原生通知去重；持久化未知不自动重发，未匹配只保留核心结果供查询。通知按是否需要处理分流：失败、取消或结果待接收时用 follow-up 队列并唤醒主 Agent，不抢新输入；完成且结果已被接收的通知以 nextTurn 进入下一轮上下文，只展示、不启动模型轮次。结果尚未接收时只通知待同步和下一步，status 不偷偷接收或重派。投递不作执行回执，也不保证模型轮次恰好一次；业务副作用仍按核心幂等检查点核实。完整轮询链路已由 015 真实桥接验收；定时回调实验不代替该验收。
 
@@ -647,7 +660,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 交付／归档不检查规范候选；候选未审阅、延期或仅在旧任务文件中保留都不阻塞。规范处理不重新绑定任务；本任务明确采纳并写入正式规范的路径仍按实际改动进入资料提交。
 
-`delivery.mode: "merge"` 对已绑定 worktree 的任务生效：合入目标仍必须是主检出当前分支（`worktree merge --into`），不提供可配置目标。合入必须先于交付提交，因为 worktree 路由下任务资料在主检出缺席，且既有 merge 拒绝已归档任务；交付完成后按 `worktree.cleanup` 决定是否清理。合入与清理遵守已有授权及明确约束；推送、PR、发布和部署分别取得对应授权。完成条件要求首版尚不支持的交付操作时，明确报告待人工完成，不将其标为已交付。
+`delivery.mode: "merge"` 对已绑定 worktree 的任务生效：`worktree merge --into` 的目标必须是主检出当前分支，不提供可配置目标；缺省只读预览，`--apply` 需提供授权引用（`--authorization-ref`）。合入必须先于交付提交，因为 worktree 路由下任务资料在主检出缺席，且既有 merge 拒绝已归档任务；交付完成后按 `worktree.cleanup` 决定是否清理，清理同样缺省预览、`--apply` 需授权，并先保全任务资料与 Session 引用。合入与清理遵守已有授权及明确约束；推送、PR、发布和部署分别取得对应授权。完成条件要求首版尚不支持的交付操作时，明确报告待人工完成，不将其标为已交付。
 
 ### 10.2 产物与资料提交
 
@@ -668,7 +681,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 `merge`（仅已绑定 worktree 的任务）：核对源与目标目录、取得目录占用 → 核对目标 index 清洁并执行已授权合入 → 验证整合结果 → 转交任务资料与绑定 → 在目标目录执行 `local` 交付（产物／资料／归档提交）→ 按 `worktree.cleanup` 在授权与工作区干净时清理 → 报告。合入失败保留 source worktree／分支／现场，不执行后续交付与清理；清理失败保留 worktree 并报告待清理，已完成的交付提交不回滚。配置 `delivery.mode: "merge"` 或 `worktree.cleanup: "after-merge"` 作为对应步骤的授权来源（记录 `config:<路径>@<sha256>`）；显式 `deliver --merge`／`--cleanup` 按交付授权引用执行；两者都没有时只完成本地交付并报告待合入／待清理。无 worktree 绑定时合入记为 `noop` 并说明，不报错。
 
-以下为后续合入的冲突处理规则。
+以下为合入的冲突处理规则。
 
 目标目录存在运行中的阶段或状态未明的占用时，先核实其终态。目标 index 已有暂存内容时，保留该内容并报告待处理，处理后再合入。
 
@@ -724,7 +737,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 历史检索同样只读。需求澄清期间为核对既有决定、约束或冲突，可主动检索任务历史并须引用来源；普通对话仅在用户以自然语言明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时使用，不按固定关键词或任务编号判定，不因话题与旧任务相关就主动检索，也不建立持续索引／缓存或第二套历史权威。检索范围为当前任务资料（task.md、plan.md、design.md、research/）、归档任务、实际 run 记录（`.knit/.runtime/runs/<run-id>/`，兼容 `.knit/runs/`）与 Git 提交；查询词按 AND 语义匹配文件或提交，命中返回 `path:line`、`run:<id>` 或 `commit:<sha>` 来源。无匹配返回空结果并说明未找到；找到相关记录只证明内容或时间相关，不能包装为某次修改导致问题的根因结论，缺少复现、对照或验证证据时必须说明因果缺口。
 
-后续 Worktree 列表按 Git 登记与绑定采集各执行目录，区分同 ID 的当前资料和历史副本；不可达绑定保留条目并标明待修复。
+Worktree 登记由 `worktree list` 只读枚举：按绑定逐条显示 state（worktree／inactive／invalid）、目录、分支、布局、已准备、已交接与问题，跨目录可见；不可达绑定保留条目并标明原因，不混入任务列表。
 
 Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任务、父子关系和 run，历史片段经所属适配只读取得；不可读取的原生记录保留条目和原因。元数据从 M0 选定的 SQLite 单一仓储读取，不双写 JSON 镜像；run 证据仍按第 5.6 节保留。实现（任务023）：history 按唯一助手条目统计原生用量，input 含 cacheRead／cacheWrite，未知量／费用为 null；status 显示用量，storage 单列原生会话与诊断字节，Git 基线只报引用数量、不与共享对象重复相加。活跃主会话历史由桥接公开 API 读取；离线记录可按已文档化版本只读解析，未知格式只报告引用，不为查询打开可写会话、设置模型或触发轮次。规范索引包含语义描述，按规范变化维护。
 
@@ -748,6 +761,8 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `delivery.defaultBranch` | 可选完整 refs/heads/...，无默认；用于默认分支候选展示，不切分支／授权限；格式非法报告配置错误 |
 | `worktree.default` | `off` 或 `on`；缺省 `off`。`on` 时派发首个配置阶段前自动确保 worktree；任务级 `run prepare --worktree on\|off` 覆盖本次派发 |
 | `worktree.cleanup` | `manual` 或 `after-merge`；缺省 `manual`。`after-merge` 在授权合入成功、交付完成且工作区干净时清理；失败保留现场 |
+| `worktree.copy` | 数组，缺省空；每项 `path`（相对主项目根）与可选 `target`（相对 worktree 根，缺省同相对路径）。`worktree prepare` 按白名单复制并核对来源／目标基线 |
+| `worktree.postCreate` | 数组，缺省空；每项 `command` 与可选 `name`（缺省按序号命名）。在目标 worktree 按序执行，失败即停并保留目录与已成功步骤 |
 | `workflow.maxRepairRounds` | `2` |
 | `limits.heartbeatIntervalMs`／`limits.heartbeatStaleMs` | `5000`／`30000`，后者只触发调查 |
 | `limits.cancelGraceMs` | `5000`，取消后等待工具自行退出的宽限；超时才终止完整进程树 |
@@ -768,7 +783,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 
 项目阶段配置保存在 `phases.implement`、`phases.check` 等条目（键名为阶段 id；配置键名沿用 `phases`）。阶段顺序、提示词、能力白名单、报告字段与回退边不在 `config.json`，而在 `.knit/workflow.yaml`：`version`、`stages`、`id`、`name`、`description`、`prompt`、`tools`、`report`、`onVerdict`、`maxVisits`。配置写入用原子替换并做全量校验，失败给出行号；手改文件允许，读取时按第 9 节降级。数值配置校验正数容量、非负修复轮次，心跳可疑阈值大于间隔。核心按固定内部装配表选择 runtime 与 host，项目不能指定模块路径或运行入口。版本与本机资料见 [OPERATIONS.md](OPERATIONS.md)。
 
-REX 执行适配已实现；后续增加 Codex、Claude Code 等适配实现，以及可配置的 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
+REX 执行适配已实现；后续增加 Codex、Claude Code 等客户端适配实现。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。Worktree 配置语义见第 6 节，合入规则见第 10 节。
 
 首版没有 `limits.maxTokens`、`limits.maxCostUsd` 或 `limits.workerTimeoutMs` 配置；用量只观测。主动预算停止作为后续可选能力，不由项目配置暗中启用。
 
@@ -812,7 +827,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 
 ### 15.1 首版闭环
 
-首版以独立 CLI 初始化和运行，使用内部 Pi 与 local 模块，在当前项目和绑定分支完成闭环。
+首版以独立 CLI 初始化和运行，使用内部 Pi 与 local 模块，在主检出或已交接 worktree 的绑定分支完成闭环。
 
 1. 按授权创建任务，维护单主文档、稳定身份、当前状态与结束结果。
 2. init 建立项目入口、资料与规范索引；从最小闭环开始包含候选扫描、主 Agent 核对和正式规范更新，是首版核心能力。
@@ -822,16 +837,16 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 6. 在当前绑定分支按任务做限定路径产物／资料提交与归档提交，保护既有改动与 index，写断点记录并扫描本次入库内容。
 7. 提供命令／工具入口与当前项目查询，`doctor` 和 `storage` 只读诊断；归档保留恢复引用，首版不自动 gc。
 8. 主会话每轮注入当前任务、阶段与资料入口；是否创建任务由用户决定，复杂任务按需持久 plan／design／research 资料并跨会话接续（第 3.4–3.6 节、第 4.2 节、第 9.6 节）。
+9. Worktree 执行环境：按授权创建或连接、交接任务资料、准备公共资料与环境、按执行目录路由阶段与结果接收、修复移动后的关联；交付时按授权合入主检出当前分支并清理。概览见第 6 节，细则见 [WORKTREE.md](../research/WORKTREE.md)。
 
 按第 16.4 节依次推进：先 M0／M1 得到可观察闭环，真实项目使用前完成 M2，首版发布完成 M3A／M3B。里程碑不削弱授权、范围、凭据和实际交付证据要求，也不扩展多人协作。
 
 ### 15.2 后续能力
 
-- Worktree 的全部实现：创建、连接、枚举、分支管理、任务资料交接、公共资料复制、初始化、迁移、修复与清理。
 - Codex、Claude Code 等客户端及 runtime 适配。
-- 自动合入与跨目录交付，多任务并行调度。
+- 多任务并行调度。
 
-后续增加跨执行目录恢复、旧框架资料迁入、自动清理，以及用户主动选择的预算／总时长停止策略。
+后续增加旧框架资料迁入、自动清理，以及用户主动选择的预算／总时长停止策略。
 
 首版用内部 Pi、local 和测试用 fake 验证可替换模块，新增实现扩展源码装配表。Knit 独立交付，init 自动生成客户端的项目集成；Pi 桥接属于首版，对外插件平台不在范围。
 
@@ -881,7 +896,9 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 
 源码核查与隔离实验本身不证明完整产品；[新会话文件续做](../../validation/session-fallback/README.md) 和 CLI 资料中的 hook／回执丢失实验保留实际证据。内部装配、检查凭据、快照、占用、用量归一与完整命令链已由 006–025 实现并通过 Linux 候选验收；macOS、同文件分块、任意 hooks 及外部并发仍不能从个别样例外推。
 
-### 16.3 后续能力验收
+### 16.3 专项能力验收
+
+下表按能力列出专项场景与现有证据；Worktree 场景已有隔离夹具覆盖（`test/worktree*.test.mjs`），真实项目与真机验收仍按对应任务记录。
 
 | 范围 | 专项场景 |
 | --- | --- |
@@ -917,6 +934,6 @@ M0 存储方案见 TECHNOLOGY；M2 必测取消竞争、实例不明、重复接
 
 ## 18. 规范维护
 
-需求变更同步结构、字段、命令、配置和验收。模块／协议依赖以 ARCHITECTURE.md、状态转移以 STATES.md、技术决定以 TECHNOLOGY.md 为详细规范；本文件保留产品概览，OPERATIONS.md 补充执行细则。术语、后续 Worktree 和来源分别在 GLOSSARY.md、WORKTREE.md、RESEARCH.md。修改时同步相关摘要，不另造一套枚举；开发约定见 AGENTS.md。
+需求变更同步结构、字段、命令、配置和验收。模块／协议依赖以 ARCHITECTURE.md、状态转移以 STATES.md、技术决定以 TECHNOLOGY.md 为详细规范；本文件保留产品概览，OPERATIONS.md 补充执行细则。术语、Worktree 细则和来源分别在 GLOSSARY.md、WORKTREE.md、RESEARCH.md。修改时同步相关摘要，不另造一套枚举；开发约定见 AGENTS.md。
 
 首版 Linux 候选及后续修复的 001–060 执行事实见[开发历史](../history/TASKS.md)，旧阻塞与验收延期项见[历史阻塞记录](../history/BLOCKERS.md)；macOS 完整安装与运行验收仍延期。后续开发按 [AGENTS.md](../../AGENTS.md) 使用 Knit 管理正式任务，阻塞、待决定问题及伪代码／暂定接口记入对应任务；这不绕过产品运行保护或阶段验收。目录、伪代码及任务文件不证明功能已实现，完成结论必须有任务要求的验证依据。产品元数据后端已由 M0 选定 SQLite。

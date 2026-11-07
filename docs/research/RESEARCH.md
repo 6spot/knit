@@ -63,7 +63,7 @@ Knit 采用当前位置、关键决定、阻塞、下一步、完成证据和分
 
 ## 17.6 Pi 与 SoL-Pi
 
-Pi 提供上下文、Skills、模板、Session 树、自定义条目与扩展接口。主项目桥接由 Knit init 生成，阶段使用受控资源加载限定当前执行项目的上下文；独立 Worktree 的边界管理属于后续。
+Pi 提供上下文、Skills、模板、Session 树、自定义条目与扩展接口。主项目桥接由 Knit init 生成，阶段使用受控资源加载限定当前执行项目的上下文；独立 Worktree 的边界管理见 [WORKTREE.md](WORKTREE.md)。
 
 `getBranch()` 表示当前叶节点的祖先路径，`getEntries()` 表示整棵树。`appendEntry()` 负责持久化条目，上下文注入另行处理。Session 开始通过 `session_start` 区分 startup、reload、new、resume、fork，对话树切换通过 `session_tree` 处理。
 
@@ -97,7 +97,7 @@ CLI 创建结果、终端状态和程序状态提供定位与观察能力。Knit
 
 ## 17.9 公共资料、会话恢复与跨 Agent 接入
 
-下表中的 Worktree 准备与跨客户端接入用于后续设计；首版 Pi 会话恢复按[第 9 节](../design/DESIGN.md#9-主会话session-与上下文集成)实现，范围以[第 15 节](../design/DESIGN.md#15-交付范围)为准。
+下表中的 Worktree 准备已按 [WORKTREE.md](WORKTREE.md) 实现；跨客户端接入仍用于后续设计。Pi 会话恢复按[第 9 节](../design/DESIGN.md#9-主会话session-与上下文集成)实现，范围以[第 15 节](../design/DESIGN.md#15-交付范围)为准。
 
 | 来源 | 核查到的做法 | Knit 采用方式 |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ Codex App 的复制行为适用于其管理的本地 Worktree；官方页面将�
 | OpenCode Worktree 服务 | `create/createFromInfo` 经 Git 创建后异步 bootstrap，再运行项目 start 与调用级 `startCommand` | 该服务先发 Ready 再运行脚本，脚本错误记日志；发布版另有 project-copy 入口，按调用链分别理解 |
 | Claude Squad | 从 HEAD 或现有分支创建，并记录基线提交 | 创建辅助函数会先尝试强制移除同目标环境并删除残留目录；Knit 按绑定复用与现场核实规则恢复 |
 
-核查到的路径由 Git 提供基线，并以额外配置或脚本处理环境资料。后续 Worktree 实现按[第 6.7 节](WORKTREE.md#67-公共资料与环境准备)使用基线、当前任务交接、额外资料白名单与顺序初始化；必需资料完整、初始化成功后才启动阶段。公共资料提交按项目需要建立基线，未提交资料按明确清单准备。失败保留目录、逐项结果与成功步骤，恢复时核实后继续。本节研究与[第 6 节](WORKTREE.md)均不构成首版实现要求。
+核查到的路径由 Git 提供基线，并以额外配置或脚本处理环境资料。Worktree 实现按[第 6.7 节](WORKTREE.md#67-公共资料与环境准备)使用基线、当前任务交接、额外资料白名单与顺序初始化；必需资料完整、初始化成功后才启动阶段。公共资料提交按项目需要建立基线，未提交资料按明确清单准备。失败保留目录、逐项结果与成功步骤，恢复时核实后继续。本节研究只说明取舍依据，现行规则以 [WORKTREE.md](WORKTREE.md) 为准。
 
 本次核查范围为发布版源码、配置、文档和已有测试源码，未执行参考项目测试套件或实际 Agent 流程。默认能力、可选命令和实验性设置分别记录；复制返回成功或 Ready 事件的语义以具体实现为准。
 
