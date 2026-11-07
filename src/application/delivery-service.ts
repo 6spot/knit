@@ -34,7 +34,7 @@ import { runSettled } from "./run-activity.js";
 import { GuardError } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
 import { validateCheckEvidence } from "./check-validation.js";
-import { locateTaskDocument } from "./task-service.js";
+import { locateTaskDocument, markTaskListArchiveChanged } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { scanCredentials } from "../contracts/credentials.js";
@@ -818,6 +818,9 @@ export class DeliveryService {
       if (op.sealDigest !== null && sha256Text(readFileSync(archivedTask, "utf8")) !== op.sealDigest) {
         return attention("move", "seal_version_conflict", { target: archivePath });
       }
+      // 显式失效标记：不依赖月份目录 mtime 也能让同一进程的列表缓存重算归档索引；
+      // 重试进入“目标已存在、步骤未完成”的分支时同样刷新，覆盖上次进程在 move 后中断的窗口。
+      markTaskListArchiveChanged(prepared.root, `delivery.move:${op.operationId}`);
       const binding = await this.store.bindings.get(op.taskId);
       if (binding !== null) {
         await this.store.bindings.save({ ...binding, relativePath: relative(prepared.root, archivedTask).split("\\").join("/") });

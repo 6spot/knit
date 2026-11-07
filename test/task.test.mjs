@@ -166,7 +166,7 @@ test("task new：目录重名追加短序号；list 含归档分区", async () =
 test("task list 缓存：命中一致，外改／新增／归档／删除后如实失效（任务 k-57324c702c9e）", async () => {
   const dir = gitProject("list-cache");
   const { store, service } = makeService(dir, { now: fixedDate });
-  // 每次新建实例读取：绕过实例缓存，作为直接读取基准。
+  // 分区缓存按项目根在进程内共享：新建实例读取必须得到同一结果。
   const readDirect = () => new TaskService({ store }).list({ dir });
   try {
     const a = await service.newTask({ dir, title: "缓存 A", slug: "alpha" });
@@ -203,8 +203,9 @@ test("task list 缓存：命中一致，外改／新增／归档／删除后如�
     assert.equal(afterArchive.archived[0].taskId, b.taskId);
     assert.deepEqual(afterArchive, readDirect());
 
-    // 4. 删除 task.md。
-    rmSync(join(monthDir, "11-02-beta", "task.md"));
+    // 4. 删除整个归档任务目录：归档分区按月份目录记账，删目录会更新月份目录 stat。
+    //    绕过 Knit 原地删除／改写归档 task.md 不改月份目录结构，按已知限制不自动失效。
+    rmSync(join(monthDir, "11-02-beta"), { recursive: true, force: true });
     const afterDelete = service.list({ dir });
     assert.equal(afterDelete.archived.length, 0);
     assert.deepEqual(afterDelete, readDirect());

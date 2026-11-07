@@ -706,7 +706,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 调用入口见第 4.3 节；`doctor` 只读检查状态与引用，`storage` 显示容量及告警。首版保留恢复资料，不实现自动 gc。
 
-首版列表采集当前项目活动区及 archive/YYYY-MM；默认视图只列未归档任务（进行中／待归档／已取消），归档条目由 `task list --archive` 按月查看。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed；outcome=completed 时 stage=deliver，cancelled／superseded 保留停止时的非空 stage）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history；字段有效但未被跟踪为 local-only；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。归档视图末尾只按条数汇总跨机历史与档案异常，逐条明细只列档案问题；默认视图不逐行标注这些分类。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存沿用 task.md 文件指纹（目录结构、dev／inode／size／mtimeNs）：Knit 自身归档提交伴随目录结构变化而使缓存失效；纯外部 git add／commit 只改索引、不改文件时不会触发失效，属已知限制，由新进程重新计算恢复。
+首版列表采集当前项目活动区及 archive/YYYY-MM；默认视图只列未归档任务（进行中／待归档／已取消），归档条目由 `task list --archive` 按月查看。结合业务状态、操作和 Git 事实显示待收尾、已移动待提交、完整归档或异常。归档条目带 history 分类：身份有效（id 符合 k- 模式，title／createdAt／branch 非空）、结束有效（status=closed；outcome=completed 时 stage=deliver，cancelled／superseded 保留停止时的非空 stage）且 task.md 已被 Git 索引跟踪（`git ls-files -- <路径>` 批量一次查询）时为 git-history；字段有效但未被跟踪为 local-only；身份或结束字段无效为 invalid 并列出问题明细；Git 查询失败时按未验证处理并记录「Git 跟踪状态不可判定」，不冒充已入库。归档视图末尾只按条数汇总跨机历史与档案异常，逐条明细只列档案问题；默认视图不逐行标注这些分类。跨机克隆缺本机回执时，git-history 档案只读展示，不自动重开，不创建绑定、不产生检查资格，也不能作为新执行或交付的检查证明；完成资格链路不变，归档任务本就不能 adopt／close。归档 task.md 解析失败只写入列表 problems（路径与原因），不中断其余条目；活动区解析失败仍按业务权威报错。同一 taskId 同时出现在活动区与归档或多个归档位置时记录重复来源诊断，操作定位仍以活动区优先，列表不改变任何业务状态。列表缓存按分区记账（任务 k-3d730c8907b3）：活跃分区取 `tasks/` 下每个活跃 task.md 的 dev／inode／size／mtimeNs；归档分区只取 `tasks/archive` 与各 `tasks/archive/<YYYY-MM>` 目录的 dev／inode／size／mtimeNs（O(月份)，不逐条 stat 归档 task.md）。归档条目、problems、父子关系与依赖归档状态随归档索引缓存，命中即复用，指纹变化只重扫该分区。Knit 自身归档／还原／改档操作写 `.knit/.runtime/task-list/archive.invalidation` 显式失效标记，与分区指纹一起参与比较，不依赖目录 mtime；`task list`、`task next` 与 `knit status` 项目概览共用同一分区缓存。绕过 Knit 原地改写或删除已归档 task.md（不改变月份目录的直接子项）不会自动失效，正常流程归档后不再改内容；纯外部 git add／commit 只改索引、不改文件时也不会触发失效。缓存仅在进程内复用，不落盘，新进程首次读取仍按当前目录事实重建。
 
 历史检索同样只读。需求澄清期间为核对既有决定、约束或冲突，可主动检索任务历史并须引用来源；普通对话仅在用户以自然语言明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时使用，不按固定关键词或任务编号判定，不因话题与旧任务相关就主动检索，也不建立持续索引／缓存或第二套历史权威。检索范围为当前任务资料（task.md、plan.md、design.md、research/）、归档任务、实际 run 记录（`.knit/.runtime/runs/<run-id>/`，兼容 `.knit/runs/`）与 Git 提交；查询词按 AND 语义匹配文件或提交，命中返回 `path:line`、`run:<id>` 或 `commit:<sha>` 来源。无匹配返回空结果并说明未找到；找到相关记录只证明内容或时间相关，不能包装为某次修改导致问题的根因结论，缺少复现、对照或验证证据时必须说明因果缺口。
 
@@ -814,7 +814,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 - Codex、Claude Code 等客户端及 runtime 适配。
 - 自动合入与跨目录交付，多任务并行调度。
 
-后续增加跨执行目录恢复、旧框架资料迁入、自动清理、列表缓存，以及用户主动选择的预算／总时长停止策略。
+后续增加跨执行目录恢复、旧框架资料迁入、自动清理，以及用户主动选择的预算／总时长停止策略。
 
 首版用内部 Pi、local 和测试用 fake 验证可替换模块，新增实现扩展源码装配表。Knit 独立交付，init 自动生成客户端的项目集成；Pi 桥接属于首版，对外插件平台不在范围。
 

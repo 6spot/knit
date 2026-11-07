@@ -4,7 +4,7 @@
  * 占用：目录改名与输入变更用项目执行占用；task record 用任务文件短占用（OPERATIONS.md 第2节）。
  * 业务裁决委托 domain/task.ts；本服务核对事实、执行 IO、写回转移结果。
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync, type BigIntStats } from "node:fs";
 import { basename, join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
@@ -427,6 +427,8 @@ export interface TaskServiceOptions {
   now?: () => Date;
   /** 测试注入随机源（任务 ID、操作 token）。 */
   randomHex?: (bytes: number) => string;
+  /** list 分区读取观测钩子；断言缓存命中不 stat／read 归档 task.md。 */
+  onListIo?: (event: TaskListIoEvent) => void;
 }
 
 /** 领域拒绝到协议边界的稳定错误；应用层 catch 后映射 ReasonCode。 */
@@ -553,57 +555,450 @@ export function listTaskDirectories(root: string): { name: string; archived: boo
   return result;
 }
 
+/** list 分区读取的可选观测钩子：测试与诊断据此断言归档侧 stat／read 次数。 */
+export interface TaskListIoEvent {
+  kind: "stat" | "read";
+  path: string;
+}
+
+type TaskListProbe = (event: TaskListIoEvent) => void;
+
+type TaskListActiveEntry = { summary: TaskSummary } | { error: { path: string; error: unknown } };
+type TaskListArchiveEntry = { summary: TaskSummary } | { problem: TaskListProblem };
+
+/** 活跃／归档两个可独立失效的分区；合并结果只由分区事实派生。 */
+interface TaskListPartitions {
+  active: { entries: TaskListActiveEntry[] };
+  archive: { entries: TaskListArchiveEntry[]; gitProblem: string | null };
+}
+
 interface TaskListCacheEntry {
-  fingerprint: string;
-  result: TaskListResult;
+  activeFingerprint: string;
+  archiveFingerprint: string;
+  active: TaskListPartitions["active"];
+  archive: TaskListPartitions["archive"];
+  /** 合并结果；仅 status 概览更新分区时为 null，下次 list 再派生。 */
+  result: TaskListResult | null;
+}
+
+/** 进程内按项目根共享的分区缓存：task list／next 与 status 概览复用同一份事实。 */
+const taskListCache = new Map<string, TaskListCacheEntry>();
+
+const TASK_LIST_RUNTIME_DIR = "task-list";
+const TASK_LIST_ARCHIVE_MARKER = "archive.invalidation";
+
+function taskListArchiveMarkerPath(root: string): string {
+  return join(root, ".knit", ".runtime", TASK_LIST_RUNTIME_DIR, TASK_LIST_ARCHIVE_MARKER);
+}
+
+function readTaskListArchiveMarker(root: string): string | null {
+  try {
+    return readFileSync(taskListArchiveMarkerPath(root), "utf8").trim();
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : null;
+  }
 }
 
 /**
- * list 聚合缓存指纹（任务 k-57324c702c9e）：任务目录结构 + 每 task.md 的 dev/inode/size/mtimeNs。
- * atomicWrite 经 rename 发布会换 inode；同尺寸同毫秒的就地覆盖也会改变 mtimeNs；
- * 目录增删改名与归档移动改变结构。指纹不可得（目录或文件在遍历中消失、无权限等）返回 null，
- * 调用方按失效处理并直接重算，不用缓存掩盖真实 IO 状态。
+ * Knit 自身归档／还原／改档后写显式失效标记；标记与归档分区指纹一起参与比较，
+ * 即使目录 mtime 未变也能让下一次读取重算归档索引（任务 k-3d730c8907b3）。
+ * 标记写失败不阻断业务操作：常规目录移动仍会改变月份目录 stat。
  */
-function taskListFingerprint(root: string): string | null {
+export function markTaskListArchiveChanged(root: string, reason: string): void {
+  try {
+    atomicWrite({
+      path: taskListArchiveMarkerPath(root),
+      data: Buffer.from(`${new Date().toISOString()}\u0000${reason}\u0000${randomBytes(8).toString("hex")}\n`, "utf8"),
+      mode: 0o600,
+      createParents: true,
+    });
+  } catch {
+    // 不阻断归档收尾；本次目录结构变化仍由分区指纹覆盖。
+  }
+  // 同一进程内即使标记写入失败，也先丢弃缓存，下次读取必须重算归档分区。
+  try {
+    taskListCache.delete(normalizeRoot(root));
+  } catch {
+    // 根目录不可解析时无可复用缓存。
+  }
+}
+
+function taskListStat(file: string, probe: TaskListProbe | undefined): BigIntStats {
+  probe?.({ kind: "stat", path: file });
+  return statSync(file, { bigint: true });
+}
+
+function taskListRead(file: string, probe: TaskListProbe | undefined) {
+  probe?.({ kind: "read", path: file });
+  return readWithVersion(file);
+}
+
+function taskListStatFingerprint(stats: { dev: bigint; ino: bigint; size: bigint; mtimeNs: bigint }): string {
+  return `${stats.dev}\u0000${stats.ino}\u0000${stats.size}\u0000${stats.mtimeNs}`;
+}
+
+/**
+ * 活跃分区指纹（任务 k-57324c702c9e 原口径）：tasks/ 下除 archive 外每个 task.md 的
+ * dev/inode/size/mtimeNs。atomicWrite 经 rename 发布会换 inode；同尺寸同毫秒的就地覆盖也会改变 mtimeNs。
+ */
+function taskListActiveFingerprint(root: string, probe: TaskListProbe | undefined): string | null {
   const tasksRoot = tasksRootOf(root);
   if (!existsSync(tasksRoot)) return null;
   const parts: string[] = [];
-  const addTaskFile = (label: string, file: string): void => {
-    const stats = statSync(file, { bigint: true });
-    parts.push(`${label}\u0000${stats.dev}\u0000${stats.ino}\u0000${stats.size}\u0000${stats.mtimeNs}`);
-  };
   try {
-    const active = readdirSync(tasksRoot, { withFileTypes: true })
+    const names = readdirSync(tasksRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name !== ARCHIVE_DIR)
       .map((entry) => entry.name)
       .sort();
-    for (const name of active) {
+    for (const name of names) {
       const file = join(tasksRoot, name, TASK_FILE);
-      if (!existsSync(file)) continue;
-      addTaskFile(`active/${name}`, file);
-    }
-    const archiveRoot = join(tasksRoot, ARCHIVE_DIR);
-    if (!existsSync(archiveRoot)) return parts.join("\n");
-    const months = readdirSync(archiveRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-    for (const month of months) {
-      const monthDir = join(archiveRoot, month);
-      const names = readdirSync(monthDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
-      for (const name of names) {
-        const file = join(monthDir, name, TASK_FILE);
-        if (!existsSync(file)) continue;
-        addTaskFile(`archive/${month}/${name}`, file);
+      let stats: BigIntStats;
+      try {
+        stats = taskListStat(file, probe);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        return null;
       }
+      parts.push(`active/${name}\u0000${taskListStatFingerprint(stats)}`);
     }
     return parts.join("\n");
   } catch {
     return null;
   }
+}
+
+/**
+ * 归档分区指纹：tasks/archive 与各月份目录的 dev/inode/size/mtimeNs（O(月份)，
+ * 不逐条 stat 归档 task.md），并叠加 Knit 自身操作写入的显式失效标记。
+ */
+function taskListArchiveFingerprint(root: string, probe: TaskListProbe | undefined): string | null {
+  const tasksRoot = tasksRootOf(root);
+  if (!existsSync(tasksRoot)) return null;
+  const marker = readTaskListArchiveMarker(root);
+  if (marker === null) return null;
+  const parts = [`marker\u0000${marker}`];
+  const archiveRoot = join(tasksRoot, ARCHIVE_DIR);
+  let archiveStats: BigIntStats;
+  try {
+    archiveStats = taskListStat(archiveRoot, probe);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      parts.push("archive\u0000absent");
+      return parts.join("\n");
+    }
+    return null;
+  }
+  parts.push(`archive\u0000${taskListStatFingerprint(archiveStats)}`);
+  try {
+    const months = readdirSync(archiveRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    for (const month of months) {
+      const stats = taskListStat(join(archiveRoot, month), probe);
+      parts.push(`month/${month}\u0000${taskListStatFingerprint(stats)}`);
+    }
+    return parts.join("\n");
+  } catch {
+    return null;
+  }
+}
+
+function taskSummaryOf(
+  document: TaskDocument,
+  relativePath: string,
+  archived: boolean,
+  history: TaskHistoryInfo | null,
+): TaskSummary {
+  return {
+    taskId: document.frontmatter.id,
+    title: document.frontmatter.title,
+    status: document.frontmatter.status,
+    stage: document.frontmatter.stage,
+    outcome: document.frontmatter.outcome,
+    branch: document.frontmatter.branch,
+    verification: verificationModeOf(document.frontmatter),
+    relativePath,
+    archived,
+    history,
+    createdAt: document.frontmatter.createdAt,
+    parent: document.frontmatter.parent ?? null,
+    children: [],
+    openChildren: [],
+    priority: priorityOf(document.frontmatter),
+    dependsOn: document.frontmatter.dependsOn ?? [],
+    order: document.frontmatter.order ?? null,
+    blocked: [],
+  };
+}
+
+/** 活跃分区扫描：只读 tasks/ 下未归档任务；解析失败按调用方要求抛错或保留诊断。 */
+function buildTaskListActivePartition(
+  root: string,
+  probe: TaskListProbe | undefined,
+  errorMode: "throw" | "collect",
+): TaskListPartitions["active"] {
+  const tasksRoot = tasksRootOf(root);
+  const entries: TaskListActiveEntry[] = [];
+  if (!existsSync(tasksRoot)) return { entries };
+  const names = readdirSync(tasksRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== ARCHIVE_DIR)
+    .map((entry) => entry.name);
+  for (const name of names) {
+    const file = join(tasksRoot, name, TASK_FILE);
+    const raw = taskListRead(file, probe);
+    if (raw === null) continue;
+    const relativePath = `${TASKS_DIR}/${name}`;
+    let document: TaskDocument;
+    try {
+      document = parseTaskDocument(raw.data.toString("utf8"), file);
+    } catch (error) {
+      if (errorMode === "throw") throw error;
+      entries.push({ error: { path: `${relativePath}/${TASK_FILE}`, error } });
+      continue;
+    }
+    entries.push({ summary: taskSummaryOf(document, relativePath, false, null) });
+  }
+  return { entries };
+}
+
+/** 归档分区扫描：按月目录收集条目、解析问题与跨机历史分类；成本只在归档分区失效时支付。 */
+function buildTaskListArchivePartition(root: string, probe: TaskListProbe | undefined): TaskListPartitions["archive"] {
+  const tasksRoot = tasksRootOf(root);
+  const entries: TaskListArchiveEntry[] = [];
+  const gitCandidates: TaskSummary[] = [];
+  if (!existsSync(tasksRoot)) return { entries, gitProblem: null };
+  const archiveRoot = join(tasksRoot, ARCHIVE_DIR);
+  if (!existsSync(archiveRoot)) return { entries, gitProblem: null };
+  const months = readdirSync(archiveRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  for (const month of months) {
+    const monthDir = join(archiveRoot, month);
+    for (const entry of readdirSync(monthDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = join(monthDir, entry.name, TASK_FILE);
+      const raw = taskListRead(file, probe);
+      if (raw === null) continue;
+      const relativePath = `${TASKS_DIR}/${ARCHIVE_DIR}/${month}/${entry.name}`;
+      let document: TaskDocument;
+      try {
+        document = parseTaskDocument(raw.data.toString("utf8"), file);
+      } catch (error) {
+        entries.push({
+          problem: {
+            path: `${relativePath}/${TASK_FILE}`,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+        continue;
+      }
+      const historyProblems = archivedHistoryProblems(document.frontmatter);
+      const summary = taskSummaryOf(document, relativePath, true, {
+        kind: historyProblems.length === 0 ? "local-only" : "invalid",
+        problems: historyProblems,
+      });
+      entries.push({ summary });
+      if (summary.history?.kind === "local-only") gitCandidates.push(summary);
+    }
+  }
+  let gitProblem: string | null = null;
+  if (gitCandidates.length > 0) {
+    const tracked = gitTrackedFiles(
+      root,
+      gitCandidates.map((summary) => `.knit/${summary.relativePath}/${TASK_FILE}`),
+    );
+    if (!tracked.ok) {
+      gitProblem = tracked.problem ?? "Git 跟踪状态不可判定";
+      for (const summary of gitCandidates) {
+        summary.history = { kind: "local-only", problems: [gitProblem] };
+      }
+    } else {
+      for (const summary of gitCandidates) {
+        if (tracked.tracked.has(`.knit/${summary.relativePath}/${TASK_FILE}`)) {
+          summary.history = { kind: "git-history", problems: [] };
+        }
+      }
+    }
+  }
+  return { entries, gitProblem };
+}
+
+function throwFirstActiveError(active: TaskListPartitions["active"]): void {
+  for (const entry of active.entries) {
+    if ("error" in entry) throw entry.error.error;
+  }
+}
+
+interface LoadedTaskListPartitions {
+  active: TaskListPartitions["active"];
+  archive: TaskListPartitions["archive"];
+  cacheEntry: TaskListCacheEntry | null;
+}
+
+/**
+ * 读取分区缓存：两侧指纹都命中时零文件读取；只有变化的一侧重扫。
+ * 指纹不可得或读取前后不一致时不落缓存，避免把旧分区配给新事实。
+ */
+function loadTaskListPartitions(
+  root: string,
+  probe: TaskListProbe | undefined,
+  activeErrorMode: "throw" | "collect",
+): LoadedTaskListPartitions {
+  const activeFingerprint = taskListActiveFingerprint(root, probe);
+  const archiveFingerprint = taskListArchiveFingerprint(root, probe);
+  if (activeFingerprint === null || archiveFingerprint === null) {
+    taskListCache.delete(root);
+    const active = buildTaskListActivePartition(root, probe, activeErrorMode);
+    return { active, archive: buildTaskListArchivePartition(root, probe), cacheEntry: null };
+  }
+  const cached = taskListCache.get(root);
+  const activeReused = cached !== undefined && cached.activeFingerprint === activeFingerprint;
+  const archiveReused = cached !== undefined && cached.archiveFingerprint === archiveFingerprint;
+  const active = activeReused ? (cached as TaskListCacheEntry).active : buildTaskListActivePartition(root, probe, activeErrorMode);
+  if (activeErrorMode === "throw") throwFirstActiveError(active);
+  if (activeReused && archiveReused) {
+    const entry = cached as TaskListCacheEntry;
+    return { active, archive: entry.archive, cacheEntry: entry };
+  }
+  const archive = archiveReused ? (cached as TaskListCacheEntry).archive : buildTaskListArchivePartition(root, probe);
+  const afterActive = taskListActiveFingerprint(root, probe);
+  const afterArchive = taskListArchiveFingerprint(root, probe);
+  if (afterActive === null || afterArchive === null || afterActive !== activeFingerprint || afterArchive !== archiveFingerprint) {
+    taskListCache.delete(root);
+    return { active, archive, cacheEntry: null };
+  }
+  const entry: TaskListCacheEntry = { activeFingerprint, archiveFingerprint, active, archive, result: null };
+  taskListCache.set(root, entry);
+  return { active, archive, cacheEntry: entry };
+}
+
+function cloneTaskSummary(summary: TaskSummary): TaskSummary {
+  return {
+    ...summary,
+    children: [...summary.children],
+    openChildren: [...summary.openChildren],
+    dependsOn: [...summary.dependsOn],
+    blocked: summary.blocked.map((blocker) => ({ ...blocker })),
+    history: summary.history === null ? null : { kind: summary.history.kind, problems: [...summary.history.problems] },
+  };
+}
+
+/** 合并两个分区：父子、调度与阻塞按稳定 ID 统一派生，输出口径与未分区扫描一致。 */
+function mergeTaskListPartitions(
+  root: string,
+  activePart: TaskListPartitions["active"],
+  archivePart: TaskListPartitions["archive"],
+): TaskListResult {
+  const active: TaskSummary[] = [];
+  const archived: TaskSummary[] = [];
+  const problems: TaskListProblem[] = [];
+  const firstSource = new Map<string, string>();
+  for (const entry of activePart.entries) {
+    if ("error" in entry) throw entry.error.error;
+    const summary = cloneTaskSummary(entry.summary);
+    const prior = firstSource.get(summary.taskId);
+    if (prior !== undefined) {
+      problems.push({
+        path: `${summary.relativePath}/${TASK_FILE}`,
+        message: `重复来源: 任务 ${summary.taskId} 同时出现在 ${prior}/${TASK_FILE} 与 ${summary.relativePath}/${TASK_FILE}`,
+      });
+    } else {
+      firstSource.set(summary.taskId, summary.relativePath);
+    }
+    active.push(summary);
+  }
+  for (const entry of archivePart.entries) {
+    if ("problem" in entry) {
+      problems.push(entry.problem);
+      continue;
+    }
+    const summary = cloneTaskSummary(entry.summary);
+    const prior = firstSource.get(summary.taskId);
+    if (prior !== undefined) {
+      problems.push({
+        path: `${summary.relativePath}/${TASK_FILE}`,
+        message: `重复来源: 任务 ${summary.taskId} 同时出现在 ${prior}/${TASK_FILE} 与 ${summary.relativePath}/${TASK_FILE}`,
+      });
+    } else {
+      firstSource.set(summary.taskId, summary.relativePath);
+    }
+    archived.push(summary);
+  }
+  if (archivePart.gitProblem !== null) {
+    problems.push({ path: `.knit/${TASKS_DIR}/${ARCHIVE_DIR}`, message: archivePart.gitProblem });
+  }
+  // 父子关系按稳定 ID 派生：子任务记 parent，父任务不存重复清单，目录改名不影响关联。
+  const byId = new Map<string, TaskSummary>();
+  for (const summary of [...active, ...archived]) {
+    if (!byId.has(summary.taskId)) byId.set(summary.taskId, summary);
+  }
+  const childrenOf = new Map<string, string[]>();
+  for (const summary of byId.values()) {
+    if (summary.parent === null) continue;
+    const list = childrenOf.get(summary.parent) ?? [];
+    list.push(summary.taskId);
+    childrenOf.set(summary.parent, list);
+  }
+  for (const summary of byId.values()) {
+    summary.children = childrenOf.get(summary.taskId) ?? [];
+    summary.openChildren = summary.children.filter((childId) => byId.get(childId)?.status === "open");
+  }
+  // 执行顺序与阻塞在服务层统一派生：CLI、桥接与 run 入口读同一事实，
+  // 不从目录名、枚举顺序或各自排序推断（DESIGN §3.11）。
+  const schedule = new Map<string, ScheduleEntry>();
+  for (const summary of byId.values()) {
+    schedule.set(summary.taskId, {
+      taskId: summary.taskId,
+      priority: summary.priority,
+      createdAt: summary.createdAt,
+      order: summary.order,
+      dependsOn: summary.dependsOn,
+      status: summary.status as "open" | "closed",
+      outcome: summary.outcome as "completed" | "cancelled" | "superseded" | null,
+      archived: summary.archived,
+    });
+  }
+  for (const summary of byId.values()) {
+    const entry = schedule.get(summary.taskId) as ScheduleEntry;
+    summary.blocked = dependencyBlockers(entry, schedule);
+  }
+  active.sort((left, right) => compareSchedule(schedule.get(left.taskId) as ScheduleEntry, schedule.get(right.taskId) as ScheduleEntry));
+  return { root, active, archived, problems };
+}
+
+function freezeTaskListResult(result: TaskListResult): void {
+  for (const summary of [...result.active, ...result.archived]) {
+    Object.freeze(summary.children);
+    Object.freeze(summary.openChildren);
+    Object.freeze(summary.dependsOn);
+    for (const blocker of summary.blocked) Object.freeze(blocker);
+    Object.freeze(summary.blocked);
+    if (summary.history !== null) {
+      Object.freeze(summary.history.problems);
+      Object.freeze(summary.history);
+    }
+    Object.freeze(summary);
+  }
+  Object.freeze(result.active);
+  Object.freeze(result.archived);
+  for (const problem of result.problems) Object.freeze(problem);
+  Object.freeze(result.problems);
+  Object.freeze(result);
+}
+
+/** status 概览复用同一分区缓存；损坏条目跳过，重复 ID 如实列出。 */
+export function taskListOverviewSummaries(root: string): { active: TaskSummary[]; archived: TaskSummary[] } {
+  const loaded = loadTaskListPartitions(root, undefined, "collect");
+  const active: TaskSummary[] = [];
+  const archived: TaskSummary[] = [];
+  for (const entry of loaded.active.entries) {
+    if ("summary" in entry) active.push(entry.summary);
+  }
+  for (const entry of loaded.archive.entries) {
+    if ("summary" in entry) archived.push(entry.summary);
+  }
+  return { active, archived };
 }
 
 /** 按稳定 ID 定位任务文档；同目录名不等于同任务，ID 以 frontmatter 为准。 */
@@ -663,8 +1058,7 @@ export class TaskService {
   private readonly runActivity: TaskRunActivityPort | null;
   private readonly now: () => Date;
   private readonly randomHex: (bytes: number) => string;
-  /** list 聚合结果缓存：每项目根一条，只有指纹一致时复用（任务 k-57324c702c9e）。 */
-  private readonly listCache = new Map<string, TaskListCacheEntry>();
+  private readonly onListIo: ((event: TaskListIoEvent) => void) | undefined;
 
   constructor(options: TaskServiceOptions) {
     this.store = options.store;
@@ -673,6 +1067,7 @@ export class TaskService {
     this.runActivity = options.runActivity ?? null;
     this.now = options.now ?? (() => new Date());
     this.randomHex = options.randomHex ?? ((bytes: number) => randomBytes(bytes).toString("hex"));
+    this.onListIo = options.onListIo;
   }
 
   /** 任务目录键：稳定 ID（OPERATIONS：任务锁按稳定 ID 定位，移动仍为同一对象）。 */
@@ -1051,157 +1446,22 @@ export class TaskService {
 
   /**
    * 任务列表：从任务目录派生（DESIGN.md 第2节）；frontmatter 为权威。
-   * 聚合结果按 root 缓存，指纹一致才复用；读取期间目录／文件若有变化不落缓存，
-   * 下一次调用整体重算（不做部分失效）。返回副本，调用方改动不污染缓存。
+   * 活跃与归档按分区指纹记账：缓存命中时归档侧只做 O(月份) 目录 stat，
+   * 不 stat／read 任何归档 task.md；只重算指纹变化的分区（任务 k-3d730c8907b3）。
+   * 命中时返回缓存结果的浅拷贝；数组与条目已冻结，调用方不能污染缓存。
    */
   list(input: { dir: string }): TaskListResult {
     const root = normalizeRoot(input.dir);
-    const before = taskListFingerprint(root);
-    const cached = this.listCache.get(root);
-    if (cached !== undefined && before !== null && cached.fingerprint === before) {
-      return structuredClone(cached.result);
+    const loaded = loadTaskListPartitions(root, this.onListIo, "throw");
+    if (loaded.cacheEntry !== null && loaded.cacheEntry.result !== null) {
+      return { ...loaded.cacheEntry.result };
     }
-    const result = this.computeList(root);
-    const after = taskListFingerprint(root);
-    if (before !== null && after !== null && before === after) {
-      this.listCache.set(root, { fingerprint: after, result: structuredClone(result) });
-    } else {
-      // 指纹不可得或读取前后不一致：不缓存，避免把旧结果配给新指纹。
-      this.listCache.delete(root);
+    const result = mergeTaskListPartitions(root, loaded.active, loaded.archive);
+    if (loaded.cacheEntry !== null) {
+      freezeTaskListResult(result);
+      loaded.cacheEntry.result = result;
     }
     return result;
-  }
-
-  /**
-   * 直接读取权威 task.md 并分组；只在 list 缓存未命中或失效时调用。
-   * 活动区解析失败仍抛错（业务权威必须严格）；归档区单条损坏只记 problems。
-   * 归档条目按字段与 Git 索引事实分类，另做重复来源诊断；不写任何业务状态。
-   */
-  private computeList(root: string): TaskListResult {
-    const active: TaskSummary[] = [];
-    const archived: TaskSummary[] = [];
-    const problems: TaskListProblem[] = [];
-    const firstSource = new Map<string, string>();
-    const archiveEntries: Array<{ summary: TaskSummary; gitPath: string }> = [];
-    for (const { name, archived: isArchived } of this.taskDirectories(root)) {
-      const file = join(this.tasksRoot(root), name, TASK_FILE);
-      const raw = readWithVersion(file);
-      if (raw === null) continue;
-      const relativePath = `${TASKS_DIR}/${name}`;
-      let document: TaskDocument;
-      try {
-        document = parseTaskDocument(raw.data.toString("utf8"), file);
-      } catch (error) {
-        if (!isArchived) throw error;
-        problems.push({
-          path: `${relativePath}/${TASK_FILE}`,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        continue;
-      }
-      const summary: TaskSummary = {
-        taskId: document.frontmatter.id,
-        title: document.frontmatter.title,
-        status: document.frontmatter.status,
-        stage: document.frontmatter.stage,
-        outcome: document.frontmatter.outcome,
-        branch: document.frontmatter.branch,
-        verification: verificationModeOf(document.frontmatter),
-        relativePath,
-        archived: isArchived,
-        history: null,
-        createdAt: document.frontmatter.createdAt,
-        parent: document.frontmatter.parent ?? null,
-        children: [],
-        openChildren: [],
-        priority: priorityOf(document.frontmatter),
-        dependsOn: document.frontmatter.dependsOn ?? [],
-        order: document.frontmatter.order ?? null,
-        blocked: [],
-      };
-      const prior = firstSource.get(summary.taskId);
-      if (prior !== undefined) {
-        problems.push({
-          path: `${relativePath}/${TASK_FILE}`,
-          message: `重复来源: 任务 ${summary.taskId} 同时出现在 ${prior}/${TASK_FILE} 与 ${relativePath}/${TASK_FILE}`,
-        });
-      } else {
-        firstSource.set(summary.taskId, relativePath);
-      }
-      if (isArchived) {
-        const historyProblems = archivedHistoryProblems(document.frontmatter);
-        summary.history = {
-          kind: historyProblems.length === 0 ? "local-only" : "invalid",
-          problems: historyProblems,
-        };
-        archiveEntries.push({ summary, gitPath: `.knit/${relativePath}/${TASK_FILE}` });
-        archived.push(summary);
-      } else {
-        active.push(summary);
-      }
-    }
-    this.classifyGitHistory(root, archiveEntries, problems);
-    // 父子关系按稳定 ID 派生：子任务记 parent，父任务不存重复清单，目录改名不影响关联。
-    const byId = new Map<string, TaskSummary>();
-    for (const summary of [...active, ...archived]) {
-      if (!byId.has(summary.taskId)) byId.set(summary.taskId, summary);
-    }
-    const childrenOf = new Map<string, string[]>();
-    for (const summary of byId.values()) {
-      if (summary.parent === null) continue;
-      const list = childrenOf.get(summary.parent) ?? [];
-      list.push(summary.taskId);
-      childrenOf.set(summary.parent, list);
-    }
-    for (const summary of byId.values()) {
-      summary.children = childrenOf.get(summary.taskId) ?? [];
-      summary.openChildren = summary.children.filter((childId) => byId.get(childId)?.status === "open");
-    }
-    // 执行顺序与阻塞在服务层统一派生：CLI、桥接与 run 入口读同一事实，
-    // 不从目录名、枚举顺序或各自排序推断（DESIGN §3.11）。
-    const schedule = new Map<string, ScheduleEntry>();
-    for (const summary of byId.values()) {
-      schedule.set(summary.taskId, {
-        taskId: summary.taskId,
-        priority: summary.priority,
-        createdAt: summary.createdAt,
-        order: summary.order,
-        dependsOn: summary.dependsOn,
-        status: summary.status as "open" | "closed",
-        outcome: summary.outcome as "completed" | "cancelled" | "superseded" | null,
-        archived: summary.archived,
-      });
-    }
-    for (const summary of byId.values()) {
-      const entry = schedule.get(summary.taskId) as ScheduleEntry;
-      summary.blocked = dependencyBlockers(entry, schedule);
-    }
-    active.sort((left, right) => compareSchedule(schedule.get(left.taskId) as ScheduleEntry, schedule.get(right.taskId) as ScheduleEntry));
-    return { root, active, archived, problems };
-  }
-
-  /** 对字段有效的归档条目批量核对 Git 跟踪；查询失败按未验证处理，不冒充已入库。 */
-  private classifyGitHistory(
-    root: string,
-    entries: Array<{ summary: TaskSummary; gitPath: string }>,
-    problems: TaskListProblem[],
-  ): void {
-    const candidates = entries.filter((entry) => entry.summary.history?.kind === "local-only");
-    if (candidates.length === 0) return;
-    const tracked = gitTrackedFiles(root, candidates.map((entry) => entry.gitPath));
-    if (!tracked.ok) {
-      const message = tracked.problem ?? "Git 跟踪状态不可判定";
-      problems.push({ path: `.knit/${TASKS_DIR}/${ARCHIVE_DIR}`, message });
-      for (const entry of candidates) {
-        entry.summary.history = { kind: "local-only", problems: [message] };
-      }
-      return;
-    }
-    for (const entry of candidates) {
-      if (tracked.tracked.has(entry.gitPath)) {
-        entry.summary.history = { kind: "git-history", problems: [] };
-      }
-    }
   }
 
   /**

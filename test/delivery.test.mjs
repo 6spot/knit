@@ -131,6 +131,7 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
   const s = services(dir);
   try {
     const task = await makeDeliverable(dir, s);
+    assert.equal(s.tasks.list({ dir }).active.length, 1, "归档前列表已填充分区缓存");
     writeFileSync(join(dir, "other.txt"), "other dirty\n");
     writeFileSync(join(dir, "staged.txt"), "staged dirty\n");
     git(dir, ["add", "staged.txt"]);
@@ -167,6 +168,10 @@ test("正常交付：工作提交与归档提交范围准确，无关 staged／u
     const archived = join(dir, result.archivePath, "task.md");
     assert.ok(existsSync(archived));
     assert.ok(!existsSync(task.taskFile));
+    const afterArchive = s.tasks.list({ dir });
+    assert.equal(afterArchive.active.length, 0);
+    assert.equal(afterArchive.archived.length, 1);
+    assert.equal(afterArchive.archived[0].taskId, task.taskId, "Knit 归档后列表立即反映新增归档");
     const text = readFileSync(archived, "utf8");
     assert.ok(text.includes("### 交付记录"));
     assert.ok(text.includes(`工作提交: ${result.workCommit}`));

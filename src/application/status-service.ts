@@ -2,7 +2,6 @@
  * status 只读投影（DESIGN.md 第4.1节、STATES.md 第9节）。
  * 查询不接收结果、不推进阶段、不重派 worker；耗时与活动只作观察。
  */
-import { existsSync, readdirSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { RunStore } from "../infrastructure/run-store.js";
 import { LockManager } from "../infrastructure/locks.js";
@@ -10,7 +9,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
 import { clarifyStateOf, priorityOf, verificationModeOf, type TaskPriority, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
-import { listTaskDirectories, locateTaskDocument } from "./task-service.js";
+import { listTaskDirectories, locateTaskDocument, taskListOverviewSummaries } from "./task-service.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
 import { readWithVersion } from "../infrastructure/atomic.js";
 import { executionRouteOf } from "./worktree-routing.js";
@@ -20,7 +19,6 @@ import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
-import { readFileSync } from "node:fs";
 
 export interface RunHeartbeat {
   at: string;
@@ -204,18 +202,19 @@ export class StatusService {
   }
 
   async overview(root: string, locksRoot?: string): Promise<StatusOverview> {
+    const normalizedRoot = normalizeRoot(root);
     const tasks: StatusOverview["tasks"] = [];
-    const workflow = loadWorkflow(root).workflow;
-    const runsRoot = new RunStore(root).listRunIds();
+    const workflow = loadWorkflow(normalizedRoot).workflow;
+    const runsRoot = new RunStore(normalizedRoot).listRunIds();
     const allRuns: RunStatusView[] = [];
     for (const runId of runsRoot) {
       try {
-        allRuns.push(await this.runStatus(root, runId, locksRoot));
+        allRuns.push(await this.runStatus(normalizedRoot, runId, locksRoot));
       } catch {
         // 损坏或未完成的 run 目录不阻塞概览。
       }
     }
-    for (const task of await this.listTasks(root)) {
+    for (const task of await this.listTasks(normalizedRoot)) {
       const taskRuns = allRuns.filter((run) => run.taskId === task.taskId);
       tasks.push({
         taskId: task.taskId,
@@ -238,28 +237,18 @@ export class StatusService {
   }
 
   private async listTasks(root: string): Promise<Array<{ taskId: string; title: string; status: string; stage: string; outcome: string | null; relativePath: string; archived: boolean }>> {
-    // 统一任务发现（listTaskDirectories）：活动 tasks/<name> 与归档 archive/<YYYY-MM>/<name>（任务041）。
-    // 损坏任务不阻塞概览；重复 ID 如实列出并按路径区分；不跟随符号链接（只认目录与 task.md）。
-    const result: Array<{ taskId: string; title: string; status: string; stage: string; outcome: string | null; relativePath: string; archived: boolean }> = [];
-    for (const { name, archived } of listTaskDirectories(root)) {
-      const file = join(root, ".knit", "tasks", name, "task.md");
-      if (!existsSync(file)) continue;
-      try {
-        const document = parseTaskDocument(readFileSync(file, "utf8"), file);
-        result.push({
-          taskId: document.frontmatter.id,
-          title: document.frontmatter.title,
-          status: document.frontmatter.status,
-          stage: document.frontmatter.stage,
-          outcome: document.frontmatter.outcome,
-          relativePath: `tasks/${name}`,
-          archived,
-        });
-      } catch {
-        // 损坏任务不阻塞概览；doctor 另行报告。
-      }
-    }
-    return result;
+    // 与 task list／next 共用同一分区缓存（任务 k-3d730c8907b3）：活跃与归档按指纹复用；
+    // 损坏任务仍跳过、重复 ID 如实列出，概览输出口径不变（任务041）。
+    const summaries = taskListOverviewSummaries(root);
+    return [...summaries.active, ...summaries.archived].map((summary) => ({
+      taskId: summary.taskId,
+      title: summary.title,
+      status: summary.status,
+      stage: summary.stage,
+      outcome: summary.outcome,
+      relativePath: summary.relativePath,
+      archived: summary.archived,
+    }));
   }
 
   /** 只读定位任务文档（含归档）；缺失或损坏按展示缺失处理，不影响 run 状态。 */

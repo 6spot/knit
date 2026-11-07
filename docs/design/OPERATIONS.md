@@ -106,7 +106,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 历史检索只在用户明确表达查历史、查上次决定／处理／修改或追溯问题的意愿时执行，不按固定关键词或任务编号判定，也不因话题相关自动检索；需求澄清期间的取证检索是例外，可主动核对既有决定、约束或冲突并须引用来源。入口为 `knit task search <query...> [--scope task|archive|run|git] [--limit n]` 或桥接 `knit_task action=search`；默认检索全部范围、最多 20 条（上限 100）。实现（任务 k-322284b57ad9）：`src/application/history-search.ts` 直接读取任务资料、`.knit/.runtime/runs/`（兼容 `.knit/runs/`）与 `git log --all --grep`，不打开元数据库、不写任务或 runtime、不建索引／缓存。命中返回 `path:line`、`run:<id>` 或 `commit:<sha>`；无匹配返回空数组并说明未找到。相关记录只代表内容或时间相关，因果结论仍须复现、对照或验证证据。
 
-任务列表默认只回答“还有哪些活没做完／没归档”：实现（任务 k-c06c5a41092f）`knit task list` 按 进行中（`open`）／待归档（`closed` 且 outcome 非取消）／已取消（`cancelled`／`superseded`）分段，行内固定四列（优先级、ID、阶段显示名、标题），列宽按显示宽度补齐；`--archive` 按月分组列归档（`--month` 过滤），归档行给日期、ID、结论与标题，跨机历史与档案异常只在末尾汇总。`TaskService.list` 仍返回 `{active, archived}`，`task next`、依赖阻塞与父子判定不变；`--json` 默认带 `scope="active"` 与 `archivedCount`，归档数组只在 `--archive` 时返回。列表读取成本仍随归档规模增长，另由任务 k-3d730c8907b3 跟进。
+任务列表默认只回答“还有哪些活没做完／没归档”：实现（任务 k-c06c5a41092f）`knit task list` 按 进行中（`open`）／待归档（`closed` 且 outcome 非取消）／已取消（`cancelled`／`superseded`）分段，行内固定四列（优先级、ID、阶段显示名、标题），列宽按显示宽度补齐；`--archive` 按月分组列归档（`--month` 过滤），归档行给日期、ID、结论与标题，跨机历史与档案异常只在末尾汇总。`TaskService.list` 仍返回 `{active, archived}`，`task next`、依赖阻塞与父子判定不变；`--json` 默认带 `scope="active"` 与 `archivedCount`，归档数组只在 `--archive` 时返回。列表读取成本按分区记账（任务 k-3d730c8907b3）：活跃分区逐活跃 task.md 取 dev／inode／size／mtimeNs；归档分区只 stat `tasks/archive` 与各月份目录（O(月份)，不逐条 stat 归档 task.md）。归档条目、problems、父子关系与依赖归档状态随归档索引复用，指纹变化只重扫该分区；缓存命中时 `task list`／`task next` 与 `knit status` 项目概览只做月份级归档 stat。Knit 自身归档／还原／改档写 `.knit/.runtime/task-list/archive.invalidation` 显式失效标记，并与分区指纹一起参与比较；绕过 Knit 原地改写或删除已归档 task.md（不改变月份目录的直接子项）时不自动失效，正常归档后不再改内容。缓存只在进程内，不落盘。
 
 ## 5. 用量、存储与诊断
 
