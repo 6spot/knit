@@ -83,6 +83,13 @@ test("init：AGENTS 受管块含需求澄清协议与复杂拆分提示（k-efc7
     assert.match(agents, /复杂需求先拆分/, "复杂需求拆分提示");
     assert.match(agents, /创建同意不等于实施授权/, "创建同意与实施授权分开");
     assert.match(agents, /任务创建同意不等于需求确认或实施授权/, "discuss 段同步澄清含义");
+    assert.match(agents, /派发分层：动手前先判断可委派/, "初始化输出含派发分层");
+    assert.match(agents, /W1 独立检查.*W2 改动面.*W3 摸底成本.*W4 用户指定/, "W1–W4 完整");
+    assert.match(agents, /没有任务就没有 Knit worker/, "无任务不派 Knit worker");
+    assert.match(agents, /不以时长、步骤数、阶段数或是否需要恢复作判据/, "阈值不含时长／步骤／阶段／恢复");
+    const bridge = readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8");
+    assert.ok(bridge.includes("派发分层：动手前先判断可委派"), "初始化桥接含同一派发分层");
+    assert.match(bridge, /复杂但不建任务时不派 Knit run/, "初始化桥接无任务边界");
     assert.match(agents, /历史查询：需求澄清取证时可直接用/, "澄清取证可主动检索历史");
     assert.match(agents, /普通对话仅在用户明确表达/, "普通对话仍按意愿检索");
     assert.match(agents, /knit task search/, "历史检索入口");
@@ -642,6 +649,59 @@ test("模板：阶段契约文档覆盖职责、停止条件、报告与 Trellis
   assert.match(doc, /1ec5c812b79dc1cc487d0873d18b03449b11c106/);
   assert.match(doc, /Trellis 来源映射/);
   assert.match(doc, /GSD 来源映射/);
+});
+
+test("模板：派发分层标准与两个桥接逐字一致（k-ae990e2f36dc）", () => {
+  const root = join(import.meta.dirname, "..");
+  const block = agentsManagedBlock("npx --no-install knit");
+  const line = block.split("\n").find((entry) => entry.startsWith("- 派发分层："));
+  assert.ok(line, "受管块含派发分层条目");
+  const guidance = line.slice(2);
+  for (const phrase of [
+    "W1 独立检查",
+    "W2 改动面",
+    "W3 摸底成本",
+    "W4 用户指定",
+    "其余主会话直接做",
+    "没有任务就没有 Knit worker",
+    "该派但无任务时先向用户提议建任务，不代建",
+    "复杂但不建任务时用宿主通用子 Agent",
+    "independent 不得用主会话自检或 run check --scope 代替",
+    "也不得用 task implement 绕开 W1",
+  ]) {
+    assert.ok(guidance.includes(phrase), `受管块含：${phrase}`);
+  }
+  assert.match(guidance, /不以时长、步骤数、阶段数或是否需要恢复作判据/, "阈值边界与任务要求一致");
+  const bridges = [
+    readFileSync(join(root, ".pi", "extensions", "knit.ts"), "utf8"),
+    readFileSync(join(root, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8"),
+  ];
+  assert.equal(bridges[0], bridges[1], "两份桥接保持一致");
+  for (const bridge of bridges) {
+    assert.ok(bridge.includes(guidance), "桥接提示词与受管块逐字一致");
+    assert.match(bridge, /复杂但不建任务时不派 Knit run/, "无任务分支补充 Knit run 边界");
+  }
+});
+
+test("文档：DESIGN §4.2 与 ROLE-CONTRACT 派发分层同口径（k-ae990e2f36dc）", () => {
+  const root = join(import.meta.dirname, "..");
+  const design = readFileSync(join(root, "docs", "design", "DESIGN.md"), "utf8");
+  const section = design.slice(design.indexOf("### 4.2"), design.indexOf("### 4.3"));
+  assert.match(section, /派发分层由主会话在动手前判断/);
+  assert.match(section, /W1 独立检查/);
+  assert.match(section, /W2 改动面/);
+  assert.match(section, /W3 摸底成本/);
+  assert.match(section, /W4 用户指定/);
+  assert.match(section, /不以墙钟时长、步骤数量、阶段数量或是否需要恢复作判据/, "阈值边界与提示词一致");
+  assert.match(section, /\| 工作 \| 无任务 \| 有任务 \|/, "含任务与派发矩阵");
+  assert.match(section, /没有任务就没有 Knit worker/);
+  assert.match(section, /independent` 不得用主会话自检或 `run check --scope` 代替/, "独立检查不可替代");
+  assert.match(section, /不得用 `task implement` 绕开 W1/, "task implement 不绕开 W1");
+  const role = readFileSync(join(root, "docs", "design", "ROLE-CONTRACT.md"), "utf8");
+  assert.match(role, /主会话派发分层/);
+  assert.match(role, /W1–W4 判断是否派 Knit worker/);
+  assert.match(role, /worker 仍只在任务内派发/);
+  assert.match(role, /没有任务就没有 Knit worker/);
 });
 
 test("CLI：init --json 输出协议响应；--pi 与无开关等价，未注册客户端开关被拒绝", async () => {

@@ -189,6 +189,11 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(first, /task new/);
     assert.match(first, /是否建任务由用户决定/);
     assert.match(first, /不派发无任务 worker/);
+    assert.match(first, /派发分层：动手前先判断可委派/);
+    assert.match(first, /W1 独立检查/);
+    assert.match(first, /W4 用户指定/);
+    assert.match(first, /没有任务就没有 Knit worker/);
+    assert.match(first, /复杂但不建任务时不派 Knit run/);
     assert.match(first, /verification/);
     assert.match(first, /澄清门/);
     assert.match(first, /先取证再提问/);
@@ -241,6 +246,9 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.match(second, /规范沉淀：/);
     assert.match(second, /需求澄清：/);
     assert.match(second, /交付：实施与检查结果由主会话接收/);
+    assert.match(second, /派发分层：/);
+    assert.match(second, /W1 独立检查.*W4 用户指定/);
+    assert.match(second, /不得用 task implement 绕开 W1/);
     assert.equal((second.match(/历史查询:/g) ?? []).length, 1, "任务注入的历史查询只出现一次");
     assert.doesNotMatch(second, /待澄清: \d+ 项/, "无未决项不显示噪音");
     assert.doesNotMatch(second, /假设待确认: \d+ 项/, "无假设不显示噪音");
