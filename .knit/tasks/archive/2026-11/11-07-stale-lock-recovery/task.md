@@ -114,4 +114,10 @@ run-4633b01b33dd 的结论是 pass，但接收时判 scope_changed。原因：�
 - 结果: 正常交付；检查 run-f3cef235145d 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-07-stale-lock-recovery
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-dd28fd2f468f -->
+- 任务资料提交: ecec2de45859cc3027405e7518f06aecf9e8f70c
+- 归档目标: .knit/tasks/archive/2026-11/11-07-stale-lock-recovery
+
 <!-- knit:progress:end -->
