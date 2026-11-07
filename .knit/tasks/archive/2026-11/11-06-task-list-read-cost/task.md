@@ -86,4 +86,10 @@ title: task list 读取成本不随归档规模线性增长
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-task-list-read-cost
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-be7e269e81e2 -->
+- 任务资料提交: 82bd57c159a6cf21c1c6b4f5e0d1a60b4758a9e2
+- 归档目标: .knit/tasks/archive/2026-11/11-06-task-list-read-cost
+
 <!-- knit:progress:end -->
