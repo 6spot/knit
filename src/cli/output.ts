@@ -59,6 +59,8 @@ export function reasonForError(error: unknown): ReasonCode {
       guard === "worktree_mismatch" ||
       guard === "worktree_invalid" ||
       guard === "worktree_not_ready" ||
+      guard === "worktree_dirty_source" ||
+      guard === "worktree_merge_required" ||
       guard === "execution_dir_mismatch" ||
       guard === "git_occupied" ||
       guard === "path_occupied" ||

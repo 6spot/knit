@@ -36,6 +36,14 @@ function explicitPresentation(options: Record<string, unknown>): RunPresentation
   return undefined;
 }
 
+/** 调用级 worktree 覆盖；只接受 on／off，未指定时按项目 worktree.default。 */
+function explicitWorktree(options: Record<string, unknown>): "on" | "off" | undefined {
+  const value = options.worktree;
+  if (value === undefined) return undefined;
+  if (value === "on" || value === "off") return value;
+  throw new GuardError("invalid_request", `--worktree 只接受 on 或 off: ${String(value)}`);
+}
+
 export function registerRunCommands(program: Command): void {
   const jsonMode = () => program.opts().json || process.env.KNIT_JSON === "1";
   const run = program.command("run").description("准备、启动并观察本地 worker");
@@ -66,6 +74,7 @@ export function registerRunCommands(program: Command): void {
     });
     const resume = (options.resume as string | undefined) ?? "prefer";
     if (resume !== "prefer" && resume !== "new") throw new GuardError("invalid_request", `未知恢复方式: ${resume}`);
+    const worktree = explicitWorktree(options);
     const store = openStore(root);
     try {
       const coordinator = new RunCoordinator({ store, lockRoot: options.locks as string | undefined });
@@ -90,6 +99,7 @@ export function registerRunCommands(program: Command): void {
         diagnostics: devEnabled(program),
         newRepairCycle: options.newRepairCycle === true,
         authorizedStandardPaths: (options.authorizeStandard as string[] | undefined) ?? [],
+        ...(worktree === undefined ? {} : { worktree: { policy: worktree, source: "explicit" as const } }),
       });
     } finally {
       store.close();
@@ -133,7 +143,7 @@ export function registerRunCommands(program: Command): void {
 
   run
     .command("prepare")
-    .description("发布 run 请求与启动意图（不取得执行占用、不写业务资料）")
+    .description("发布 run 请求与启动意图（可能先确保 worktree；不取得执行占用）")
     .requiredOption("--task <taskId>", "任务 ID")
     .requiredOption("--stage <stage>", "阶段 id（内置锚点或 workflow.yaml 中的阶段）")
     .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
@@ -148,6 +158,7 @@ export function registerRunCommands(program: Command): void {
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session（默认用 --native）")
     .option("--new-repair-cycle", "显式开启新修复周期（仅 implement）")
     .option("--authorize-standard <path>", "明确授权为成果的正式规范路径（可重复）", (value: string, previous: string[]) => [...previous, value], [])
+    .option("--worktree <mode>", "本次派发 on 自动确保 worktree／off 抑制自动创建（覆盖项目 worktree.default）")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
@@ -226,6 +237,7 @@ export function registerRunCommands(program: Command): void {
     .option("--new-repair-cycle", "显式开启新修复周期")
     .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
     .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
+    .option("--worktree <mode>", "本次派发 on 自动确保 worktree／off 抑制自动创建")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "项目目录", ".")
@@ -246,6 +258,7 @@ export function registerRunCommands(program: Command): void {
     .option("--resume-session <nativeSessionId>", "恢复该原生 Session")
     .option("--rex", "强制在 Rex 浮层中运行阶段 Pi（不可用时报错，不回退）")
     .option("--local", "强制本地后台运行（覆盖项目 execution.host）")
+    .option("--worktree <mode>", "正式检查派发时 on 自动确保 worktree／off 抑制自动创建")
     .option("--wait", "只观察直到终态（不接收结果）")
     .option("--pi-bin <path>", "非正式检查的 Pi 可执行文件（默认 KNIT_PI_BIN 或 PATH）")
     .option("--locks <dir>", "锁根目录")

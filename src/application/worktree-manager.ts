@@ -11,6 +11,7 @@ import { GuardError } from "./guard-error.js";
 import { hashKey, normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { gitSync } from "../infrastructure/process.js";
+import { porcelainStatusPaths } from "./git-status.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
@@ -142,6 +143,30 @@ function mainCheckoutHead(root: string): string {
     throw new TaskGuardError("git_head_required", "主检出无可读 HEAD，无法确定 worktree 基线");
   }
   return result.stdout.trim();
+}
+
+/**
+ * 主检出中当前任务目录之外的未提交／未跟踪改动（ignored 内容不由 status 报告）。
+ * 自动创建与手动 create 的脏守卫共用；任务目录本身由 handoff 带走，不计入。
+ */
+export function dirtyOutsideTask(
+  root: string,
+  taskDir: string,
+  excluded: string[] = [],
+): { entries: number; sample: string[] } {
+  const result = gitSync(["status", "--porcelain=v1", "-z", "--untracked-files=all"], root);
+  if (result.code !== 0) {
+    throw new GuardError("git_failed", `读取主检出工作区状态失败: ${result.stderr.trim() || "无输出"}`);
+  }
+  const taskRelative = relative(root, taskDir).split(sep).join("/");
+  const normalized = excluded.map((path) => path.split(sep).join("/").replace(/\/$/, ""));
+  const inside = (path: string, prefix: string): boolean => path === prefix || path.startsWith(`${prefix}/`);
+  const paths = porcelainStatusPaths(result.stdout)
+    .map((path) => path.split(sep).join("/"))
+    .filter((path) => path !== taskRelative && !path.startsWith(`${taskRelative}/`))
+    // Knit 运行资料、锁与其它关联 worktree 不是业务源码；自动守卫只拦用户改动。
+    .filter((path) => !normalized.some((prefix) => prefix !== "" && inside(path, prefix)));
+  return { entries: paths.length, sample: paths.slice(0, 8) };
 }
 
 /** create 前置：Git 工作区、可读已提交 HEAD、本地分支（基线与忽略规则都依赖主检出）。 */
@@ -305,12 +330,12 @@ export class WorktreeService {
   }
 
   /** 已归档任务拒绝；活动 run 不阻塞（不影响主目录执行）。 */
-  private locateOpenTask(root: string, taskId: string): { dirName: string } {
+  private locateOpenTask(root: string, taskId: string): { dirName: string; taskDir: string } {
     const located = locateTaskDocument(root, taskId);
     if (located.archived) {
       throw new TaskGuardError("task_archived", `任务已归档: ${taskId}`);
     }
-    return { dirName: basename(located.dir) };
+    return { dirName: basename(located.dir), taskDir: located.dir };
   }
 
   private taskLockKey(root: string, taskId: string) {
@@ -347,10 +372,14 @@ export class WorktreeService {
     path?: string;
     branch?: string;
     global?: boolean;
+    /** 手动显式覆盖主检出脏守卫；自动创建路径永不传 true。 */
+    allowDirty?: boolean;
+    /** 用户入口启用脏守卫；内部服务调用缺省不拦截（测试夹具可保留未提交资料）。 */
+    guardDirty?: boolean;
   }): Promise<WorktreeCreateResult> {
     const root = normalizeRoot(input.dir);
     const now = this.now();
-    const { dirName } = this.locateOpenTask(root, input.taskId);
+    const { dirName, taskDir } = this.locateOpenTask(root, input.taskId);
     assertGitWorktreeEnvironment(root);
     const baseline = mainCheckoutHead(root);
     return await this.withTaskLock(root, input.taskId, "worktree.create", async () => {
@@ -420,6 +449,25 @@ export class WorktreeService {
         if (layout === "project") info.relativePath = relative(root, targetPath);
         await this.saveWorktreeBinding(input.taskId, info);
         return { taskId: input.taskId, created: false, registered: true, worktree: info, gitignore: null, naming };
+      }
+      // 自动与手动创建共用脏守卫：任务资料之外的未提交内容不会被搬运，先阻断并列出路径。
+      // Knit 运行资料、锁、任务目录与其它关联 worktree 是内部数据，不计入业务脏改动。
+      if (input.guardDirty === true && input.allowDirty !== true) {
+        const excluded = [join(".knit", ".runtime"), join(".knit", "tasks"), join(".knit", ".gitignore"), PROJECT_WORKTREES_DIR];
+        const locksRoot = relative(root, resolve(this.locks.rootPath));
+        if (locksRoot !== "" && !locksRoot.startsWith("..") && !isAbsolute(locksRoot)) excluded.push(locksRoot);
+        for (const entry of worktreeList(root)) {
+          const rel = relative(root, resolve(entry.path));
+          if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) excluded.push(rel);
+        }
+        const dirty = dirtyOutsideTask(root, taskDir, excluded);
+        if (dirty.entries > 0) {
+          throw new TaskGuardError(
+            "worktree_dirty_source",
+            `主检出在任务目录之外有 ${dirty.entries} 项未提交／未跟踪改动，停止创建 worktree：${dirty.sample.join(", ")}` +
+              `${dirty.entries > dirty.sample.length ? " …" : ""}；先提交、stash，或显式 worktree create --allow-dirty`,
+          );
+        }
       }
       const gitignore = layout === "project" ? ensureWorktreesIgnored(root) : null;
       const add = gitSync(["worktree", "add", "-b", shortBranchName(branch), targetPath, baseline], root);

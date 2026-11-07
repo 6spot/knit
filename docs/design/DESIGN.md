@@ -515,9 +515,13 @@ Pi 桥接执行工具被取消时，向核心发送当前调用已关联的 run/
 
 统计按本 run 新发生的调用增量计，不重算恢复会话中的历史消费。归一化为总输入 `inputTokens`（含缓存）和输出 `outputTokens`，`totalTokens = inputTokens + outputTokens`；缓存读写是输入的子集，单列展示但不重复相加。供应商原始字段保留，无法无歧义映射时不伪造总数。费用按供应商规则另计，缓存用量不等于同价消费。完整约定见 [运行细则](OPERATIONS.md#5-用量存储与诊断)。
 
-## 6. Worktree（后续设计）
+## 6. Worktree
 
-首版不实现任何 Worktree 创建、连接、枚举、交接、迁移或清理。完整规则独立保存在 [WORKTREE.md](../research/WORKTREE.md)，当前目录执行按第 3.7 节处理。后续 Worktree 实现同样以各执行目录自己的 `.knit/workflow.yaml` 决定阶段、提示词与工具；流程配置不跨执行目录合并。
+Worktree 创建、连接、枚举、交接、公共资料准备、迁移、修复、合入与清理已实现；完整规则独立保存在 [WORKTREE.md](../research/WORKTREE.md)，当前目录执行按第 3.7 节处理。各执行目录仍以自己的 `.knit/workflow.yaml` 决定阶段、提示词与工具；流程配置不跨执行目录合并。
+
+项目默认由 `.knit/config.json` 的 `worktree.default` 决定（缺省 `off`）：`on` 时 `run prepare` 在派发当前生效流程的首个配置阶段前自动确保 worktree，顺序为主检出脏守卫 → `worktree create` → `worktree handoff` → `worktree prepare`；已存在且已交接的绑定按现有路由使用；自动创建中断、绑定已写入但交接未完成时，在策略 on 下续做交接／准备，不重建、不删除。失败时 prepare 返回明确原因（`worktree_dirty_source`、`git_head_required`、`detached_head`、`git_occupied` 等），不写 request、不创建 run。任务级 `run prepare --worktree on|off` 只覆盖本次派发：`on` 可打开项目默认 off，`off` 只抑制自动创建、不清除已有绑定。后续阶段、`run check --scope` 与主会话 `task implement` 不触发自动创建；主会话实施仍在主检出执行。
+
+自动创建前检查主检出：`git status --porcelain=v1 -z --untracked-files=all` 在任务资料之外存在改动时返回 `worktree_dirty_source` 并列出数量与前 8 个路径，用户可提交、stash，或显式执行 `worktree create --allow-dirty`；自动路径永不携带该标志，也不搬运、stash 或丢弃任何未提交内容。忽略内容与 Knit 运行资料、锁、任务目录、其它关联 worktree 不计入业务脏改动。
 
 ## 7. 记录更新与防漏
 
@@ -643,7 +647,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 交付／归档不检查规范候选；候选未审阅、延期或仅在旧任务文件中保留都不阻塞。规范处理不重新绑定任务；本任务明确采纳并写入正式规范的路径仍按实际改动进入资料提交。
 
-后续增加项目可配置的 `merge` 交付，使用 `delivery.target` 或本次指定的本地目标，缺少目标时报告阻塞。合入遵守已有授权及明确约束；推送、PR、发布和部署分别取得对应授权。完成条件要求首版尚不支持的交付操作时，明确报告待人工完成，不将其标为已交付。
+`delivery.mode: "merge"` 对已绑定 worktree 的任务生效：合入目标仍必须是主检出当前分支（`worktree merge --into`），不提供可配置目标。合入必须先于交付提交，因为 worktree 路由下任务资料在主检出缺席，且既有 merge 拒绝已归档任务；交付完成后按 `worktree.cleanup` 决定是否清理。合入与清理遵守已有授权及明确约束；推送、PR、发布和部署分别取得对应授权。完成条件要求首版尚不支持的交付操作时，明确报告待人工完成，不将其标为已交付。
 
 ### 10.2 产物与资料提交
 
@@ -662,7 +666,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 `local`：业务产物提交 → 整理最终结果 → 任务资料提交 → 在当前项目封存并归档 → 归档提交 → 报告当前分支与目录。
 
-后续 `merge`：产物提交 → 资料提交 → 核对源与目标目录、取得目录占用 → 核对目标 index 清洁并执行已授权合入 → 验证整合结果 → 转交任务资料与绑定 → 在目标目录归档 → 归档提交。
+`merge`（仅已绑定 worktree 的任务）：核对源与目标目录、取得目录占用 → 核对目标 index 清洁并执行已授权合入 → 验证整合结果 → 转交任务资料与绑定 → 在目标目录执行 `local` 交付（产物／资料／归档提交）→ 按 `worktree.cleanup` 在授权与工作区干净时清理 → 报告。合入失败保留 source worktree／分支／现场，不执行后续交付与清理；清理失败保留 worktree 并报告待清理，已完成的交付提交不回滚。配置 `delivery.mode: "merge"` 或 `worktree.cleanup: "after-merge"` 作为对应步骤的授权来源（记录 `config:<路径>@<sha256>`）；显式 `deliver --merge`／`--cleanup` 按交付授权引用执行；两者都没有时只完成本地交付并报告待合入／待清理。无 worktree 绑定时合入记为 `noop` 并说明，不报错。
 
 以下为后续合入的冲突处理规则。
 
@@ -740,8 +744,10 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `phases.<stage>.model` | 按阶段 id 配置模型；未配置时使用阶段启动时主 Agent 的当前模型，包含 provider 与 model 标识 |
 | `agent.resume` | `prefer`；本次可明确选择 `new` |
 | `execution.host` | `auto`；REX 环境与能力探测通过时用 `rex`，否则 `local`；值为 `local` 始终本地，`rex` 强制且失败报 `rex_unavailable`；调用级 `--rex`／`--local` 优先 |
-| `delivery.mode` | `local`；当前项目／绑定分支交付，调用仍显式 --branch 并核实授权 |
+| `delivery.mode` | `local` 或 `merge`；缺省 `local`。`merge` 仅对已绑定 worktree 的任务：先按既有 merge 守卫合入，再在主检出完成交付；无 worktree 时记为 `noop`。调用仍显式 --branch 并核实授权 |
 | `delivery.defaultBranch` | 可选完整 refs/heads/...，无默认；用于默认分支候选展示，不切分支／授权限；格式非法报告配置错误 |
+| `worktree.default` | `off` 或 `on`；缺省 `off`。`on` 时派发首个配置阶段前自动确保 worktree；任务级 `run prepare --worktree on\|off` 覆盖本次派发 |
+| `worktree.cleanup` | `manual` 或 `after-merge`；缺省 `manual`。`after-merge` 在授权合入成功、交付完成且工作区干净时清理；失败保留现场 |
 | `workflow.maxRepairRounds` | `2` |
 | `limits.heartbeatIntervalMs`／`limits.heartbeatStaleMs` | `5000`／`30000`，后者只触发调查 |
 | `limits.cancelGraceMs` | `5000`，取消后等待工具自行退出的宽限；超时才终止完整进程树 |
@@ -755,13 +761,14 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
   "agent": { "runtime": "pi", "resume": "prefer" },
   "execution": { "host": "auto" },
   "delivery": { "mode": "local" },
-  "workflow": { "maxRepairRounds": 2 }
+  "workflow": { "maxRepairRounds": 2 },
+  "worktree": { "default": "off", "cleanup": "manual" }
 }
 ```
 
 项目阶段配置保存在 `phases.implement`、`phases.check` 等条目（键名为阶段 id；配置键名沿用 `phases`）。阶段顺序、提示词、能力白名单、报告字段与回退边不在 `config.json`，而在 `.knit/workflow.yaml`：`version`、`stages`、`id`、`name`、`description`、`prompt`、`tools`、`report`、`onVerdict`、`maxVisits`。配置写入用原子替换并做全量校验，失败给出行号；手改文件允许，读取时按第 9 节降级。数值配置校验正数容量、非负修复轮次，心跳可疑阈值大于间隔。核心按固定内部装配表选择 runtime 与 host，项目不能指定模块路径或运行入口。版本与本机资料见 [OPERATIONS.md](OPERATIONS.md)。
 
-REX 执行适配已实现；后续增加 Codex、Claude Code 等适配实现，以及 Worktree 执行环境及根目录、`worktree.copy`、`worktree.postCreate`、`delivery.mode: "merge"` 与 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
+REX 执行适配已实现；后续增加 Codex、Claude Code 等适配实现，以及可配置的 `delivery.target`。内部实现不存在、版本不兼容或要求尚未实现的功能时，报告具体原因，保持当前任务和选择，不静默忽略或替换。后续 Worktree 配置语义见第 6 节，合入规则见第 10 节。
 
 首版没有 `limits.maxTokens`、`limits.maxCostUsd` 或 `limits.workerTimeoutMs` 配置；用量只观测。主动预算停止作为后续可选能力，不由项目配置暗中启用。
 

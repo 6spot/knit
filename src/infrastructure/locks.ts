@@ -136,6 +136,11 @@ export class LockManager {
     return join(this.scopeDir(key.scope), hashKey(key.rawKey));
   }
 
+  /** 锁根本机路径；只读，用于把运行占用目录排除在业务脏守卫之外。 */
+  get rootPath(): string {
+    return this.root;
+  }
+
   /**
    * 依次取得全部键：目录 0700，owner.json 0600 原子写。
    * 任一键失败逆序撤销本次新增引用与资源；删除目录时核对对应 token。

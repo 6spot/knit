@@ -14,6 +14,7 @@ import type {
   DeliveryRecord,
   DeliveryResult,
   DeliveryStep,
+  DeliveryWorktreeFollowUp,
 } from "../contracts/delivery.js";
 import type { CheckFile } from "../contracts/run.js";
 import { PROJECT_SCOPE, type StandardsReview } from "../contracts/standards.js";
@@ -36,8 +37,10 @@ import { loadScope, scopeEntriesCurrent } from "./scope.js";
 import { validateCheckEvidence } from "./check-validation.js";
 import { locateTaskDocument, markTaskListArchiveChanged } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
-import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
+import { parseConfig, defaultConfig, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { scanCredentials } from "../contracts/credentials.js";
+import { WorktreeMergeService } from "./worktree-merge.js";
+import { WorktreeCleanupService } from "./worktree-cleanup.js";
 import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
 import {
   branchExists,
@@ -89,6 +92,10 @@ export interface DeliveryInput {
   messageFile?: string | null;
   /** 显式重试 needs_attention：先核验已完成效果，不盲目重复提交。 */
   retry?: boolean;
+  /** 显式授权本次交付先合入已绑定 worktree；缺省按 delivery.mode 配置。 */
+  merge?: boolean;
+  /** 显式授权交付后清理 worktree；缺省按 worktree.cleanup 配置。 */
+  cleanup?: boolean;
 }
 
 export interface DeliveryPlanMessage {
@@ -231,9 +238,10 @@ export class DeliveryService {
   private async run(input: DeliveryInput & { mode: "deliver" | "archive" }): Promise<DeliveryResult> {
     const root = normalizeRoot(input.dir);
     const caller = input.caller ?? "cli";
+    const config = this.readConfig(root);
     const existing = await this.latestOperation(root, input.taskId);
     if (existing?.state === "completed") {
-      return this.resultOf(existing, true);
+      return await this.cleanupAfterDelivery(root, input, config, this.resultOf(existing, true));
     }
     if (existing?.state === "needs_attention" && input.retry !== true) {
       return this.resultOf(existing, false);
@@ -245,28 +253,172 @@ export class DeliveryService {
       }
     }
 
+    // 合入必须先于交付提交：worktree 路由下任务资料在主检出缺席，且 merge 拒绝已归档任务。
+    // 失败在这里直接返回原因，尚未创建交付操作、未写提交。
+    const followUp = existing === null ? await this.mergeBeforeDelivery(root, input, config, caller) : null;
+
     const lock = await this.locks.acquire({
       keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
       action: input.mode === "deliver" ? "delivery.deliver" : "delivery.archive",
     });
+    let result: DeliveryResult | null = null;
     try {
       const latest = await this.latestOperation(root, input.taskId);
-      if (latest?.state === "completed") return this.resultOf(latest, true);
-      if (latest?.state === "needs_attention" && input.retry !== true) return this.resultOf(latest, false);
-      const located = locateTaskDocument(root, input.taskId);
-      const classified = await this.classifyPaths(root, input.taskId, located.dir);
-      const stagedMetadata = this.metadataStagedConflicts(root, classified.metadata, latest);
-      if (stagedMetadata.length > 0) {
-        throw new GuardError("preexisting_staged", `任务资料已有用户暂存内容，请先整理index: ${stagedMetadata.join(", ")}`);
+      if (latest?.state === "completed") {
+        result = this.resultOf(latest, true);
+      } else if (latest?.state === "needs_attention" && input.retry !== true) {
+        result = this.resultOf(latest, false);
+      } else {
+        const located = locateTaskDocument(root, input.taskId);
+        const classified = await this.classifyPaths(root, input.taskId, located.dir);
+        const stagedMetadata = this.metadataStagedConflicts(root, classified.metadata, latest);
+        if (stagedMetadata.length > 0) {
+          throw new GuardError("preexisting_staged", `任务资料已有用户暂存内容，请先整理index: ${stagedMetadata.join(", ")}`);
+        }
+        const messageInput = this.messageInputFor(input, latest);
+        const operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft, followUp ?? undefined));
+        recheckAuthorization(root, operation.authorization, caller);
+        const prepared = await this.prepare(root, input, operation, caller, messageInput);
+        result = await this.execute(prepared, operation);
       }
-      const messageInput = this.messageInputFor(input, latest);
-      const operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft));
-      recheckAuthorization(root, operation.authorization, caller);
-      const prepared = await this.prepare(root, input, operation, caller, messageInput);
-      return await this.execute(prepared, operation);
     } finally {
       this.locks.release(lock);
     }
+    if (result === null) throw new GuardError("invalid_request", "交付未产生结果");
+    return await this.cleanupAfterDelivery(root, input, config, result);
+  }
+
+  /** 项目配置中的合入／清理授权引用；记录相对路径与配置内容摘要。 */
+  private configAuthorizationRef(root: string): string {
+    const path = join(root, ".knit", "config.json");
+    const digest = existsSync(path) ? sha256Bytes(readFileSync(path)) : sha256Text(JSON.stringify(defaultConfig()));
+    return `config:.knit/config.json@${digest}`;
+  }
+
+  /**
+   * 交付前的 worktree 串联合入：按 delivery.mode 或显式 --merge 执行既有 merge 步骤。
+   * 无 worktree 时合入服务返回 noop 并说明；未授权合入但任务仍在 worktree 时拒绝交付。
+   */
+  private async mergeBeforeDelivery(
+    root: string,
+    input: DeliveryInput & { mode: "deliver" | "archive" },
+    config: ProjectConfig,
+    caller: "cli" | "agent",
+  ): Promise<DeliveryWorktreeFollowUp | null> {
+    if (input.mode !== "deliver") return null;
+    const settings = worktreeSettingsOf(config);
+    const info = (await this.store.bindings.get(input.taskId))?.worktree;
+    const explicitMerge = input.merge === true;
+    const mergeRequested = explicitMerge || settings.deliveryMode === "merge";
+    const cleanupRequested = info !== undefined && (input.cleanup === true || settings.cleanup === "after-merge");
+    if (explicitMerge && (input.authorizationRef ?? "").trim() === "") {
+      throw new GuardError("authorization_required", "显式合入需要非空 --authorization-ref");
+    }
+    if (input.cleanup === true && (input.authorizationRef ?? "").trim() === "") {
+      throw new GuardError("authorization_required", "显式清理需要非空 --authorization-ref");
+    }
+    if (!mergeRequested) {
+      if (info?.active === true) {
+        throw new GuardError(
+          "worktree_merge_required",
+          "任务资料仍在 worktree；配置 delivery.mode=merge 或显式授权合入后再交付（合入必须先于归档）",
+        );
+      }
+      if (info !== undefined) {
+        return {
+          merge: { status: "noop", reason: "worktree 已转交，无需再次合入", opId: null, commit: null },
+          cleanup: cleanupRequested ? undefined : { status: "manual", reason: "未授权清理，保留 worktree", opId: null },
+          pending: ["cleanup"],
+        };
+      }
+      return null;
+    }
+    const authorizationRef = explicitMerge ? input.authorizationRef! : this.configAuthorizationRef(root);
+    const merged = await new WorktreeMergeService({ store: this.store, locks: this.locks, now: this.now }).merge({
+      dir: root,
+      taskId: input.taskId,
+      into: input.branch,
+      apply: true,
+      authorizationRef,
+      caller,
+    });
+    if (merged.status !== "merged" && merged.status !== "noop") {
+      throw new GuardError(
+        "worktree_merge_blocked",
+        `worktree 合入未完成（${merged.status}）：${merged.reason ?? "未知原因"}；未创建交付操作，现场保留`,
+      );
+    }
+    return {
+      merge: {
+        status: merged.status,
+        reason: merged.reason,
+        opId: merged.opId,
+        commit: merged.mergeCommit,
+      },
+      cleanup: cleanupRequested || info === undefined
+        ? undefined
+        : { status: "manual", reason: "未授权清理，保留 worktree", opId: null },
+      pending: info === undefined ? [] : ["cleanup"],
+    };
+  }
+
+  /**
+   * 交付成功后的清理：仅 delivery.mode=merge／after-merge 或显式 --cleanup 授权时执行；
+   * 失败保留 worktree／分支并记录步骤，不冒充已清理。
+   */
+  private async cleanupAfterDelivery(
+    root: string,
+    input: DeliveryInput & { mode: "deliver" | "archive" },
+    config: ProjectConfig,
+    result: DeliveryResult,
+  ): Promise<DeliveryResult> {
+    if (input.mode !== "deliver" || result.state !== "completed") return result;
+    const operation = await this.latestOperation(root, input.taskId);
+    if (operation === null) return result;
+    const settings = worktreeSettingsOf(config);
+    const info = (await this.store.bindings.get(input.taskId))?.worktree;
+    const explicit = input.cleanup === true;
+    const manuallyPending = operation.worktree?.cleanup?.status === "manual";
+    const requested = explicit || (info !== undefined && settings.cleanup === "after-merge") ||
+      (!manuallyPending && operation.worktree?.pending.includes("cleanup") === true);
+    if (!requested || info === undefined) {
+      return { ...result, worktree: operation.worktree ?? result.worktree ?? null };
+    }
+    const prior = operation.worktree?.cleanup;
+    if (prior !== undefined && (prior.status === "removed" || prior.status === "noop")) {
+      return this.resultOf(operation, true);
+    }
+    const authorizationRef = explicit ? input.authorizationRef ?? "" : this.configAuthorizationRef(root);
+    if (authorizationRef.trim() === "") {
+      throw new GuardError("authorization_required", "显式清理需要非空 --authorization-ref");
+    }
+    let cleanupStatus = "failed";
+    let cleanupReason: string | null = null;
+    let cleanupOpId: string | null = null;
+    try {
+      const cleaned = await new WorktreeCleanupService({ store: this.store, locks: this.locks, now: this.now }).cleanup({
+        dir: root,
+        taskId: input.taskId,
+        apply: true,
+        authorizationRef,
+        caller: input.caller ?? "cli",
+      });
+      cleanupStatus = cleaned.status;
+      cleanupReason = cleaned.reason;
+      cleanupOpId = cleaned.opId;
+    } catch (error) {
+      cleanupReason = error instanceof Error ? error.message : String(error);
+    }
+    const ok = cleanupStatus === "removed" || cleanupStatus === "noop";
+    const worktree: DeliveryWorktreeFollowUp = {
+      merge: operation.worktree?.merge,
+      cleanup: { status: cleanupStatus, reason: cleanupReason, opId: cleanupOpId },
+      pending: ok ? [] : ["cleanup"],
+    };
+    const updated: DeliveryOperation = { ...operation, worktree, updatedAt: this.now().toISOString() };
+    await this.store.operations.save(updated);
+    const next = this.resultOf(updated, true);
+    return { ...next, needsAttention: next.needsAttention || !ok };
   }
 
   /** 只认同一操作在当前HEAD留下的未完成暂存检查点；部分暂存始终保留给用户。 */
@@ -353,6 +505,7 @@ export class DeliveryService {
     input: DeliveryInput & { mode: "deliver" | "archive" },
     caller: "cli" | "agent",
     messageDraft: MessageDraft | null,
+    worktree: DeliveryWorktreeFollowUp | undefined,
   ): Promise<DeliveryOperation> {
     if (!isFullBranch(input.branch)) throw new GuardError("branch_invalid", "--branch 必须是完整 refs/heads/...");
     const located = locateTaskDocument(root, input.taskId);
@@ -429,6 +582,7 @@ export class DeliveryService {
           },
         },
       }),
+      ...(worktree === undefined ? {} : { worktree }),
       steps,
     };
     await this.store.operations.save(operation);
@@ -1492,6 +1646,7 @@ export class DeliveryService {
       archivePath: op.archivePath,
       defaultBranch: op.defaultBranch,
       authorization: op.authorization,
+      worktree: op.worktree ?? null,
       needsAttention: !complete || op.state === "needs_attention",
       messages: {
         artifact: messageOf("artifact"),

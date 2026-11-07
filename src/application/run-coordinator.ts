@@ -30,8 +30,9 @@ import { assertExecutionRoute, executionRouteOf } from "./worktree-routing.js";
 import { loadScope, scopeDigest } from "./scope.js";
 import { currentBranch } from "./delivery.js";
 import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
+import { ensureWorktreeForDispatch, resolveWorktreePolicy, type WorktreePolicy } from "./worktree-automation.js";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
 import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
@@ -77,6 +78,8 @@ export interface PrepareInput {
   newRepairCycle?: boolean;
   /** 明确授权为成果的正式规范路径（.knit/standards/ 下，任务037）。 */
   authorizedStandardPaths?: string[];
+  /** 任务级 worktree 覆盖；缺省按项目 worktree.default。 */
+  worktree?: WorktreePolicy;
 }
 
 export interface RunStatusProjection {
@@ -167,6 +170,14 @@ export class RunCoordinator {
   async prepare(input: PrepareInput): Promise<{ request: RunRequestFile; launch: LaunchRecord; reused: boolean }> {
     const root = normalizeRoot(input.dir);
     const startDir = normalizeRoot(input.executionDir ?? input.dir);
+    const worktreePolicy = resolveWorktreePolicy(this.projectConfig(root), input.worktree ?? null);
+    const ensured = await this.ensureWorktreeBeforePrepare({
+      root,
+      startDir,
+      taskId: input.taskId,
+      phase: input.phase,
+      policy: worktreePolicy,
+    });
     const locks = new LockManager(this.lockRoot === null ? {} : { root: this.lockRoot });
     const lock = await this.acquireForPrepare(locks, root, input.taskId);
     try {
@@ -174,7 +185,15 @@ export class RunCoordinator {
     if (binding === null) throw new GuardError("unknown_binding", `任务缺少绑定: ${input.taskId}`);
     // 工作区路由：worktree 生效时任务资料与执行目录都在 worktree；invalid 不回退主检出。
     const route = executionRouteOf(binding, root);
-    assertExecutionRoute(route, startDir);
+    // 仅本次自动准备或复用已指向 worktree 的活动 run 时，从主检出切到执行目录；
+    // 手动建立但未从这里派发的绑定仍要求先 cd 到 worktree（保留既有路由守卫）。
+    const activeRequest = this.findActive(new RunStore(root), input.taskId, input.phase)?.request ?? null;
+    const autoFromMain = resolve(startDir) === resolve(root) && (
+      (ensured.actions.length > 0 && ensured.worktreePath !== null) ||
+      (activeRequest?.expected.executionDir !== undefined && activeRequest.expected.executionDir === route.dir)
+    );
+    const dispatchStartDir = route.state === "worktree" && autoFromMain ? route.dir : startDir;
+    assertExecutionRoute(route, dispatchStartDir);
     const executionDir = route.dir;
     let located;
     try {
@@ -288,6 +307,7 @@ export class RunCoordinator {
       taskId: input.taskId,
       phase: input.phase,
       workflowMode: loaded.mode,
+      worktree: { policy: worktreePolicy.policy, source: worktreePolicy.source },
       stageDefinition: freezeStageDefinition(workflowStage) ?? undefined,
       presentation: selection.host,
       presentationSource: selection.source,
@@ -514,6 +534,54 @@ export class RunCoordinator {
     });
   }
 
+  /** 项目配置；缺失按默认，存在但非法如实上抛（doctor 已报告具体字段）。 */
+  private projectConfig(root: string): ReturnType<typeof defaultConfig> {
+    const path = join(root, ".knit", "config.json");
+    if (!existsSync(path)) return defaultConfig();
+    return parseConfig(readFileSync(path, "utf8"));
+  }
+
+  /**
+   * 派发首个配置阶段前的自动准备：只读核对阶段／任务／活动 run，满足条件后调
+   * 确保流程（create → handoff → prepare）；失败不落 request，由调用方收到明确原因。
+   */
+  private async ensureWorktreeBeforePrepare(input: {
+    root: string;
+    startDir: string;
+    taskId: string;
+    phase: RunPhase;
+    policy: WorktreePolicy;
+  }): Promise<Awaited<ReturnType<typeof ensureWorktreeForDispatch>>> {
+    const empty = { ensured: false, worktreePath: null, actions: [] as Array<"create" | "handoff" | "prepare"> };
+    const binding = await this.store.bindings.get(input.taskId);
+    if (binding === null) return empty;
+    const route = executionRouteOf(binding, input.root);
+    if (route.state === "invalid") return empty;
+    let located;
+    try {
+      located = locateTaskDocument(route.dir, input.taskId);
+    } catch {
+      return empty;
+    }
+    if (located.archived) return empty;
+    const loaded = loadWorkflow(input.root);
+    const first = loaded.workflow.stages[0];
+    if (first === undefined || first.id !== input.phase) return empty;
+    if (located.document.frontmatter.stage !== input.phase) return empty;
+    if (located.document.frontmatter.status !== "open") return empty;
+    // 活动 run 的 prepare 会复用原请求，不因这次调用重建环境。
+    if (this.findActive(new RunStore(input.root), input.taskId, input.phase) !== null) return empty;
+    return await ensureWorktreeForDispatch({
+      root: input.root,
+      taskId: input.taskId,
+      store: this.store,
+      policy: input.policy,
+      firstStage: true,
+      fromMain: resolve(input.startDir) === resolve(input.root),
+      locksRoot: this.lockRoot,
+    });
+  }
+
   /** execution.host；配置缺失时按未配置（auto）处理，存在但非法时按配置错误报告。 */
   private executionHost(root: string): ExecutionHost | null {
     const path = join(root, ".knit", "config.json");
@@ -697,6 +765,9 @@ export class RunCoordinator {
       initiator: old.initiator,
       model: old.model,
       recovery: { nativeSessionId, resume: "prefer" },
+      ...(old.worktree === undefined
+        ? {}
+        : { worktree: { policy: old.worktree.policy, source: "resume" as const } }),
     });
     return {
       oldRunId: input.oldRunId,

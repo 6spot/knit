@@ -68,6 +68,13 @@ export const RunLaunchStateSchema = union([
 ]);
 export type RunLaunchState = Static<typeof RunLaunchStateSchema>;
 
+/** 派发时生效的 Worktree 策略；旧请求缺省表示未记录，按当前配置解释。 */
+export const RunWorktreePolicySchema = obj({
+  policy: union([lit("on"), lit("off")]),
+  source: union([lit("explicit"), lit("config"), lit("default"), lit("resume")]),
+});
+export type RunWorktreePolicy = Static<typeof RunWorktreePolicySchema>;
+
 /** 派发请求；先持久化 run ID／owner token 再执行，准备未确认时无模型副作用。 */
 export const RunRequestSchema = obj(
   {
@@ -380,6 +387,8 @@ export const RunRequestFileSchema = obj(
     phase: RunPhaseSchema,
     /** prepare 时读取到的流程模式：config 按配置，fallback 为 start → deliver 降级。 */
     workflowMode: opt(WorkflowModeSchema),
+    /** prepare 时解析的 worktree 策略；恢复与重试沿用，旧请求缺省。 */
+    worktree: opt(RunWorktreePolicySchema),
     /** prepare 时冻结的阶段定义；worker／接收按它执行，旧请求缺省。 */
     stageDefinition: opt(RunStageDefinitionSchema),
     presentation: opt(RunPresentationSchema),

@@ -70,6 +70,29 @@ export const DeliveryMessagesSchema = obj(
 );
 export type DeliveryMessages = Static<typeof DeliveryMessagesSchema>;
 
+/** worktree 收尾跟进：合入与清理的步骤结果；旧记录缺省。 */
+export const DeliveryWorktreeMergeSchema = obj({
+  status: str({ minLength: 1 }),
+  reason: union([str(), nul()]),
+  opId: union([str(), nul()]),
+  commit: union([str(), nul()]),
+});
+export type DeliveryWorktreeMerge = Static<typeof DeliveryWorktreeMergeSchema>;
+
+export const DeliveryWorktreeCleanupSchema = obj({
+  status: str({ minLength: 1 }),
+  reason: union([str(), nul()]),
+  opId: union([str(), nul()]),
+});
+export type DeliveryWorktreeCleanup = Static<typeof DeliveryWorktreeCleanupSchema>;
+
+export const DeliveryWorktreeFollowUpSchema = obj({
+  merge: opt(DeliveryWorktreeMergeSchema),
+  cleanup: opt(DeliveryWorktreeCleanupSchema),
+  pending: arr(union([lit("merge"), lit("cleanup")])),
+});
+export type DeliveryWorktreeFollowUp = Static<typeof DeliveryWorktreeFollowUpSchema>;
+
 export const DeliveryRecordSchema = obj(
   {
     operationId: str({ minLength: 1 }),
@@ -96,6 +119,8 @@ export const DeliveryRecordSchema = obj(
     sealDigest: union([str(), nul()]),
     /** 按阶段持久化的最终提交说明；旧记录没有该字段。 */
     messages: opt(DeliveryMessagesSchema),
+    /** worktree 合入／清理跟进；旧记录没有该字段。 */
+    worktree: opt(DeliveryWorktreeFollowUpSchema),
     steps: arr(DeliveryStepSchema),
   },
 );
@@ -122,6 +147,8 @@ export interface DeliveryResult {
   defaultBranch: DefaultBranch;
   authorization: AuthorizationSource;
   needsAttention: boolean;
+  /** worktree 合入／清理跟进；无 worktree 或旧操作记录为 null。 */
+  worktree?: DeliveryWorktreeFollowUp | null;
   /** 三类提交的文案来源与首行；旧操作记录可为 null。 */
   messages: {
     artifact: DeliveryCommitMessage | null;

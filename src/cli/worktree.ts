@@ -62,11 +62,12 @@ export function registerWorktreeCommands(program: Command): void {
 
   worktree
     .command("create")
-    .description("从主检出当前已提交 HEAD 建立任务 worktree 并登记绑定")
+    .description("从主检出当前已提交 HEAD 建立任务 worktree 并登记绑定（任务之外有未提交改动时需 --allow-dirty）")
     .requiredOption("--task <taskId>", "任务 ID")
     .option("--path <dir>", "worktree 目录（默认 .knit/worktrees/<MM-DD>-<slug>/ 或全局备用）")
     .option("--branch <branch>", "完整 refs/heads/... 分支（默认 knit/<MM-DD>-<slug>）")
     .option("--global", "使用全局备用根 ~/.knit/worktrees/<project-key>/", false)
+    .option("--allow-dirty", "显式允许主检出在任务目录之外有未提交改动", false)
     .option("--dir <dir>", "项目目录（默认当前目录）", ".")
     .action(async (options) => {
       const taskId = options.task;
@@ -79,6 +80,8 @@ export function registerWorktreeCommands(program: Command): void {
           ...(options.path === undefined ? {} : { path: options.path }),
           ...(options.branch === undefined ? {} : { branch: options.branch }),
           global: options.global === true,
+          allowDirty: options.allowDirty === true,
+          guardDirty: true,
         }),
         (result) => {
           console.log(`${result.created ? "已创建" : "已登记（幂等命中）"}: ${result.taskId}`);

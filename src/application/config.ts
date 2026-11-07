@@ -12,6 +12,18 @@ export const PROJECT_SCHEMA_VERSION = 1;
 export const ExecutionHostSchema = union([lit("auto"), lit("local"), lit("rex")]);
 export type ExecutionHost = Static<typeof ExecutionHostSchema>;
 
+/** Worktree 默认开关：off 不自动创建；on 在派发首个配置阶段前确保执行环境。 */
+export const WorktreeDefaultSchema = union([lit("off"), lit("on")]);
+export type WorktreeDefault = Static<typeof WorktreeDefaultSchema>;
+
+/** 交付后清理策略：manual 保留环境；after-merge 在授权合入成功后清理。 */
+export const WorktreeCleanupSchema = union([lit("manual"), lit("after-merge")]);
+export type WorktreeCleanup = Static<typeof WorktreeCleanupSchema>;
+
+/** 交付模式：local 在主检出收尾；merge 对已绑定 worktree 的任务先合入再交付。 */
+export const DeliveryModeSchema = union([lit("local"), lit("merge")]);
+export type DeliveryModeValue = Static<typeof DeliveryModeSchema>;
+
 export const ProjectConfigSchema = obj(
   {
     schemaVersion: int({ minimum: 1 }),
@@ -20,7 +32,7 @@ export const ProjectConfigSchema = obj(
     execution: obj({ host: ExecutionHostSchema }, { open: true }),
     delivery: obj(
       {
-        mode: str(),
+        mode: DeliveryModeSchema,
         /** 可选完整本地 refs/heads/...；只作默认分支候选，不授权、不切分支。 */
         defaultBranch: opt(str({ pattern: "^refs/heads/.+" })),
       },
@@ -52,6 +64,10 @@ export const ProjectConfigSchema = obj(
     worktree: opt(
       obj(
         {
+          /** 派发首个配置阶段前是否自动确保 worktree；缺省 off。 */
+          default: opt(WorktreeDefaultSchema),
+          /** 交付合入成功后是否自动清理；缺省 manual。 */
+          cleanup: opt(WorktreeCleanupSchema),
           /** 复制白名单：path 相对主项目根；target 相对 worktree 根，缺省同相对路径。 */
           copy: opt(arr(obj({ path: str({ minLength: 1 }), target: opt(str({ minLength: 1 })) }, { open: true }))),
           /** 环境初始化步骤：在目标 worktree 按序执行；name 缺省按序号命名。 */
@@ -84,6 +100,19 @@ export function worktreeConfigOf(config: ProjectConfig): { copy: WorktreeCopyCon
   };
 }
 
+/** Worktree 派发／收尾默认值与交付模式；旧配置缺字段时按设计缺省解释。 */
+export function worktreeSettingsOf(config: ProjectConfig): {
+  default: WorktreeDefault;
+  cleanup: WorktreeCleanup;
+  deliveryMode: DeliveryModeValue;
+} {
+  return {
+    default: config.worktree?.default ?? "off",
+    cleanup: config.worktree?.cleanup ?? "manual",
+    deliveryMode: config.delivery.mode,
+  };
+}
+
 export function defaultConfig(): ProjectConfig {
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -92,6 +121,7 @@ export function defaultConfig(): ProjectConfig {
     execution: { host: "auto" },
     delivery: { mode: "local" },
     workflow: { maxRepairRounds: 2 },
+    worktree: { default: "off", cleanup: "manual" },
     limits: {
       heartbeatIntervalMs: 5000,
       heartbeatStaleMs: 30000,

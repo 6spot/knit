@@ -34,6 +34,13 @@ function render(result: DeliveryResult): void {
     : `${result.defaultBranch.ref}（${result.defaultBranch.source}${result.defaultBranch.exists ? "" : "，不存在"}）`;
   console.log(`默认分支候选: ${candidate}（仅观察，不授权）`);
   console.log(`授权来源: ${result.authorization.kind}${result.authorization.ref === null ? "" : ` ${result.authorization.ref}`}`);
+  if (result.worktree?.merge !== undefined) {
+    console.log(`Worktree 合入: ${result.worktree.merge.status}${result.worktree.merge.reason === null ? "" : `（${result.worktree.merge.reason}）`}`);
+  }
+  if (result.worktree?.cleanup !== undefined) {
+    console.log(`Worktree 清理: ${result.worktree.cleanup.status}${result.worktree.cleanup.reason === null ? "" : `（${result.worktree.cleanup.reason}）`}`);
+  }
+  if ((result.worktree?.pending.length ?? 0) > 0) console.log(`待办: ${result.worktree?.pending.join("、")}`);
 }
 
 function renderPlan(plan: DeliveryPlan): void {
@@ -62,6 +69,8 @@ interface DeliveryOptions {
   retry?: boolean;
   plan?: boolean;
   messageFile?: string[];
+  merge?: boolean;
+  cleanup?: boolean;
 }
 
 const TASK_ID_PATTERN = /^k-[0-9a-f]{12}$/;
@@ -123,6 +132,8 @@ export function registerDeliveryCommands(program: Command): void {
     caller: options.caller === "agent" ? "agent" : "cli",
     retry: options.retry === true,
     messageFile: messageFiles.get(taskId) ?? null,
+    merge: options.merge === true,
+    cleanup: options.cleanup === true,
   });
 
   const fail = (requestId: string, error: unknown): void => {
@@ -134,7 +145,7 @@ export function registerDeliveryCommands(program: Command): void {
 
   program
     .command("deliver")
-    .description("正常交付：业务产物与任务资料分开提交、封存、归档；支持多个已完成任务逐项收尾")
+    .description("正常交付：业务产物与任务资料分开提交、封存、归档；worktree 任务可按配置先合入并在交付后清理")
     .argument("<taskIds...>", "任务 ID（可多个，按顺序逐项处理）")
     .requiredOption("--branch <ref>", "完整本地目标 refs/heads/...")
     .option("--authorization-ref <ref>", "授权来源引用（workflow:... 或 user:...）")
@@ -142,6 +153,8 @@ export function registerDeliveryCommands(program: Command): void {
     .option("--dir <dir>", "项目目录", ".")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--retry", "显式重试 needs_attention：先核验已完成效果")
+    .option("--merge", "显式授权交付前合入已绑定 worktree（需已有 authorization-ref）", false)
+    .option("--cleanup", "显式授权交付后清理 worktree（需已有 authorization-ref）", false)
     .option("--plan", "只读预检：输出任务产物／资料分类与冲突，不写 Git", false)
     .option(
       "--message-file <value>",
