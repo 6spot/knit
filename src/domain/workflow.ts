@@ -107,7 +107,7 @@ export const DEFAULT_WORKFLOW_YAML = `# Knit 流程配置 .knit/workflow.yaml
 #   name        可选，显示名；缺省用 id。
 #   description 可选，本步说明；用于顶部提示与 workflow show。
 #   prompt      可选，项目相对路径；缺省或文件缺失时用核心默认 agent 指令。
-#   tools       可选，能力白名单；不写 = 全部放开，写了 = 只允许列出的能力：
+#   tools       可选，能力白名单；不写或写空数组 = 全部放开，写了非空 = 只允许列出的能力：
 #                 read      只读：read／grep／find／ls
 #                 write     改文件：write／edit
 #                 exec      执行命令：bash（可能间接改文件）
@@ -519,7 +519,8 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number | n
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
     prompt: stage.prompt ?? null,
-    tools: stage.tools === undefined ? null : [...stage.tools],
+    // 不写与写空数组都表示全部放开；只有非空数组才是白名单。
+    tools: stage.tools === undefined || stage.tools.length === 0 ? null : [...stage.tools],
     report: copyReport(stage.report ?? {}),
     onVerdict: { ...(stage.onVerdict ?? {}) },
     maxVisits: stage.maxVisits === undefined ? defaultMaxVisits : stage.maxVisits,

@@ -6,7 +6,7 @@
  * 约定：
  * - 注释不属于配置值，也不参与任何比较。
  * - `stages` 的顺序就是流转顺序；`start`／`deliver` 是内置锚点，不写进 stages。
- * - 不写 `tools` 表示全部能力放开；写了就是白名单。
+ * - 不写 `tools` 或写空数组都表示全部能力放开；写了非空数组就是白名单。
  * - `report` 的值可以是 string／string[]／paths／bool，或非空字符串枚举数组。
  */
 import { arr, bool, int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";

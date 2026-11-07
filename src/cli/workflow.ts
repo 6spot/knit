@@ -132,7 +132,7 @@ function renderView(view: WorkflowView): string {
       lines.push(`  ${index + 1}. ${stage.id}（${stage.name}）→ ${view.summary.stages[index]?.next ?? "收尾"}`);
       if (stage.description !== null) lines.push(`     说明: ${stage.description}`);
       lines.push(`     提示词: ${stage.prompt ?? "（核心默认指令）"}`);
-      lines.push(`     工具: ${stage.tools === null ? "全部放开" : stage.tools.length === 0 ? "（无）" : stage.tools.join(", ")}`);
+      lines.push(`     工具: ${stage.tools === null ? "全部放开" : stage.tools.join(", ")}`);
       const reportEntries = Object.entries(stage.report);
       if (reportEntries.length > 0) {
         lines.push(`     报告: ${reportEntries.map(([field, type]) => `${field}(${reportTypeLabel(type)})`).join("、")}`);

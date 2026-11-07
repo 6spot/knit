@@ -267,7 +267,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 | `id` | `^[a-z][a-z0-9-]{0,31}$`，写入 task.md 的 `stage`，全文件唯一且不能用锚点名 |
 | `name` / `description` | 显示名与本步说明；只用于顶部提示和展示，不参与机器判定 |
 | `prompt` | 项目相对提示词路径；缺省或文件缺失时用核心默认 agent 指令 |
-| `tools` | 能力白名单：`read`／`write`／`exec`／`task`／`external`／`network`；不写 = 全部放开 |
+| `tools` | 能力白名单：`read`／`write`／`exec`／`task`／`external`／`network`；不写或空数组 = 全部放开 |
 | `report` | 额外报告字段：`string`／`string[]`／`paths`／`bool`／非空枚举数组；固定字段 `summary`／`validation`／`blockers` 始终校验 |
 | `onVerdict` | 报告值 → 阶段 id 或 `deliver`；未命中走顺序下一阶段，目标必须存在 |
 | `maxVisits` | 阶段访问上限；回退环上缺省取 `workflow.maxRepairRounds`，无有限上限的环拒绝 |
@@ -378,7 +378,7 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 正式任务的阶段由 Knit worker 通过选定 AgentRuntime 创建或恢复独立 Session，首版直接调用本机 Pi CLI，cwd 指向任务执行目录。主 Session 与阶段 Session 均登记到统一索引；各阶段按阶段 id 保存引用，后续修复与重查优先恢复对应阶段的会话，原记录无法恢复时按第 9.4 节自动新建会话读取任务资料续做。恢复与兜底沿记录所属客户端。
 
-阶段提示词由 `.knit/workflow.yaml` 的 `prompt` 指定；缺省或文件缺失时使用核心默认 agent 指令，不阻断执行。`tools` 不写表示全部放开，写了就是能力白名单：`read` 只读，`write` 改文件，`exec` 执行命令，`task` 使用任务工具，`external` 放开项目扩展／MCP／技能，`network` 放开网络。外部能力是显式 opt-in，声明后工具不存在要报错，不静默降级。
+阶段提示词由 `.knit/workflow.yaml` 的 `prompt` 指定；缺省或文件缺失时使用核心默认 agent 指令，不阻断执行。`tools` 不写或写空数组都表示全部放开，写了非空就是能力白名单：`read` 只读，`write` 改文件，`exec` 执行命令，`task` 使用任务工具，`external` 放开项目扩展／MCP／技能，`network` 放开网络。外部能力是显式 opt-in，声明后工具不存在要报错，不静默降级。
 
 检查阶段可在既定需求内直接修复明确缺陷；其余发现和证据交回主会话或实施阶段。worker 的职责限于受委派阶段；任务创建、递归委派、提交、合并、推送与环境清理由主 Agent 和确定性工具协调。这些职责与工具策略不是操作系统沙箱；首版不宣称能阻止任意 shell 的所有越权副作用。阶段边界核对 HEAD／分支、index 与实际成果，发现未授权 Git 变化或无法确认的副作用时保留事实并报告 needs_attention，不借正常报告自动归档。
 

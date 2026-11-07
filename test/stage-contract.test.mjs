@@ -65,6 +65,25 @@ test("能力→Pi 参数：缺省收紧，external 放开扩展／MCP／技能�
   assert.equal("PI_OFFLINE" in env, false, "network 时环境不注入 PI_OFFLINE");
 });
 
+test("能力→Pi 参数：tools 写空数组等同不限制，不当作禁用", () => {
+  const yaml = [
+    "version: 1",
+    "stages:",
+    "  - id: implement",
+    "    name: 实现",
+    "    tools: []",
+    "  - id: check",
+    "    name: 检查",
+    "    tools: [read, exec]",
+  ].join("\n");
+  const parsed = parseWorkflow(yaml);
+  assert.equal(parsed.workflow.stages[0].tools, null, "空数组归一为全部放开");
+  assert.deepEqual(parsed.workflow.stages[1].tools, ["read", "exec"], "非空数组仍是白名单");
+  const unrestricted = argsOf({ capabilities: parsed.workflow.stages[0].tools, tools: null });
+  assert.equal(unrestricted.includes("--no-tools"), false);
+  assert.equal(unrestricted.includes("--offline"), false);
+});
+
 test("能力→Pi 参数：未写 tools 表示全部放开；task 显式加载项目扩展", () => {
   const all = argsOf({ capabilities: null, tools: null });
   for (const flag of ["--offline", "--no-mcp", "--no-skills", "--no-extensions", "--no-tools"]) {

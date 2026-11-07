@@ -9,7 +9,7 @@
 #   name        可选，显示名；缺省用 id。
 #   description 可选，本步说明；用于顶部提示与 workflow show。
 #   prompt      可选，项目相对路径；缺省或文件缺失时用核心默认 agent 指令。
-#   tools       可选，能力白名单；不写 = 全部放开，写了 = 只允许列出的能力：
+#   tools       可选，能力白名单；不写或写空数组 = 全部放开，写了非空 = 只允许列出的能力：
 #                 read      只读：read／grep／find／ls
 #                 write     改文件：write／edit
 #                 exec      执行命令：bash（可能间接改文件）
@@ -39,7 +39,7 @@ stages:
     name: 实现
     description: 按 task.md 完成产出并运行范围验证
     prompt: .knit/agents/implement.md
-    tools: [read, write, exec]
+    tools: []
     report:
       changedPaths: paths
       unverified: string[]
@@ -47,7 +47,7 @@ stages:
     name: 检查
     description: 独立核对完成条件与实现成果
     prompt: .knit/agents/check.md
-    tools: [read, exec]
+    tools: []
     report:
       verdict: [pass, changes_requested, blocked]
       coverage: string[]

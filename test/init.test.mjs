@@ -111,7 +111,7 @@ test("init：workflow.yaml 模板与内置默认流程逐字一致，且不再�
     const asset = readFileSync(join(import.meta.dirname, "..", "assets", "templates", ".knit", "workflow.yaml"), "utf8");
     assert.equal(asset, DEFAULT_WORKFLOW_YAML, "发布模板与内置默认流程同源");
     assert.match(asset, /^# Knit 流程配置/m);
-    assert.match(asset, /能力白名单；不写 = 全部放开/);
+    assert.match(asset, /能力白名单；不写或写空数组 = 全部放开/);
     assert.match(asset, /read\s+只读：read／grep／find／ls/);
     assert.match(asset, /write\s+改文件：write／edit/);
     assert.match(asset, /exec\s+执行命令：bash/);
