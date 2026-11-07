@@ -1,7 +1,7 @@
 ---
 id: k-f0d9a8952aff
 status: open
-stage: implement
+stage: start
 outcome: null
 branch: refs/heads/main
 verification: independent
@@ -145,5 +145,9 @@ title: 锁收窄与状态写归属：任务级声明、工作树租约与 stale_
 - 挂到总任务 k-2c0d10318898，优先级 P2 → P0；前置依赖 k-6f0616f3779d（崩溃锁自动回收）：本任务新增的 state 锁应纳入其自动回收。
 - 后继 k-fdfd8c171736（改动来源归属）依赖本任务的 `.knit/tasks/**` 剔除规则，两者都改 stage-runner 收尾逻辑，须串行。
 - 审计 S4 补充：run 期间用户编辑输入区，当前报 `protected_path_modified`，而不是 `stale_input`；本任务的剔除规则会让它走到 `stale_input` 分支，完成条件已覆盖。
+
+### 跨机交接（2026-11-07）
+
+交接到另一台机器执行：新机器没有本机 binding，stage=implement 时 `task ready` 会报 `phase_mismatch`（审计 S6）。因此把 frontmatter 改回 start，在新机器上重新 ready；输入未改。
 
 <!-- knit:progress:end -->

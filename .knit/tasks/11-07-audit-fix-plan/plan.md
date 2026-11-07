@@ -100,3 +100,15 @@
 10. 篡改凭据 → `credential_tampered`；worker 环境中调用 `deliver` → `stage_context_forbidden`；交付时不执行植入的 hook。
 11. 用户编辑 `task.md` 输入区 → `stale_input`（不是 `protected_path_modified`）；run 期间可以 `task new`。
 12. `tools: []` → `--no-tools`；`tools: all` 或不写 → 全部放开。
+
+## 6. 执行授权
+
+用户 2026-11-07 授权：在另一台机器上由主 Agent 全权按本计划顺序执行，执行期间不再向用户提问。
+
+- 范围：本计划 §4 的全部子任务、`k-3cdf35cd9d45`，最后是总任务 `k-2c0d10318898`。
+- 顺序：每次取 `knit task next` 中排在最前、可执行的子任务，一次只推进一个；总任务放到最后。
+- 决策：需求、范围、验收以各任务 task.md 为准。遇到未覆盖的实现细节，由 Agent 按 AGENTS.md、设计文档和本计划的原则自行决定，写进该任务记录区「关键经过」后继续，不中断等待用户。必须改需求时，用 `task update --kind clarify` 记录理由后继续；不得删减完成条件。
+- 派发与验证：按 AGENTS.md 派发分层使用 Knit worker；任务的 verification 照常执行，independent 必须有正式检查通过，不得用 `--force` 跳过。若因本计划正要修复的 Knit 缺陷（锁、resume、Rex、报告格式等）导致链路不可用，主会话可用宿主工具直接修复 Knit 自身，留下证据后继续。
+- Git：每个任务完成后用 `knit deliver` 交付，并推送到 `origin main`；授权来源写 `.knit/tasks/11-07-audit-fix-plan/plan.md#执行授权`。不改写已推送的历史，不 force push。
+- 不包括：NPM 发布、外部部署、真机或真实模型验收、删除他人分支。
+- 停止条件：同一任务连续 3 次修复后仍不能通过验证，或出现数据丢失风险。此时把该任务置为 blocked，写明根因与证据；不依赖它的后续任务继续执行，全部结束后统一汇报。

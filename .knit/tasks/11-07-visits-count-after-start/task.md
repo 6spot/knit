@@ -1,7 +1,7 @@
 ---
 id: k-3cdf35cd9d45
 status: open
-stage: implement
+stage: start
 outcome: null
 branch: refs/heads/main
 verification: self
@@ -92,5 +92,9 @@ title: 阶段访问计数只在开始后生效：准备期改需求不消耗修�
 ## 结果与验证
 
 ## 运行引用
+
+### 跨机交接（2026-11-07）
+
+交接到另一台机器执行：新机器没有本机 binding，stage=implement 时 `task ready` 会报 `phase_mismatch`（审计 S6）。因此把 frontmatter 改回 start，在新机器上重新 ready；输入未改。
 
 <!-- knit:progress:end -->
