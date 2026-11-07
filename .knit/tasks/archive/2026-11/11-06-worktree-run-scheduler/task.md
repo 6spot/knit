@@ -135,4 +135,10 @@ title: Worktree 模式下的多任务调度
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-06-worktree-run-scheduler
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-07fe5862d55c -->
+- 任务资料提交: e4b6a4b9321f7a863225217c8e3a94b96ef2c67d
+- 归档目标: .knit/tasks/archive/2026-11/11-06-worktree-run-scheduler
+
 <!-- knit:progress:end -->
