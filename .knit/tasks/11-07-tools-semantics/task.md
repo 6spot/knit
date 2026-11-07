@@ -1,8 +1,8 @@
 ---
 id: k-eb2e23ce4f41
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-2c0d10318898
@@ -66,5 +66,23 @@ title: tools 语义定稿：空数组全部禁用，all 或不写全部放开
 ## 结果与验证
 
 ## 运行引用
+
+关键经过（2026-11-07 主会话）：
+- 新机器无 binding：首次 ready 推进 stage 但未写 binding，run 报 unknown_binding；恢复 task.md 后 task adopt 补 binding 再 ready（证据记入 k-434714cbbb68）。
+- run-67f5d6c29b07（auto→rex）立即 rex_start_failed:rex_launcher_error 未回退 local（证据记入 k-836997c84864）；改 CLI --local 派发 run-ee2e9531b812。
+- run-ee2e9531b812 完成实现与 npm test 590/590，但收尾因主会话在 run 期间对其它任务 task record 改动 .knit/tasks/**，判 protected_path_modified 失败（审计 S5，证据记入 k-f0d9a8952aff）。主会话核对 worker 报告与工作区差异后继承成果，补改 worker 无权改的 .knit/agents/runtimes/pi.md 与 .knit/workflow.yaml 注释，复跑 npm test 590/590 与隔离夹具 set-tools/validate，用 task implement 登记实施事实。
+- 实现细节决定：set-tools 额外接受 `none` 作为 `[]` 同义写法（worker 加入，不扩大语义，保留）。
+- 后续派 worker 期间主会话不写任何 .knit/tasks/**，直到 k-f0d9a8952aff 修复。
+
+### 交付记录
+
+<!-- knit:delivery:op-517c4fd00ec2 -->
+- 操作: op-517c4fd00ec2
+- 时间: 2026-11-07T14:35:15.018Z
+- 分支: refs/heads/main
+- 授权来源: .knit/tasks/11-07-audit-fix-plan/plan.md#执行授权
+- 工作提交: 9325bff27b537e563f4454d6aa4f0eab3553fa69
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-07-tools-semantics
 
 <!-- knit:progress:end -->
