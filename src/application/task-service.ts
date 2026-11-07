@@ -388,6 +388,13 @@ export interface TaskCloseInput {
   outcome: "completed" | "cancelled" | "superseded";
   /** 调用方已核实的收尾事实：无活动／未知 run、无未核实 Git 效果（STATES.md 第3节）。 */
   runsSettled: boolean;
+  /**
+   * 任务正文所在执行目录根（worktree 路由下为 worktree 路径）；缺省同 dir。
+   * 运行记录与完成凭据仍读 evidenceRoot，使 worktree 内关闭能核对主检出中的实施事实。
+   */
+  executionDir?: string;
+  /** 运行记录、完成凭据与 scope 根（主检出）；缺省同 dir。 */
+  evidenceRoot?: string;
   /** 完成判断的用户说明；写入完成凭据。 */
   reason?: string | null;
   /** 用户明确强制完成：跳过完成资格证据核对；必须给 reason。 */
@@ -2219,12 +2226,14 @@ export class TaskService {
    */
   async close(input: TaskCloseInput): Promise<TaskCloseResult> {
     const root = normalizeRoot(input.dir);
+    const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
+    const evidenceRoot = normalizeRoot(input.evidenceRoot ?? input.dir);
     const lock = await this.locks.acquire({
       keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
       action: "task.close",
     });
     try {
-      const located = this.locate(root, input.taskId);
+      const located = this.locate(executionRoot, input.taskId);
       const file = join(located.dir, TASK_FILE);
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
@@ -2232,7 +2241,7 @@ export class TaskService {
       if (!input.runsSettled) {
         throw new TaskGuardError("runs_unsettled", "关闭前须先收敛该任务活动／未知运行与待接收结果");
       }
-      if (this.runActivity !== null && !(await this.runActivity.settled(root, input.taskId))) {
+      if (this.runActivity !== null && !(await this.runActivity.settled(evidenceRoot, input.taskId))) {
         throw new TaskGuardError("runs_unsettled", "关闭时仍有活动／未知运行或待接收结果");
       }
       const binding = await this.store.bindings.get(input.taskId);
@@ -2240,7 +2249,7 @@ export class TaskService {
       // 父任务总体验收（DESIGN §3.10）：子任务全部结束后仍需主会话给出验收依据，
       // 子任务完成本身不自动使父任务可完成。
       if (input.outcome === "completed") {
-        const children = [...this.taskIndex(root).values()].filter(
+        const children = [...this.taskIndex(evidenceRoot).values()].filter(
           (entry) => entry.document.frontmatter.parent === input.taskId,
         );
         if (children.length > 0) {
@@ -2253,7 +2262,7 @@ export class TaskService {
       const pendingKind = binding.pendingDraft?.kind ?? null;
       const facts = stageFactsOf(document, binding);
       facts.pendingKind = pendingKind;
-      const workflow = workflowOf(root);
+      const workflow = workflowOf(executionRoot);
       const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
       const verification = verificationModeOf(document.frontmatter);
       if (input.force === true) {
@@ -2278,7 +2287,14 @@ export class TaskService {
               unverified: ["用户强制完成：未核对实施记录与正式检查"],
               forcedReason: input.reason ?? null,
             }
-          : await completionService.assess({ root, taskId: input.taskId, document, raw: before.data, binding })
+          : await completionService.assess({
+              root: evidenceRoot,
+              executionDir: executionRoot,
+              taskId: input.taskId,
+              document,
+              raw: before.data,
+              binding,
+            })
         : null;
       if (completion !== null && completion.allowed === false) {
         throw new TaskGuardError(completion.reason, `任务不能完成: ${completion.reason}`);
@@ -2300,7 +2316,7 @@ export class TaskService {
       try {
         if (completion !== null && completion.allowed === true) {
           completionService.record({
-            root,
+            root: evidenceRoot,
             taskId: input.taskId,
             document,
             raw: before.data,
@@ -2311,7 +2327,7 @@ export class TaskService {
         }
         atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
       } catch (error) {
-        if (recorded) new RunStore(root).removeCompletion(input.taskId);
+        if (recorded) new RunStore(evidenceRoot).removeCompletion(input.taskId);
         throw error;
       }
       if (binding !== null) {
@@ -2323,8 +2339,8 @@ export class TaskService {
         });
       }
       if (input.outcome !== "completed") {
-        new RunStore(root).removeCompletion(input.taskId);
-        new RunStore(root).removeImplementation(input.taskId);
+        new RunStore(evidenceRoot).removeCompletion(input.taskId);
+        new RunStore(evidenceRoot).removeImplementation(input.taskId);
       }
       return {
         taskId: input.taskId,

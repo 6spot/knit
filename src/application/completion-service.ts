@@ -25,6 +25,8 @@ import { loadScope, scopeEntriesCurrent } from "./scope.js";
 
 export interface CompletionAssessInput {
   root: string;
+  /** 任务正文与成果文件所在执行目录（worktree 路由）；缺省同 root。 */
+  executionDir?: string;
   taskId: string;
   document: TaskDocument;
   raw: Buffer;
@@ -45,6 +47,7 @@ export class CompletionService {
   /** 按当前任务事实评估完成资格；不写文件。 */
   async assess(input: CompletionAssessInput): Promise<CompletionDecision> {
     const root = normalizeRoot(input.root);
+    const executionDir = normalizeRoot(input.executionDir ?? input.root);
     const runs = new RunStore(root);
     const scope = loadScope(runs, input.taskId, this.now().toISOString());
     const verification = verificationModeOf(input.document.frontmatter);
@@ -58,6 +61,7 @@ export class CompletionService {
         try {
           await validateCheckEvidence({
             root,
+            executionDir,
             store: this.store,
             taskId: input.taskId,
             binding: input.binding,
@@ -83,7 +87,7 @@ export class CompletionService {
       confirmedInputsDigest: input.binding.confirmedInputsDigest,
       currentInputsDigest,
       currentScopeDigest: scope.digest,
-      scopeCurrent: scopeEntriesCurrent(root, scope.entries),
+      scopeCurrent: scopeEntriesCurrent(executionDir, scope.entries),
       lastImplement,
       implementationRecord:
         implementation === null

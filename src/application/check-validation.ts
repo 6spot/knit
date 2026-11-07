@@ -13,6 +13,8 @@ import { loadScope, scopeEntriesCurrent } from "./scope.js";
 
 export async function validateCheckEvidence(input: {
   root: string;
+  /** 任务正文与成果文件所在执行目录（worktree 路由）；缺省同 root。 */
+  executionDir?: string;
   store: MetadataStore;
   taskId: string;
   binding: TaskBinding;
@@ -22,18 +24,26 @@ export async function validateCheckEvidence(input: {
 }): Promise<CheckFile> {
   const { root: rawRoot, store, taskId, binding, branch } = input;
   const root = normalizeRoot(rawRoot);
+  const executionDir = normalizeRoot(input.executionDir ?? rawRoot);
   if (binding.lastCheckRunId === null) throw new GuardError("check_missing", "没有可交付的检查");
   const runs = new RunStore(root);
   const check = runs.readCheck(binding.lastCheckRunId);
   if (check === null) throw new GuardError("check_missing", `检查凭据缺失: ${binding.lastCheckRunId}`);
   if (check.verdict !== "pass") throw new GuardError("check_not_passed", `最新检查结论不是 pass: ${check.verdict}`);
-  if (check.branch !== branch) throw new GuardError("check_stale", "检查分支与当前交付分支不一致");
+  // worktree 任务的检查产生在执行分支；合入后任务正文改绑目标分支，凭据仍指向产生它的
+  // 执行分支。只接受当前分支或当前绑定 worktree 分支，避免放宽到任意历史分支。
+  const acceptedBranches = new Set<string>();
+  if (branch !== null) acceptedBranches.add(branch);
+  if (binding.worktree?.branch !== undefined) acceptedBranches.add(binding.worktree.branch);
+  if (check.branch !== null && !acceptedBranches.has(check.branch)) {
+    throw new GuardError("check_stale", "检查分支与当前交付分支不一致");
+  }
   // 用产生凭据的 run 阶段重建上下文：检查阶段 id 可由配置改名，不能写死 check。
   // 旧夹具／历史凭据没有 run 请求时退回默认 check 阶段。
   const checkRequest = runs.readRequest(check.runId);
   const checkStage = checkRequest?.stageDefinition?.id ?? checkRequest?.phase ?? "check";
   const plan = await new ContextPlanner({ store, now: input.now, randomHex: input.randomHex }).plan({
-    dir: root,
+    dir: executionDir,
     taskId,
     stage: checkStage,
     // 凭据产生时冻结的阶段定义：配置降级后仍按当时的提示词重算输入身份。
@@ -54,6 +64,6 @@ export async function validateCheckEvidence(input: {
   }
   const scope = loadScope(runs, taskId, input.now().toISOString());
   if (check.scopeDigest !== scope.digest) throw new GuardError("check_stale", "检查后成果范围变化");
-  if (!scopeEntriesCurrent(root, scope.entries)) throw new GuardError("check_stale", "检查后成果路径现状与记录不符");
+  if (!scopeEntriesCurrent(executionDir, scope.entries)) throw new GuardError("check_stale", "检查后成果路径现状与记录不符");
   return check;
 }

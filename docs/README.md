@@ -13,7 +13,7 @@
 | [OPERATIONS.md](design/OPERATIONS.md) | 命令行为、执行、恢复、授权与交付规则 |
 | [GLOSSARY.md](design/GLOSSARY.md) | 术语与稳定身份的含义 |
 | [ROLE-CONTRACT.md](design/ROLE-CONTRACT.md) | 阶段与锚点的提示词、职责、停止条件、报告字段与工具能力；含 Trellis／GSD 来源映射 |
-| [WORKTREE.md](research/WORKTREE.md) | Worktree 现行规则与细则；概览见 DESIGN 第 6 节，文件位于 research/ 并保留研究依据与既有实验 |
+| [WORKTREE.md](research/WORKTREE.md) | Worktree 现行规则与细则；概览与调度规则以 DESIGN 第 6 节、OPERATIONS 第 2 节为准，文件位于 research/ 并保留研究依据与既有实验 |
 
 这些文档定义当前设计；各项能力的实现与验收结论以对应任务记录和验证证据为准。
 

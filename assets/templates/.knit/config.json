@@ -5,6 +5,8 @@
   "execution": { "host": "auto" },
   "delivery": { "mode": "local" },
   "workflow": { "maxRepairRounds": 2 },
+  "scheduler": { "maxConcurrent": 1, "maxAttempts": 1 },
+  "worktree": { "default": "off", "cleanup": "manual" },
   "limits": {
     "heartbeatIntervalMs": 5000,
     "heartbeatStaleMs": 30000,

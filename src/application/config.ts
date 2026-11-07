@@ -60,6 +60,18 @@ export const ProjectConfigSchema = obj(
         ),
       ),
     ),
+    /** 多任务调度上限（任务 k-9cd9a63bd5c5）；缺省 1／1。门槛为 worktree.default=on。 */
+    scheduler: opt(
+      obj(
+        {
+          /** 同时派发上限；计数含手动 run。 */
+          maxConcurrent: opt(int({ minimum: 1 })),
+          /** 单任务单阶段在一次 schedule 循环内的派发上限；失败不重派。 */
+          maxAttempts: opt(int({ minimum: 1 })),
+        },
+        { open: true },
+      ),
+    ),
     /** Worktree 公共资料复制白名单与 postCreate 环境步骤（任务 k-e48b7df14115）；无该节=无白名单无步骤。 */
     worktree: opt(
       obj(
@@ -113,6 +125,14 @@ export function worktreeSettingsOf(config: ProjectConfig): {
   };
 }
 
+/** 调度配置缺省值：1／1；旧配置缺字段按此解释。 */
+export function schedulerSettingsOf(config: ProjectConfig): { maxConcurrent: number; maxAttempts: number } {
+  return {
+    maxConcurrent: config.scheduler?.maxConcurrent ?? 1,
+    maxAttempts: config.scheduler?.maxAttempts ?? 1,
+  };
+}
+
 export function defaultConfig(): ProjectConfig {
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -121,6 +141,7 @@ export function defaultConfig(): ProjectConfig {
     execution: { host: "auto" },
     delivery: { mode: "local" },
     workflow: { maxRepairRounds: 2 },
+    scheduler: { maxConcurrent: 1, maxAttempts: 1 },
     worktree: { default: "off", cleanup: "manual" },
     limits: {
       heartbeatIntervalMs: 5000,

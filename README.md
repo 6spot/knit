@@ -59,4 +59,4 @@ npm install /path/to/knit-0.1.0.tgz
 
 阶段宿主默认 `execution.host: "auto"`：在 Rex 终端内派发正式阶段时自动使用 REX 浮层，普通终端或探测失败时回退 local 并在 `run list`／`run status` 保留原因；`--rex` 强制且失败报错，`--local` 强制本地。`run check --scope` 仍只支持本地非正式检查。
 
-Worktree 已实现；其它 Agent 客户端、并行调度与对外插件平台仍属后续。不依赖 Pi SDK，阶段执行直接复用本机 Pi CLI。Linux + Node 24 + Pi 1.4.0 已完成本地 `npm pack` 安装／init／start 冒烟；后续客户端兼容与回归证据按 [validation](https://github.com/6spot/knit/tree/main/validation) 中的实际范围解读。
+Worktree 与显式多任务调度已实现：`knit run schedule` 在 `worktree.default: on` 时按就绪集、影响路径与并发上限派发，默认前台循环推进到 deliver 前；其它 Agent 客户端与对外插件平台仍属后续。不依赖 Pi SDK，阶段执行直接复用本机 Pi CLI。Linux + Node 24 + Pi 1.4.0 已完成本地 `npm pack` 安装／init／start 冒烟；后续客户端兼容与回归证据按 [validation](https://github.com/6spot/knit/tree/main/validation) 中的实际范围解读。

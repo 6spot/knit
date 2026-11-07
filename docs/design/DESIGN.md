@@ -246,6 +246,8 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 - 结构核对：依赖必须引用已存在的任务，拒绝自依赖与成环；已取消／替代或已归档但未完成的前置保留为可诊断阻塞（`dependency_not_completed`／`dependency_archived`），由用户显式调整依赖，不静默移除。
 - 摘要与资格：`priority`／`dependsOn`／`order` 是调度事实，不改变工作内容与验收条件，因此不参与需求摘要；调整它们不改写输入，也不使既有检查 stale。
 - 一致性：`task list` 与 `task next` 共用同一排序与阻塞判定；`task list` 默认视图按该顺序分段展示，行内给优先级、稳定 ID、阶段显示名与标题，阻塞只在汇总行计数，逐项原因与下一项由 `task next` 给出；主会话按同一视图选择任务，不各自排序。`task next` 只读，不推进阶段、不派发运行。
+- 调度就绪集：`run schedule` 只把 `status=open`、`outcome=null`、`stage` 属于当前生效流程配置阶段、无活动／未接收 run、无待应用草案且直接依赖已满足的任务作为候选；`start` 不自动就绪，`deliver` 进入收尾判定。顺序沿用上面的稳定顺序，不新建队列文件。
+- 影响路径声明：复杂任务在 `plan.md` 的固定区段 `## 影响路径` 列出预期改动路径（仓库相对路径，允许目录前缀）。调度器按路径段前缀判断重叠；无 `plan.md`、无区段、空区段或含无法归一化条目时视为未知影响，任务只能独占运行。声明只作派发前预期，实际成果仍以运行时 scope 与 Git diff 为准。
 
 ## 4. 阶段编排（配置驱动）
 
@@ -339,6 +341,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝 |
 | run prepare/start --stage <id> --task <id> [--rex/--local] [--worktree on\|off] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主；--worktree 只覆盖本次派发的自动创建策略 |
+| run schedule [--once] [--until-idle] [--max <n>] [--authorization-ref <ref>] | Worktree 模式下按就绪集、影响路径与并发上限派发；`--once` 只派一批，默认循环接收并推进到 deliver 前；未开启 worktree.default 时只说明、不派发。长循环不暴露为桥接工具 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
 | context --task <id> [--stage <id>] | 生成阶段分层输入与顶部提示；阶段目标由生效流程派生 |
 | resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |
@@ -536,6 +539,8 @@ Worktree 执行环境已实现；本章是现行规则概览，命令语法见�
 
 自动创建前检查主检出：`git status --porcelain=v1 -z --untracked-files=all` 在任务资料之外存在改动时返回 `worktree_dirty_source` 并列出数量与前 8 个路径，用户可提交、stash，或显式执行 `worktree create --allow-dirty`；自动路径永不携带该标志，也不搬运、stash 或丢弃任何未提交内容。忽略内容与 Knit 运行资料、锁、任务目录、其它关联 worktree 不计入业务脏改动。
 
+多任务调度只在 `worktree.default` 为 `on` 时启用：`knit run schedule` 按 §3.11 的就绪集与影响路径选任务，逐个调用既有 `run prepare`／`run start`；任务级 worktree 绑定本身不足以开启调度。未开启时不报错，输出说明并退出 0，按常规逐个执行。调度没有常驻守护进程，`--until-idle` 是前台循环；`schedule:<项目根>` 项目锁保证同一项目同时只有一个调度循环，不影响 prepare 与交付使用的主检出锁。`scheduler.maxConcurrent` 统计 run 仓储中 `claimed`／`preparing`／`running` 的 run（含手动派发）；派发失败、run 失败、接收失败或路径重叠都只跳过该任务，不阻塞其它任务。`SIGINT` 停止派发与接收，保留活动 run，不自动取消；跨机调度、多人协作与常驻服务不在范围。
+
 ## 7. 记录更新与防漏
 
 - 讨论结论及时写入任务记录；有效目标、条件和约束分别维护在输入区。
@@ -662,6 +667,8 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 `delivery.mode: "merge"` 对已绑定 worktree 的任务生效：`worktree merge --into` 的目标必须是主检出当前分支，不提供可配置目标；缺省只读预览，`--apply` 需提供授权引用（`--authorization-ref`）。合入必须先于交付提交，因为 worktree 路由下任务资料在主检出缺席，且既有 merge 拒绝已归档任务；交付完成后按 `worktree.cleanup` 决定是否清理，清理同样缺省预览、`--apply` 需授权，并先保全任务资料与 Session 引用。合入与清理遵守已有授权及明确约束；推送、PR、发布和部署分别取得对应授权。完成条件要求首版尚不支持的交付操作时，明确报告待人工完成，不将其标为已交付。
 
+`run schedule` 的自动收尾边界：任务到 `deliver` 后，调用方显式 `--authorization-ref` 时按既有完成资格与交付守卫自动 close → deliver（worktree 任务先合入再交付，按配置清理）；没有显式提交授权、但配置了 `delivery.mode: "merge"` 或 `worktree.cleanup: "after-merge"` 时，配置只作为合入／清理的授权来源并记录 `config:<路径>@<sha256>`，自动关闭任务后停在提交前报告待授权；配置与显式授权都没有时停在 deliver 前，不关闭、不提交、不合入、不清理。自动收尾失败保留现场并记录原因，该任务本轮不再重试。调度不绕过完成资格、scope、分支与锁规则。
+
 ### 10.2 产物与资料提交
 
 完成资格有效后整理收尾提交。任务资料与实际开发产生的业务产物分开提交：业务产物先形成工作提交，任务记录、交付记录和必要共享元数据形成独立任务资料提交，归档移动再形成归档提交。多个已完成任务可逐项处理，每个任务保留自己的提交记录，不合并成整批大提交。只有文档／研究报告等实际成果进入产物提交；任务目录本身不进入产物提交。
@@ -763,6 +770,8 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `worktree.cleanup` | `manual` 或 `after-merge`；缺省 `manual`。`after-merge` 在授权合入成功、交付完成且工作区干净时清理；失败保留现场 |
 | `worktree.copy` | 数组，缺省空；每项 `path`（相对主项目根）与可选 `target`（相对 worktree 根，缺省同相对路径）。`worktree prepare` 按白名单复制并核对来源／目标基线 |
 | `worktree.postCreate` | 数组，缺省空；每项 `command` 与可选 `name`（缺省按序号命名）。在目标 worktree 按序执行，失败即停并保留目录与已成功步骤 |
+| `scheduler.maxConcurrent` | 正整数，缺省 `1`；调度器同时派发上限，统计 `claimed`／`preparing`／`running` 的 run（含手动派发）；`run schedule --max` 覆盖本轮 |
+| `scheduler.maxAttempts` | 正整数，缺省 `1`；同一任务同一阶段在一次 schedule 循环内的最大派发次数；失败／接收失败不重派，下一次调用重新计数 |
 | `workflow.maxRepairRounds` | `2` |
 | `limits.heartbeatIntervalMs`／`limits.heartbeatStaleMs` | `5000`／`30000`，后者只触发调查 |
 | `limits.cancelGraceMs` | `5000`，取消后等待工具自行退出的宽限；超时才终止完整进程树 |
@@ -777,6 +786,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
   "execution": { "host": "auto" },
   "delivery": { "mode": "local" },
   "workflow": { "maxRepairRounds": 2 },
+  "scheduler": { "maxConcurrent": 1, "maxAttempts": 1 },
   "worktree": { "default": "off", "cleanup": "manual" }
 }
 ```
@@ -838,13 +848,13 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 7. 提供命令／工具入口与当前项目查询，`doctor` 和 `storage` 只读诊断；归档保留恢复引用，首版不自动 gc。
 8. 主会话每轮注入当前任务、阶段与资料入口；是否创建任务由用户决定，复杂任务按需持久 plan／design／research 资料并跨会话接续（第 3.4–3.6 节、第 4.2 节、第 9.6 节）。
 9. Worktree 执行环境：按授权创建或连接、交接任务资料、准备公共资料与环境、按执行目录路由阶段与结果接收、修复移动后的关联；交付时按授权合入主检出当前分支并清理。概览见第 6 节，细则见 [WORKTREE.md](../research/WORKTREE.md)。
+10. 显式多任务调度：`worktree.default: on` 时 `run schedule` 按就绪集、影响路径与并发上限派发，前台循环接收并推进到 deliver 前；自动提交仍需显式授权。
 
 按第 16.4 节依次推进：先 M0／M1 得到可观察闭环，真实项目使用前完成 M2，首版发布完成 M3A／M3B。里程碑不削弱授权、范围、凭据和实际交付证据要求，也不扩展多人协作。
 
 ### 15.2 后续能力
 
 - Codex、Claude Code 等客户端及 runtime 适配。
-- 多任务并行调度。
 
 后续增加旧框架资料迁入、自动清理，以及用户主动选择的预算／总时长停止策略。
 

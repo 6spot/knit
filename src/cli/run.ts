@@ -4,7 +4,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { RunCoordinator } from "../application/run-coordinator.js";
+import { RunScheduler, SCHEDULE_DISABLED_MESSAGE } from "../application/run-scheduler.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { LockManager } from "../infrastructure/locks.js";
 import { resolvePhaseModel } from "../application/model-selection.js";
 import { GuardError } from "../application/guard-error.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
@@ -311,6 +313,85 @@ export function registerRunCommands(program: Command): void {
         return;
       }
       await dispatch("check")(options);
+    });
+
+  run
+    .command("schedule")
+    .description("Worktree 模式下的多任务调度：按就绪集与并发上限派发、接收并推进阶段")
+    .option("--once", "只做一轮计算与派发，不等待、不接收")
+    .option("--until-idle", "循环派发、接收与推进，直到没有活动 run 与可派发任务（默认）")
+    .option("--max <n>", "覆盖本轮并发上限（正整数）")
+    .option("--authorization-ref <ref>", "显式授权提交／合入／清理的来源引用")
+    .option("--locks <dir>", "锁根目录（隔离测试用）")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (options) => {
+      const requestId = "run-schedule";
+      if (options.once === true && options.untilIdle === true) {
+        fail(requestId, new GuardError("invalid_request", "--once 与 --until-idle 不能同时使用"));
+        return;
+      }
+      let maxConcurrent: number | undefined;
+      if (options.max !== undefined) {
+        const parsed = Number(options.max);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          fail(requestId, new GuardError("invalid_request", `--max 必须是正整数: ${String(options.max)}`));
+          return;
+        }
+        maxConcurrent = parsed;
+      }
+      const root = cliMainRoot(options.dir);
+      const lockRoot = options.locks as string | undefined;
+      const store = openStore(root);
+      const locks = new LockManager(lockRoot === undefined ? {} : { root: lockRoot });
+      const controller = new AbortController();
+      const onSigint = (): void => controller.abort();
+      process.on("SIGINT", onSigint);
+      try {
+        const scheduler = new RunScheduler({
+          store,
+          locks,
+          ...(lockRoot === undefined ? {} : { locksRoot: lockRoot }),
+        });
+        const result = await scheduler.run({
+          dir: root,
+          mode: options.once === true ? "once" : "until-idle",
+          ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
+          authorizationRef: (options.authorizationRef as string | undefined) ?? null,
+          signal: controller.signal,
+        });
+        if (jsonMode()) {
+          emit(jsonResponse(requestId, result.needsAttention.length > 0 ? "needs_attention" : "completed", result, result.needsAttention.length > 0 ? "needs_review" : undefined));
+        } else if (result.gate === "disabled") {
+          console.log(result.message ?? SCHEDULE_DISABLED_MESSAGE);
+        } else {
+          console.log(`调度（${result.mode}）：并发上限 ${result.limits.maxConcurrent}，单阶段尝试上限 ${result.limits.maxAttempts}`);
+          for (const event of result.events) {
+            if (event.action === "scheduler_start" || event.action === "scheduler_stop") continue;
+            const subject = [event.taskId, event.stage === undefined ? null : `@${event.stage}`, event.runId].filter((item) => item !== null && item !== undefined).join(" ");
+            const suffix = event.reason === undefined ? "" : ` — ${event.reason}`;
+            const authorization = event.authorization === undefined ? "" : `（授权 ${event.authorization}）`;
+            console.log(`${event.action}${subject === "" ? "" : ` ${subject}`}${suffix}${authorization}`);
+          }
+          if (result.interrupted) console.log("已中断：停止派发与接收，活动 run 保留；未自动取消。");
+          const advanced = result.accepted.filter((item) => item.stage !== null);
+          if (advanced.length > 0) {
+            console.log(`已推进: ${advanced.map((item) => `${item.taskId}@${item.stage}${item.verdict === null ? "" : `(${item.verdict})`}`).join(", ")}`);
+          }
+          if (result.active.length > 0) {
+            console.log(`仍在运行 ${result.active.length}: ${result.active.map((run) => `${run.runId}(${run.taskId}@${run.stage})`).join(", ")}`);
+          }
+          if (result.pendingDelivery.length > 0) console.log(`待交付／待授权: ${result.pendingDelivery.join(", ")}`);
+          if (result.needsAttention.length > 0) {
+            console.log(`需人工处理 ${result.needsAttention.length}: ${result.needsAttention.map((item) => `${item.taskId}(${item.reason})`).join(", ")}`);
+          }
+          console.log(`汇总：派发 ${result.dispatched.length}，接收 ${result.accepted.length}，关闭 ${result.closed.length}，交付 ${result.delivered.length}`);
+        }
+      } catch (error) {
+        fail(requestId, error);
+      } finally {
+        process.removeListener("SIGINT", onSigint);
+        store.close();
+      }
     });
 
   run

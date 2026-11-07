@@ -20,7 +20,7 @@
 ## 文档与目录
 
 - [docs/design/](docs/design/)：现行产品规范、架构、状态、技术选型、运行约定与术语；阶段提示词、停止条件、报告字段与工具能力见 [ROLE-CONTRACT.md](docs/design/ROLE-CONTRACT.md)。
-- [docs/research/](docs/research/)：研究依据与 Worktree 细则；研究不自动扩大首版范围。
+- [docs/research/](docs/research/)：研究依据与 Worktree 细则；调度规则以 DESIGN／OPERATIONS 为准，研究不自动扩大首版范围。
 - [docs/history/](docs/history/)：旧开发队列、阻塞与执行档案。
 - [validation/](validation/)：可追溯的实验、验收、复核材料与夹具。
 - `.knit/`：本仓库的 Knit 任务、工作流、规范及受管运行资料；`.pi/extensions/knit.ts` 是项目桥接。
@@ -33,7 +33,7 @@
 
 - 实现范围以 [DESIGN.md](docs/design/DESIGN.md) 第 15.1 节为准。Knit 是独立 CLI，内部模块可替换；init 自动生成项目级 Pi 桥接，不要求另装全局 Pi Extension，也不建设对外插件平台。Worktree 已实现，修改时核对创建、交接、路由、合入、清理与绑定链路。
 - 先找出受影响的结构、字段、命令、信任、配置、引用和验收场景，再同步修改。模块和协议按 [ARCHITECTURE.md](docs/design/ARCHITECTURE.md)，状态枚举／转移按 [STATES.md](docs/design/STATES.md)，依赖与技术取舍按 [TECHNOLOGY.md](docs/design/TECHNOLOGY.md)，执行细则按 [OPERATIONS.md](docs/design/OPERATIONS.md)，术语按 [GLOSSARY.md](docs/design/GLOSSARY.md)。只加载当前任务所需资料。
-- 修改命名或路径时，核对创建、复制交接、Worktree 路由与合入、分支、绑定、列表、恢复和归档的完整链路。区分可读名称、稳定身份和实际执行位置，沿用产品规范中的用途。
+- 修改命名或路径时，核对创建、复制交接、Worktree 路由与合入、调度影响路径、分支、绑定、列表、恢复和归档的完整链路。区分可读名称、稳定身份和实际执行位置，沿用产品规范中的用途。
 - 首版只持久化必要业务事实，观察值和内存资源不升级为独立状态机；输入更新由主 Agent 声明 clarify/change。测试按副作用和不变量选择，不给只读事件套崩溃矩阵。
 - 主会话直接实施的任务在收尾前用 `knit task implement` 记录实施事实（改动路径、实际验证），再 `task close`；只有用户明确要求时才用 `task close --force --reason`，凭据会记 `forced`。
 - 阶段执行复用本机 Pi CLI／公开 stdin-stdout 协议，主桥接使用宿主公开 API；不引 Pi SDK 或 RpcClient，不另建模型／鉴权运行时。缺少能力先报告，不借 SDK 补齐。

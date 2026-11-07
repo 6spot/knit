@@ -6,7 +6,7 @@ import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from "nod
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
+import { parseConfig, defaultConfig, schedulerSettingsOf, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { loadWorkflow } from "./workflow.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { PROTOCOL_VERSION } from "../contracts/protocol.js";
@@ -170,6 +170,15 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
   const configPath = join(root, ".knit", "config.json");
   const config = configOf(root);
   add("config", config.config === null ? "fail" : "ok", config.problem ?? "config.json 可解析");
+  if (config.config !== null) {
+    const scheduler = schedulerSettingsOf(config.config);
+    const worktree = worktreeSettingsOf(config.config);
+    add(
+      "scheduler",
+      "ok",
+      `maxConcurrent=${scheduler.maxConcurrent}；maxAttempts=${scheduler.maxAttempts}；worktree.default=${worktree.default}`,
+    );
+  }
   const workflow = loadWorkflow(root);
   const workflowChain = ["准备", ...workflow.workflow.stages.map((stage) => stage.name), "收尾"].join(" → ");
   add(
