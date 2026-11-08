@@ -177,4 +177,10 @@ title: 锁收窄与状态写归属：任务级声明、工作树租约与 stale_
 - 结果: 正常交付；检查 run-79c2bec039df 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-07-narrow-locks-input-staleness
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3f1dfded3a97 -->
+- 任务资料提交: 756911173d53387f8edddaa79784cd48d8735be1
+- 归档目标: .knit/tasks/archive/2026-11/11-07-narrow-locks-input-staleness
+
 <!-- knit:progress:end -->
