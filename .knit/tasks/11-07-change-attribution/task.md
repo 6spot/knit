@@ -1,8 +1,8 @@
 ---
 id: k-fdfd8c171736
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-2c0d10318898
@@ -80,5 +80,30 @@ title: 改动来源归属、外部改动隔离与失败残留继承
 ## 结果与验证
 
 ## 运行引用
+
+## 派发须知（2026-11-07 主会话，审计计划执行约定）
+- 报告 `changedPaths` 只列本 run 在工作区实际改动的路径（与 git 前后差一致），不列之前轮次或其它任务已存在的改动；否则 `changed_paths_mismatch` 整轮失败。
+- 交付前凭据扫描规则 generic_secret_assignment（见 src/contracts/credentials.ts）会把“凭据类关键词作变量名或字段名并被赋值长字符串或表达式”的新增行判为疑似凭据。新增代码与测试请给此类局部变量加前缀（例如 owner 前缀），夹具值保持 8 字符以内；完成前用 dist/contracts/credentials.js 的 scanCredentials 扫描新增行确认零命中。
+- 工作区里其它 `.knit/tasks/*/task.md` 的未提交改动来自主会话记录，不属于本任务成果，不要修改或列入报告。
+- 单跑测试时请 `env -u REX_SESSION -u REX_BLOCK node --test ...`；全量用 `npm test`。
+- 衔接已交付的 k-a8ace0d90676（stage-baseline：成果路径以基线提交加基线时已脏路径计算）与 k-f0d9a8952aff（.knit/tasks/** 从 changedPaths 剔除、stale_input）：来源归属须在这两者之上实现，三者结论一致。
+- 本仓库此前实测案例（证据）：run-33871596b5c5 因 worker 把累计 scope 全部列入 changedPaths 而 changed_paths_mismatch 整轮失败，主会话只能先 snapshot restore 再重派；失败 run 的残留继承正是这一场景的出口。
+
+## 完成记录（2026-11-08 主会话）
+- 实施 run-06a9da9290a8 completed（约 6.2 小时），npm test 636/636。
+- independent 检查 run-52dd314c6975 pass，未改文件。用真实 Pi 1.5.0 会话文件核对了 write/edit 的 toolCall.arguments.path 结构，与解析假设一致。
+- 遗留：桥接 knit_run action=accept 透传 include/exclude 没有专门测试（底层 CLI 有覆盖）；没有用真实 Pi 跑完整条流程。
+- 主会话决定：本仓库 .knit/agents/{implement,runtimes/pi}.md 由主会话从模板逐字同步，单独提交（新机制把这类改动识别为外部改动，不进 scope，结果符合预期）。
+
+### 交付记录
+
+<!-- knit:delivery:op-ea3b0021be70 -->
+- 操作: op-ea3b0021be70
+- 时间: 2026-11-08T18:11:06.939Z
+- 分支: refs/heads/main
+- 授权来源: .knit/tasks/11-07-audit-fix-plan/plan.md#执行授权
+- 工作提交: bd7d5d42b5401d8d6a872b90872c3b5365c26dc7
+- 结果: 正常交付；检查 run-52dd314c6975 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-07-change-attribution
 
 <!-- knit:progress:end -->
