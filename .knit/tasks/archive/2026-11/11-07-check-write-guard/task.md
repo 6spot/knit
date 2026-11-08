@@ -91,4 +91,10 @@ title: 检查阶段写入约束与 independent 标注
 - 结果: 正常交付；检查 run-b8f76c3cb22f 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-07-check-write-guard
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-866c94fc92d1 -->
+- 任务资料提交: 56614d75413a5654ae59004aaf3483c47951a462
+- 归档目标: .knit/tasks/archive/2026-11/11-07-check-write-guard
+
 <!-- knit:progress:end -->
