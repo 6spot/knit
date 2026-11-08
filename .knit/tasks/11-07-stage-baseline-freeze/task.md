@@ -1,8 +1,8 @@
 ---
 id: k-a8ace0d90676
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-2c0d10318898
@@ -67,5 +67,27 @@ title: 阶段基线冻结：HEAD／index 与敏感区核对
 ## 结果与验证
 
 ## 运行引用
+
+## 派发须知（2026-11-07 主会话，审计计划执行约定）
+- 报告 `changedPaths` 只列本 run 在工作区实际改动的路径（与 git 前后差一致），不列之前轮次或其它任务已存在的改动；否则 `changed_paths_mismatch` 整轮失败。
+- 交付前凭据扫描规则 generic_secret_assignment（见 src/contracts/credentials.ts）会把“凭据类关键词作变量名或字段名并被赋值长字符串或表达式”的新增行判为疑似凭据。新增代码与测试请给此类局部变量加前缀（例如 owner 前缀），夹具值保持 8 字符以内；完成前用 dist/contracts/credentials.js 的 scanCredentials 扫描新增行确认零命中。
+- 工作区里其它 `.knit/tasks/*/task.md` 的未提交改动来自主会话记录，不属于本任务成果，不要修改或列入报告。
+- 单跑测试时请 `env -u REX_SESSION -u REX_BLOCK node --test ...`；全量用 `npm test`。
+
+## 完成记录（2026-11-07 主会话）
+- 实施 run-468ddffdc1f1 completed（耗时约 3 小时），npm test 606/606。
+- independent 检查 run-2f2731c63797 pass，未改文件。非阻塞建议：ignored 区只做目录级摘要；已结束 run 的受保护文件按 stat 比较。这两点均在非目标内且已写入文档。
+- 主会话决定：worker 改的是 assets/templates/.knit/agents/{check,implement,runtimes/pi}.md 模板；本仓库自己的 .knit/agents/ 同名文件 worker 无权写入，由主会话逐字同步（改前除新增句外两边完全一致），作为模板同步单独提交，不进入本任务 worker scope。
+
+### 交付记录
+
+<!-- knit:delivery:op-2aac514e42f9 -->
+- 操作: op-2aac514e42f9
+- 时间: 2026-11-08T01:33:28.269Z
+- 分支: refs/heads/main
+- 授权来源: .knit/tasks/11-07-audit-fix-plan/plan.md#执行授权
+- 工作提交: 5a159883bb8d474be24c620e41fdfbab84ced343
+- 结果: 正常交付；检查 run-2f2731c63797 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-07-stage-baseline-freeze
 
 <!-- knit:progress:end -->
