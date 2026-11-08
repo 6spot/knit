@@ -87,7 +87,7 @@ export function registerStatusCommands(program: Command): void {
           console.log(`任务 ID: ${result.taskId}；状态: ${result.status}${result.outcome ? `/${result.outcome}` : ""}`);
           console.log(`阶段：${stageLabel(result.stageName, result.stage, "paren")}`);
           console.log(`分支: ${result.branch ?? "未绑定"}；位置: ${result.relativePath}${result.archived ? "（已归档）" : ""}`);
-          console.log(`运行: ${result.runs.length} 个（活动 ${result.activeRuns}）；完成验证: ${result.verification}；最近检查: ${result.lastCheckRunId ?? "无"}`);
+          console.log(`运行: ${result.runs.length} 个（活动 ${result.activeRuns}）；完成验证: ${result.verificationLabel}；最近检查: ${result.lastCheckRunId ?? "无"}`);
           console.log(`优先级: ${result.priority}；前置依赖: ${result.dependsOn.length === 0 ? "无" : result.dependsOn.join(", ")}`);
           if (result.blocked.length > 0) {
             console.log(`启动阻塞: ${result.blocked.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ")}`);
@@ -97,7 +97,7 @@ export function registerStatusCommands(program: Command): void {
             const open = result.children.filter((child) => child.status === "open").length;
             console.log(`子任务（${result.children.length - open}/${result.children.length} 已结束）: ${result.children.map((child) => `${child.taskId}[${child.status}${child.outcome ? `/${child.outcome}` : ""}]`).join(", ")}`);
           }
-          if (result.completion !== null) console.log(`完成凭据: ${result.completion.verification} @ ${result.completion.completedAt}`);
+          if (result.completion !== null) console.log(`完成凭据: ${result.verificationLabel} @ ${result.completion.completedAt}`);
           console.log(`范围: ${result.scopeCount} 条；草案: ${result.pendingDraft ? result.pendingDraft.kind : "无"}`);
           if (result.latestRun !== null) {
             const run = result.latestRun;
@@ -123,6 +123,7 @@ export function registerStatusCommands(program: Command): void {
             console.log(`用量: input ${usage.inputTokens ?? "未知"}（含缓存），output ${usage.outputTokens ?? "未知"}；未知值不填零`);
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);
             for (const line of boundaryLines(result.result)) console.log(line);
+            if (result.verificationLabel !== null && result.checkerChangedPaths.length > 0) console.log(`验证: ${result.verificationLabel}`);
           }
           for (const action of result.nextActions) console.log(`下一步: ${action}`);
         } else {

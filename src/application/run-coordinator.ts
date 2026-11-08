@@ -39,6 +39,36 @@ import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.
 import { isDecisionStage } from "../domain/report.js";
 import { LockManager, orderKeys, type LockReclaimRecord } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
+import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
+import type { WorkflowDefinition } from "../domain/workflow.js";
+import type { TaskBinding } from "../contracts/metadata.js";
+import { renderTaskDocument, type TaskDocument } from "./task-document.js";
+import { atomicWrite } from "../infrastructure/atomic.js";
+import { sha256Bytes } from "../infrastructure/fingerprint.js";
+
+/** 复查转移用的任务事实：只取阶段、状态、草案与访问计数。 */
+function recheckFactsOf(document: TaskDocument, binding: TaskBinding): TaskFacts {
+  return {
+    status: document.frontmatter.status,
+    stage: document.frontmatter.stage,
+    outcome: document.frontmatter.outcome,
+    branch: document.frontmatter.branch,
+    pendingKind: binding.pendingDraft === null ? null : binding.pendingDraft.kind,
+    verification: document.frontmatter.verification,
+    visits: binding.stageVisits ?? {},
+    stopReason: binding.stopReason,
+  };
+}
+
+/**
+ * 从 deliver 派检查阶段是否为合法复查：任务 open 且在 deliver，复查转移的目标正是请求阶段。
+ * 工作阶段或其它阶段仍返回 phase_mismatch，不跳过 ready／实施。
+ */
+function isRecheckOf(workflow: WorkflowDefinition, document: TaskDocument, binding: TaskBinding, phase: string): boolean {
+  if (document.frontmatter.stage !== "deliver" || document.frontmatter.status !== "open") return false;
+  const next = transition(workflow, recheckFactsOf(document, binding), { kind: "recheckRequested" });
+  return !isTransitionRefusal(next) && next.stage === phase;
+}
 
 const WORKER_SCRIPT = fileURLToPath(new URL("../worker/knit-worker.js", import.meta.url));
 /** 上一 worker 发布终态后释放租约的交接窗口；只在没有活动 worker 时等待，且不持 state 锁。 */
@@ -255,7 +285,7 @@ export class RunCoordinator {
       const note = loaded.mode === "fallback" ? `（配置降级：${loaded.validation.reason}；仅 start → deliver）` : "";
       throw new GuardError("stage_not_in_workflow", `阶段不在生效流程中: ${input.phase}；合法阶段: ${legal}${note}`);
     }
-    if (located.document.frontmatter.stage !== input.phase) {
+    if (located.document.frontmatter.stage !== input.phase && !isRecheckOf(loaded.workflow, located.document, binding, input.phase)) {
       throw new GuardError(
         "phase_mismatch",
         `任务阶段为 ${located.document.frontmatter.stage}，不能准备 ${input.phase}；合法阶段: ${legalStageList(loaded.workflow, false)}`,
@@ -359,6 +389,23 @@ export class RunCoordinator {
       return { request: active.request, launch: active.launch, reused: true };
     }
     if (settledRun !== null) this.assertWorkspaceFree(locks, executionDir);
+    // 复查入口（DESIGN §3.8）：任务在 deliver 时派检查阶段，先把任务阶段回到检查再发布请求；
+    // 用于检查者修复后再取一次未改动文件的 pass 检查（check_self_modified）。任务＋state 短锁内写入。
+    if (located.document.frontmatter.stage !== input.phase) {
+      const next = transition(loaded.workflow, recheckFactsOf(located.document, binding), { kind: "recheckRequested" });
+      if (isTransitionRefusal(next)) throw new GuardError(next.reason, `不能从 ${located.document.frontmatter.stage} 复查: ${next.reason}`);
+      const taskFile = join(located.dir, "task.md");
+      atomicWrite({
+        path: taskFile,
+        data: Buffer.from(renderTaskDocument({
+          ...located.document,
+          frontmatter: { ...located.document.frontmatter, stage: next.stage },
+        }), "utf8"),
+        expectedSha256: sha256Bytes(located.raw),
+        mode: 0o644,
+      });
+      await this.store.bindings.save({ ...binding, stageVisits: next.visits, stopReason: next.stopReason });
+    }
 
     const createdAt = this.now().toISOString();
     const runId = `run-${this.randomHex(6)}`;

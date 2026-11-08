@@ -21,6 +21,8 @@ export const CompletionFileSchema = obj(
     implementRunId: union([str({ minLength: 1 }), nul()]),
     /** independent 的通过检查；其他模式可为 null。 */
     checkRunId: union([str({ minLength: 1 }), nul()]),
+    /** 所引用检查中检查者自行修复的路径；非空表示修复部分为自检（旧凭据缺省）。 */
+    checkerChangedPaths: opt(arr(str({ minLength: 1 }))),
     /** 用户明确跳过的验证项；none 至少记录一条。 */
     unverified: arr(str({ minLength: 1 })),
     /** 用户强制完成：跳过完成资格证据核对，原因必填。 */

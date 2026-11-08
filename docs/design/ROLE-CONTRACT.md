@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | `start`（准备／讨论锚点） | 主会话先取证再提问（代码、测试、配置、文档、规范与任务历史，含归档），按缺口维度逐项扫描；每问给出决定、原因、推荐与代价，一轮最多 3 个，假设落盘 `[assumed]`；确认任务选择与授权，`blocking` 清零后做 ready 检查；不可配置、无提示词 | 需要用户取舍、授权不明、有待应用草案或活动 run、`blocking` 未清零时停在讨论并说明缺口 | 使用普通回复，不产生 worker `StageReportSchema` 报告 | 主会话工具；不代写阶段成果，不自动提交或发布 |
 | 配置阶段（默认 `implement`） | 按 task.md 目标与完成条件产出代码、测试、配置、文档或研究报告，运行范围验证；提示词由该阶段 `prompt` 指定 | 需求／规范冲突、需要用户决定、保护路径或无法确认的副作用时记录后停止产出，在报告中说明阻塞并交回主会话；没有可核对产出时报告缺少成果 | 固定 `summary`／`validation`／`blockers`，加上该阶段声明的额外字段（默认实施字段为 `changedPaths`／`unverified`） | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；可写项目文件与运行验证；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不委派其他 Agent |
-| 配置阶段（默认 `check`） | 独立核对完成条件、冻结输入、实际成果与上一阶段报告；运行声明验证；在既定需求内、问题与修复方向明确时直接修复并验证 | 需求解释、取舍、验收变化或扩大范围时不改代码，以 `blocked` 交回主会话；仍有未解决缺陷时以 `changes_requested` 交回 | 固定字段加 `verdict`（pass／changes_requested／blocked）；有修改时 `changedPaths` 必填且与实际 diff 一致，另含 `coverage`／`selfVerified`／`findings`／`unverified` | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；写权限仅覆盖任务范围内、问题与修复方向明确的缺陷；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不推进阶段，不委派 |
+| 配置阶段（默认 `check`） | 独立核对完成条件、冻结输入、实际成果与上一阶段报告；运行声明验证；默认 `[read, exec]` 不改文件，发现缺陷交回；项目允许 `write` 时才在既定需求内、问题与修复方向明确时直接修复并验证 | 需求解释、取舍、验收变化或扩大范围时不改代码，以 `blocked` 交回主会话；仍有未解决缺陷时以 `changes_requested` 交回 | 固定字段加 `verdict`（pass／changes_requested／blocked）；有修改时 `changedPaths` 必填且与实际 diff 一致，另含 `coverage`／`selfVerified`／`findings`／`unverified` | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；能力不含 `write` 却有归属本 run 的改动（含 bash 写入）判 `write_without_capability:<paths>` 失败、不接收；允许写时写权限仅覆盖任务范围内、问题与修复方向明确的缺陷，凭据记 `checkerChangedPaths`，修复部分只算自检，`independent` 须再派一次未改动文件的 pass 检查才能完成（否则 `check_self_modified`）；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不推进阶段，不委派 |
 | `deliver`（收尾锚点） | 主会话接收实施／检查结果、核对完成条件、在授权交付前起草一次产物提交文案并展示、协调 `deliver`／`archive`；不虚构验证结论；不可配置、无提示词 | 完成资格无效、有待应用草案、活动 run、检查 stale 或提交／推送／发布未授权时停在收尾并说明缺口 | 使用普通回复；交付事实来自核心操作结果 | 主会话与确定性工具；不启动交付辅助 worker；不把子进程完成当作授权 |
 | 非正式检查（`run check --scope`） | 对显式范围做独立只读核对，返回结论 | 范围无法确认或需要正式交付资格时停止，改走正式任务 | `summary`、`verdict`、`coverage`、`findings`、`unverified` | 只读；不建 Task／binding，不推进 stage，不赋交付资格 |
 | Pi runtime 补充 | 说明阶段会话的 CLI、资源、能力白名单、恢复与工具事实 | 资源不可用、恢复来源不明、发现保护路径或未授权副作用时报告，不借新会话重置状态 | 按所属阶段字段输出 | 阶段不加载项目扩展；`tools` 不写或 `all` 全部放开，`[]` 全部禁用（`--no-tools`），`external`／`network` 才放开扩展、MCP、技能与网络 |
@@ -53,12 +53,12 @@
 | --- | --- |
 | `read` | read、grep、find、ls，只读 |
 | `write` | write、edit，改项目文件 |
-| `exec` | bash，可执行验证命令，也可能间接改文件 |
+| `exec` | bash，可执行验证命令，也可能间接改文件；不等于 `write`：未声明 `write` 的阶段经 bash 写入同样判 `write_without_capability` |
 | `task` | Knit 任务／上下文工具 |
 | `external` | 放开项目扩展、MCP 与技能；声明后工具不存在要报错，不静默降级 |
 | `network` | 放开网络；默认阶段离线执行 |
 
-不写 `tools` 或写标量 `all`（大小写不敏感）表示全部放开；写 `[]` 表示全部禁用（无任何工具，保持离线并禁用扩展／MCP／技能）；写了非空列表就是白名单，没列出的能力不能用，列表里不能混入 `all`（如 `[all, read]` 报 `invalid_tools`）。`knit workflow set-tools <id> all|[]|<清单>` 分别设为全部放开、全部禁用或白名单，`--clear` 删除字段（等同全部放开）。`external`／`network` 明确改变可移植性与安全边界，应由项目显式声明。能力不是操作系统沙箱，shell 仍可能产生未声明副作用；阶段边界冻结并核对 HEAD／分支、index、敏感区与实际成果：阶段内提交判 `head_moved_during_stage`，改动 `.git/hooks`／`.git/config`／`.git/info` 或 `.knit/.runtime` 受管资料判 `protected_runtime_modified`，index 与忽略区变化如实记录（DESIGN §5.1）。
+不写 `tools` 或写标量 `all`（大小写不敏感）表示全部放开；写 `[]` 表示全部禁用（无任何工具，保持离线并禁用扩展／MCP／技能）；写了非空列表就是白名单，没列出的能力不能用，列表里不能混入 `all`（如 `[all, read]` 报 `invalid_tools`）。`knit workflow set-tools <id> all|[]|<清单>` 分别设为全部放开、全部禁用或白名单，`--clear` 删除字段（等同全部放开）。`external`／`network` 明确改变可移植性与安全边界，应由项目显式声明。能力不是操作系统沙箱，shell 仍可能产生未声明副作用；阶段边界冻结并核对 HEAD／分支、index、敏感区与实际成果：阶段内提交判 `head_moved_during_stage`，改动 `.git/hooks`／`.git/config`／`.git/info` 或 `.knit/.runtime` 受管资料判 `protected_runtime_modified`，index 与忽略区变化如实记录；能力不含 `write` 却有归属本 run 的改动判 `write_without_capability:<paths>`，外部改动不计（DESIGN §5.1）。
 
 | 事实 | 说明 |
 | --- | --- |
@@ -88,7 +88,7 @@
 | 先取证再问 | `packages/cli/src/templates/common/skills/brainstorm.md` L5-19、L42-55：先查代码与资料，只问必须由用户决定的产品问题 | 部分采用：保留先取证、只问取舍；不引入 Trellis 的 PRD／design／implement 三件套 | AGENTS 受管块、讨论流程 |
 | research 历史子角色 | Trellis `workflow.md` L367-390；`pi/agents/trellis-research.md` L1-25：研究仍依附任务，产物写任务 `research/` | 不新增 research 阶段；任务材料写 `research/`，正式报告写项目路径并走实施→检查 | DESIGN §4.2、实施阶段提示词 |
 | implement 工具与禁止项 | `pi/agents/trellis-implement.md` L19-35：读任务产物、运行验证，禁止 commit／push／merge | 采用产出范围、验证与禁止 Git；差异：Knit 工具策略由 `tools` 白名单与核心核对给出 | `.knit/agents/implement.md`、runtime pi.md |
-| check 直接修复 | `pi/agents/trellis-check.md` L19-26、L35-37：看 diff、对任务产物、范围内直接修、跑验证 | 采用“范围内直接修”；差异：Knit 检查从独立上下文开始，必须报告 `changedPaths`／`selfVerified`，需求或验收变化用 blocked 交回 | `.knit/agents/check.md` |
+| check 直接修复 | `pi/agents/trellis-check.md` L19-26、L35-37：看 diff、对任务产物、范围内直接修、跑验证 | 部分采用：默认检查阶段 `[read, exec]` 不改文件；项目允许 `write` 时才“范围内直接修”。差异：Knit 检查从独立上下文开始，必须报告 `changedPaths`／`selfVerified`，修复部分只算自检、`independent` 须再派无改动的 pass 检查，需求或验收变化用 blocked 交回 | `.knit/agents/check.md` |
 | 自动修复边界 | Trellis `workflow.md` L543-553：检查自动修复发现 | 采用“问题与修复方向明确”的有限修复；不采用无条件 auto-fix，冲突或需求变化停止 | check.md、`maxVisits` |
 | 任务状态不可读 | Trellis `workflow.md` L187-191：活动任务记录不可读时不要创建或激活另一任务 | 采用停止与不伪造状态的原则；Knit 由核心报告 missing／blocked，阶段不自行切换任务 | 停止条件 |
 | 每轮状态注入 | `packages/cli/src/templates/pi/extensions/trellis/index.ts.txt` L1124-1151、L2066-2085：从 workflow 状态块解析并注入 | 采用每轮注入；差异：Knit 桥接调用核心 `session resolve`／`status`，不解析 workflow 文本 | `.pi/extensions/knit.ts` |

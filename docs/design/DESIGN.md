@@ -199,7 +199,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
 
-业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效的正式检查；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
+业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效且检查者未改动文件的正式检查（最新检查带 `checkerChangedPaths` 时报 `check_self_modified`，§5.1）；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
 
 task update 直接写入／保存输入时须声明 --kind clarify/change 及说明；apply/withdraw-pending 使用第3.8节的独立模式，应用时复用草案保存的 kind。clarify 保持当前阶段，摘要变化使检查 stale；当前为 deliver 且 stale 时 independent 回到最近检查阶段、self／none 回到最近工作阶段并清 completed。change 改变目标、条件、范围或业务约束，回 open/start。核心只验摘要、版本与结构，主 Agent 判断类型；新引用带来新要求不能标 clarify，摘要未变不迁移，clarify 不重置修复次数。
 
@@ -382,11 +382,13 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 阶段提示词由 `.knit/workflow.yaml` 的 `prompt` 指定；缺省或文件缺失时使用核心默认 agent 指令，不阻断执行。`tools` 不写或写标量 `all` 表示全部放开，写 `[]` 表示全部禁用（Pi 启动参数为 `--no-tools`，保持离线并禁用扩展／MCP／技能），写了非空列表就是能力白名单（列表里混入 `all` 报 `invalid_tools`）：`read` 只读，`write` 改文件，`exec` 执行命令，`task` 使用任务工具，`external` 放开项目扩展／MCP／技能，`network` 放开网络。外部能力是显式 opt-in，声明后工具不存在要报错，不静默降级。
 
-检查阶段可在既定需求内直接修复明确缺陷；其余发现和证据交回主会话或实施阶段。worker 的职责限于受委派阶段；任务创建、递归委派、提交、合并、推送与环境清理由主 Agent 和确定性工具协调。这些职责与工具策略不是操作系统沙箱；首版不宣称能阻止任意 shell 的所有越权副作用。阶段边界由 worker 冻结并核对（实现见 `src/application/stage-baseline.ts`）：启动阶段 Agent 前记录 HEAD 提交、符号引用、index 摘要（`git ls-files -s`）、工作区签名、敏感区指纹与忽略区目录级摘要，写入 run 状态 `baseline` 并随结果发布；收尾时 HEAD 与基线不同即 `failed: head_moved_during_stage`，结果 `boundary.commits` 带 `git rev-list <基线>..HEAD`，不接收、不并入 scope，由用户自行处理提交后重派，首版不提供“接纳阶段内提交”的出口。index 变化只写进 `boundary.indexChanged`，单纯暂存不判失败。实际差异按“基线提交＋基线时脏文件指纹”计算，阶段内提交过的路径也出现在 `actualChangedPaths` 中供诊断。敏感区为 `.git/hooks/**`、`.git/config`、`.git/info/**` 与 `.knit/.runtime/` 下的 `checks/`、`completions/`、`implementations/`、其它 run 目录的不可变资料、`installation.json`、`init-manifest.json`，阶段前后有变化即 `failed: protected_runtime_modified:<paths>`；本 run 自有目录、会话目录、列表缓存，以及其它活动 run 自身的写入除外。忽略区（`git status --ignored` 目录级条目，每条取自身与直接子项的 stat 摘要）的变化写进结果 `ignoredChanges`，`run status` 与桥接通知显示，不判失败；深层文件原地改写不保证可见。核对只做检测与拒绝接收，不拦截 shell 调用本身。
+检查阶段默认不改文件（默认流程 `tools: [read, exec]`），发现和证据交回主会话或实施阶段；项目把检查阶段配置为允许 `write` 时，才可在既定需求内直接修复明确缺陷。worker 的职责限于受委派阶段；任务创建、递归委派、提交、合并、推送与环境清理由主 Agent 和确定性工具协调。这些职责与工具策略不是操作系统沙箱；首版不宣称能阻止任意 shell 的所有越权副作用。阶段边界由 worker 冻结并核对（实现见 `src/application/stage-baseline.ts`）：启动阶段 Agent 前记录 HEAD 提交、符号引用、index 摘要（`git ls-files -s`）、工作区签名、敏感区指纹与忽略区目录级摘要，写入 run 状态 `baseline` 并随结果发布；收尾时 HEAD 与基线不同即 `failed: head_moved_during_stage`，结果 `boundary.commits` 带 `git rev-list <基线>..HEAD`，不接收、不并入 scope，由用户自行处理提交后重派，首版不提供“接纳阶段内提交”的出口。index 变化只写进 `boundary.indexChanged`，单纯暂存不判失败。实际差异按“基线提交＋基线时脏文件指纹”计算，阶段内提交过的路径也出现在 `actualChangedPaths` 中供诊断。敏感区为 `.git/hooks/**`、`.git/config`、`.git/info/**` 与 `.knit/.runtime/` 下的 `checks/`、`completions/`、`implementations/`、其它 run 目录的不可变资料、`installation.json`、`init-manifest.json`，阶段前后有变化即 `failed: protected_runtime_modified:<paths>`；本 run 自有目录、会话目录、列表缓存，以及其它活动 run 自身的写入除外。忽略区（`git status --ignored` 目录级条目，每条取自身与直接子项的 stat 摘要）的变化写进结果 `ignoredChanges`，`run status` 与桥接通知显示，不判失败；深层文件原地改写不保证可见。核对只做检测与拒绝接收，不拦截 shell 调用本身。
 
 检查上下文包含目标、完成条件、适用规范、变更范围、实际文件和验证入口。实施报告作为待核对证据传入，检查以实际内容为依据。
 
-检查阶段提供读取、写工具和必要验证能力，但写权限只覆盖任务范围内、问题与修复方向明确的缺陷；涉及需求解释、取舍、验收变化或扩大范围时以 `blocked` 交回，不自行决定。检查者修改后必须在报告列出实际 `changedPaths`，由核心与实际 diff 核对；接收通过后改动并入 scope。对自身修改的验证属于自检，不表述为已由另一独立执行者复核，也不默认追加一轮独立检查。shell 的可用性仍可能产生未声明写入，执行前后需比对相关代码与 Git 事实；无法确认的改动保留事实并报告。
+检查阶段的写权限以阶段能力为准，能力与实际必须一致（任务 k-b88e4a80906d，审计 F3）。默认流程的检查阶段为 `tools: [read, exec]`：只读核对并运行验证，不改文件；`exec` 即 bash，仍可能产生写入，核心不拦截 bash 本身，而在收尾核对——阶段能力不含 `write`（`tools` 为白名单且未列 `write`）但归属本 run 的实际差异非空时，run 以 `failed: write_without_capability:<paths>` 结束，结果与工作区保留、不接收、`lastCheckRunId` 不变，不提供人工接纳出口；“归属本 run”沿用改动来源归属（§5.3），未列出且非工具写入的外部改动（如主会话并发写入）不算检查者写入。接收侧对没有归属信息的旧结果同样以 `needs_attention: write_without_capability:<paths>` 拒绝。
+
+项目把检查阶段配置为允许 `write` 时，写权限只覆盖任务范围内、问题与修复方向明确的缺陷；涉及需求解释、取舍、验收变化或扩大范围时以 `blocked` 交回，不自行决定。检查者修改后必须在报告列出实际 `changedPaths`，由核心与实际 diff 核对；接收通过后改动并入 scope，检查凭据记 `checkerChangedPaths`。对自身修改的验证属于自检，不表述为已由另一独立执行者复核：完成凭据与交付提交的“验证”行写成“independent（检查者修复 N 个路径，修复部分为自检）”，`run status`／`status` 同样显示；最新检查凭据带非空 `checkerChangedPaths` 时 `independent` 任务的 `task close --outcome completed`（及 `deliver` 预检）以 `check_self_modified` 拒绝，须再派一次未改动任何文件且结论为 pass 的检查（任务在 deliver 时 `run check --task` 即复查入口），凭据替换后才可完成，提交说明不再带自检标注。
 
 ### 5.2 模型选择
 
@@ -402,9 +404,9 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 ### 5.3 检查结论与有效范围
 
-检查阶段结论为 pass、changes_requested 或 blocked，附覆盖、证据与未执行项。检查只在任务要求 `independent` 或用户明确要求时执行；`self` 任务的实施自检不自动升级为独立检查。用户明确要求的人工验收由主 Agent 核对并记录实际确认，首版不设专用门槛命令／字段；技术 pass 不能冒充人工完成。
+检查阶段结论为 pass、changes_requested 或 blocked，附覆盖、证据与未执行项。`independent` 的完成依据是未改动任何文件的 pass 检查；检查者修复过路径的 pass 只证明修复部分已自检，完成守卫报 `check_self_modified`（§5.1）。检查只在任务要求 `independent` 或用户明确要求时执行；`self` 任务的实施自检不自动升级为独立检查。用户明确要求的人工验收由主 Agent 核对并记录实际确认，首版不设专用门槛命令／字段；技术 pass 不能冒充人工完成。
 
-检查记录由核心在结果接收时写入 `.knit/.runtime/checks/<run-id>.json`（不在 run 目录内）：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。检查者直接修复的路径随接收并入 scope，凭据绑定并入后的 scope 摘要与实际 `changedPaths`／`selfVerified`。正式任务以 `lastCheckRunId` 为唯一候选，在检查获占用且正式接纳时更新；未获准的忙请求不算开始，已接纳后的失败不能回退更早 pass。输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
+检查记录由核心在结果接收时写入 `.knit/.runtime/checks/<run-id>.json`（不在 run 目录内）：任务／分支／run 身份、报告、结论、检查前后输入摘要和范围。指纹按版本化 SHA-256 规则保存路径、类型、模式和内容，删除项记为不存在。检查者直接修复的路径随接收并入 scope，凭据绑定并入后的 scope 摘要与实际 `changedPaths`／`selfVerified`／`checkerChangedPaths`；完成凭据引用该检查时照实记录 `checkerChangedPaths`，供“验证”行标注。正式任务以 `lastCheckRunId` 为唯一候选，在检查获占用且正式接纳时更新；未获准的忙请求不算开始，已接纳后的失败不能回退更早 pass。输入缺失、版本未知、结果失败或摘要不符时重查。无正式任务的报告仅对该 run 的显式范围有效。
 
 `self` 任务不要求 `lastCheckRunId`，以最近获准实施及当前输入／scope 作为完成依据；`none` 由用户明确选择并记录未验证。任务主文档与辅助资料按稳定任务 ID、任务内相对路径识别；已登记改名／归档操作可更新物理定位并核对相同内容，不因单纯搬动任务目录反复失效。其他路径变化、引用内容改写或业务输入变化仍需核对；不改写旧 run 凭据，以操作记录关联新位置。
 
@@ -686,7 +688,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 
 自动提交使用明确路径集合。暂存整理保留用户现场；stash、reset、amend、rebase 或历史改写需要对应的明确操作意图。
 
-产物提交说明由主会话起草，经 `deliver --message-file` 传入；核心只校验、拼装并持久化，不调用模型。文案为 UTF-8 纯文本：首行 1–72 个字符，空行分隔正文，正文非空且不超过 4000 个字符，整个文件不超过 8 KB；首行不得以旧机器前缀 `knit: ` 开头、不得只含任务／操作 ID，正文行不得以保留键 `Knit-` 开头。非法或空文案在创建操作、`git add` 与修改 Task 之前拒绝。未提供文案时使用事实型模板正文并记录 `message_source: template`；交付结果与 `--plan` 都显示来源。三类提交末尾统一附 `Knit-Task`／`Knit-Operation`／`Knit-Stage`／`Knit-Verification` trailer；恢复与合入按 trailer 识别，无 trailer 时回退旧 `knit: <stage>` 单行格式。文案按阶段持久化，重试复用已保存文本，新文件被忽略并记录 `message_ignored_on_retry`；已提交说明不做 amend。
+产物提交说明由主会话起草，经 `deliver --message-file` 传入；核心只校验、拼装并持久化，不调用模型。文案为 UTF-8 纯文本：首行 1–72 个字符，空行分隔正文，正文非空且不超过 4000 个字符，整个文件不超过 8 KB；首行不得以旧机器前缀 `knit: ` 开头、不得只含任务／操作 ID，正文行不得以保留键 `Knit-` 开头。非法或空文案在创建操作、`git add` 与修改 Task 之前拒绝。未提供文案时使用事实型模板正文并记录 `message_source: template`；模板“验证”行写验证方式与依据，所引用检查带 `checkerChangedPaths` 时写成“independent（检查者修复 N 个路径，修复部分为自检）”，不输出不带标注的“independent 通过”；交付结果与 `--plan` 都显示来源。三类提交末尾统一附 `Knit-Task`／`Knit-Operation`／`Knit-Stage`／`Knit-Verification` trailer；恢复与合入按 trailer 识别，无 trailer 时回退旧 `knit: <stage>` 单行格式。文案按阶段持久化，重试复用已保存文本，新文件被忽略并记录 `message_ignored_on_retry`；已提交说明不做 amend。
 
 ### 10.3 交付顺序与冲突
 

@@ -20,6 +20,7 @@ import type { CheckFile } from "../contracts/run.js";
 import { PROJECT_SCOPE, type StandardsReview } from "../contracts/standards.js";
 import type { OperationState } from "../contracts/metadata.js";
 import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
+import { checkerChangedPathsOf, verificationLabel } from "../domain/completion.js";
 import { workflowOf } from "./workflow.js";
 import { CompletionService } from "./completion-service.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
@@ -747,6 +748,10 @@ export class DeliveryService {
         // independent 保留既有检查资格错误语义；self／none 由完成守卫判断。
         if ((document.frontmatter.verification ?? "independent") === "independent") {
           check = await this.validCheck(root, input.taskId, binding, branch);
+          // 与 task close 同一完成守卫：检查者修复过成果的检查不能作为 independent 完成依据（在创建操作前拒绝）。
+          if (checkerChangedPathsOf(check).length > 0) {
+            throw new GuardError("check_self_modified", `任务不能完成: check_self_modified（检查 ${check.runId} 由检查者修复 ${checkerChangedPathsOf(check).length} 个路径；再派一次未改动文件的 pass 检查）`);
+          }
         } else {
           const decision = await completionService.assess({ root, taskId: input.taskId, document, raw, binding });
           if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
@@ -1096,6 +1101,19 @@ export class DeliveryService {
     });
   }
 
+  /**
+   * 「验证」行的验证方式：检查者修复过路径时写成「independent（检查者修复 N 个路径，修复部分为自检）」，
+   * 不输出不带标注的「independent 通过」（审计 F3）。trailer 仍写机器值。
+   */
+  private verificationLine(prepared: Prepared, op: DeliveryOperation): string {
+    const verification = prepared.document.frontmatter.verification ?? "independent";
+    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    const checkerPaths = prepared.check !== null
+      ? checkerChangedPathsOf(prepared.check)
+      : (completion?.checkerChangedPaths ?? []);
+    return `${verificationLabel(verification, checkerPaths)} — ${this.verificationBasis(prepared, op)}`;
+  }
+
   /** 验证依据：独立检查 run、主会话实施记录或强制完成原因；缺失写「未记录」。 */
   private verificationBasis(prepared: Prepared, op: DeliveryOperation): string {
     if (prepared.check !== null) return `检查 ${prepared.check.runId} 通过`;
@@ -1127,7 +1145,7 @@ export class DeliveryService {
     const outcome = op.mode === "deliver" ? "completed" : (prepared.document.frontmatter.outcome ?? "未记录");
     const body = [
       `结果：${outcome}`,
-      `验证：${verification} — ${this.verificationBasis(prepared, op)}`,
+      `验证：${this.verificationLine(prepared, op)}`,
     ].join("\n");
     return {
       source: "template",
@@ -1145,7 +1163,7 @@ export class DeliveryService {
     const completion = new RunStore(prepared.root).readCompletion(op.taskId);
     const body = [
       `结果：${outcome}`,
-      `验证：${verification} — ${this.verificationBasis(prepared, op)}`,
+      `验证：${this.verificationLine(prepared, op)}`,
       `产物提交：${shortHash(op.workCommit)}`,
       `资料：任务记录${completion === null ? "" : "、完成凭据"}`,
     ].join("\n");
@@ -1502,7 +1520,7 @@ export class DeliveryService {
     const verification = prepared.document.frontmatter.verification ?? "independent";
     const resultLine = op.mode === "deliver"
       ? prepared.check !== null
-        ? `- 结果: 正常交付；检查 ${prepared.check.runId} 通过`
+        ? `- 结果: 正常交付；检查 ${prepared.check.runId} 通过；验证 ${verificationLabel(verification, checkerChangedPathsOf(prepared.check))}`
         : `- 结果: 正常交付；完成验证 ${verification}（无独立检查）`
       : `- 结果: 业务${prepared.document.frontmatter.outcome ?? "结束"}；未提交半成品代码`;
     const append = [

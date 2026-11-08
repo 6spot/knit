@@ -37,6 +37,7 @@ import type { WorkflowStage } from "../domain/workflow.js";
 import { parseConfig, defaultConfig, type ProjectConfig } from "./config.js";
 import { isTransitionRefusal, transition, type TaskFacts } from "../domain/task.js";
 import { repairDecision } from "../domain/repair.js";
+import { stageMayWrite, writeWithoutCapabilityReason } from "../domain/attribution.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
@@ -365,6 +366,15 @@ export class RunAcceptanceService {
     }
     const mergeSet = new Set(mergePaths);
     const actualSet = mergeSet;
+    // 能力与实际不符的接收侧兜底：未声明 write 的阶段不并入任何本 run 改动（worker 收尾已判 failed；
+    // 旧结果或外部写入的结果在此拦住）。外部改动不算本 run 写入。
+    if (!stageMayWrite(request.toolPolicy)) {
+      const external = new Set((result.externalChanges ?? []).map(normalizePath));
+      const written = attribution === null
+        ? actualChangedPaths.filter((path) => !external.has(path))
+        : [...new Set([...(attribution.attributedPaths ?? []), ...(attribution.unattributedPaths ?? []), ...(attribution.inheritedPaths ?? [])])].sort();
+      if (written.length > 0) return this.attention(operationId, request, writeWithoutCapabilityReason(written), result);
+    }
     // 发布时指纹只核对要并入的路径；外部改动与被排除的路径不属本任务，不因其后续变化拒收。
     const driftEntries = (result.actualEntries ?? []).filter(
       (entry) => attribution === null || (mergeSet.has(normalizePath(entry.path)) && !confirmedPaths.has(normalizePath(entry.path))),
@@ -487,6 +497,8 @@ export class RunAcceptanceService {
           })
         : scope;
     const selfVerified = reportBoolean(report, "selfVerified");
+    // 检查者本人改过并入 scope 的路径：修复部分只算自检，independent 须再派无改动的 pass 检查才可完成。
+    const checkerChangedPaths = mergePaths;
     const check: CheckFile = {
       schemaVersion: 1,
       taskId: request.taskId,
@@ -496,6 +508,7 @@ export class RunAcceptanceService {
       report,
       ...(mergePaths.length > 0 ? { changedPaths: mergePaths } : {}),
       ...(selfVerified !== null ? { selfVerified } : {}),
+      ...(checkerChangedPaths.length > 0 ? { checkerChangedPaths } : {}),
       inputsDigest: inputs.inputsDigest,
       standardsDigest: inputs.standardsDigest,
       effectiveInputsDigest: inputs.effectiveInputsDigest,

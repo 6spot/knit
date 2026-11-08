@@ -468,6 +468,11 @@ export const CheckFileSchema = obj(
     changedPaths: opt(arr(str({ minLength: 1 }))),
     /** 检查者自行验证了自身修改；不冒充另一独立执行者复核。 */
     selfVerified: opt(bool()),
+    /**
+     * 检查者本人改动并入 scope 的路径（允许写的检查阶段）；修复部分只算自检。
+     * 非空时 independent 任务不能凭此凭据完成（check_self_modified），须再派一次未改动文件的 pass 检查。
+     */
+    checkerChangedPaths: opt(arr(str({ minLength: 1 }))),
     inputsDigest: str({ minLength: 1 }),
     standardsDigest: str({ minLength: 1 }),
     effectiveInputsDigest: str({ minLength: 1 }),

@@ -46,7 +46,7 @@
 | 封存 seal | 收尾短锁内固定的任务记录及目录版本；之后补记另行处理，不伪称已入本次提交 |
 | 交付协调 | 主会话核对实施／检查结果并协调确定性 deliver／archive；不启动交付辅助 worker，只有实际工具结果能证明提交和归档 |
 | 用量 | 本 run 新模型调用的 token／费用／耗时统计，缓存是输入子集；首版不作为自动停止阈值 |
-| 检查凭据 | 核心在结果接收时写入 `.runtime/checks/<run-id>.json`，发布后不改；只取最新候选并核对当前目标；stale 不删除旧事实；检查阶段修复的路径与自检标记一并保存 |
+| 检查凭据 | 核心在结果接收时写入 `.runtime/checks/<run-id>.json`，发布后不改；只取最新候选并核对当前目标；stale 不删除旧事实；允许写的检查阶段修复的路径（`checkerChangedPaths`）与自检标记一并保存，非空时 `independent` 完成报 `check_self_modified` |
 | clarify / change | 澄清保持当前阶段；摘要变化令检查 stale，deliver 因此回到最近检查阶段或工作阶段；实变回 `start` |
 | 自动修复计数 | binding 中的 repairCycleId、repairRounds、stopReason；恢复与 clarify 不重置，不做独立链状态机 |
 | 开发者模式 | M1 仅 --dev 的脱敏结构化 stderr；M3A 加私有日志和 Pi 会话开关，不改规则或自动多调模型 |

@@ -11,6 +11,7 @@ import {
 } from "../contracts/task-inputs.js";
 import type { CheckQualification } from "../domain/check.js";
 import {
+  checkerChangedPathsOf,
   completionDecision,
   type CompletionDecision,
   type ImplementEvidence,
@@ -54,12 +55,13 @@ export class CompletionService {
     const currentInputsDigest = inputsDigestOf(input.raw.toString("utf8"));
     let checkQualification: CheckQualification = "missing";
     let checkRunId: string | null = null;
+    let checkerChangedPaths: string[] = [];
 
     if (verification === "independent") {
       checkRunId = input.binding.lastCheckRunId;
       if (checkRunId !== null) {
         try {
-          await validateCheckEvidence({
+          const check = await validateCheckEvidence({
             root,
             executionDir,
             store: this.store,
@@ -70,6 +72,7 @@ export class CompletionService {
             randomHex: this.randomHex,
           });
           checkQualification = "valid";
+          checkerChangedPaths = checkerChangedPathsOf(check);
         } catch {
           checkQualification = "stale";
         }
@@ -98,6 +101,7 @@ export class CompletionService {
             },
       checkQualification,
       checkRunId,
+      checkerChangedPaths,
     });
   }
 
@@ -114,6 +118,10 @@ export class CompletionService {
     const runs = new RunStore(root);
     const scope = loadScope(runs, input.taskId, this.now().toISOString());
     const verification: VerificationMode = input.decision.mode;
+    // 完成守卫已拒绝带检查者修复的 independent 检查；这里照实记录所引用检查的修复路径，供“验证”行标注。
+    const checkerChangedPaths = input.decision.checkRunId === null
+      ? []
+      : checkerChangedPathsOf(runs.readCheck(input.decision.checkRunId));
     const completion: CompletionFile = {
       schemaVersion: 1,
       taskId: input.taskId,
@@ -123,6 +131,7 @@ export class CompletionService {
       implementedBy: input.decision.implementedBy,
       implementRunId: input.decision.implementRunId,
       checkRunId: input.decision.checkRunId,
+      ...(checkerChangedPaths.length > 0 ? { checkerChangedPaths } : {}),
       unverified: input.decision.unverified,
       forced: input.decision.implementedBy === "forced",
       forcedReason: input.decision.implementedBy === "forced" ? (input.decision.forcedReason ?? null) : null,

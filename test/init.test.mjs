@@ -187,7 +187,8 @@ test("init：阶段提示词覆盖停止条件、报告字段与工具边界（k
     assert.match(check, /selfVerified/);
     assert.match(check, /findings/);
     assert.match(check, /unverified/);
-    assert.match(check, /可直接修改必要文件/, "检查可在范围内修复");
+    assert.match(check, /检查阶段不改文件/, "默认检查阶段不改文件");
+    assert.match(check, /write_without_capability/, "无写能力却写入即失败");
     assert.match(check, /不修改 `\.knit\/` 下规范、配置、流程与提示词/, "检查保护路径");
     assert.match(check, /changes_requested|blocked/, "检查交回结论");
     const runtime = readFileSync(join(dir, ".knit", "agents", "runtimes", "pi.md"), "utf8");

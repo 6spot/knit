@@ -19,6 +19,7 @@ import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
+import { checkerChangedPathsOf, verificationLabel } from "../domain/completion.js";
 
 export interface RunHeartbeat {
   at: string;
@@ -39,8 +40,12 @@ export interface RunStatusView extends RunStatusProjection {
   heartbeat: RunHeartbeat | null;
   /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
   startupDiagnostics: RunDiagnosticsFile | null;
-  /** 待处理结果的下一步；覆盖 needs_attention: stale_input 与 unattributed_paths，其余为空。 */
+  /** 待处理结果的下一步；覆盖 needs_attention: stale_input 与 unattributed_paths、检查者修复后的复查，其余为空。 */
   nextActions: string[];
+  /** 已发布检查凭据中检查者自行修复的路径；非检查 run 或无修复为空。 */
+  checkerChangedPaths: string[];
+  /** 检查 run 的验证方式标注；检查者修复过路径时写明修复部分为自检，非检查 run 为 null。 */
+  verificationLabel: string | null;
 }
 
 export interface TaskStatusView {
@@ -72,6 +77,10 @@ export interface TaskStatusView {
   /** task.md「待澄清」计数；blocking > 0 时 `task ready` 拒绝，无区段为 0。 */
   clarify: { blocking: number; assumed: number };
   lastCheckRunId: string | null;
+  /** 验证方式标注：最新检查（或完成凭据）带检查者修复时写成「independent（检查者修复 N 个路径，修复部分为自检）」。 */
+  verificationLabel: string;
+  /** 最新检查凭据中检查者自行修复的路径；非空时 independent 任务完成被 check_self_modified 拒绝。 */
+  lastCheckChangedPaths: string[];
   completion: CompletionFile | null;
   runs: RunStatusView[];
   latestRun: RunStatusView | null;
@@ -137,6 +146,19 @@ function unattributedNextActions(projection: RunStatusProjection): string[] {
   ];
 }
 
+/**
+ * 检查者修复过路径的检查 run（DESIGN §5.1）：修复部分只算自检；independent 任务须再派一次
+ * 未改动文件且 pass 的检查，凭据替换后 task close 才不再报 check_self_modified。
+ */
+function checkerRepairNextActions(projection: RunStatusProjection, paths: string[], verification: VerificationMode | null): string[] {
+  if (paths.length === 0) return [];
+  const actions = [`检查者修复 ${paths.length} 个路径（${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " 等" : ""}），修复部分为自检，不算独立复核`];
+  if ((verification ?? "independent") === "independent") {
+    actions.push(`independent 完成前须再派一次未改动文件且 pass 的检查：knit run check --task ${projection.taskId}`);
+  }
+  return actions;
+}
+
 export class StatusService {
   private readonly store: MetadataStore;
   private readonly now: () => Date;
@@ -175,6 +197,8 @@ export class StatusService {
     const executionDir = await this.executionDirOf(root, runId);
     const task = this.taskDocumentOf(root, projection.taskId);
     const workflow = loadWorkflow(root).workflow;
+    const check = new RunStore(root).readCheck(runId);
+    const checkerPaths = checkerChangedPathsOf(check);
     return {
       ...projection,
       taskTitle: task?.title ?? null,
@@ -188,7 +212,10 @@ export class StatusService {
       nextActions: [
         ...staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
         ...unattributedNextActions(projection),
+        ...checkerRepairNextActions(projection, checkerPaths, this.taskVerificationOf(executionDir, projection.taskId)),
       ],
+      checkerChangedPaths: checkerPaths,
+      verificationLabel: check === null ? null : verificationLabel(this.taskVerificationOf(executionDir, projection.taskId) ?? "independent", checkerPaths),
     };
   }
 
@@ -199,6 +226,10 @@ export class StatusService {
     const clarify = clarifyStateOf(document.inputsBody);
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
+    const runStore = new RunStore(root);
+    const completion = runStore.readCompletion(taskId);
+    // 只在 independent 时检查者修复影响完成资格；其它模式照实显示但不作标注。
+    const lastCheckChangedPaths = binding?.lastCheckRunId ? checkerChangedPathsOf(runStore.readCheck(binding.lastCheckRunId)) : [];
     const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
     for (const { name } of listTaskDirectories(root)) {
       const file = join(root, ".knit", "tasks", name, "task.md");
@@ -234,7 +265,9 @@ export class StatusService {
       blocked: dependencyBlockersOf(root, taskId),
       clarify: { blocking: clarify.blocking, assumed: clarify.assumed },
       lastCheckRunId: binding?.lastCheckRunId ?? null,
-      completion: new RunStore(root).readCompletion(taskId),
+      verificationLabel: verificationLabel(verificationModeOf(document.frontmatter), lastCheckChangedPaths.length > 0 ? lastCheckChangedPaths : (completion?.checkerChangedPaths ?? [])),
+      lastCheckChangedPaths,
+      completion,
       runs,
       latestRun: runs.at(-1) ?? null,
       activeRuns: runs.filter((run) => !["completed", "cancelled", "failed"].includes(run.state)).length,
@@ -289,6 +322,15 @@ export class StatusService {
       relativePath: summary.relativePath,
       archived: summary.archived,
     }));
+  }
+
+  /** 只读取任务完成验证要求；缺失或损坏时为 null。 */
+  private taskVerificationOf(root: string, taskId: string): VerificationMode | null {
+    try {
+      return verificationModeOf(locateTaskDocument(root, taskId).document.frontmatter);
+    } catch {
+      return null;
+    }
   }
 
   /** 只读取任务当前业务位置；缺失或损坏时为 null，不影响 run 状态。 */

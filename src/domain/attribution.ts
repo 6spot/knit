@@ -11,6 +11,7 @@
  * 声明继承且指纹未变、原 run 由工具写入的残留按“沿用”并入（inherited）。
  * 工具写入却漏报，或报告列出既无差异也非残留的路径，仍判报告不实。
  */
+import type { ToolPolicy } from "../contracts/context-plan.js";
 
 export interface ResidueFact {
   path: string;
@@ -92,4 +93,22 @@ export function classifyChangedPaths(input: AttributionInput): AttributionOutcom
     external: sorted(external),
     inherited: sorted(inherited),
   };
+}
+
+/**
+ * 阶段是否声明了写能力：未写 tools／`all`（capabilities=null）全部放开；白名单须含 `write`。
+ * `exec` 虽可间接改文件，但不等于写能力。旧计划没有 capabilities 字段时按 allow 是否含 write／edit 解释。
+ */
+export function stageMayWrite(policy: Pick<ToolPolicy, "allow" | "capabilities">): boolean {
+  if (policy.capabilities === null) return true;
+  if (policy.capabilities !== undefined) return policy.capabilities.includes("write");
+  return policy.allow.includes("write") || policy.allow.includes("edit");
+}
+
+/** `write_without_capability:<paths>`：路径过多时截断并注明剩余数量。 */
+export function writeWithoutCapabilityReason(paths: readonly string[]): string {
+  const limit = 20;
+  const shown = paths.slice(0, limit);
+  const suffix = paths.length > shown.length ? `,…(+${paths.length - shown.length})` : "";
+  return `write_without_capability:${shown.join(",")}${suffix}`;
 }

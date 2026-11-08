@@ -65,6 +65,17 @@ function services(dir) {
   return { store, locks, tasks, coordinator, acceptance };
 }
 
+/** 允许写的检查阶段：把模板 check 的 [read, exec] 换成 [read, write, exec] 并提交，模拟项目自行放开检查者修复。 */
+function allowCheckWrite(dir) {
+  const file = join(dir, ".knit", "workflow.yaml");
+  const raw = readFileSync(file, "utf8");
+  const updated = raw.replace(/(- id: check[\s\S]*?tools: )\[read, exec\]/, "$1[read, write, exec]");
+  assert.notEqual(updated, raw, "模板 check 阶段应为 [read, exec]");
+  writeFileSync(file, updated);
+  git(dir, ["add", ".knit/workflow.yaml"]);
+  git(dir, ["commit", "-q", "-m", "allow check write"]);
+}
+
 async function readyTask(dir, s, title = "阶段任务") {
   const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
   await s.tasks.ready({ dir, taskId: task.taskId });
@@ -289,6 +300,7 @@ test("检查修复的接收检查点可重入：scope 并入与检查凭据不�
   const dir = project("check-repair-journal");
   const s = services(dir);
   try {
+    allowCheckWrite(dir);
     const task = await readyTask(dir, s);
     const impl = await startRun(s, dir, task.taskId, "implement", {
       writes: [{ path: "README.md", content: "# impl\n" }],
@@ -432,10 +444,11 @@ test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓�
   }
 });
 
-test("检查可在既定范围内修复：改动落盘、接收并入 scope，完成资格仍有效", async () => {
+test("允许写的检查阶段可在既定范围内修复：改动落盘、接收并入 scope，凭据记 checkerChangedPaths，independent 完成被拒", async () => {
   const dir = project("check-repair");
   const s = services(dir);
   try {
+    allowCheckWrite(dir);
     const task = await readyTask(dir, s);
     const impl = await startRun(s, dir, task.taskId, "implement", {
       writes: [{ path: "README.md", content: "# impl\n" }],
@@ -472,13 +485,17 @@ test("检查可在既定范围内修复：改动落盘、接收并入 scope，�
     const checkFile = runs.readCheck(check.runId);
     assert.deepEqual(checkFile?.changedPaths, ["README.md", "src/fix.txt"]);
     assert.equal(checkFile?.selfVerified, true);
+    assert.deepEqual(checkFile?.checkerChangedPaths, ["README.md", "src/fix.txt"]);
     assert.equal(checkFile?.scopeDigest, scope?.digest, "检查凭据绑定并入后的 scope 摘要");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
 
-    // independent 完成资格仍由最新 pass 检查支撑，修复后的 scope 指纹已纳入。
-    const closed = await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
-    assert.equal(closed.status, "closed");
+    // 修复部分只算自检：independent 不能凭这份检查完成。
+    await assert.rejects(
+      () => s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true }),
+      (error) => error.details?.guardReason === "check_self_modified",
+    );
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.status, "open");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -489,6 +506,7 @@ test("检查 changes_requested 的落盘修复也并入 scope，避免后续指�
   const dir = project("check-repair-partial");
   const s = services(dir);
   try {
+    allowCheckWrite(dir);
     const task = await readyTask(dir, s);
     const impl = await startRun(s, dir, task.taskId, "implement", {
       writes: [{ path: "README.md", content: "# impl\n" }],
@@ -526,6 +544,7 @@ test("检查报告 changedPaths 缺失或与实际不符时拒绝，Task 不被�
   const dir = project("check-paths");
   const s = services(dir);
   try {
+    allowCheckWrite(dir);
     const task = await readyTask(dir, s);
     const impl = await startRun(s, dir, task.taskId, "implement", {
       writes: [{ path: "README.md", content: "# impl\n" }],
@@ -893,7 +912,7 @@ const FROZEN_WORKFLOW = [
   "    name: 构建",
   "    description: 按任务完成实现",
   "    prompt: .knit/prompts/build.md",
-  "    tools: [read, exec]",
+  "    tools: [read, write, exec]",
   "    report:",
   "      changedPaths: paths",
   "      evidence: string[]",
@@ -937,13 +956,13 @@ test("配置在 prepare 后降级：自定义提示词／能力／报告按冻�
     assert.equal(prepared.request.workflowMode, "config");
     assert.equal(prepared.request.stageDefinition.id, "build");
     assert.equal(prepared.request.stageDefinition.prompt, ".knit/prompts/build.md");
-    assert.deepEqual(prepared.request.stageDefinition.tools, ["read", "exec"]);
+    assert.deepEqual(prepared.request.stageDefinition.tools, ["read", "write", "exec"]);
     assert.deepEqual(prepared.request.stageDefinition.report, {
       changedPaths: "paths",
       evidence: "string[]",
     });
     assert.equal(prepared.request.stageDefinition.decision, false);
-    assert.deepEqual(prepared.request.toolPolicy.capabilities, ["read", "exec"]);
+    assert.deepEqual(prepared.request.toolPolicy.capabilities, ["read", "write", "exec"]);
 
     // prepare 之后配置损坏：worker 读取降级流程，但本 run 仍按冻结定义执行。
     writeFileSync(workflowFile, BROKEN_WORKFLOW);
@@ -963,8 +982,8 @@ test("配置在 prepare 后降级：自定义提示词／能力／报告按冻�
     // 冻结提示词参与输入身份：摘要与 prepare 一致，且自定义提示词进入系统提示。
     const argv = JSON.parse(readFileSync(argvFile, "utf8"));
     assert.match(argValue(argv, "--append-system-prompt") ?? "", /自定义构建提示词/);
-    // 冻结能力：降级后仍只给 read／exec 展开的工具，不放宽为全部工具。
-    assert.equal(argValue(argv, "--tools"), "read,grep,find,ls,bash");
+    // 冻结能力：降级后仍只给 read／write／exec 展开的工具，不放宽为全部工具（不含 knit_*）。
+    assert.equal(argValue(argv, "--tools"), "read,grep,find,ls,write,edit,bash");
     assert.equal(argv.includes("--no-extensions"), true);
 
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");

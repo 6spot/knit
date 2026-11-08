@@ -61,7 +61,7 @@ import {
 } from "./stage-baseline.js";
 import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
 import { isDecisionStage, reportField, validateReportForStage } from "../domain/report.js";
-import { classifyChangedPaths } from "../domain/attribution.js";
+import { classifyChangedPaths, stageMayWrite, writeWithoutCapabilityReason } from "../domain/attribution.js";
 import { residueFactsOf } from "./residue.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import type { ToolCapability } from "../contracts/workflow.js";
@@ -1167,6 +1167,25 @@ export class StageRunner {
       unattributedPaths: outcome.unattributed,
       inheritedPaths: outcome.inherited,
     };
+    // 能力与实际不符：阶段未声明 write 却有归属本 run 的改动（exec 即 bash，也能写文件）。
+    // 以归属为准：外部改动（未列出且非工具写入，如主会话并发写入）不算本 run 写入；一律失败、保留现场，不提供接纳出口。
+    if (!stageMayWrite(this.request.toolPolicy)) {
+      const external = new Set(outcome.external);
+      const written = actualPaths.filter((path) => !external.has(path));
+      if (written.length > 0) {
+        return this.failure(
+          session,
+          writeWithoutCapabilityReason(written),
+          usage,
+          nativeEntries,
+          sessionFile,
+          text,
+          parsed.report,
+          actualPaths,
+          { source: attribution.source, toolPaths: attribution.toolPaths },
+        );
+      }
+    }
     if (!outcome.ok) {
       return this.failure(
         session,

@@ -15,7 +15,9 @@ export type CompletionGuardReason =
   | "implementation_missing"
   | "implementation_stale"
   | "check_missing"
-  | "check_not_valid";
+  | "check_not_valid"
+  /** 最新检查由检查者改过成果（修复部分只算自检）；independent 须再派一次未改动文件的 pass 检查。 */
+  | "check_self_modified";
 
 export interface ImplementEvidence {
   runId: string;
@@ -48,6 +50,8 @@ export interface CompletionFacts {
   /** 正式检查资格；none／self 可能为 missing。 */
   checkQualification: CheckQualification;
   checkRunId: string | null;
+  /** 最新检查凭据中检查者自行修复的路径；缺省视为空。 */
+  checkerChangedPaths?: readonly string[];
 }
 
 export interface CompletionApproval {
@@ -63,6 +67,21 @@ export interface CompletionApproval {
 }
 
 export type CompletionDecision = CompletionApproval | ({ allowed: false; reason: CompletionGuardReason });
+
+/**
+ * “验证”行的验证方式标注：检查者修复过路径时写明修复部分为自检，
+ * 不输出不带标注的“independent 通过”（DESIGN §5.1、审计 F3）。
+ */
+export function verificationLabel(mode: string, checkerChangedPaths: readonly string[] | null | undefined): string {
+  const count = new Set(checkerChangedPaths ?? []).size;
+  return count === 0 ? mode : `${mode}（检查者修复 ${count} 个路径，修复部分为自检）`;
+}
+
+/** 检查凭据中检查者自行修复的路径；旧凭据没有 checkerChangedPaths 时以 changedPaths（同样是检查 run 并入的修改）为准。 */
+export function checkerChangedPathsOf(check: { checkerChangedPaths?: string[]; changedPaths?: string[] } | null | undefined): string[] {
+  if (check === null || check === undefined) return [];
+  return [...(check.checkerChangedPaths ?? check.changedPaths ?? [])];
+}
 
 /**
  * 规则：
@@ -130,6 +149,8 @@ export function completionDecision(facts: CompletionFacts): CompletionDecision {
   if (facts.checkQualification === "missing") return { allowed: false, reason: "check_missing" };
   if (facts.checkQualification !== "valid") return { allowed: false, reason: "check_not_valid" };
   if (facts.checkRunId === null) return { allowed: false, reason: "check_missing" };
+  // 检查者改过成果时，修复部分只是自检，不能冒充独立复核（DESIGN §5.1）。
+  if ((facts.checkerChangedPaths ?? []).length > 0) return { allowed: false, reason: "check_self_modified" };
   return {
     allowed: true,
     mode: "independent",

@@ -192,11 +192,23 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
   const coverageRequirement = Object.prototype.hasOwnProperty.call(stage.report, "coverage")
     ? "coverage 每项一个路径（可写成「路径：核对内容」），不要合并多项；scope 中每个路径都要单独出现，否则接收会以 check_scope_incomplete 拒绝。"
     : "";
+  const changesValue = values.includes("changes_requested") ? "changes_requested" : null;
+  // 能力与实际一致（DESIGN §5.1）：未声明 write 的结论阶段不改任何项目文件，exec（bash）写入同样判失败。
+  if (stage.tools !== null && !stage.tools.includes("write")) {
+    return [
+      "核对实际内容与完成条件。本阶段未声明 write 能力：不要修改任何项目文件（包括用 bash 重定向、脚本或格式化工具写入），只读核对并运行验证；",
+      `发现缺陷时${changesValue === null ? "" : `以 ${changesValue} 交回实施，`}${handoff}。任务资料优先经 knit_task／knit_material 或 knit CLI 写入，不修改 .knit/ 下规范、配置、流程与提示词，不提交 Git。`,
+      "阶段收尾有归属本 run 的改动即判 write_without_capability 失败，结果与工作区保留、不接收；验证命令产生的临时文件须在结束前清理。",
+      "报告发现的问题、执行的验证、未解决和未验证项；覆盖范围应包含当前 scope 的路径。",
+      coverageRequirement,
+      values.length > 0 ? `结论字段只能是 ${values.join("／")}。` : "",
+    ].join("");
+  }
   return [
     "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；",
     `${handoff}。只改任务范围内必要文件；任务资料优先经 knit_task／knit_material 或 knit CLI 写入，不修改 .knit/ 下规范、配置、流程与提示词，不提交 Git。`,
     "有修改时 paths 文件字段必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；",
-    "对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。",
+    "对自身修改的验证属于自检，不表述为另一独立执行者已复核；检查者改过文件时，independent 任务须再派一次未改动文件且通过的检查才能完成。覆盖范围应包含当前 scope 的路径。",
     coverageRequirement,
     values.length > 0 ? `结论字段只能是 ${values.join("／")}。` : "",
   ].join("");
