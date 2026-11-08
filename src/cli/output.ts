@@ -19,6 +19,7 @@ export function emit(response: CliResponse): void {
 export function reasonForError(error: unknown): ReasonCode {
   if (error instanceof GuardError) {
     const guard = String(error.details?.guardReason ?? "");
+    if (guard === "task_busy" || guard === "workspace_busy") return guard;
     if (
       guard === "pending_draft_exists" ||
       guard === "no_pending_draft" ||
@@ -114,7 +115,7 @@ export function reasonForError(error: unknown): ReasonCode {
 
 export function outcomeForError(error: unknown): Outcome {
   const reason = reasonForError(error);
-  if (reason === "busy" || reason === "io_error") return "blocked";
+  if (reason === "busy" || reason === "task_busy" || reason === "workspace_busy" || reason === "io_error") return "blocked";
   if (reason === "external_effect_unknown") return "needs_attention";
   return "error";
 }

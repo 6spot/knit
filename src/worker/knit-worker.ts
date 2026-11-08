@@ -176,21 +176,8 @@ async function main(): Promise<number> {
   let heartbeatError: string | null = null;
   /** 任务执行目录（project 锁键）：主检出路由为主检出根，worktree 路由为 worktree 路径。 */
   let executionDir = root;
-  /** 请求冻结的接收执行目录；接收实现以同一键取 project 锁（缺省回退主检出）。 */
-  const acceptanceDir = request.expected.executionDir ?? root;
-  /**
-   * 接收结果。worker 已持与请求一致的执行目录锁时直接复用（lockHeld）；
-   * 未取得锁的失败路径用主检出键接收失败事实，避免另一执行目录的占用阻塞。
-   */
-  const acceptResult = async () => {
-    const reuse = lock !== null && resolve(executionDir) === resolve(acceptanceDir);
-    return new RunAcceptanceService({ store: metadata, locks }).accept({
-      dir: root,
-      runId: request.runId,
-      lockHeld: reuse,
-      ...(reuse ? {} : { lockDir: root }),
-    });
-  };
+  /** 接收结果：任务写走任务＋state 短锁，不依赖也不重入工作树租约。 */
+  const acceptResult = () => new RunAcceptanceService({ store: metadata, locks }).accept({ dir: root, runId: request.runId });
 
   try {
     // 取锁前只读绑定并计算执行目录：不同 worktree 使用不同 project 锁键，可并行；

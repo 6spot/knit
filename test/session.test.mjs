@@ -433,7 +433,7 @@ test("context：分层输入、规范／阶段提示词指纹、草案与候选�
       kind: "change",
       reason: "运行中调整",
       content: "## 目标与边界\n\n新内容\n",
-      runActive: true,
+      pending: true,
       updateOperationId: "op-draft-1",
     });
     const withDraft = await planner.plan({ dir, taskId: task.taskId, role: "implement" });

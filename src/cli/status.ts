@@ -124,6 +124,7 @@ export function registerStatusCommands(program: Command): void {
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);
             for (const line of boundaryLines(result.result)) console.log(line);
           }
+          for (const action of result.nextActions) console.log(`下一步: ${action}`);
         } else {
           console.log(`项目状态 ${result.generatedAt}：活动任务 ${result.tasks.filter((task) => !task.archived).length}，活动 run ${result.activeRuns.length}`);
           for (const task of result.tasks.filter((item) => !item.archived)) {

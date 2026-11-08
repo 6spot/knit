@@ -240,7 +240,6 @@ test("Task 输入恢复经 task update，保留 frontmatter、记录与后来记
       kind: "change",
       reason: "后来输入",
       content: "# 后来输入\n\n后来内容\n",
-      runActive: false,
     });
     const current = readFileSync(taskPath, "utf8");
     assert.notEqual(current, before);

@@ -79,7 +79,7 @@ Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CL
 2. CLI 核心做只读预检、选定模型身份，并按调用级 `--rex`／`--local` > `execution.host`（缺省 `auto`）解析呈现；`auto` 仅在派发前探测 REX，失败回退 local 并记录原因。随后发布不可变 request 与启动意图，request 记录任务／分支、呈现来源／回退原因、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
 3. 本机启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。`presentation: rex` 时由 StageRunner 在 worktree 内启动 RexLauncher，在浮层中运行阶段 Pi；start 与 resume 只读 request 中已落盘的呈现，不在启动后换宿主。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。实现（任务012）：RunCoordinator 发布 request/launch，worker 以 `mkdir claim` 认领并自行取锁；implement 快照 ready 后停于 prepared，阶段执行由 013 在同一 run 内继续。实现（任务016）：快照同时保存工作区与独立 index blob；`snapshot show` 只读对照，restore 默认预览、需显式当前指纹，按路径恢复并留下 `.runtime/restores/` 记录，Task 输入改走 task update。
 4. worker 只装配所选 runtime；REX 分支在浮层内使用同一 Pi runtime、工具策略与原生会话协议。默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。
-5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。实现（任务013）：StageRunner 执行阶段并保存 result，RunAcceptanceService 复核输入／规范／scope／分支后机械推进；原生引用不可恢复只标 Session opening，结果写失败置 failed 不接收。实现（任务014）：DeliveryService 先落盘交付／归档操作，限定路径提交并核对真实 OID／范围／index 保护，封存后移动与归档提交；hook 越界与回执丢失分别保留现场和核实恢复。实现（任务017）：StageRunner 在项目锁后取得 Session 锁并写 `stage-process`，取消超时终止完整进程树；`locks`／`unlock` 以 owner token 显式核实与强解，resume 在旧阶段进程未确认结束时保持阻塞。
+5. Pi CLI 自行保存原生记录，worker 核实位置、ID、持久化与本次原生条目范围后写终态 result；不由 worker 直接追加聊天文件或假造消息强制保存。原生引用独立报告可恢复性，不将其失败自动当作代码重跑理由；本 run 证据写入失败仍不发布完成。核心用固定的 acceptanceOperationId 复核结果、实际范围与输入，再写 check／scope／Task／binding；模型输出不直接修改这些文件。实现（任务013）：StageRunner 执行阶段并保存 result，RunAcceptanceService 复核输入／规范／scope／分支后机械推进；原生引用不可恢复只标 Session opening，结果写失败置 failed 不接收。实现（任务014）：DeliveryService 先落盘交付／归档操作，限定路径提交并核对真实 OID／范围／index 保护，封存后移动与归档提交；hook 越界与回执丢失分别保留现场和核实恢复。实现（任务017）：StageRunner 在工作树租约后取得 Session 锁并写 `stage-process`，取消超时终止完整进程树；`locks`／`unlock` 以 owner token 显式核实与强解，resume 在旧阶段进程未确认结束时保持阻塞。
 6. 结果接收可在 worker 内调用同一核心用例；若中断，后续 CLI 按结果与操作意图重入。收到结果不意味着自动发起下一个模型或 Git 操作，主 Agent 根据工作流与当前用户意图继续。
 
 确定性 deliver 在首版由核心 CLI 同步执行，不另建后台任务平台。单独观察断开不等于取消；实际执行进程被终止则按操作中断核实工具／Git 结果并恢复，不承诺界面关闭后自动完成交付。
@@ -128,11 +128,11 @@ Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路
 - 已完成的证据不改写。新输入、新检查、恢复后的重跑使用新 run；指针失效不等于删除旧证据。
 - 未完成的输入／Git／归档操作会阻塞相关后续动作；记录或选择冲突只影响相应对象，不用一个异常锁死全部功能。
 
-task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持当前阶段；选定目标的检查 stale 且当前为 deliver 时统一回到最近检查阶段或工作阶段并清 completed，change 回 start。运行中先存待应用，后续代码／交付先处理；只读发现外部改动只报告待同步。实现（任务018）：update／apply／close 在项目与任务锁内重读 binding 与 run 收敛事实；接收在改 Task 前写检查点，按来源／目标重入，scope／check／binding 半写入不宣称成功。
+task update 声明 clarify/change 及理由，核心只校验摘要和结构。clarify 保持当前阶段；选定目标的检查 stale 且当前为 deliver 时统一回到最近检查阶段或工作阶段并清 completed，change 回 start。运行中改输入须声明 `--run`（否则 `task_busy`），旧 run 收尾判 `stale_input`；显式 `--pending` 才存待应用草案；只读发现外部改动只报告待同步。实现（任务018，k-f0d9a8952aff 收窄）：update／apply／close 在任务＋state 短锁内重读 binding 与 run 收敛事实；接收在改 Task 前写检查点，按来源／目标重入，scope／check／binding 半写入不宣称成功。
 
 ## 8. 并发和版本边界
 
-执行占用覆盖代码阶段、Git 收尾、初始化和有效输入／正式规范修改。任务记录、候选和选择用短锁；次序为执行占用在前、短锁在后，不能持短锁等执行占用。临界区只做受控读改写，不拿任务文件锁等待模型或 Git hooks。
+锁职责（任务 k-f0d9a8952aff）：工作树租约（锁 scope 沿用 `project`，按执行目录取键）只由阶段 worker 与整树操作（快照恢复、worktree 合入／清理、Git 收尾、初始化、正式规范采纳、gc）持有；任务锁（`task`，`<主检出根>::<任务 ID>`）与状态锁（`state`，主检出根）是毫秒级短互斥，覆盖任务创建、输入更新、阶段转移、run 准备与接收，短等待 ≤1 秒后 `lock_busy`；Session 锁按原生身份。「任务正在被处理」由 run 状态表达：活动 run 中 `task update` 要求声明 `--run`，否则 `task_busy`；prepare 只读检查租约，占用时 `workspace_busy`。次序为工作树租约 → 任务锁 → Session → 状态锁，不能持短锁等工作树租约。临界区只做受控读改写，不拿短锁等待模型或 Git hooks。阶段成果归属只按路径与摘要：`.knit/tasks/**` 整体剔除，不做写入 journal 或 actor 归属。
 
 归档先写完整收尾记录，再在任务短锁下捕捉 seal 版本。封存中补记明确返回未保存，不自动转存或留修改。结束后按原意重试为新档案修改，不归入原提交或重开业务。归档移动、binding 与清关联按操作检查点恢复。
 

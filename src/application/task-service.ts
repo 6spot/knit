@@ -1,7 +1,7 @@
 /**
  * TaskService：task new/rename/list/record/ready/update/close 核心命令（DESIGN.md 第4.1节）。
  * 文件权威：task.md（frontmatter + 输入区/记录区）；本机 binding 存 SQLite 元数据库。
- * 占用：目录改名与输入变更用项目执行占用；task record 用任务文件短占用（OPERATIONS.md 第2节）。
+ * 占用：目录改名、输入与阶段写入用任务＋state 短锁；task record 只用任务短锁；都不取工作树租约（OPERATIONS.md 第2节）。
  * 业务裁决委托 domain/task.ts；本服务核对事实、执行 IO、写回转移结果。
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync, type BigIntStats } from "node:fs";
@@ -34,6 +34,7 @@ import {
   type ScheduleEntry,
 } from "../domain/schedule.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
+import { mainRootOf } from "./worktree-routing.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
 import { formalStandardsDigest } from "./standards.js";
@@ -334,9 +335,11 @@ export interface TaskUpdateInput {
   kind?: UpdateKind;
   reason: string;
   content: string;
-  /** 活动 run 中只保存草案：调用方以冻结输入事实传入。 */
-  runActive: boolean;
-  /** 生成本更新的操作 ID（运行中保存草案时必填）；直接更新为 null。 */
+  /** 目标有活动 run 时必须声明的 run ID（--run）；未声明或不符报 task_busy。 */
+  run?: string | null;
+  /** 显式只保存待应用草案（--pending）：不改输入，不要求 --run。 */
+  pending?: boolean;
+  /** 生成本更新的操作 ID（保存草案时使用）；直接更新为 null。 */
   updateOperationId?: string | null;
   /** apply/withdraw 模式：--expect-pending 的草案版本摘要。 */
   expectPending?: string;
@@ -418,8 +421,8 @@ export interface TaskCloseResult {
 }
 
 export interface TaskRunActivityPort {
-  /** 该任务是否存在未收敛 run（活动、未知或结果待接收）。 */
-  active(root: string, taskId: string): Promise<boolean>;
+  /** 该任务未收敛的 run ID（活动、未知或结果待接收）。 */
+  activeRunIds(root: string, taskId: string): Promise<string[]>;
   /** 是否所有 run 与验收操作均已收敛。 */
   settled(root: string, taskId: string): Promise<boolean>;
 }
@@ -428,7 +431,7 @@ export interface TaskServiceOptions {
   store: MetadataStore;
   locks?: LockManager;
   git?: GitPort;
-  /** 可选真实 run 仓储；CLI 注入后不信任调用方自报的 runActive/runsSettled。 */
+  /** 可选真实 run 仓储；CLI 注入后活动 run 与 runsSettled 以仓储事实为准。 */
   runActivity?: TaskRunActivityPort;
   /** 测试注入时钟。 */
   now?: () => Date;
@@ -1077,9 +1080,20 @@ export class TaskService {
     this.onListIo = options.onListIo;
   }
 
-  /** 任务目录键：稳定 ID（OPERATIONS：任务锁按稳定 ID 定位，移动仍为同一对象）。 */
+  /** 任务目录键：主检出根 + 稳定 ID（OPERATIONS：任务锁按稳定 ID 定位，移动仍为同一对象；worktree 内外同键）。 */
   private taskLockKey(root: string, taskId: string) {
-    return { scope: "task" as const, rawKey: `${root}::${taskId}` };
+    return { scope: "task" as const, rawKey: `${mainRootOf(root)}::${taskId}` };
+  }
+
+  /** 任务状态短锁键：统一取主检出根（元数据库所在），worktree 内的写入也落到同一把锁。 */
+  private stateLockKey(root: string) {
+    return { scope: "state" as const, rawKey: mainRootOf(root) };
+  }
+
+  /** 任务状态写入的短互斥：任务锁 + state 锁；不取工作树租约，短等待（≤1s）后报 lock_busy。 */
+  private lockTaskState(root: string, taskId: string, action: string) {
+    const main = mainRootOf(root);
+    return this.locks.acquireShort({ keys: orderKeys([{ scope: "task", rawKey: `${main}::${taskId}` }, { scope: "state", rawKey: main }]), action });
   }
 
   private tasksRoot(root: string): string {
@@ -1126,10 +1140,7 @@ export class TaskService {
    */
   async setParent(input: TaskParentInput): Promise<TaskParentResult> {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.parent",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.parent");
     try {
       const index = this.taskIndex(root);
       const located = this.locate(root, input.taskId);
@@ -1217,10 +1228,7 @@ export class TaskService {
   /** task priority：改任务自身优先级；只动调度事实，不使已确认输入或检查失效。 */
   async setPriority(input: TaskPriorityInput): Promise<TaskPriorityResult> {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.priority",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.priority");
     try {
       const located = this.locate(root, input.taskId);
       if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
@@ -1243,10 +1251,7 @@ export class TaskService {
   /** task depends：设置前置依赖；未完成依赖保留为可诊断阻塞，不在此静默移除。 */
   async setDependencies(input: TaskDependenciesInput): Promise<TaskDependenciesResult> {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.depends",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.depends");
     try {
       const located = this.locate(root, input.taskId);
       if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
@@ -1286,7 +1291,7 @@ export class TaskService {
    */
   async reorder(input: TaskOrderInput): Promise<TaskOrderResult> {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "task.order" });
+    const lock = await this.locks.acquireShort({ keys: [this.stateLockKey(root)], action: "task.order" });
     try {
       const entries = this.scheduleIndex(root);
       const planned = planReorder([...entries.values()], input.taskId, input.position);
@@ -1355,8 +1360,8 @@ export class TaskService {
   async newTask(input: TaskNewInput): Promise<TaskNewResult> {
     const root = normalizeRoot(input.dir);
     assertFormalTaskEnvironment(root);
-    // 与 close／setParent 共用项目锁：创建挂接与父任务完成扫描不交错。
-    const lock = await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: root }]), action: "task.new" });
+    // 与 close／setParent 共用 state 短锁：创建挂接与父任务完成扫描不交错；不取工作树租约，worker 运行中也能登记。
+    const lock = await this.locks.acquireShort({ keys: [this.stateLockKey(root)], action: "task.new" });
     try {
       return await this.createTask(root, input);
     } finally {
@@ -1364,7 +1369,7 @@ export class TaskService {
     }
   }
 
-  /** newTask 的项目锁内实现；环境核实与授权由调用方先行完成。 */
+  /** newTask 的 state 短锁内实现；环境核实与授权由调用方先行完成。 */
   private async createTask(root: string, input: TaskNewInput): Promise<TaskNewResult> {
     const now = input.now ?? this.now();
     const tasksRoot = this.tasksRoot(root);
@@ -1485,10 +1490,7 @@ export class TaskService {
     if (branch !== current) {
       throw new TaskGuardError("branch_mismatch", `adopt 只接管当前分支 ${current}，不能改绑 ${branch}`);
     }
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.adopt",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.adopt");
     try {
       if (this.currentBranch(root) !== branch) {
         throw new TaskGuardError("branch_mismatch", "接管等待期间项目分支变化，重试 task adopt");
@@ -1603,10 +1605,7 @@ export class TaskService {
     if (!["none", "self", "independent"].includes(input.verification)) {
       throw new TaskGuardError("invalid_verification", `未知验证要求: ${input.verification}`);
     }
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.verification",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.verification");
     try {
       const located = this.locate(root, input.taskId);
       const file = join(located.dir, TASK_FILE);
@@ -1659,7 +1658,7 @@ export class TaskService {
   }
 
   /**
-   * 改名（目录移动）：项目执行占用 + 任务短锁；按稳定 ID 更新路径线索与绑定。
+   * 改名（目录移动）：任务短锁 + state 短锁；按稳定 ID 更新路径线索与绑定。
    * 等价改名不影响检查资格；不等价改名由调用方声明，记录 digestImpact 事实（STATES.md 第8节）。
    */
   async rename(input: TaskRenameInput): Promise<TaskRenameResult> {
@@ -1683,12 +1682,9 @@ export class TaskService {
     if (newName === currentName) {
       return { taskId: input.taskId, from: currentName, to: newName, equivalent: input.equivalent };
     }
-    const keys = orderKeys([
-      { scope: "project", rawKey: root },
-      this.taskLockKey(root, input.taskId),
-    ]);
-    const lock = await this.locks.acquire({ keys, action: "task.rename" });
+    const lock = await this.lockTaskState(root, input.taskId, "task.rename");
     try {
+      await this.assertNoActiveRun(root, input.taskId, "task rename");
       const target = join(tasksRoot, newName);
       if (existsSync(target)) throw new InfrastructureError("version_conflict", `目标目录已存在: ${newName}`);
       renameSync(located.dir, target);
@@ -1715,7 +1711,7 @@ export class TaskService {
    */
   async record(input: TaskRecordInput): Promise<TaskRecordResult> {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.record" });
+    const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.record" });
     try {
       // 锁内定位并重读封存标记：seal 由交付流程持同一任务锁写入，
       // 锁前检查与写入之间的竞态不能把封存后的资料写回原任务。
@@ -1789,7 +1785,7 @@ export class TaskService {
 
   async saveMaterial(input: { dir: string; taskId: string; path: string; content: string; expectDigest?: string | null }) {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.save" });
+    const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.save" });
     try {
       this.locate(root, input.taskId);
       return saveMaterial(root, input.taskId, { path: input.path, content: input.content, expectDigest: input.expectDigest });
@@ -1800,7 +1796,7 @@ export class TaskService {
 
   async deleteMaterial(input: { dir: string; taskId: string; path: string }) {
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.delete" });
+    const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.delete" });
     try {
       this.locate(root, input.taskId);
       return deleteMaterial(root, input.taskId, input.path);
@@ -1816,8 +1812,9 @@ export class TaskService {
   }
 
   /**
-   * task update：直接更新（--kind）或 apply/withdraw-pending（DESIGN.md 第3.8节）。
-   * 直接更新：项目执行占用内写输入区并转移 phase；活动 run 中只保存草案。
+   * task update：直接更新（--kind）、显式草案（--pending）或 apply/withdraw-pending（DESIGN.md 第3.8节）。
+   * 直接更新：任务＋state 短锁内写输入区并按状态机转移；目标有活动 run 时必须声明 --run，
+   * 否则报 task_busy 且不写文件。运行中改输入由收尾按摘要判 stale_input，结果与工作区保留。
    * apply：草案摘要与基线输入均匹配、旧执行已结束；基线变化不覆盖。
    * withdraw：版本摘要匹配、有撤回理由；不作用于后来草案。
    */
@@ -1835,6 +1832,30 @@ export class TaskService {
       throw new InfrastructureError("io_error", "task update 需要 --kind clarify/change 或 --apply-pending/--withdraw-pending");
     }
     const root = normalizeRoot(input.dir);
+    const kindInput = input as TaskUpdateInput & { kind: UpdateKind };
+    // 显式草案只写 binding：任务短锁即可，不要求 --run。
+    if (input.pending === true) {
+      const draftLock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.update.draft" });
+      try {
+        const located = this.readForUpdate(root, input);
+        const binding = await this.store.bindings.get(input.taskId);
+        return await this.saveDraftLocked(root, input.taskId, kindInput, parseTaskDocument(located.before.data.toString("utf8"), located.file), binding);
+      } finally {
+        this.locks.release(draftLock);
+      }
+    }
+    const lock = await this.lockTaskState(root, input.taskId, "task.update");
+    try {
+      const located = this.readForUpdate(root, input);
+      await this.assertRunDeclared(root, input);
+      return await this.updateDirect(root, kindInput, located.file, located.before, located.archived);
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /** 锁内定位并读取 task.md，核对恢复等显式路径带来的版本预期。 */
+  private readForUpdate(root: string, input: TaskUpdateInput): { file: string; archived: boolean; before: { data: Buffer; sha256: string } } {
     const located = this.locate(root, input.taskId);
     const file = join(located.dir, TASK_FILE);
     const before = readWithVersion(file);
@@ -1842,47 +1863,26 @@ export class TaskService {
     if (input.expectTaskSha256 !== undefined && input.expectTaskSha256 !== before.sha256) {
       throw new InfrastructureError("version_conflict", "task.md 当前版本与恢复预览不一致，停止");
     }
-    const document = parseTaskDocument(before.data.toString("utf8"), file);
-    const binding = await this.store.bindings.get(input.taskId);
-    const kindInput = input as TaskUpdateInput & { kind: UpdateKind };
-    // 活动 run 中只保存草案：仅用任务短锁（稳定 ID），不与 worker 项目执行占用互斥（任务029）。
-    const draftLock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.update.draft" });
-    try {
-      const runActive = input.runActive || (this.runActivity !== null && await this.runActivity.active(root, input.taskId));
-      if (runActive) {
-        return await this.saveDraftLocked(root, input.taskId, kindInput, document, binding);
-      }
-    } finally {
-      this.locks.release(draftLock);
-    }
-    // 非活动 run：直接更新仍需项目执行占用（输入区写回与阶段转移）。
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.update",
-    });
-    try {
-      // 项目锁等待期间输入可能变化：锁内重读，防止覆盖后来更新。
-      const latest = readWithVersion(file);
-      if (latest === null || latest.sha256 !== before.sha256) {
-        const latestDocument = latest === null ? null : parseTaskDocument(latest.data.toString("utf8"), file);
-        const latestBinding = await this.store.bindings.get(input.taskId);
-        if (latestDocument !== null) {
-          const latestActive = input.runActive || (this.runActivity !== null && await this.runActivity.active(root, input.taskId));
-          if (latestActive) {
-            return await this.saveDraftLocked(root, input.taskId, kindInput, latestDocument, latestBinding);
-          }
-        }
-        const latestVersion = readWithVersion(file);
-        if (latestVersion === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
-        return await this.updateDirect(root, kindInput, file, latestVersion, located.archived);
-      }
-      return await this.updateDirect(root, kindInput, file, before, located.archived);
-    } finally {
-      this.locks.release(lock);
-    }
+    return { file, archived: located.archived, before };
   }
 
-  /** 活动 run 中只保存草案，不改冻结输入（STATES.md：InputsUpdateProposed）；调用方持有任务短锁。 */
+  /** 运行中不允许的写（改名移动目录、主会话实施记录）：原由长租约挡住，现由 run 状态明确拒绝。 */
+  private async assertNoActiveRun(root: string, taskId: string, operation: string): Promise<void> {
+    if (this.runActivity === null) return;
+    const active = await this.runActivity.activeRunIds(mainRootOf(root), taskId);
+    if (active.length > 0) throw new TaskGuardError("task_busy", `task_busy: run ${active[0]}（${operation} 须等该 run 结束或取消）`);
+  }
+
+  /** 「任务正在被处理」由 run 状态表达：有未收敛 run 时必须声明其中之一；run 记录只在主检出。 */
+  private async assertRunDeclared(root: string, input: TaskUpdateInput): Promise<void> {
+    if (this.runActivity === null) return;
+    const active = await this.runActivity.activeRunIds(mainRootOf(root), input.taskId);
+    if (active.length === 0 || (input.run != null && active.includes(input.run))) return;
+    const declared = input.run == null ? "未声明 --run" : `声明的 ${input.run} 不是活动 run`;
+    throw new TaskGuardError("task_busy", `task_busy: run ${active[0]}（${declared}；确认要在运行中改输入时加 --run ${active[0]}，收尾将判 stale_input；只存草案用 --pending）`);
+  }
+
+  /** 只保存草案，不改输入（STATES.md：InputsUpdateProposed）；调用方持有任务短锁。 */
   private async saveDraftLocked(
     root: string,
     taskId: string,
@@ -1917,7 +1917,7 @@ export class TaskService {
     };
   }
 
-  /** 非活动 run 的直接更新：写输入区并转移 phase；调用方持有项目＋任务锁。 */
+  /** 直接更新：写输入区并转移 phase；调用方持有任务＋state 短锁。 */
   private async updateDirect(
     root: string,
     input: TaskUpdateInput & { kind: UpdateKind },
@@ -1977,10 +1977,7 @@ export class TaskService {
     if (input.expectPending === undefined) throw new InfrastructureError("io_error", "apply 需要 --expect-pending");
     if (input.runsSettled === false) throw new TaskGuardError("runs_unsettled", "应用输入草案前须先收敛活动／未知运行与待接收结果");
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.apply-pending",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.apply-pending");
     try {
       // 摘要在锁外只是提示；锁内必须重新读取草案与基线，防止撤回后恢复旧草案。
       const located = this.locate(root, input.taskId);
@@ -2052,7 +2049,7 @@ export class TaskService {
       throw new InfrastructureError("io_error", "withdraw 需要 --expect-pending 与 --reason");
     }
     const root = normalizeRoot(input.dir);
-    const lock = await this.locks.acquire({ keys: [this.taskLockKey(root, input.taskId)], action: "task.withdraw-pending" });
+    const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.withdraw-pending" });
     try {
       // 锁内重读草案：后来草案不能被旧摘要撤回。
       const located = this.locate(root, input.taskId);
@@ -2067,7 +2064,7 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
-      // 撤回留操作记录，不写 task.md：活动运行中任务资料受 .knit 保护，写盘会误伤检查前后比对（任务029）。
+      // 撤回留操作记录，不写 task.md：撤回不改变输入，也不需要进入记录区（任务029）。
       await this.store.operations.save({
         operationId: `withdraw-${this.randomHex(6)}`,
         kind: "task.withdraw-pending",
@@ -2106,10 +2103,7 @@ export class TaskService {
     }
     const root = normalizeRoot(input.dir);
     assertFormalTaskEnvironment(root);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.ready",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.ready");
     try {
       const located = this.locate(root, input.taskId);
       const file = join(located.dir, TASK_FILE);
@@ -2172,10 +2166,7 @@ export class TaskService {
     }
     const executor = input.executor ?? "main-session";
     assertFormalTaskEnvironment(root);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.implement",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.implement");
     try {
       const located = this.locate(root, input.taskId);
       if (located.archived) throw new TaskGuardError("task_archived", "已归档任务不能再记录实施事实");
@@ -2184,6 +2175,7 @@ export class TaskService {
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       if (document.frontmatter.status !== "open") throw new TaskGuardError("task_not_open", "已结束任务不能记录实施事实");
+      await this.assertNoActiveRun(root, input.taskId, "task implement");
       const binding = await this.store.bindings.get(input.taskId);
       if (binding !== null && binding.pendingDraft !== null) {
         throw new TaskGuardError("pending_draft_exists", "存在未应用输入草案，先应用或撤回再记录实施");
@@ -2228,10 +2220,7 @@ export class TaskService {
     const root = normalizeRoot(input.dir);
     const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
     const evidenceRoot = normalizeRoot(input.evidenceRoot ?? input.dir);
-    const lock = await this.locks.acquire({
-      keys: orderKeys([{ scope: "project", rawKey: root }, this.taskLockKey(root, input.taskId)]),
-      action: "task.close",
-    });
+    const lock = await this.lockTaskState(root, input.taskId, "task.close");
     try {
       const located = this.locate(executionRoot, input.taskId);
       const file = join(located.dir, TASK_FILE);

@@ -26,7 +26,7 @@ import { ContextPlanner } from "./context-planner.js";
 import { GuardError } from "./guard-error.js";
 import { locateTaskDocument } from "./task-service.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
-import { assertExecutionRoute, executionRouteOf } from "./worktree-routing.js";
+import { assertExecutionRoute, executionRouteOf, mainRootOf } from "./worktree-routing.js";
 import { loadScope, scopeDigest } from "./scope.js";
 import { currentBranch } from "./delivery.js";
 import { parseConfig, defaultConfig, type ExecutionHost } from "./config.js";
@@ -36,10 +36,12 @@ import { join, resolve } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
 import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
-import { LockManager, type LockReclaimRecord } from "../infrastructure/locks.js";
+import { LockManager, orderKeys, type LockReclaimRecord } from "../infrastructure/locks.js";
 import { selectHost, type HostProbe, type HostSelection } from "./host-selection.js";
 
 const WORKER_SCRIPT = fileURLToPath(new URL("../worker/knit-worker.js", import.meta.url));
+/** 上一 worker 发布终态后释放租约的交接窗口；只在没有活动 worker 时等待，且不持 state 锁。 */
+const LEASE_HANDOFF_WAIT_MS = 2_000;
 
 export interface RunCoordinatorOptions {
   store: MetadataStore;
@@ -146,21 +148,59 @@ export class RunCoordinator {
     this.hostProbe = options.hostProbe;
   }
 
-  /** 短等待项目锁：上一 worker 刚发布终态时可能尚在 finally 释放锁。 */
-  private async acquireForPrepare(locks: LockManager, root: string, taskId: string) {
-    const keys = [
-      { scope: "project" as const, rawKey: root },
+  /**
+   * prepare 的短互斥：任务锁 + state 锁（主检出根）；不取工作树租约，worker 运行中其它任务仍可写状态。
+   * 串行化同任务的重复 prepare，由锁内 findActive 复用既有 run。
+   */
+  private acquireForPrepare(locks: LockManager, root: string, taskId: string) {
+    const keys = orderKeys([
       { scope: "task" as const, rawKey: `${root}::${taskId}` },
-    ];
-    const deadline = Date.now() + 15_000;
-    for (;;) {
-      try {
-        return await locks.acquire({ keys, action: "run.prepare" });
-      } catch (error) {
-        if (!(error instanceof InfrastructureError) || error.code !== "lock_busy" || Date.now() >= deadline) throw error;
-        await sleep(50);
-      }
+      { scope: "state" as const, rawKey: mainRootOf(root) },
+    ]);
+    return locks.acquireShort({ keys, action: "run.prepare" });
+  }
+
+  /**
+   * 创建 run 前只读检查工作树租约：占用时 workspace_busy，不生成 run。
+   * 只减少无效 run，不承诺强互斥；最终互斥由 worker 取租约保证。可自动回收的残留视为空闲（worker 取租约时回收）。
+   */
+  private assertWorkspaceFree(locks: LockManager, executionDir: string): void {
+    const status = locks.inspect({ scope: "project", rawKey: executionDir });
+    if (!status.exists || locks.reclaimable(status)) return;
+    const owner = status.owner === null ? "owner 不可核实" : `action=${status.owner.action} pid=${status.owner.pid}`;
+    throw new GuardError(
+      "workspace_busy",
+      `workspace_busy: 工作树 ${executionDir} 正被占用（${owner}，核实=${status.processVerdict}）；等待其结束后重试，或改到独立 worktree 执行`,
+    );
+  }
+
+  /**
+   * 锁外等待租约交接：上一 worker 发布终态后可能尚在 finally 释放租约。
+   * 有活动 worker 时租约是真占用，不等待；不持 state 锁，避免阻塞其它任务写入。
+   */
+  private async awaitLeaseHandoff(locks: LockManager, root: string, taskId: string): Promise<void> {
+    const binding = await this.store.bindings.get(taskId);
+    if (binding === null) return;
+    const route = executionRouteOf(binding, root);
+    if (route.state === "invalid") return;
+    const runs = new RunStore(root);
+    if (this.hasLiveWorker(runs, route.dir, root)) return;
+    const deadline = Date.now() + LEASE_HANDOFF_WAIT_MS;
+    while (Date.now() < deadline) {
+      const status = locks.inspect({ scope: "project", rawKey: route.dir });
+      if (!status.exists || locks.reclaimable(status)) return;
+      await sleep(25);
     }
+  }
+
+  /** 该执行目录上是否有尚未到达终态的 run；有则租约是真占用，不等交接窗口。 */
+  private hasLiveWorker(runs: RunStore, executionDir: string, root: string): boolean {
+    return runs.listRunIds().some((runId) => {
+      const request = runs.readRequest(runId);
+      const state = runs.readState(runId);
+      return request !== null && state !== null && ["claimed", "preparing", "running"].includes(state.state) &&
+        (request.expected.executionDir ?? root) === executionDir;
+    });
   }
 
   /**
@@ -178,7 +218,10 @@ export class RunCoordinator {
       phase: input.phase,
       policy: worktreePolicy,
     });
+    // 宿主探测可能启动外部进程，放在短锁之外。
+    const selection = await this.resolveHostSelection(root, input);
     const locks = new LockManager(this.lockRoot === null ? {} : { root: this.lockRoot });
+    await this.awaitLeaseHandoff(locks, root, input.taskId);
     const lock = await this.acquireForPrepare(locks, root, input.taskId);
     try {
     const binding = await this.store.bindings.get(input.taskId);
@@ -255,6 +298,8 @@ export class RunCoordinator {
       }
     }
     const runs = new RunStore(root);
+    // 无可复用 run 时在任何写入前检查租约；活动 run 走复用，收敛死 run 后在创建前再查一次。
+    if (activeRequest === null) this.assertWorkspaceFree(locks, executionDir);
     if (!decisionStage) {
       const maxRounds = this.maxRounds(root);
       if (input.newRepairCycle === true) {
@@ -284,7 +329,6 @@ export class RunCoordinator {
     if (!plan.ready) {
       throw new GuardError("plan_not_ready", `上下文计划未就绪：${plan.blockers.join(", ")}`);
     }
-    const selection = await this.resolveHostSelection(root, input);
     let active = this.findActive(runs, input.taskId, input.phase);
     // 活动 run 的 worker 被强杀：同一启动周期且 worker 与阶段 Pi 都确认已死、没有结果时，
     // 按 resume 语义收敛旧 run（failed／cancelled）再新建 run，避免复用无进程执行的旧 run。
@@ -313,6 +357,7 @@ export class RunCoordinator {
       this.recordReclaims(runs, active.request.runId, lock.reclaimed);
       return { request: active.request, launch: active.launch, reused: true };
     }
+    if (settledRun !== null) this.assertWorkspaceFree(locks, executionDir);
 
     const createdAt = this.now().toISOString();
     const runId = `run-${this.randomHex(6)}`;

@@ -174,10 +174,12 @@ test("init：阶段提示词覆盖停止条件、报告字段与工具边界（k
     assert.match(implement, /changedPaths/, "实施报告必须列实际路径");
     assert.match(implement, /unverified/);
     assert.match(implement, /阻塞/, "实施停止条件");
-    assert.match(implement, /不修改 `\.knit\/` 下任何文件/, "实施保护路径");
+    assert.match(implement, /不修改 `\.knit\/` 下规范、配置、流程与提示词/, "实施保护路径");
+    assert.match(implement, /优先经 `knit_task`／`knit_material`/, "任务资料优先走接口");
+    assert.match(implement, /不判越界但无法归因/, "直接编辑的语义");
     assert.match(implement, /不 git commit／push／rebase/, "实施禁止 Git 操作");
-    assert.match(implement, /由主会话通过核心材料接口写回/, "计划进度不直接写 .knit");
-    assert.doesNotMatch(implement, /直接更新 plan\.md/, "不指示阶段直接改受保护计划");
+    assert.match(implement, /由主会话通过核心材料接口写回/, "接口不可用时交回主会话");
+    assert.doesNotMatch(implement, /直接更新 plan\.md/, "不指示阶段绕过接口改计划");
     const check = readFileSync(join(dir, ".knit", "agents", "check.md"), "utf8");
     assert.match(check, /StageReportSchema/);
     assert.match(check, /verdict/);
@@ -186,7 +188,7 @@ test("init：阶段提示词覆盖停止条件、报告字段与工具边界（k
     assert.match(check, /findings/);
     assert.match(check, /unverified/);
     assert.match(check, /可直接修改必要文件/, "检查可在范围内修复");
-    assert.match(check, /不修改 `\.knit\/` 下任何文件/, "检查保护路径");
+    assert.match(check, /不修改 `\.knit\/` 下规范、配置、流程与提示词/, "检查保护路径");
     assert.match(check, /changes_requested|blocked/, "检查交回结论");
     const runtime = readFileSync(join(dir, ".knit", "agents", "runtimes", "pi.md"), "utf8");
     assert.match(runtime, /--no-extensions/);

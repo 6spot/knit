@@ -1,6 +1,6 @@
 /**
  * 本机共享锁（OPERATIONS.md 第2节）。
- * 锁根 ~/.knit/locks/：projects/<项目根摘要>/、sessions/<客户端及原生身份摘要>/，
+ * 锁根 ~/.knit/locks/：projects/<执行目录摘要>/（工作树租约）、tasks/、states/<主检出根摘要>/、sessions/<客户端及原生身份摘要>/，
  * 目录 0700、owner 文件 0600。mkdir 抢占式占用；owner.json 记录协议、token、
  * 动作／run、机器／启动标识、PID 与进程开始时间；心跳原子更新；释放核对 token。
  * 只读查询（status/doctor/init --check）不建目录——检查入口是 inspect。
@@ -29,6 +29,10 @@ const RECLAIM_KEEP = 50;
 /** 回收守卫残留宽限：正常回收在毫秒级完成，超过即视为回收者崩溃。 */
 const RECLAIM_GUARD_STALE_MS = 60_000;
 const LOCK_HASH = /^[0-9a-f]{32}$/;
+/** 各范围的锁根子目录；state 为新增档位，不改变已有目录。 */
+const SCOPE_DIRS: Record<LockScope, string> = { project: "projects", task: "tasks", session: "sessions", state: "states" };
+/** task／state 短锁的最长等待；超过即 lock_busy（任务 k-f0d9a8952aff：≤1s）。 */
+export const STATE_LOCK_WAIT_MS = 1_000;
 /** 会在多机或非原子目录语义下失效的远程文件系统；本机锁不冒充跨机协调。 */
 const REMOTE_FS_TYPES = new Set([0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x65735546]);
 
@@ -74,12 +78,18 @@ export interface LockReclaimRecord {
   archive: string;
 }
 
-/** 锁范围：项目执行占用、Session 跨项目占用、任务文件短占用。 */
-export type LockScope = "project" | "session" | "task";
+/**
+ * 锁范围：
+ * - project：工作树租约（键名沿用 project），只由阶段 worker 与整树操作（快照恢复、合入、交付、初始化等）持有；
+ * - task：任务文件短互斥（毫秒级），按稳定 ID 取键；
+ * - session：Session 跨项目占用；
+ * - state：任务状态写入短互斥，键为主检出根（元数据库所在），串行化跨任务的创建、输入与阶段写入。
+ */
+export type LockScope = "project" | "session" | "task" | "state";
 
 export interface LockKey {
   scope: LockScope;
-  /** project: 规范化项目根；session: 客户端与原生 ID 的组合键。 */
+  /** project: 规范化执行目录；task: `<根>::<任务 ID>`；session: 客户端与原生 ID 的组合键；state: 规范化主检出根。 */
   rawKey: string;
 }
 
@@ -140,7 +150,7 @@ export function heartbeatState(owner: LockOwner | null, nowMs: number, staleMs: 
 export function parseLockId(id: string): { scope: LockScope; hash: string } | null {
   const [scope, hash, extra] = id.split("/");
   if (extra !== undefined || hash === undefined || !LOCK_HASH.test(hash)) return null;
-  if (scope !== "project" && scope !== "task" && scope !== "session") return null;
+  if (scope !== "project" && scope !== "task" && scope !== "session" && scope !== "state") return null;
   return { scope, hash };
 }
 
@@ -186,7 +196,7 @@ export class LockManager {
   }
 
   private scopeDir(scope: LockScope): string {
-    return join(this.root, scope === "project" ? "projects" : scope === "task" ? "tasks" : "sessions");
+    return join(this.root, SCOPE_DIRS[scope]);
   }
 
   private lockDir(key: LockKey): string {
@@ -310,6 +320,22 @@ export class LockManager {
     const acquired: AcquiredLock = { token: token as string, keys: [...request.keys], ownerPaths, ownerTokens, ownerVersions };
     if (reclaimed.length > 0) acquired.reclaimed = reclaimed;
     return acquired;
+  }
+
+  /**
+   * 短互斥取锁：遇 lock_busy 在 waitMs 内以小间隔重试，超时仍按原 lock_busy 报告。
+   * 用于 task／state 毫秒级短锁；长租约（project）不经此等待。
+   */
+  async acquireShort(request: AcquireRequest, waitMs = STATE_LOCK_WAIT_MS): Promise<AcquiredLock> {
+    const deadline = Date.now() + Math.max(0, waitMs);
+    for (;;) {
+      try {
+        return await this.acquire(request);
+      } catch (error) {
+        if (!(error instanceof InfrastructureError) || error.code !== "lock_busy" || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 15 + Math.floor(Math.random() * 20)));
+      }
+    }
   }
 
   /**
@@ -550,7 +576,7 @@ export class LockManager {
   /** 只读枚举所有锁目录；不创建锁根，也不把损坏 owner 当成可释放。 */
   list(): LockEntry[] {
     const entries: LockEntry[] = [];
-    for (const scope of ["project", "task", "session"] as const) {
+    for (const scope of ["project", "task", "session", "state"] as const) {
       const dir = this.scopeDir(scope);
       let names: string[];
       try {
@@ -742,8 +768,11 @@ export class LockManager {
   }
 }
 
-/** 固定锁顺序：项目执行占用在前、任务文件短占用次之、Session 在后；同类键按摘要排序，避免倒序等待。 */
+/**
+ * 固定锁顺序：工作树租约在前、任务文件短占用次之、Session 再次，state 档位追加在末尾（已有顺序不变）；
+ * 同类键按摘要排序，避免倒序等待。
+ */
 export function orderKeys(keys: LockKey[]): LockKey[] {
-  const rank = (scope: LockScope) => (scope === "project" ? 0 : scope === "task" ? 1 : 2);
+  const rank = (scope: LockScope) => (scope === "project" ? 0 : scope === "task" ? 1 : scope === "session" ? 2 : 3);
   return [...keys].sort((a, b) => rank(a.scope) - rank(b.scope) || (a.rawKey < b.rawKey ? -1 : a.rawKey > b.rawKey ? 1 : 0));
 }

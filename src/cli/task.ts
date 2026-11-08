@@ -137,7 +137,7 @@ function summarizeUpdate(result: TaskUpdateResult): string {
     case "direct":
       return `已按 ${result.inputsDigest.slice(0, 12)} 应用更新`;
     case "pending_saved":
-      return `活动运行中：已保存待应用草案 ${result.pendingDraftDigest?.slice(0, 12)}`;
+      return `已保存待应用草案 ${result.pendingDraftDigest?.slice(0, 12)}（输入未改；run 结束后 --apply-pending --expect-pending 应用）`;
     case "pending_applied":
       return `已应用待应用草案；输入摘要 ${result.inputsDigest.slice(0, 12)}`;
     case "pending_withdrawn":
@@ -642,10 +642,12 @@ export function registerTaskCommands(program: Command): void {
 
   task
     .command("update <taskId>")
-    .description("输入更新：--kind clarify/change，或 --apply-pending/--withdraw-pending --expect-pending <digest>")
+    .description("输入更新：--kind clarify/change（活动 run 中需 --run <id>；--pending 只存草案），或 --apply-pending/--withdraw-pending --expect-pending <digest>")
     .option("--kind <kind>", "clarify 或 change")
     .option("--file <path>", "输入正文文件；缺省读 stdin")
     .option("--reason <text>", "更新／撤回理由", "")
+    .option("--run <runId>", "目标有活动 run 时声明该 run（缺省读环境变量 KNIT_RUN）；运行中改输入，收尾判 stale_input")
+    .option("--pending", "只保存待应用草案，不改输入（不需要 --run）；之后 --apply-pending 应用")
     .option("--apply-pending", "应用待应用草案")
     .option("--withdraw-pending", "撤回待应用草案（需 --reason）")
     .option("--expect-pending <digest>", "草案版本摘要")
@@ -679,7 +681,8 @@ export function registerTaskCommands(program: Command): void {
             kind,
             reason: options.reason,
             content,
-            runActive: false,
+            run: hasPendingMode ? null : (options.run ?? process.env.KNIT_RUN ?? null) || null,
+            pending: !hasPendingMode && options.pending === true,
             expectPending: options.expectPending,
             withdrawReason: options.withdrawPending ? options.reason || "未提供理由" : undefined,
           }),

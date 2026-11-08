@@ -729,6 +729,15 @@ export class RestoreService {
       updatedAt: now,
     };
     this.writeRecord(recordPath, record);
+    // 恢复属整树操作：与源码恢复一样先取工作树租约，worker 持租约时拒绝（lock_busy）。
+    let lease;
+    try {
+      lease = await this.locks.acquire({ keys: [{ scope: "project", rawKey: root }], action: "snapshot.restore" });
+    } catch (error) {
+      record = { ...record, state: "failed", reason: error instanceof Error ? error.message : String(error), updatedAt: this.now().toISOString() };
+      this.writeRecord(recordPath, record);
+      throw error;
+    }
     try {
       const service = new TaskService({ store: this.store, locks: this.locks });
       const currentFile = readWithVersion(join(located.dir, TASK_FILE));
@@ -739,7 +748,6 @@ export class RestoreService {
         kind: "change",
         reason: `恢复任务输入（快照 ${input.runId}，操作 ${operationId}）`,
         content: snapshotDoc.inputsBody,
-        runActive: false,
         updateOperationId: operationId,
         expectTaskSha256: currentFile.sha256,
       });
@@ -771,6 +779,8 @@ export class RestoreService {
       record = { ...record, state: "failed", reason: error instanceof Error ? error.message : String(error), updatedAt: this.now().toISOString() };
       this.writeRecord(recordPath, record);
       throw error;
+    } finally {
+      this.locks.release(lease);
     }
   }
 

@@ -72,6 +72,10 @@ export const TaskToolSchema = obj(
     applyPending: opt(bool()),
     withdrawPending: opt(bool()),
     expectPending: opt(str()),
+    /** task update：目标有活动 run 时声明该 run（缺省时核心报 task_busy）。 */
+    runId: opt(str({ minLength: 1 })),
+    /** task update：只保存待应用草案，不改输入，不需要 runId。 */
+    pending: opt(bool()),
     nonEquivalent: opt(bool()),
   },
 );

@@ -599,6 +599,7 @@ export default function (pi: any) {
       if (data.result) lines.push(`  结果: ${data.result.state ?? "?"}${data.result.report?.verdict ? ` / ${data.result.report.verdict}` : ""}`);
       if (data.result) lines.push(...boundaryNotes(data.result).map((note) => `  ${note}`));
       if (data.acceptance) lines.push(`  接收: ${data.acceptance.state ?? "?"}${data.acceptance.reason ? `（${data.acceptance.reason}）` : ""}`);
+      if (Array.isArray(data.nextActions)) lines.push(...data.nextActions.map((action: string) => `  下一步: ${action}`));
       return lines.join("\n");
     }
     // 按任务查询（仅 status <taskId>）：{ taskId, title, stage, status, runs, ... }（任务042）。
@@ -764,7 +765,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入草案、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；list 默认只列未归档任务，archive=true 查归档；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
+    description: "任务身份、输入更新（目标有活动 run 时 update 需 runId 否则 task_busy，运行中改输入收尾判 stale_input；pending=true 只存草案）、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；list 默认只列未归档任务，archive=true 查归档；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       // 历史检索不需要 taskId，也不写任务状态。
@@ -893,6 +894,12 @@ export default function (pi: any) {
         if (params.reason) args.push("--reason", params.reason);
       } else if (params.action === "update") {
         if (params.kind) args.push("--kind", params.kind);
+        // 目标有活动 run 时必须声明 runId（否则核心报 task_busy）；pending 只存草案，不需要 runId。
+        if (params.runId) {
+          if (safeId(params.runId, "run-") === null) return failText(`非法 runId: ${params.runId}`);
+          args.push("--run", params.runId);
+        }
+        if (params.pending === true) args.push("--pending");
         if (params.applyPending === true) args.push("--apply-pending");
         if (params.withdrawPending === true) args.push("--withdraw-pending");
         if (params.expectPending) args.push("--expect-pending", params.expectPending);

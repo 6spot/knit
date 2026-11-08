@@ -25,8 +25,8 @@ function manager(locks: string | undefined): LockManager {
 }
 
 function scopeOf(value: string): LockScope {
-  if (value === "project" || value === "task" || value === "session") return value;
-  throw new GuardError("invalid_request", `--scope 需要 project/task/session，收到: ${value}`);
+  if (value === "project" || value === "task" || value === "session" || value === "state") return value;
+  throw new GuardError("invalid_request", `--scope 需要 project/task/session/state，收到: ${value}`);
 }
 
 /** 心跳超时阈值：--dir 指向的项目配置优先，缺省 30 秒。 */
@@ -44,7 +44,7 @@ function staleMsOf(dir: string | undefined): number {
 export function registerLockCommands(program: Command): void {
   program
     .command("locks")
-    .description("只读列出本机项目／任务／Session 锁、进程核实与心跳；--dir 只列该项目")
+    .description("只读列出本机工作树租约（project）／任务／Session／状态（state）锁、进程核实与心跳；--dir 只列该项目")
     .option("--locks <dir>", "锁根目录")
     .option("--dir <dir>", "只列该项目（主检出根、任务键、worktree 与本项目阶段 Session）")
     .action((options) => {
@@ -91,7 +91,7 @@ export function registerLockCommands(program: Command): void {
     .command("unlock")
     .description("显式解除一个锁；必须提供 owner token，alive／unknown 需 --force（不改业务状态）")
     .argument("[lockId]", "锁 ID（scope/hash，来自 knit locks）；给出时无需 --scope／--key")
-    .option("--scope <scope>", "project/task/session（未给 lockId 时必填）")
+    .option("--scope <scope>", "project/task/session/state（未给 lockId 时必填）")
     .option("--key <key>", "锁键；project 默认使用 --dir 规范化路径")
     .option("--expect-token <token>", "当前 owner token（来自 knit locks）")
     .option("--from-list", "使用 knit locks 当前列出的 owner token（只在 owner 已确认 not_alive 时可用）")
@@ -121,7 +121,7 @@ export function registerLockCommands(program: Command): void {
           if (options.scope === undefined) throw new GuardError("invalid_request", "需要 lock-id（scope/hash），或 --scope 加 --key");
           const scope = scopeOf(String(options.scope));
           const key = options.key !== undefined ? String(options.key) : scope === "project" ? normalizeRoot(options.dir) : null;
-          if (key === null) throw new GuardError("invalid_request", "--scope task/session 需要 --key 或 lock-id");
+          if (key === null) throw new GuardError("invalid_request", "--scope task/session/state 需要 --key 或 lock-id");
           entry = { ...locks.inspect({ scope, rawKey: key }), scope, id: "", hash: "", path: "", key };
           label = `${scope} ${key}`;
           const ownerToken = resolveToken(entry, options.expectToken as string | undefined, fromList, options.force === true);

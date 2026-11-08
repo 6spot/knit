@@ -149,17 +149,13 @@ test("SIGKILL worker 后：task new 与 resume 自动回收残留锁并成功，
     assert.equal(lockCheck.status, "warn");
     assert.match(lockCheck.detail, /stale 2（下次取锁可自动回收 2）/);
 
-    // 1) task new：项目锁残留被自动回收，创建成功。
+    // 1) task new 只取 task／state 短锁，不碰工作树租约：残留租约在场也直接成功，且不回收它。
     const created = await s.tasks.newTask({ dir, title: "回收后新任务", slug: "after-reclaim" });
     assert.ok(created.taskId);
-    const afterTaskNew = s.locks.listReclaimed();
-    assert.equal(afterTaskNew.length, 1);
-    assert.equal(afterTaskNew[0].scope, "project");
-    assert.equal(afterTaskNew[0].previousOwner.action, "run.prepare");
-    assert.equal(afterTaskNew[0].previousOwner.pid, launch.handle.pid);
-    assert.equal(afterTaskNew[0].reclaimedBy.action, "task.new");
+    assert.equal(s.locks.listReclaimed().length, 0, "task new 不取工作树租约");
 
-    // 2) resume：不再要求手工 unlock；新 run 的阶段取得同一原生 Session 锁时自动回收旧 Session 锁。
+    // 2) resume：不再要求手工 unlock；新 worker 取工作树租约时回收残留租约，
+    // 阶段取得同一原生 Session 锁时自动回收旧 Session 锁。
     const resumed = await s.coordinator.resume({ dir, oldRunId: old.runId });
     assert.equal(resumed.resumed, true);
     process.env.KNIT_FAKE_ACTION = actionFile(dir, {
@@ -171,6 +167,11 @@ test("SIGKILL worker 后：task new 与 resume 自动回收残留锁并成功，
     assert.equal(final.state, "completed", JSON.stringify({ reason: final.reason, failure: final.result?.failureReason }));
     const reclaims = s.locks.listReclaimed();
     assert.equal(reclaims.length, 2, JSON.stringify(reclaims.map((record) => record.id)));
+    const leaseReclaim = reclaims.find((record) => record.scope === "project");
+    assert.ok(leaseReclaim, "工作树租约残留被新 worker 自动回收");
+    assert.equal(leaseReclaim.previousOwner.action, "run.prepare");
+    assert.equal(leaseReclaim.previousOwner.pid, launch.handle.pid);
+    assert.equal(leaseReclaim.reclaimedBy.action, "run.prepare");
     const sessionReclaim = reclaims.find((record) => record.scope === "session");
     assert.ok(sessionReclaim, "Session 残留锁被自动回收");
     assert.equal(sessionReclaim.previousOwner.pid, launch.handle.pid);
@@ -202,8 +203,11 @@ test("SIGKILL worker 但阶段 Pi 仍存活：不自动回收也不收敛旧 run
     await waitFor(() => !isProcessAlive(launch.handle.pid), "worker 未退出");
     assert.equal(isProcessAlive(old.piPid), true, "Pi 忽略 stdin 关闭仍存活");
 
+    // 任务登记不受残留租约影响；需要工作树租约的整树操作仍 lock_busy 并给出核实信息。
+    const registered = await s.tasks.newTask({ dir, title: "租约残留时登记", slug: "still-registers" });
+    assert.ok(registered.taskId, "task new 不取工作树租约");
     await assert.rejects(
-      () => s.tasks.newTask({ dir, title: "不应创建", slug: "blocked" }),
+      () => s.locks.acquire({ keys: [{ scope: "project", rawKey: dir }], action: "snapshot.restore" }),
       (error) => {
         assert.equal(error.code, "lock_busy");
         assert.equal(error.details.ownerAction, "run.prepare");
@@ -226,7 +230,8 @@ test("SIGKILL worker 但阶段 Pi 仍存活：不自动回收也不收敛旧 run
     }
     await waitFor(() => !isProcessAlive(old.piPid), "Pi 未退出");
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
-    // run implement = prepare + start：prepare 回收残留项目锁，并把无进程执行的旧 run 收敛为 failed 后新建 run。
+    // run implement = prepare + start：prepare 把无进程执行的旧 run 收敛为 failed 后新建 run；
+    // 可回收的残留租约不判 workspace_busy，由新 worker 取租约时回收。
     const prepared = await s.coordinator.prepare(prepareInput(dir, task.taskId));
     assert.equal(prepared.reused, false, "不复用 worker 已死的旧 run");
     assert.notEqual(prepared.request.runId, old.runId);
@@ -234,9 +239,6 @@ test("SIGKILL worker 但阶段 Pi 仍存活：不自动回收也不收敛旧 run
     assert.equal(oldState.state, "failed");
     assert.equal(oldState.reason, "worker_exited_before_result");
     assert.ok(new RunStore(dir).readEvents(old.runId).some((event) => event.event === "recovered_without_result" && event.by === "prepare"));
-    assert.ok(s.locks.listReclaimed().some((record) => record.scope === "project" && record.reclaimedBy.action === "run.prepare"));
-    const events = new RunStore(dir).readEvents(prepared.request.runId);
-    assert.ok(events.some((event) => event.event === "lock_reclaimed"), "prepare 回收写入新 run 事件");
     process.env.KNIT_FAKE_ACTION = actionFile(dir, {
       writes: [{ path: "README.md", content: "# recovered\n" }],
       report: { summary: "恢复完成", changedPaths: ["README.md"] },
@@ -246,6 +248,9 @@ test("SIGKILL worker 但阶段 Pi 仍存活：不自动回收也不收敛旧 run
     assert.equal(started.confirmed, true);
     const final = await waitTerminal(s, dir, prepared.request.runId);
     assert.equal(final.state, "completed", JSON.stringify({ reason: final.reason, failure: final.result?.failureReason }));
+    assert.ok(s.locks.listReclaimed().some((record) => record.scope === "project" && record.reclaimedBy.action === "run.prepare"));
+    const events = new RunStore(dir).readEvents(prepared.request.runId);
+    assert.ok(events.some((event) => event.event === "lock_reclaimed"), "worker 回收写入新 run 事件");
     assert.equal(s.locks.list().length, 0, "无残留锁");
   } finally {
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;

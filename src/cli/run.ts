@@ -407,7 +407,7 @@ export function registerRunCommands(program: Command): void {
         const store = openStore(root);
         try {
           const status = await new StatusService({ store, locksRoot: options.locks }).runStatus(root, runId, options.locks);
-          if (jsonMode()) emit(jsonResponse("run-status", "completed", status));
+          if (jsonMode()) emit(jsonResponse("run-status", "completed", status, undefined, status.nextActions.length > 0 ? status.nextActions : undefined));
           else {
             console.log(`任务：${taskLabel(status)}（阶段：${stageLabel(status.stageName, status.phase, "space")}）`);
             console.log(`run ${status.runId}: ${status.state}（启动 ${status.launchState}，尝试 ${status.attempts}）`);
@@ -427,6 +427,7 @@ export function registerRunCommands(program: Command): void {
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
               for (const line of boundaryLines(status.result)) console.log(line);
             }
+            for (const action of status.nextActions) console.log(`下一步: ${action}`);
           }
         } finally {
           store.close();

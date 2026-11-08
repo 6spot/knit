@@ -39,6 +39,8 @@ export interface RunStatusView extends RunStatusProjection {
   heartbeat: RunHeartbeat | null;
   /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
   startupDiagnostics: RunDiagnosticsFile | null;
+  /** 待处理结果的下一步；目前覆盖 needs_attention: stale_input，其余为空。 */
+  nextActions: string[];
 }
 
 export interface TaskStatusView {
@@ -101,6 +103,25 @@ export interface StatusInput {
   locksRoot?: string;
 }
 
+/**
+ * needs_attention: stale_input 的出口（STATES.md 第3节）：结果与工作区保留、不计为当前规格的成果，
+ * 不提供强制接受；只有按当前输入重新派发一条路。
+ */
+function staleInputNextActions(
+  projection: RunStatusProjection,
+  task: { status: string; stage: string } | null,
+): string[] {
+  if (projection.acceptance?.state !== "needs_attention" || projection.acceptance.reason !== "stale_input") return [];
+  const actions = [`运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show ${projection.runId}`];
+  if (task === null || task.status !== "open") return actions;
+  if (task.stage === "start") {
+    actions.push(`重新确认输入后 knit task ready ${projection.taskId}，再派发新 run`);
+  } else if (task.stage !== "deliver") {
+    actions.push(`按当前输入派发新 run：knit run prepare --task ${projection.taskId} --stage ${task.stage}，再 knit run start <run-id>`);
+  }
+  return actions;
+}
+
 export class StatusService {
   private readonly store: MetadataStore;
   private readonly now: () => Date;
@@ -149,6 +170,7 @@ export class StatusService {
       lastActivityAt,
       heartbeat: this.heartbeat(locksRoot ?? this.lockRoot, executionDir),
       startupDiagnostics,
+      nextActions: staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
     };
   }
 
@@ -249,6 +271,16 @@ export class StatusService {
       relativePath: summary.relativePath,
       archived: summary.archived,
     }));
+  }
+
+  /** 只读取任务当前业务位置；缺失或损坏时为 null，不影响 run 状态。 */
+  private taskStageOf(root: string, taskId: string): { status: string; stage: string } | null {
+    try {
+      const { frontmatter } = locateTaskDocument(root, taskId).document;
+      return { status: frontmatter.status, stage: frontmatter.stage };
+    } catch {
+      return null;
+    }
   }
 
   /** 只读定位任务文档（含归档）；缺失或损坏按展示缺失处理，不影响 run 状态。 */

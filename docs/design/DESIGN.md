@@ -278,6 +278,8 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 - `onVerdict` 的回退目标可以是已声明阶段；回退环必须有有限上限，超限停止并报告 `repair_round_limit`，不自动续跑。
 - 自动流转只推进业务阶段，不代表提交、推送或发布授权；交付仍由主会话按授权协调。
 - `independent` 任务在实施后保留正式检查；`self`／`none` 可按配置直接进入收尾。change 回讨论，clarify 保持当前阶段，deliver 的检查 stale 时按 verification 回到最近工作阶段或检查阶段。
+- 运行中改输入：目标有活动 run 时 `task update` 须声明 `--run <id>`（否则 `task_busy`），按同一 clarify／change 转移直接写入；旧 run 收尾按摘要判 `needs_attention: stale_input`，结果与工作区保留、不计为当前规格的成果，之后只能等其结束或取消再重新 `ready`／开新 run，不提供强制接受。`--pending` 保留为显式草案选项。
+- 阶段内写任务资料：worker 优先经 `knit_task`／`knit_material`（或同名 CLI）写；`.knit/tasks/**` 整体不计入成果、不判越界，直接编辑也只按摘要判 stale；`.knit/` 下规范、配置、流程与提示词仍是硬保护（`protected_path_modified`）。
 - 配置非法时整份降级为 `start → deliver`，不套提示词，使用默认 agent 行为；`workflowMode`、`knit workflow show`、每轮顶部提示与 `knit doctor` 均显示降级原因。在途 run 继续跑完，降级只对新 run 生效。
 - 配置与注释不进入 `inputsDigest`：流程重排不使已有输入或检查凭据过期；已删除的 `.knit/workflow.md`（历史文件）不再有单独的 workflow 摘要分节。
 
@@ -294,7 +296,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 | 新正式需求 | 是否建任务由用户决定；新事项先问任务选择再展开需求（不按类型或预估大小跳过）；提出创建提议（目标、拟建任务、完成验证要求）；未授权不创建，明确要求或已有持续授权直接创建并进入讨论 |
 | 正式研究报告／需要跟踪的调研 | 仅用户要求正式跟踪、独立复核或把报告作为任务成果时建任务；报告写项目路径，按 verification 完成；否则直接交付结论，不因落盘强制升级 |
 | 继续已有任务 | 选择或确认当前任务，读任务资料与记录接续，不重复询问已授权事项 |
-| 已有任务补充／范围变化 | 按 clarify/change 更新任务，尊重活动 run 草案边界，不默认另建新任务绕过旧状态 |
+| 已有任务补充／范围变化 | 按 clarify/change 更新任务；有活动 run 时显式声明 `--run`（旧 run 将判 stale）或 `--pending` 存草案，不默认另建新任务绕过旧状态 |
 
 任务创建／选择授权来自用户明确指令或既有持续授权；已有授权持续有效，不逐轮重复询问。新事项先问用户是否建任务再展开需求；暂不创建时继续讨论，转到实施前再确认；明确不创建时同一事项持续有效，不重复追问；实施前仍无有效选择时先补问，不能用“你做吧”代替。创建任务不等于需求确认或实施授权；用户明确“按这个做”等可同时确认范围与实施授权，仅认可思路且实施意愿不明时补问。授权只覆盖任务创建与选择，不解释为提交、推送、发布或迁移授权。用户拒绝创建时不创建，仅在当前会话直接执行；不因代码修改、调研、委派或报告落盘强制建任务。Knit 的 `run` 只派发正式任务 worker；无任务委派使用宿主通用工具／子 Agent，宿主不提供时直接执行并说明限制，不暗建任务。
 
@@ -334,7 +336,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task list [--archive] [--month YYYY-MM] | 默认按进行中／待归档／已取消分段列出未归档任务，行内给优先级、稳定 ID、阶段显示名与标题，末尾汇总条数；--archive 按月列出归档（--month 过滤月份）；JSON 带 scope，默认不返回归档数组 |
 | task rename / use / clear | 按授权管理身份、位置与当前原生路径选择 |
 | task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required`；「待澄清」存在 `[blocking]` 项时拒绝为 `clarify_blocking` |
-| task update [id] --kind clarify/change | 明确变更类型，可用 --file 或 stdin；活动 run 中只保存当前草案 |
+| task update [id] --kind clarify/change [--run <run-id>] [--pending] | 明确变更类型，可用 --file 或 stdin；目标有活动 run 时须 `--run`（缺省读 `KNIT_RUN`），否则 `task_busy`；`--pending` 只存草案、不需要 `--run` |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
 | task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
@@ -469,7 +471,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 
 未建正式任务的执行使用空任务 ID。临时启动／指令资源放在本 run 的 `native/` 下，原始对话与工具记录引用客户端自己的原生 Session，不另存完整转录。取得原生引用时只在本次 state 登记 opening 候选；模型可在参数与指令就绪后启动，无需先让空会话落盘。核实原生 ID、归属和持久化后才置 available、更新可恢复阶段引用；失败候选不覆盖旧引用，父会话失联时可从原 run 补确认。 执行与报告均有效时，原生引用暂不可恢复只记引用原因，不单独触发模型重跑；本 run 的结果证据仍须持久化，后续必要续做按第9.4节处理。
 
-代码阶段、Git 收尾、初始化和有效输入修改共用项目执行占用；主会话记录与项目级规范候选可并行使用短锁／元数据占用，不等待长阶段结束。记录写入只能改记录区，读改写核对当前版本并原子替换，避免覆盖其他变更。原生事件登记不推进阶段，具体顺序见 [占用细则](OPERATIONS.md#2-占用与解除)。 本机共享执行锁根为 `~/.knit/locks/`，项目键按规范化根、阶段 Session 键按客户端原生身份生成；它不提供用户级配置或跨机协调。具体获取顺序和新会话换锁见 OPERATIONS 第2节。
+代码阶段（worker）与整树操作（快照恢复、合入、Git 收尾、初始化、规范采纳）持有工作树租约；任务创建、输入更新、阶段转移、run 准备与接收只取毫秒级任务锁＋状态锁（主检出根），记录与材料只取任务锁，均不等待长阶段结束。「任务正在被处理」由 run 状态表达：活动 run 中改输入须声明 `--run`，否则 `task_busy`；同一检出已有 worker 时为其它任务 prepare 报 `workspace_busy`、不生成 run。记录写入只能改记录区，读改写核对当前版本并原子替换，避免覆盖其他变更。阶段成果归属只按路径与摘要：`.knit/tasks/**` 整体从 `changedPaths` 剔除，输入区变化在接收时判 `stale_input`，其余 `.knit/**` 仍判越界。原生事件登记不推进阶段，具体顺序见 [占用细则](OPERATIONS.md#2-占用与解除)。 本机共享执行锁根为 `~/.knit/locks/`，工作树租约按执行目录、状态锁按主检出根、阶段 Session 键按客户端原生身份生成；它不提供用户级配置或跨机协调。具体获取顺序和新会话换锁见 OPERATIONS 第2节。
 
 终态为 `completed`、`failed`、`cancelled`。正常 completed 要求合法报告，缺失或无效记 failed；已确认中止的 cancelled 可只保存原因、部分结果与工具终态，不因缺完整业务报告改判失败。worker 完成不代表任务或交付完成；建议类输出不能推进业务。核心复核协议、身份、请求和实际证据。 运行状态和结果另记录本次原生起止 entry／leaf 引用及增量用量，无法取得则如实 unknown；同一原生文件后续追加不成为旧 run 的内容，不能只用当前整个 Session 统计冒充本 run。
 
@@ -533,13 +535,13 @@ Worktree 执行环境已实现；本章是现行规则概览，命令语法见�
 
 主链路为 `worktree create`（从主检出已提交 HEAD 建立并登记绑定）→ `worktree handoff`（交接本任务资料并切换绑定）→ `worktree prepare`（按 `worktree.copy` 白名单复制公共资料，再顺序执行 `worktree.postCreate`）。`worktree connect` 接管已有目录，`worktree status` 只读报告 state／目录／分支／布局／prepared／active／problem，`worktree repair` 在项目或目录移动后核实并修复可证明的 Git 关联与定位，`worktree list` 跨目录枚举绑定。合入与清理只面向已结束任务：`worktree merge` 要求任务已按 completed 结束（已归档任务记 noop），`--into` 必须是主检出当前分支；`worktree cleanup` 要求任务已关闭，并先保全任务资料与 Session 引用。两者缺省只读预览，写动作要求 `--apply` 与 `--authorization-ref`。交付顺序与授权见第 10 节。
 
-任务资料只保留一个当前写入位置：交接成功后绑定按稳定任务 ID 指向该 worktree，实施与检查在该执行目录运行；合入把资料与绑定转交回目标分支。同一执行目录一次一个执行者，不同执行目录可按各自项目锁并行，主检出路由仍串行（占用细节见[运行细则](OPERATIONS.md#2-占用与解除)）。
+任务资料只保留一个当前写入位置：交接成功后绑定按稳定任务 ID 指向该 worktree，实施与检查在该执行目录运行；合入把资料与绑定转交回目标分支。同一执行目录一次一个执行者，不同执行目录可按各自工作树租约并行，主检出路由仍串行（占用细节见[运行细则](OPERATIONS.md#2-占用与解除)）。
 
 项目默认由 `.knit/config.json` 的 `worktree.default` 决定（缺省 `off`）：`on` 时 `run prepare` 在派发当前生效流程的首个配置阶段前自动确保 worktree，顺序为主检出脏守卫 → `worktree create` → `worktree handoff` → `worktree prepare`；已存在且已交接的绑定按现有路由使用；自动创建中断、绑定已写入但交接未完成时，在策略 on 下续做交接／准备，不重建、不删除。失败时 prepare 返回明确原因（`worktree_dirty_source`、`git_head_required`、`detached_head`、`git_occupied` 等），不写 request、不创建 run。任务级 `run prepare --worktree on|off` 只覆盖本次派发：`on` 可打开项目默认 off，`off` 只抑制自动创建、不清除已有绑定。后续阶段、`run check --scope` 与主会话 `task implement` 不触发自动创建；主会话实施仍在主检出执行。
 
 自动创建前检查主检出：`git status --porcelain=v1 -z --untracked-files=all` 在任务资料之外存在改动时返回 `worktree_dirty_source` 并列出数量与前 8 个路径，用户可提交、stash，或显式执行 `worktree create --allow-dirty`；自动路径永不携带该标志，也不搬运、stash 或丢弃任何未提交内容。忽略内容与 Knit 运行资料、锁、任务目录、其它关联 worktree 不计入业务脏改动。
 
-多任务调度只在 `worktree.default` 为 `on` 时启用：`knit run schedule` 按 §3.11 的就绪集与影响路径选任务，逐个调用既有 `run prepare`／`run start`；任务级 worktree 绑定本身不足以开启调度。未开启时不报错，输出说明并退出 0，按常规逐个执行。调度没有常驻守护进程，`--until-idle` 是前台循环；`schedule:<项目根>` 项目锁保证同一项目同时只有一个调度循环，不影响 prepare 与交付使用的主检出锁。`scheduler.maxConcurrent` 统计 run 仓储中 `claimed`／`preparing`／`running` 的 run（含手动派发）；派发失败、run 失败、接收失败或路径重叠都只跳过该任务，不阻塞其它任务。`SIGINT` 停止派发与接收，保留活动 run，不自动取消；跨机调度、多人协作与常驻服务不在范围。
+多任务调度只在 `worktree.default` 为 `on` 时启用：`knit run schedule` 按 §3.11 的就绪集与影响路径选任务，逐个调用既有 `run prepare`／`run start`；任务级 worktree 绑定本身不足以开启调度。未开启时不报错，输出说明并退出 0，按常规逐个执行。调度没有常驻守护进程，`--until-idle` 是前台循环；`schedule:<项目根>` 项目锁保证同一项目同时只有一个调度循环，不影响 prepare 的短锁与交付使用的主检出租约。`scheduler.maxConcurrent` 统计 run 仓储中 `claimed`／`preparing`／`running` 的 run（含手动派发）；派发失败、run 失败、接收失败或路径重叠都只跳过该任务，不阻塞其它任务。`SIGINT` 停止派发与接收，保留活动 run，不自动取消；跨机调度、多人协作与常驻服务不在范围。
 
 ## 7. 记录更新与防漏
 
@@ -882,7 +884,7 @@ monorepo 子目录统一使用已确认仓库根和相对路径，验证命令�
 | 身份与冲突 | M2 | 改名、目标冲突、跨月重试保留身份、引用与首次目标；通知核对来源与有效路径，不误投后来会话 |
 | 快照与恢复 | M2 | 未跟踪、index、指纹与逐路径恢复完整，保留后来记录；实现（任务016）：show／预览／显式 expect 恢复、index 独立恢复、Task 输入经 update、恢复记录与旧检查失效 |
 | 占用与取消 | M2 | 代码串行、记录并行，ID 前无执行，对象取消／完成竞争与旧 token 安全；实现（任务017）：项目／Session 锁显式 token 解锁、阶段 Pi 进程树记录与宽限终止、真实工具取消与取消后原生恢复 |
-| 接收与崩溃 | M2 | 重复不多计／多推进，事务或日志中断可恢复，未知工具不放行；关闭与迟到结果／新启动竞争不重开取消任务，旧草案摘要不覆盖新草案。实现（任务013/018）：固定 acceptanceOperationId；接收前落 `acceptance.json` 检查点，Task／scope／check／binding 半写入可按记录幂等收敛；Task 服务持锁按真实 run 仓储核实活动／收敛，活动 run 中只保存草案，关闭与准备串行；完整 Git 崩溃矩阵仍归 019/020 |
+| 接收与崩溃 | M2 | 重复不多计／多推进，事务或日志中断可恢复，未知工具不放行；关闭与迟到结果／新启动竞争不重开取消任务，旧草案摘要不覆盖新草案。实现（任务013/018）：固定 acceptanceOperationId；接收前落 `acceptance.json` 检查点，Task／scope／check／binding 半写入可按记录幂等收敛；Task 服务持锁按真实 run 仓储核实活动／收敛，活动 run 中改输入须声明 `--run`（k-f0d9a8952aff，原为只保存草案），关闭与准备串行；完整 Git 崩溃矩阵仍归 019/020 |
 | Git 与已有修改 | M2 | 限定范围，保无关 index 与文件，hook 变化如实报告。实现（任务014/019）：限定路径工作／归档提交、无关 staged／unstaged 保留；核对提交树模式／blob，hook 拒绝、改 index、扩范围、改内容均保留事实并 needs_attention；移动检查点丢失按目标 Task ID 恢复，跨月沿用首次 archivePath；冲突／历史改写仍不自动处理 |
 | 收尾断点与补记 | M2 | 回执丢失不重复提交，移动后可续，封存明确未保存，后补不冒充原提交。实现（任务014/019）：操作检查点、按操作 ID 核实已生效提交、封存后补记；move 目标身份／封存摘要核实后幂等恢复，目标冲突不覆盖 |
 | 原生阶段恢复 | M2 | 原工具结束后优先加载；旧记录不可用则同客户端自动新会话读文件续做，保留来源，不重置任务状态 |

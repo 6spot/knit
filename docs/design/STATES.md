@@ -39,7 +39,8 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | InputsUpdated：task update --kind change | 未完整归档且非 cancelled/superseded；新增、删除或改变目标、条件、范围、业务约束 | 回 open/start，清 completed，旧检查失资格 |
 | PendingApplied：task update --apply-pending | 草案摘要与基线输入均匹配，旧执行已结束且结果事实收敛 | 按草案保存的 kind 应用 InputsUpdated，清本份草案，不发模型 |
 | PendingWithdrawn：task update --withdraw-pending | 含更新操作 ID 的草案版本摘要匹配、有撤回理由 | 清本份草案并留记录，冻结输入／stage 不变；不作用于后来草案 |
-| InputsUpdateProposed：运行中 update | 已有活动 run，不改其冻结输入 | 保存 kind、理由、预期原摘要和拟修改内容，待工具终态后应用 |
+| InputsUpdated（运行中）：task update --kind … --run <id> | 目标有未收敛 run 时必须声明其中之一；未声明或不符报 `task_busy: run <id>`，不写文件 | 与上两行相同的 clarify／change 转移；旧 run 不改冻结输入，收尾按摘要判 `stale_input` |
+| InputsUpdateProposed：task update --kind … --pending | 显式选择，不要求 --run；已有草案时拒绝 | 保存 kind、理由、预期原摘要和拟修改内容，不改输入，待工具终态后应用 |
 | RecordWritten：task record | 只改记录、未封存、短锁内核对版本 | 不改有效输入或 stage，不使检查失效 |
 | StageAccepted：阶段接收 | Task 为 open 且当前阶段在生效流程中，execution 报告及实际成果有效 | 按 `onVerdict` 或顺序进入下一阶段；最后一个阶段完成进入 deliver；累积 scope 与 lastImplement；阶段访问达到 maxVisits 时停止并报告 repair_round_limit |
 | CheckAccepted：检查阶段接收 | 最新获准检查及目标版本匹配 | 检查阶段有实际修改时随接收并入 scope；pass → deliver；changes_requested → `onVerdict` 目标或顺序下一阶段；blocked 保留本阶段或按配置跳转 |
@@ -53,15 +54,25 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 
 clarify 包括解释原要求、纠正表述、补充定位或验证资料；新增引用若带来新约束则应为 change。核心不做自然语言分类，主 Agent 负责声明与理由。规范化后的有效摘要未变时不使检查 stale；clarify 不重置修复计数。
 
-任务规划资料（DESIGN §3.4）：plan.md 步骤勾选与证据追加、research/ 追加为进度更新，不改有效输入、不产生草案、不使检查失效；方案文件中被输入引用的要求性内容变化等同 InputsUpdated，活动 run 期间按 InputsUpdateProposed 保存草案。plan 的未完成步骤与证据不参与业务 stage 推导，不从复选框自动认定业务完成；规划资料不建立独立状态机，业务状态仍只在 task.md frontmatter 与元数据仓储。
+任务规划资料（DESIGN §3.4）：plan.md 步骤勾选与证据追加、research/ 追加为进度更新，不改有效输入、不产生草案、不使检查失效；方案文件中被输入引用的要求性内容变化等同 InputsUpdated，活动 run 期间经 `task update --run` 写入输入或以 `--pending` 存草案；材料本身不计入输入冻结，材料变化不判 stale。plan 的未完成步骤与证据不参与业务 stage 推导，不从复选框自动认定业务完成；规划资料不建立独立状态机，业务状态仍只在 task.md frontmatter 与元数据仓储。
 
 核心操作使选定目标的检查 stale 时，若当前 stage=deliver，independent 回到最近检查阶段、self／none 回到最近工作阶段并清 completed；clarify、adopt、restore 和生效规范变化使用同一规则，不保留不可交付的 deliver。其他阶段不因 clarify 回讨论，摘要未变不迁移。run check 是显式复查入口；非正式 check --scope 不推进正式 Task。已完整归档的资料维护不自动重开。
 
 外部编辑造成的失效在只读查询中报告“应检查、状态待同步”，查询不改 task.md；下一写动作先在占用内收敛 stage，不允许提交。
 
-待应用变更在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
+直接写入与 stale（任务 k-f0d9a8952aff）：任务资料（`.knit/tasks/**`）可经接口或直接编辑写入，主会话与其派发的子进程都能写同一任务，不设“只有持有者能改输入”。运行中输入是否变化只看摘要：worker 收尾接收时重算 `inputsDigest`／`standardsDigest`／`effectiveInputsDigest`，与 `inputs.json` 冻结值不同即 `needs_attention: stale_input`；记录区与材料变化不进摘要，不影响接收。直接写入不判 `protected_path_modified`，也不冻结 frontmatter；输入更新沿用 `inputsUpdated` 转移（`change` 回 start、`clarify` 就地），只影响后续派发。
 
-adopt 不创建或切换分支。必须没有活动或状态未知的 run、没有未核实的 Git 效果，且输入已收敛一致。满足这些守卫后：start 与配置阶段保持，检查阶段待复查，deliver 按 verification 回到最近检查阶段或工作阶段并清 completed；分支变化使旧检查失去交付资格但保留历史。实现（任务021）：只允许改绑当前检出分支；项目＋任务锁内复核分支、文件、run 与未完成 delivery 操作；选择记录分支不一致时报告 `branch_changed`，不把旧树选择投到新分支。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
+| stale 场景 | 收尾结果 | 后续 |
+| --- | --- | --- |
+| 运行中 `task update --run <id> --kind change` | 结果（`result.json`）与工作区保留；接收操作 `needs_attention: stale_input`；run state 收敛为 `failed`（`acceptance_stale_input`），不再占用任务；不并入 scope、不写 `lastImplement`，不计为当前规格的成果 | 任务已在 start：重新确认后 `task ready` 再派发新 run |
+| 运行中 `--run <id> --kind clarify` 或直接编辑输入区 | 同上 | 任务仍在原阶段：按当前输入 `run prepare` 新 run |
+| 运行中只改记录区、材料或其它任务 | 正常接收 | — |
+
+stale 之后只有两条路：等 run 结束（或 `run cancel`），再重新 `ready`／开新 run；不提供强制接受旧规格产物。旧 run 未结束前 `prepare` 会复用旧 request，因此重跑前必须先等它结束或取消。输入改回原摘要且任务仍在该阶段时，重新 `run accept` 仍可接收（摘要一致，不是强制接受），接收成功时 run state 收敛回 completed。`run status`、`knit status --run` 与桥接通知对 `needs_attention: stale_input` 给出上述下一步（JSON `nextActions`）。
+
+待应用草案（仅在显式 `--pending` 时产生）在旧工具终态后按原 kind 应用；前后版本不匹配先核对。未应用或未明确撤回时阻止后续代码阶段与交付，当前 run 仍按冻结旧范围运行。记录中出现的新要求应经 update 应用，不能偷变 worker 指令。
+
+adopt 不创建或切换分支。必须没有活动或状态未知的 run、没有未核实的 Git 效果，且输入已收敛一致。满足这些守卫后：start 与配置阶段保持，检查阶段待复查，deliver 按 verification 回到最近检查阶段或工作阶段并清 completed；分支变化使旧检查失去交付资格但保留历史。实现（任务021）：只允许改绑当前检出分支；任务＋state 短锁内复核分支、文件、run 与未完成 delivery 操作；选择记录分支不一致时报告 `branch_changed`，不把旧树选择投到新分支。原 Session 保留，恢复核实新分支上下文。取消／替代只接管收尾，完整归档不自动重开。
 
 ## 4. 自动修复计数
 
@@ -96,7 +107,7 @@ Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开
 
 崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。实现（任务018）：接收先原子写 `runs/<run>/acceptance.json`（来源 target、binding before/after、scope、check、输入／规范摘要），再写 Task／scope／check／binding，最后完成 operation 并移除检查点；重入按当前事实与来源／目标对比，漂移转 needs_attention，不覆盖后来 Task、草案或输入；同一操作的 scopeAfter 已落盘而 binding 未写时按检查点收敛，不误判为外部 scope 漂移。 Task 关闭与该任务启动／接收在同一任务短临界区核对 status、stage 与版本；迟到旧结果保留为执行事实，不能重开 cancelled/superseded、覆盖其 outcome 或继续自动修复。
 
-status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。实现（任务015）：status 用只读元数据库投影耗时、最后事件与项目锁心跳；`--events` 只观察事件到终态，不接收结果；桥接每 5 秒按发起方原生 Session 查询未结束 run，并按会话内通知条目去重。
+status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。实现（任务015）：status 用只读元数据库投影耗时、最后事件与工作树租约心跳；`--events` 只观察事件到终态，不接收结果；桥接每 5 秒按发起方原生 Session 查询未结束 run，并按会话内通知条目去重。
 
 ## 6. 对象级取消
 
@@ -188,7 +199,7 @@ deliver 和会提交的 archive 统一要求 --branch <refs/heads/...>，拒绝�
 
 ## 12. 占用与兼容性
 
-本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明；`unlock` 必须匹配 owner token，alive／unknown 另需显式 force，旧 token 不能删除新占用。Session 键按客户端原生 ID，不随项目改变；阶段进程记录独立于 worker，worker 被强杀后仍能核实并阻塞续做。
+本地 mkdir 锁／进程身份与 owner token 规则见 OPERATIONS；锁只表达资源互斥（工作树租约、任务短锁、state 短锁、Session），「任务正在被处理」由 run 状态表达（`task_busy`）；心跳可疑只调查，未知工具不放行新代码阶段。强解是显式风险操作，不是机器终态证明；`unlock` 必须匹配 owner token，alive／unknown 另需显式 force，旧 token 不能删除新占用。Session 键按客户端原生 ID，不随项目改变；阶段进程记录独立于 worker，worker 被强杀后仍能核实并阻塞续做。
 
 restore 默认预览，执行核对当前指纹、范围和终态。Task 输入经 update 恢复并保留记录，runtime 和原生 Session 不由普通源码 restore 覆盖；真实恢复清空当前检查与 lastImplement 资格，deliver 按 verification 回 check 或 implement，恢复操作与逐路径结果留在 `.runtime/restores/`。实现（任务016）：快照 index 内容独立保存，恢复只改选中路径，当前模式／内容／index 任一变化即停。未知版本只读报告，首版无自动 gc。
 

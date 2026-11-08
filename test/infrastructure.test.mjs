@@ -9,7 +9,7 @@ import { atomicWrite, readWithVersion } from "../dist/infrastructure/atomic.js";
 import { sha256Text, sha256Bytes, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fingerprint.js";
 import { normalizeRoot, hashKey, safeJoin } from "../dist/infrastructure/paths.js";
 import { InfrastructureError } from "../dist/infrastructure/errors.js";
-import { LockManager, orderKeys, currentIdentity, procStartTicks, heartbeatState, parseLockId } from "../dist/infrastructure/locks.js";
+import { LockManager, STATE_LOCK_WAIT_MS, orderKeys, currentIdentity, procStartTicks, heartbeatState, parseLockId } from "../dist/infrastructure/locks.js";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { ArgvGitPort, NodeProcessPort, gitSync, parseProcessTablePs, processTreePids, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
 import { decideStartStep, decideStepCheckpoint, decideComplete, decideAbandon, findStepByIdempotencyKey, newOperation } from "../dist/infrastructure/operations.js";
@@ -1082,4 +1082,65 @@ test("进程身份：ps 回退带可执行名；同秒不同命令视为不同�
   assert.equal(sameProcessStart("Tue Nov  3 10:20:31 2026", table.get(200).startTicks), false);
   assert.equal(sameProcessStart("123", "123"), true);
   assert.equal(sameProcessStart("123", "124"), false, "Linux starttime 精确比较");
+});
+
+test("state 锁：orderKeys 只在末尾追加、已有顺序不变；列表与 lock-id 可见", async () => {
+  const root = mkdtempSync(join(tmpdir(), "knit-state-lock-"));
+  try {
+    const keys = [
+      { scope: "state", rawKey: "/tmp/main" },
+      { scope: "session", rawKey: "pi:1" },
+      { scope: "task", rawKey: "/tmp/main::k-1" },
+      { scope: "project", rawKey: "/tmp/main" },
+    ];
+    assert.deepEqual(orderKeys(keys).map((key) => key.scope), ["project", "task", "session", "state"]);
+    const manager = new LockManager({ root });
+    const lock = await manager.acquire({ keys: [keys[0]], action: "task.new" });
+    const entry = manager.list().find((item) => item.scope === "state");
+    assert.equal(entry.key, "/tmp/main");
+    assert.deepEqual(parseLockId(entry.id), { scope: "state", hash: entry.hash });
+    assert.ok(existsSync(join(root, "states", entry.hash, "owner.json")));
+    manager.release(lock);
+    assert.equal(manager.list().length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("acquireShort：短等待内持有者释放即取得；超时仍 lock_busy，不超过等待上限太多", async () => {
+  const root = mkdtempSync(join(tmpdir(), "knit-short-lock-"));
+  try {
+    const key = { scope: "state", rawKey: "/tmp/short" };
+    const holder = new LockManager({ root });
+    const rival = new LockManager({ root });
+    assert.equal(STATE_LOCK_WAIT_MS <= 1000, true, "state 短等待不超过 1 秒");
+    const held = await holder.acquire({ keys: [key], action: "holder" });
+    const startedAt = Date.now();
+    await assert.rejects(() => rival.acquireShort({ keys: [key], action: "rival" }, 80), (error) => error.code === "lock_busy");
+    assert.ok(Date.now() - startedAt < 1000, "超时后立即报告");
+    setTimeout(() => holder.release(held), 40);
+    const acquired = await rival.acquireShort({ keys: [key], action: "rival" }, 1000);
+    rival.release(acquired);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("state 残留锁与其它范围一样按进程核实自动回收", async () => {
+  const root = mkdtempSync(join(tmpdir(), "knit-state-reclaim-"));
+  try {
+    const key = { scope: "state", rawKey: "/tmp/reclaim-state" };
+    const script = join(root, "child.mjs");
+    const modulePath = new URL("../dist/infrastructure/locks.js", import.meta.url).href;
+    writeFileSync(script, `import { LockManager } from ${JSON.stringify(modulePath)};\nawait new LockManager({ root: ${JSON.stringify(root)} }).acquire({ keys: [${JSON.stringify(key)}], action: "crashed" });\nprocess.exit(0);\n`);
+    execFileSync(process.execPath, [script]);
+    const manager = new LockManager({ root });
+    assert.equal(manager.inspect(key).processVerdict, "not_alive");
+    const lock = await manager.acquire({ keys: [key], action: "task.new" });
+    assert.equal(lock.reclaimed?.[0]?.scope, "state");
+    assert.equal(lock.reclaimed?.[0]?.previousOwner.action, "crashed");
+    manager.release(lock);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

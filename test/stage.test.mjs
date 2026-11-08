@@ -385,7 +385,7 @@ test("任务关闭后迟到结果只保留事实，不隐式重开", async () =>
   }
 });
 
-test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓储保存草案", async () => {
+test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓储要求 --run，--pending 仍可存草案", async () => {
   const dir = project("close-race");
   const s = services(dir);
   try {
@@ -398,16 +398,24 @@ test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓�
       () => s.tasks.close({ dir, taskId: task.taskId, outcome: "cancelled", runsSettled: true }),
       (error) => /runs_unsettled|活动|收敛/.test(error.message),
     );
+    const taskPath = join(dir, ".knit", task.relativePath);
+    const beforeBusy = readFileSync(taskPath, "utf8");
+    await assert.rejects(
+      () => s.tasks.update({ dir, taskId: task.taskId, kind: "clarify", reason: "未声明", content: "## 目标与边界\n\n补充\n" }),
+      (error) => error.guardReason === "task_busy" && error.message.includes(`task_busy: run ${prepared.request.runId}`),
+      "真实 run 仓储：未声明 --run 报 task_busy",
+    );
+    assert.equal(readFileSync(taskPath, "utf8"), beforeBusy, "task_busy 不写文件");
     const updated = await s.tasks.update({
       dir,
       taskId: task.taskId,
       kind: "clarify",
       reason: "活动 run 中补充",
       content: "## 目标与边界\n\n补充\n",
-      runActive: false,
+      pending: true,
       updateOperationId: "op-close-race",
     });
-    assert.equal(updated.applied, "pending_saved", "真实 run 仓储覆盖调用方自报的 runActive=false");
+    assert.equal(updated.applied, "pending_saved", "--pending 不需要 --run");
     assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", task.relativePath), "utf8"), join(dir, ".knit", task.relativePath)).frontmatter.stage, "implement");
     // 活动 run 中可撤回草案，输入与阶段不被改变。
     const withdrawn = await s.tasks.update({
@@ -1586,7 +1594,7 @@ test("真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结�
       report: { summary: "慢实现", changedPaths: ["README.md"] },
     });
     // worker 真实持项目锁期间：保存与按摘要撤回不报 lock_busy。
-    const saved = await s.tasks.update({ dir, taskId: task.taskId, kind: "clarify", reason: "运行中新增约束", content: "## 目标与边界\n\n新增约束\n", runActive: true });
+    const saved = await s.tasks.update({ dir, taskId: task.taskId, kind: "clarify", reason: "运行中新增约束", content: "## 目标与边界\n\n新增约束\n", pending: true });
     assert.equal(saved.applied, "pending_saved");
     assert.ok(saved.pendingDraftDigest);
     const binding = await s.store.bindings.get(task.taskId);
@@ -1599,7 +1607,7 @@ test("真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结�
 
     // 运行期间再次保存草案；旧 run 接收被 pending_inputs 暂停（待应用输入阻后续接收），
     // 撤回后重新接收正常收敛，草案生命周期不被 worker 拥挤丢内。
-    const saved2 = await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "运行中新增目标", content: "## 目标与边界\n\n新增目标\n", runActive: true });
+    const saved2 = await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "运行中新增目标", content: "## 目标与边界\n\n新增目标\n", pending: true });
     assert.equal(saved2.applied, "pending_saved");
     const status = await waitTerminal(s, dir, impl.runId);
     assert.equal(status.state, "failed");

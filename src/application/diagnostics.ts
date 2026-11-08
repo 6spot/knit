@@ -292,7 +292,7 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
       const reclaims = reclaimsForProject(root, manager.listReclaimed());
       const lastReclaim = reclaims[0];
       const parts = [
-        `总计 ${entries.length}`,
+        `总计 ${entries.length}（${(["project", "task", "session", "state"] as const).map((scope) => `${scope} ${entries.filter((entry) => entry.scope === scope).length}`).join("，")}）`,
         `alive ${alive}（心跳正常 ${freshHeartbeat}，心跳超 ${staleAfter}ms ${staleHeartbeat.length}${staleHeartbeat.length > 0 ? `: ${staleHeartbeat.map((entry) => entry.id).join(", ")}` : ""}）`,
         `stale ${stale}（下次取锁可自动回收 ${reclaimable}）`,
         `unknown ${unknown}`,

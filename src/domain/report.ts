@@ -154,7 +154,8 @@ export function validateReportForStage(
       }
     }
     if (type === "paths") {
-      const reported = (value as string[]).map(normalizePath);
+      // 任务资料不计成果（实际差异已剔除）：如实列出它们的报告不因此整轮失败。
+      const reported = (value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/"));
       if (!samePaths(reported, actual)) {
         return {
           ok: false,

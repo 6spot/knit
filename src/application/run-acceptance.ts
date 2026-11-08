@@ -22,7 +22,7 @@ import { inputsDigestOf } from "../contracts/task-inputs.js";
 import { locateTaskDocument } from "./task-service.js";
 import { entryDrifts, loadScope, mergeScope, scopeEntriesCurrent } from "./scope.js";
 import { currentBranch } from "./delivery.js";
-import { executionRouteOf } from "./worktree-routing.js";
+import { executionRouteOf, mainRootOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
 import { workflowOf, workflowStageOf } from "./workflow.js";
 import {
@@ -44,6 +44,9 @@ import { sha256Bytes } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
+
+/** 接收取任务＋state 短锁的最长等待：worker 收尾不应因主会话短写失败。 */
+const ACCEPT_LOCK_WAIT_MS = 5_000;
 
 export interface RunAcceptanceOptions {
   store: MetadataStore;
@@ -76,17 +79,15 @@ export class RunAcceptanceService {
   }
 
   /**
-   * 接收结果。调用方已持本 run 的执行目录占用时传 lockHeld=true，避免同进程重复取锁；
-   * lockDir 仅供未取得执行目录锁的失败路径显式改用主检出键。
+   * 接收结果：取任务＋state 短锁（键为主检出根），不取工作树租约，
+   * 因此 worker 持租约时可直接接收，外部 run accept 也不被其它执行目录的占用阻塞。
    * 返回 accepted=false 时 operation 置 needs_attention，保留现场供人工核对。
    */
-  async accept(input: { dir: string; runId: string; lockHeld?: boolean; lockDir?: string }): Promise<AcceptanceResult> {
+  async accept(input: { dir: string; runId: string }): Promise<AcceptanceResult> {
     const root = normalizeRoot(input.dir);
     const runs = new RunStore(root);
     const request = runs.readRequest(input.runId);
     if (request === null) throw new InfrastructureError("io_error", `run 不存在: ${input.runId}`);
-    // project 锁按请求冻结的执行目录（任务17）；未取锁的失败路径可显式改用主检出键。
-    const projectLockKey = input.lockDir ?? request.expected.executionDir ?? root;
     let result = null;
     try {
       result = runs.readResult(input.runId);
@@ -117,9 +118,13 @@ export class RunAcceptanceService {
       throw new InfrastructureError("version_conflict", "result 的 acceptanceOperationId 与 request 不一致");
     }
 
-    const lock = input.lockHeld === true
-      ? null
-      : await this.locks.acquire({ keys: orderKeys([{ scope: "project", rawKey: projectLockKey }]), action: "run.accept" });
+    const lock = await this.locks.acquireShort({
+      keys: orderKeys([
+        { scope: "task", rawKey: `${root}::${request.taskId}` },
+        { scope: "state", rawKey: mainRootOf(root) },
+      ]),
+      action: "run.accept",
+    }, ACCEPT_LOCK_WAIT_MS);
     try {
       // 锁内重读结果与操作：等待期间结果可能才落盘，也可能已被别的接收者完成。
       try {
@@ -167,9 +172,10 @@ export class RunAcceptanceService {
       }
       const accepted = await this.acceptStage(root, runs, request, result, operationId);
       if (accepted.accepted) this.reconcileState(runs, request);
+      else if (accepted.reason === "stale_input") this.settleStale(runs, request);
       return accepted;
     } finally {
-      if (lock !== null) this.locks.release(lock);
+      this.locks.release(lock);
     }
   }
 
@@ -253,18 +259,10 @@ export class RunAcceptanceService {
       stopReason: binding.stopReason,
     };
     if (facts.pendingKind !== null) return this.attention(operationId, request, "pending_inputs", result);
-    // 草案在运行期间保存或撤回后，任务锁定由本接收持有；接收继续按冻结输入收敛（任务029）。
-    const acceptTaskLock = await this.locks.acquire({
-      keys: [{ scope: "task", rawKey: `${root}::${request.taskId}` }],
-      action: "run.accept.stage",
-    });
-    try {
     return await this.acceptStageLocked(root, executionDir, route.state, runs, request, result, operationId, located, document, binding, inputs, plan, facts, scope, report);
-    } finally {
-      this.locks.release(acceptTaskLock);
-    }
   }
 
+  /** 调用方（accept）持任务＋state 短锁：与草案保存／撤回和输入更新互斥。 */
   private async acceptStageLocked(
     root: string,
     executionDir: string,
@@ -537,27 +535,6 @@ export class RunAcceptanceService {
     result: RunResultFile,
     journal: AcceptanceJournal,
   ): Promise<AcceptanceResult> {
-    // 接收写 Task／binding 前加任务短锁：与草案保存／撤回互斥，不丢失草案、不覆盖 task.md（任务029）。
-    const taskLock = await this.locks.acquire({
-      keys: [{ scope: "task", rawKey: `${root}::${request.taskId}` }],
-      action: "run.accept.stage",
-    });
-    try {
-    return await this.applyJournalLocked(root, executionDir, routeState, runs, request, result, journal);
-    } finally {
-      this.locks.release(taskLock);
-    }
-  }
-
-  private async applyJournalLocked(
-    root: string,
-    executionDir: string,
-    routeState: "main" | "worktree",
-    runs: RunStore,
-    request: RunRequestFile,
-    result: RunResultFile,
-    journal: AcceptanceJournal,
-  ): Promise<AcceptanceResult> {
     try {
       const located = locateTaskDocument(executionDir, request.taskId);
       if (located.archived) return this.attention(journal.operationId, request, "task_archived", result);
@@ -687,6 +664,17 @@ export class RunAcceptanceService {
       phase: request.phase,
       verdict: result?.report ? reportString(result.report, "verdict") : null,
     };
+  }
+
+  /**
+   * stale_input 的出口：结果已发布、输入已变，这个 run 不会再推进任务；未终态时收敛为失败，
+   * 使任务不再被它占用（update 不再要求 --run，close／新 run 可继续）。结果与工作区不动。
+   * 输入改回后重新接收仍可成功，reconcileState 会把 acceptance_ 失败收敛回 completed。
+   */
+  private settleStale(runs: RunStore, request: RunRequestFile): void {
+    const state = runs.readState(request.runId);
+    if (state === null || ["completed", "cancelled", "failed"].includes(state.state)) return;
+    runs.writeState(request.runId, { ...state, state: "failed", reason: "acceptance_stale_input", updatedAt: this.now().toISOString() });
   }
 
   /** 结果已完成但此前因接收失败置 failed 时，接收成功后收敛为 completed；不覆盖真实执行失败。 */

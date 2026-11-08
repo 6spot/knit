@@ -168,7 +168,8 @@ function configAuthorizationRef(root: string): string {
 function reasonOf(error: unknown): string {
   if (error instanceof GuardError) {
     const guard = error.details?.guardReason;
-    return typeof guard === "string" && guard !== "" ? `${guard}: ${error.message}` : error.message;
+    if (typeof guard !== "string" || guard === "" || error.message.startsWith(`${guard}:`)) return error.message;
+    return `${guard}: ${error.message}`;
   }
   return error instanceof Error ? error.message : String(error);
 }

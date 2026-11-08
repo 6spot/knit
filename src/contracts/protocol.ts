@@ -19,6 +19,8 @@ export const ReasonCodeSchema = union([
   lit("invalid_request"),
   lit("incompatible_version"),
   lit("busy"),
+  lit("task_busy"),
+  lit("workspace_busy"),
   lit("needs_context"),
   lit("stale_input"),
   lit("needs_review"),

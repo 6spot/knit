@@ -438,9 +438,9 @@ test("自定义阶段流转：ready 进入配置首阶段，clarify 保持、cha
     assert.equal(doc.frontmatter.stage, "draft");
     assert.equal(doc.frontmatter.phase, undefined, "新文档只写 stage");
     // clarify 保持自定义阶段；change 回到内置 start 锚点。
-    const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "## 目标与边界\n\n补充\n", runActive: false });
+    const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "## 目标与边界\n\n补充\n" });
     assert.equal(clarify.stage, "draft");
-    const change = await service.update({ dir, taskId, kind: "change", reason: "改目标", content: "## 目标与边界\n\n新目标\n", runActive: false });
+    const change = await service.update({ dir, taskId, kind: "change", reason: "改目标", content: "## 目标与边界\n\n新目标\n" });
     assert.equal(change.stage, "start");
     const next = await service.ready({ dir, taskId });
     assert.equal(next.stage, "draft", "再次 ready 仍由配置决定目标，不写死阶段名");
@@ -504,16 +504,16 @@ test("task update：clarify 保持 stage 且不使摘要未变任务迁移；cha
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     await service.ready({ dir, taskId });
     // change：回 open/start
-    const change = await service.update({ dir, taskId, kind: "change", reason: "范围扩大", content: "## 目标与边界\n\n新目标\n", runActive: false });
+    const change = await service.update({ dir, taskId, kind: "change", reason: "范围扩大", content: "## 目标与边界\n\n新目标\n" });
     assert.equal(change.applied, "direct");
     assert.equal(change.stage, "start");
     assert.equal(change.digestChanged, true);
     // clarify：保持 start
-    const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充资料", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n", runActive: false });
+    const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "补充资料", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n" });
     assert.equal(clarify.stage, "start");
     assert.equal(clarify.digestChanged, true);
     // 摘要未变的 clarify 不迁移
-    const same = await service.update({ dir, taskId, kind: "clarify", reason: "解释原要求", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n", runActive: false });
+    const same = await service.update({ dir, taskId, kind: "clarify", reason: "解释原要求", content: "## 目标与边界\n\n新目标\n（补充定位：src/login.ts）\n" });
     assert.equal(same.digestChanged, false);
     assert.equal(same.stage, "start");
     // frontmatter 转移已写回
@@ -533,14 +533,14 @@ test("task update：活动 run 只保存草案；apply/withdraw 按摘要与基�
     const file = taskFile(dir, relativePath);
     const baseline = await service.readInputs({ dir, taskId });
     // 运行中：保存草案，冻结输入不变
-    const saved = await service.update({ dir, taskId, kind: "clarify", reason: "运行中补充资料", content: "## 目标与边界\n\n澄清后目标\n", runActive: true, updateOperationId: "op-1" });
+    const saved = await service.update({ dir, taskId, kind: "clarify", reason: "运行中补充资料", content: "## 目标与边界\n\n澄清后目标\n", pending: true, updateOperationId: "op-1" });
     assert.equal(saved.applied, "pending_saved");
     assert.ok(saved.pendingDraftDigest);
     assert.equal(saved.digestChanged, false);
     assert.equal(parseTaskDocument(readFileSync(file, "utf8")).frontmatter.stage, "start");
     // 第二份草案被拒（至多一份）
     await assert.rejects(
-      () => service.update({ dir, taskId, kind: "clarify", reason: "再来一份", content: "x", runActive: true }),
+      () => service.update({ dir, taskId, kind: "clarify", reason: "再来一份", content: "x", pending: true }),
       (error) => error instanceof TaskGuardError && error.details.guardReason === "pending_draft_exists",
     );
     // 摘要不对的 apply 拒绝，且不作用于后来草案
@@ -593,13 +593,13 @@ test("输入草案竞争：存在草案时直接更新拒绝；同内容新版�
       kind: "change",
       reason: "运行中改变目标",
       content,
-      runActive: true,
+      pending: true,
       updateOperationId: "op-pending-1",
     });
     assert.equal(draft.applied, "pending_saved");
     // 有草案时不能绕过 apply 直接改输入。
     await assert.rejects(
-      () => service.update({ dir, taskId: task.taskId, kind: "clarify", reason: "直接改", content: "x", runActive: false }),
+      () => service.update({ dir, taskId: task.taskId, kind: "clarify", reason: "直接改", content: "x" }),
       (error) => /pending_draft_exists|pending_inputs/.test(error.message),
     );
     // 旧摘要不能撤回后来同内容新版本。
@@ -616,7 +616,7 @@ test("输入草案竞争：存在草案时直接更新拒绝；同内容新版�
       kind: "change",
       reason: "运行中改变目标",
       content,
-      runActive: true,
+      pending: true,
       updateOperationId: "op-pending-2",
     });
     assert.notEqual(same.pendingDraftDigest, draft.pendingDraftDigest, "同内容新操作仍是新版本");
@@ -654,7 +654,7 @@ test("task update：apply 按草案 kind 应用；change 草案回 start，clari
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     await service.ready({ dir, taskId });
     // 模拟运行中保存 change 草案
-    const saved = await service.update({ dir, taskId, kind: "change", reason: "目标改变", content: "## 目标与边界\n\n改变后的目标\n", runActive: true, updateOperationId: "op-9" });
+    const saved = await service.update({ dir, taskId, kind: "change", reason: "目标改变", content: "## 目标与边界\n\n改变后的目标\n", pending: true, updateOperationId: "op-9" });
     const applied = await service.update({ dir, taskId, expectPending: saved.pendingDraftDigest });
     assert.equal(applied.applied, "pending_applied");
     assert.equal(applied.stage, "start", "change 草案应用后回 start");
@@ -789,7 +789,7 @@ test("应用草案持久化转移：change 实际回 open/start，deliver 上 cl
     await store.bindings.save({ ...bindingBeforeDeliver, stageVisits: { implement: 1, check: 1 } });
     const diskAfterBump = parseTaskDocument(readFileSync(file, "utf8"));
     // change 草案：应用后实际回 open/start。
-    const changeDraft = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: true });
+    const changeDraft = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", pending: true });
     assert.equal(changeDraft.applied, "pending_saved");
     const changeApplied = await service.update({ dir, taskId, expectPending: changeDraft.pendingDraftDigest, runsSettled: true });
     assert.equal(changeApplied.stage, "start");
@@ -806,7 +806,7 @@ test("应用草案持久化转移：change 实际回 open/start，deliver 上 cl
     writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, stage: "deliver" } }));
     const bindingBeforeClarify = await store.bindings.get(taskId);
     await store.bindings.save({ ...bindingBeforeClarify, stageVisits: { implement: 1, check: 1 } });
-    const clarifyDraft = await service.update({ dir, taskId, kind: "clarify", reason: "约束说明", content: "## 目标与边界\n\n澄清目标\n", runActive: true });
+    const clarifyDraft = await service.update({ dir, taskId, kind: "clarify", reason: "约束说明", content: "## 目标与边界\n\n澄清目标\n", pending: true });
     const clarifyApplied = await service.update({ dir, taskId, expectPending: clarifyDraft.pendingDraftDigest, runsSettled: true });
     assert.equal(clarifyApplied.stage, "check");
     const diskClarify = parseTaskDocument(readFileSync(file, "utf8"));
@@ -833,7 +833,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
       const bindingBeforeComplete = await store.bindings.get(taskId);
       await store.bindings.save({ ...bindingBeforeComplete, stageVisits: { implement: 1, check: 1 } });
       // clarify：deliver 上回 open/check，清 completed。
-      const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "交付后补充说明", content: "## 目标与边界\n\n补充说明\n", runActive: false });
+      const clarify = await service.update({ dir, taskId, kind: "clarify", reason: "交付后补充说明", content: "## 目标与边界\n\n补充说明\n" });
       assert.equal(clarify.applied, "direct");
       assert.equal(clarify.status, "open");
       assert.equal(clarify.stage, "check");
@@ -845,7 +845,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
       // 再次回到 completed 后 change：回 open/start。
       const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, status: "closed", stage: "deliver", outcome: "completed" } }));
-      const change = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n", runActive: false });
+      const change = await service.update({ dir, taskId, kind: "change", reason: "新增目标", content: "## 目标与边界\n\n新目标\n" });
       assert.equal(change.status, "open");
       assert.equal(change.stage, "start");
       assert.equal(change.outcome, null);
@@ -868,7 +868,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
       mkdirSync(archiveDir, { recursive: true });
       renameSync(dirname(file), join(archiveDir, basename(dirname(file))));
       await assert.rejects(
-        () => service.update({ dir, taskId, kind: "clarify", reason: "归档后补充", content: "## 目标与边界\n\nx\n", runActive: false }),
+        () => service.update({ dir, taskId, kind: "clarify", reason: "归档后补充", content: "## 目标与边界\n\nx\n" }),
         (error) => error.guardReason === "outcome_completed" || error.guardReason === "task_archived" || error.code === "io_error",
       );
     } finally {
@@ -886,7 +886,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "implement", outcome: "cancelled" } }));
       await assert.rejects(
-        () => service.update({ dir, taskId, kind: "clarify", reason: "取消后补充", content: "## 目标与边界\n\nx\n", runActive: false }),
+        () => service.update({ dir, taskId, kind: "clarify", reason: "取消后补充", content: "## 目标与边界\n\nx\n" }),
         (error) => error.guardReason === "outcome_cancelled",
       );
     } finally {
@@ -904,7 +904,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
       writeFileSync(file, renderTaskDocument({ ...doc, frontmatter: { ...doc.frontmatter, status: "closed", stage: "implement", outcome: "superseded" } }));
       await assert.rejects(
-        () => service.update({ dir, taskId, kind: "change", reason: "替代后变更", content: "## 目标与边界\n\nx\n", runActive: false }),
+        () => service.update({ dir, taskId, kind: "change", reason: "替代后变更", content: "## 目标与边界\n\nx\n" }),
         (error) => error.guardReason === "outcome_superseded",
       );
     } finally {
@@ -944,12 +944,12 @@ test("凭据扫描：任务记录与输入更新命中即暂停、不回显完�
     try {
       const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
       const fakeToken = "ghp_" + "a".repeat(36);
-      const error = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: `## 目标与边界\n\n使用 ${fakeToken} 访问\n`, runActive: false }).then(() => null, (e) => e);
+      const error = await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: `## 目标与边界\n\n使用 ${fakeToken} 访问\n` }).then(() => null, (e) => e);
       assert.ok(error, "应拒绝");
       assert.equal(error.guardReason, "credential_scan_hit");
       assert.ok(!String(error.message).includes(fakeToken), "错误不回显完整敏感值");
       // 无命中正常更新与应用草案不受影响。
-      const applied = await service.update({ dir, taskId, kind: "clarify", reason: "正常", content: "## 目标与边界\n\n正常内容\n", runActive: false });
+      const applied = await service.update({ dir, taskId, kind: "clarify", reason: "正常", content: "## 目标与边界\n\n正常内容\n" });
       assert.equal(applied.applied, "direct");
     } finally {
       store.close();
@@ -964,7 +964,7 @@ test("task close：completed 收敛事实；cancelled 撤回草案留记录；cl
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
     // 挂一份草案再取消：关闭撤回草案并留原因
-    await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "x", runActive: true, updateOperationId: "op-2" });
+    await service.update({ dir, taskId, kind: "clarify", reason: "补充", content: "x", pending: true, updateOperationId: "op-2" });
     const closed = await service.close({ dir, taskId, outcome: "cancelled", runsSettled: true });
     assert.equal(closed.status, "closed");
     assert.equal(closed.outcome, "cancelled");
@@ -975,7 +975,7 @@ test("task close：completed 收敛事实；cancelled 撤回草案留记录；cl
     assert.equal(doc.frontmatter.stage, "start", "取消保留停止位置");
     // 关闭后的任务不接受常规更新
     await assert.rejects(
-      () => service.update({ dir, taskId, kind: "clarify", reason: "r", content: "c", runActive: false }),
+      () => service.update({ dir, taskId, kind: "clarify", reason: "r", content: "c" }),
       (error) => error instanceof TaskGuardError && error.details.guardReason === "outcome_cancelled",
     );
     // 迟到结果不复活：close 再次拒绝
@@ -1177,7 +1177,7 @@ test("待澄清：blocking 阻止 ready；assumed、空区段、无区段放行�
         "无",
         "",
       ].join("\n");
-      await service.update({ dir, taskId, kind, reason: "更新待澄清", content: body, runActive: false });
+      await service.update({ dir, taskId, kind, reason: "更新待澄清", content: body });
     };
 
     // 仅 assumed：不阻挡 ready，status 计入 assumed。
@@ -1242,7 +1242,7 @@ test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任�
 
     // 2. 复杂任务承诺 plan.md：空 plan 阻止 ready（change 回 start 后再试）。
     const docForChange = parseTaskDocument(readFileSync(file, "utf8"));
-    await service.update({ dir, taskId, kind: "change", reason: "升级为复杂任务", content: docForChange.inputsBody + "\n", runActive: false });
+    await service.update({ dir, taskId, kind: "change", reason: "升级为复杂任务", content: docForChange.inputsBody + "\n" });
     writeFileSync(join(dir, ".knit", "tasks", relativePath.split("/")[1], "plan.md"), "   \n");
     await assert.rejects(
       () => service.ready({ dir, taskId }),

@@ -1309,8 +1309,9 @@ export class DeliveryService {
       indexTreeFor(afterStaged, Object.keys(expectedTree)),
       Object.keys(expectedTree),
     );
+    // 任务资料只取短锁，交付窗口内其它会话可并发登记或记录；不当作 hook 副作用。
     const worktreeChanged = Object.keys({ ...beforeWorktree.entries, ...afterWorktree.entries }).some(
-      (path) => !selectedPath(path, selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
+      (path) => !selectedPath(path, selected) && !path.startsWith(".knit/tasks/") && beforeWorktree.entries[path] !== afterWorktree.entries[path],
     );
     // 提交后选中路径会从脏列表消失；只有提交后仍脏且内容变化才说明 hook 改了选中文件。
     const selectedChanged = Object.keys(afterWorktree.entries).some(
@@ -1440,8 +1441,9 @@ export class DeliveryService {
       indexTreeFor(afterStaged, Object.keys(expectedTree)),
       Object.keys(expectedTree),
     );
+    // 任务资料只取短锁，交付窗口内其它会话可并发登记或记录；不当作 hook 副作用。
     const worktreeChanged = Object.keys({ ...beforeWorktree.entries, ...afterWorktree.entries }).some(
-      (path) => !selectedPath(path, selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],
+      (path) => !selectedPath(path, selected) && !path.startsWith(".knit/tasks/") && beforeWorktree.entries[path] !== afterWorktree.entries[path],
     );
     const selectedChanged = Object.keys(afterWorktree.entries).some(
       (path) => selectedPath(path, selected) && beforeWorktree.entries[path] !== afterWorktree.entries[path],

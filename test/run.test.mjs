@@ -305,7 +305,7 @@ test("worker 复核失败：待应用输入、输入变化、分支变化都不�
         kind: "change",
         reason: "运行中收到新要求",
         content: "补充：失败必须带退出码。",
-        runActive: true,
+        pending: true,
       });
       const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
       assert.equal(started.confirmed, false);
@@ -452,7 +452,7 @@ test("阶段／计划守卫：phase 不符、草案未应用、规范缺失都�
       kind: "change",
       reason: "草案",
       content: "草案内容",
-      runActive: true,
+      pending: true,
     });
     await assert.rejects(
       () => s.coordinator.prepare(prepareInput(dir, task.taskId)),

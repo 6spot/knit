@@ -483,7 +483,6 @@ test("055/056：self 任务在 deliver 上澄清会回实施，不逼出独立�
       kind: "clarify",
       reason: "补充范围说明",
       content: "# clarify\n\n补充范围说明\n",
-      runActive: false,
     });
     assert.equal(changed.stage, "implement");
     assert.equal(changed.status, "open");

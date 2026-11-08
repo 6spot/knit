@@ -44,6 +44,7 @@ export interface StageBaseline {
 }
 
 const RUNTIME_PREFIX = ".knit/.runtime/";
+const TASK_MATERIAL_PREFIX = ".knit/tasks/";
 /** settled run 中不可变的权威资料；state／events／launch 仍可能被接收收敛或观察写入。 */
 const SETTLED_RUN_FILES = ["request.json", "result.json", "inputs.json", "instructions.json"];
 const ACTIVE_RUN_STATES = new Set(["claimed", "preparing", "running"]);
@@ -197,14 +198,15 @@ function sameDir(a: string, b: string): boolean {
 }
 
 /**
- * 敏感区前后差。并发的合法 Knit 写入按占用归属排除：
+ * 敏感区前后差。并发的合法 Knit 写入按路径归属排除（任务写入只取短锁，不被工作树租约挡住）：
  * - 其它活动 run 的目录由其自身 worker 写；它们新建的检查凭据由其接收写入；
- * - 主检出项目占用保护的写入（新 run 目录、其它任务的完成／实施凭据）在本 run 持有该占用时不可能并发发生，
- *   本 run 在 worktree 执行（未持主检出占用）时才视为主会话的并发写入而排除。
+ * - 基线后新建的 run 目录及其检查凭据来自其它工作树的并行派发；
+ * - 其它任务的完成／实施凭据由 task close／implement／update 写入；本任务凭据只放行删除（输入更新使其失效）；
+ * - 终态 run 的 gc 删除要取主检出租约：本 run 在主检出执行时不可能并发发生，出现即越权。
  * 本 run 自有目录、会话目录与列表缓存不在扫描范围内。
  */
 function protectedChanges(before: ProtectedScan, after: ProtectedScan, context: BoundaryContext): string[] {
-  const mainLockHeld = sameDir(context.executionDir, context.root);
+  const mainLeaseHeld = sameDir(context.executionDir, context.root);
   const keys = new Set([...Object.keys(before.entries), ...Object.keys(after.entries)]);
   const changed: string[] = [];
   for (const key of [...keys].sort()) {
@@ -212,9 +214,8 @@ function protectedChanges(before: ProtectedScan, after: ProtectedScan, context: 
     if (key.startsWith(`${RUNTIME_PREFIX}runs/`)) {
       const runId = key.slice(`${RUNTIME_PREFIX}runs/`.length).split("/")[0] ?? "";
       const kind = before.runs[runId];
-      if (kind === "active") continue;
-      if (kind === undefined && !mainLockHeld) continue;
-      if (kind === "settled" && !mainLockHeld && after.runs[runId] === undefined) continue;
+      if (kind === "active" || kind === undefined) continue;
+      if (kind === "settled" && !mainLeaseHeld && after.runs[runId] === undefined) continue;
       changed.push(key);
       continue;
     }
@@ -223,13 +224,13 @@ function protectedChanges(before: ProtectedScan, after: ProtectedScan, context: 
         const name = key.slice(`${RUNTIME_PREFIX}checks/`.length);
         const runId = name.endsWith(".json") ? name.slice(0, -".json".length) : name;
         if (before.runs[runId] === "active") continue;
-        if (before.runs[runId] === undefined && after.runs[runId] !== undefined && !mainLockHeld) continue;
+        if (before.runs[runId] === undefined && after.runs[runId] !== undefined) continue;
       }
       changed.push(key);
       continue;
     }
     const taskFile = /^\.knit\/\.runtime\/(?:completions|implementations)\/([^/]+)\.json$/.exec(key);
-    if (taskFile !== null && taskFile[1] !== context.taskId && !mainLockHeld) continue;
+    if (taskFile !== null && (taskFile[1] !== context.taskId || after.entries[key] === undefined)) continue;
     changed.push(key);
   }
   return changed;
@@ -289,6 +290,14 @@ function pathsSinceBase(dir: string, base: string | null, git: GitRunner): strin
   const result = git(["diff", "--name-only", "-z", "--no-renames", base, "--"], dir);
   if (result.code !== 0) return [];
   return result.stdout.split("\0").filter((path) => path !== "");
+}
+
+/**
+ * 成果路径归属：任务资料目录整体剔除，不进 changedPaths、不判越界；只按路径判定，不做 actor 归属。
+ * 输入区变化由接收时的摘要核对判 stale_input；`.knit/.runtime` 受管资料仍由敏感区核对保护。
+ */
+export function attributedChangedPaths(paths: readonly string[]): string[] {
+  return paths.filter((path) => !path.startsWith(TASK_MATERIAL_PREFIX));
 }
 
 /** 记录阶段基线；工作区签名不可得时返回 null（调用方按 worktree_unknown 失败）。 */

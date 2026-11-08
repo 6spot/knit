@@ -98,7 +98,7 @@ test("task implement：输入更新清理实施记录；没有验证或路径时
     await service.implement({ dir, taskId, paths: ["app.txt"], validations: ["检查通过"] });
     const recordPath = new RunStore(dir).implementationPath(taskId);
     assert.equal(existsSync(recordPath), true);
-    await service.update({ dir, taskId, kind: "clarify", reason: "补充范围", content: "", runActive: false });
+    await service.update({ dir, taskId, kind: "clarify", reason: "补充范围", content: "" });
     assert.equal(existsSync(recordPath), false, "输入变化清理旧实施记录");
     await assert.rejects(
       () => service.implement({ dir, taskId, paths: ["app.txt"], validations: [] }),

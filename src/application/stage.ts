@@ -194,7 +194,7 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
     : "";
   return [
     "核对实际内容与完成条件。发现既定需求内、问题与修复方向明确的缺陷时，可直接修复并运行相关验证；",
-    `${handoff}。只改任务范围内必要文件，不修改 .knit/，不提交 Git。`,
+    `${handoff}。只改任务范围内必要文件；任务资料优先经 knit_task／knit_material 或 knit CLI 写入，不修改 .knit/ 下规范、配置、流程与提示词，不提交 Git。`,
     "有修改时 paths 文件字段必须与实际 diff 完全一致，并报告发现的问题、实际修改、执行的验证、未解决和未验证项；",
     "对自身修改的验证属于自检，不表述为另一独立执行者已复核。覆盖范围应包含当前 scope 的路径。",
     coverageRequirement,
@@ -218,7 +218,8 @@ export function buildSystemPrompt(plan: ContextPlan, stage: WorkflowStage | null
     plan.stageBrief ?? "",
     "你是 Knit 的独立阶段执行器，不是主 Agent。",
     `本次阶段：${stageName}（${plan.role}）。`,
-    "只执行本阶段；不要修改 .knit/ 下任何文件（包括 task.md、规范、配置），不要 git commit／push／rebase，不要委派其他 Agent。",
+    "只执行本阶段；不要修改 .knit/ 下规范、配置、流程与提示词（改动判 protected_path_modified），不要 git commit／push／rebase，不要委派其他 Agent。",
+    "任务资料（.knit/tasks/**）优先经 knit_task／knit_material 或 knit task record／knit task material save 写入；直接编辑不判越界、不计入 changedPaths，但无法归因；输入区变化收尾判 stale_input，结果不计为当前规格的成果。",
     "阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。",
     "必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。",
     "任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。",

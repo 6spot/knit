@@ -35,16 +35,17 @@ export class RunActivityService implements TaskRunActivityPort {
   }
 
   async settled(root: string, taskId: string): Promise<boolean> {
+    return (await this.activeRunIds(root, taskId)).length === 0;
+  }
+
+  async activeRunIds(root: string, taskId: string): Promise<string[]> {
     const runs = new RunStore(root);
+    const active: string[] = [];
     for (const runId of runs.listRunIds()) {
       const request = runs.readRequest(runId);
       if (request === null || request.taskId !== taskId) continue;
-      if (!(await runSettled(this.store, runs, runId, request))) return false;
+      if (!(await runSettled(this.store, runs, runId, request))) active.push(runId);
     }
-    return true;
-  }
-
-  async active(root: string, taskId: string): Promise<boolean> {
-    return !(await this.settled(root, taskId));
+    return active;
   }
 }

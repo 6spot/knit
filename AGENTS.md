@@ -63,6 +63,7 @@
 - 历史查询：需求澄清取证时可直接用 `npx --no-install knit task search`（桥接 `knit_task` action=search）检索任务历史、归档与提交并引用来源；普通对话仅在用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时检索，未表达不主动检索；相关记录不等于证明因果。
 - 交付：主会话接收实施／检查结果、核对实际成果与完成条件并汇总报告；交付前起草一次产物提交文案并向用户展示，不虚构验证；不另启动交付辅助 worker；已有明确授权不重复确认；提交、推送、发布另行授权；按操作记录核实工具与 Git 实际效果；规范候选未审阅不构成交付前置。
 - 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md
+- 任务资料写入：优先经 `knit_task`／`knit_material`（或同名 CLI）改任务资料，接口做版本核对、输入摘要与阶段守卫；直接编辑不判越界但无法归因。活动 run 中 `task update` 须声明 `--run <id>`（否则 `task_busy`），输入变化由收尾按摘要判 `stale_input`，结果与工作区保留；`.knit/` 下规范、配置、流程与提示词在阶段内是硬保护。
 - 规范索引：`.knit/standards/index.md`
 - 阶段提示词：`.knit/agents/`（由 workflow.yaml 的 `prompt` 引用；runtime 补充在 runtimes/）
 

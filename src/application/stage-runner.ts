@@ -23,6 +23,7 @@ import {
   buildRuntimeOptions,
   capabilitySwitches,
   checkNativeSessionFile,
+  isolatedEnv,
   decideResume,
   findStageSessionFile,
   readEntryRange,
@@ -46,6 +47,7 @@ import { type WorktreeSignature } from "./worktree.js";
 import {
   captureStageBaseline,
   existingPaths,
+  attributedChangedPaths,
   inspectStageBoundary,
   protectedRuntimeReason,
   type BoundaryContext,
@@ -125,6 +127,7 @@ interface StageRuntimeTools {
 const BUILTIN_TOOL_NAMES = ["read", "grep", "find", "ls", "write", "edit", "bash", "powershell"];
 const KNIT_TOOL_NAMES = [
   "knit_task",
+  "knit_material",
   "knit_context",
   "knit_run",
   "knit_deliver",
@@ -379,6 +382,8 @@ export class StageRunner {
           cwd: this.executionDir,
           sessionDir,
           appendSystemPrompt: systemPrompt,
+          // KNIT_RUN：阶段内经 knit_task 改本任务输入时自动声明本 run（显式 --run 优先）。
+          env: isolatedEnv({ KNIT_RUN: this.request.runId }, { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
         },
         session.decision,
       ),
@@ -446,6 +451,7 @@ export class StageRunner {
             cwd: this.executionDir,
             sessionDir,
             appendSystemPrompt: systemPrompt,
+            env: isolatedEnv({ KNIT_RUN: this.request.runId }, { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
           },
           fallbackDecision,
         ),
@@ -1082,7 +1088,8 @@ export class StageRunner {
     const afterSignature = inspection?.worktree ?? null;
     if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
     // 改动以“基线提交＋基线脏文件指纹”为准：阶段内提交过的路径也出现在实际差异里。
-    const changedPaths = diffSignatures(beforeSignature, afterSignature);
+    // 任务资料（.knit/tasks/**）不计成果：输入变化由摘要在接收时判 stale_input，记录与材料不影响成果。
+    const changedPaths = attributedChangedPaths(diffSignatures(beforeSignature, afterSignature));
     const parsedEarly = parseStageReport(text);
     // 阶段内禁止提交：HEAD 移动即失败、保留现场，不接收也不并入 scope；提交列表见 result.boundary.commits。
     if (inspection !== null && inspection.facts.headMoved) {
@@ -1101,7 +1108,7 @@ export class StageRunner {
         changedPaths,
       );
     }
-    // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
+    // 明确授权为成果的正式规范不在 .knit 保护之列；任务资料已剔除；其余 .knit（规范、候选、配置、流程、提示词）仍然拒绝（任务037）。
     const authorizedStandardPaths = new Set((this.request.expected.authorizedStandardOutputs ?? []).map((output) => output.path));
     const protectedPaths = changedPaths.filter(
       (path) => path.startsWith(".knit/") && !authorizedStandardPaths.has(path),

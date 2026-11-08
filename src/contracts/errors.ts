@@ -4,7 +4,7 @@ import { PROTOCOL_VERSION } from "./protocol.js";
 /**
  * 原因码的处理分类；业务流程按此选择展示与重试策略。
  * invalid_request／incompatible_version／internal_error 属请求或实现错误，
- * busy／io_error 可在条件消失后重试，其余需要对应处理流程而不是盲目重试。
+ * busy／task_busy／workspace_busy／io_error 可在条件消失后重试，其余需要对应处理流程而不是盲目重试。
  */
 export type ReasonKind = "request" | "transient" | "process" | "internal";
 
@@ -12,6 +12,8 @@ const REASON_KIND: Record<ReasonCode, ReasonKind> = {
   invalid_request: "request",
   incompatible_version: "request",
   busy: "transient",
+  task_busy: "transient",
+  workspace_busy: "transient",
   io_error: "transient",
   needs_context: "process",
   stale_input: "process",
