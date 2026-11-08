@@ -10,6 +10,6 @@
 - 原生会话记录由 Pi CLI 保存在 `.knit/.runtime/native-sessions/pi/`，跨 run 复用；恢复优先加载旧记录。
 - 取消经受控 CLI 的 clear_queue/abort，按稳定终态核实。
 - 停止条件：需求不明、规范冲突、需要用户取舍、发现保护路径或未授权副作用时停止写入并如实报告；检查阶段用 blocked／changes_requested 交回，其他阶段在报告中说明阻塞；blocked 由核心接收，不自行推进阶段。
-- 报告按阶段字段输出（implement：summary／changedPaths／unverified；check：summary／verdict／coverage／changedPaths／selfVerified／findings／unverified）；`changedPaths` 与实际 diff 完全一致，未执行的验证写入 `unverified`。
+- 报告按阶段字段输出（implement：summary／changedPaths／unverified；check：summary／verdict／coverage／changedPaths／selfVerified／findings／unverified）；`changedPaths` 列出本 run 实际改动（`write`／`edit` 写过的必须列出，bash 产出照实列出、由主会话确认来源，声明继承的失败残留一并列出），不列外部改动与之前轮次的成果；未执行的验证写入 `unverified`。
 
 无正式任务时不启动 Knit worker；需要委派时使用 Pi 宿主提供的通用子 Agent／只读工具。宿主不提供或不可用时由主会话直接执行，不暗建 Knit 任务。
