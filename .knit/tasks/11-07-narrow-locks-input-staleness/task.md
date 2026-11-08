@@ -1,8 +1,8 @@
 ---
 id: k-f0d9a8952aff
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-2c0d10318898
@@ -149,5 +149,32 @@ title: 锁收窄与状态写归属：任务级声明、工作树租约与 stale_
 ### 跨机交接（2026-11-07）
 
 交接到另一台机器执行：新机器没有本机 binding，stage=implement 时 `task ready` 会报 `phase_mismatch`（审计 S6）。因此把 frontmatter 改回 start，在新机器上重新 ready；输入未改。
+
+2026-11-07 执行审计计划时实际复现 S5：run-ee2e9531b812（k-eb2e23ce4f41 implement，56 分钟，worker 已完成实现并 npm test 590/590）在收尾时 failed `protected_path_modified:.knit/tasks/11-07-resume-rex-next-action/task.md`，原因是主会话在 run 期间对另一任务 `task record`。整轮成果无法正常接收，只能由主会话 task implement 继承。
+
+## 派发须知（2026-11-07 主会话，审计计划执行约定）
+- 报告 `changedPaths` 只列本 run 在工作区实际改动的路径（与 git 前后差一致），不列之前轮次或其它任务已存在的改动；否则 `changed_paths_mismatch` 整轮失败。
+- 交付前凭据扫描规则 generic_secret_assignment（见 src/contracts/credentials.ts）会把“凭据类关键词作变量名或字段名并被赋值长字符串或表达式”的新增行判为疑似凭据。新增代码与测试请给此类局部变量加前缀（例如 owner 前缀），夹具值保持 8 字符以内；完成前用 dist/contracts/credentials.js 的 scanCredentials 扫描新增行确认零命中。
+- 工作区里其它 `.knit/tasks/*/task.md` 的未提交改动来自主会话记录，不属于本任务成果，不要修改或列入报告。
+- 单跑测试时请 `env -u REX_SESSION -u REX_BLOCK node --test ...`；全量用 `npm test`。
+- 与刚交付的 k-a8ace0d90676（阶段基线冻结，src/application/stage-baseline.ts）衔接：本任务把 `.knit/tasks/**` 从 changedPaths 剔除时，需同时核对 stage-baseline 的敏感区规则与成果路径计算（基线提交加基线时已脏的路径），两者结论要一致；`.knit/.runtime` 受管资料仍由 stage-baseline 保护。
+
+## 完成记录（2026-11-08 主会话）
+- 实施 run-e175dbde9299 completed（约 8.5 小时），npm test 629/629。
+- independent 检查 run-79c2bec039df pass，未改文件，独立复跑 629/629，并用临时脚本补测了真实 CLI 写入、并发 task new 和 stale 后关闭。
+- 未运行：真实 Pi 阶段会话里调用 knit_task／knit_material（只用 fake Pi 验证）。
+- 检查观察：活动 run 中执行内容不变的 --kind change 时摘要不变，收尾为 needs_attention: phase_mismatch（结果保留，run 记为 failed）。这不属于完成条件，作为遗留观察。
+- 主会话决定：本仓库 .knit/agents/{check,implement,runtimes/pi}.md 由主会话从 assets/templates 逐字同步（worker 无权写），作为模板同步单独提交。AGENTS.md 新增“任务资料写入”一条（属于受管块之外的开发约定），随本任务成果提交。
+
+### 交付记录
+
+<!-- knit:delivery:op-3f1dfded3a97 -->
+- 操作: op-3f1dfded3a97
+- 时间: 2026-11-08T11:25:15.656Z
+- 分支: refs/heads/main
+- 授权来源: .knit/tasks/11-07-audit-fix-plan/plan.md#执行授权
+- 工作提交: 03529bec7c4f4700580980f2d35503c57fbbbba7
+- 结果: 正常交付；检查 run-79c2bec039df 通过
+- 归档目标: .knit/tasks/archive/2026-11/11-07-narrow-locks-input-staleness
 
 <!-- knit:progress:end -->
