@@ -106,4 +106,10 @@ title: 改动来源归属、外部改动隔离与失败残留继承
 - 结果: 正常交付；检查 run-52dd314c6975 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-07-change-attribution
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-ea3b0021be70 -->
+- 任务资料提交: 2c33fbe6c4b255ae72a9cff6fcb854f9678fc513
+- 归档目标: .knit/tasks/archive/2026-11/11-07-change-attribution
+
 <!-- knit:progress:end -->
