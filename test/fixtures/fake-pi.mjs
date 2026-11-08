@@ -177,7 +177,10 @@ rl.on("line", async (line) => {
     const promptFile = process.env.KNIT_FAKE_PROMPT_FILE;
     if (promptFile) writeFileSync(promptFile, String(request.message ?? ""));
     respond(id, {});
-    const spec = action();
+    const loaded = action();
+    // 测试钩子：phases.<阶段>按提示中的“本次阶段：…（<阶段>）”覆盖动作（如只在 implement 写文件）。
+    const phase = /本次阶段：[^（\n]*（([^）]+)）/.exec(`${arg("--append-system-prompt") ?? ""}\n${String(request.message ?? "")}`)?.[1] ?? null;
+    const spec = phase !== null && loaded.phases?.[phase] !== undefined ? { ...loaded, ...loaded.phases[phase] } : loaded;
     if (abortCompleted) return;
     pendingSpec = spec;
     if (spec.waitFile) {

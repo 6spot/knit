@@ -62,6 +62,7 @@ import {
 } from "./task-materials.js";
 import { scanCredentials } from "../contracts/credentials.js";
 import { CompletionService } from "./completion-service.js";
+import { withArtifactsGuard } from "../domain/completion.js";
 
 const TASKS_DIR = "tasks";
 const ARCHIVE_DIR = "archive";
@@ -402,6 +403,11 @@ export interface TaskCloseInput {
   reason?: string | null;
   /** 用户明确强制完成：跳过完成资格证据核对；必须给 reason。 */
   force?: boolean;
+  /**
+   * 用户显式声明本任务没有产物（--no-artifacts）：空 scope 的 self／independent 才能完成，
+   * 必须给 reason；凭据记 artifacts=none 与原因（审计 F4）。
+   */
+  noArtifacts?: boolean;
 }
 
 export interface TaskCloseResult {
@@ -417,6 +423,8 @@ export interface TaskCloseResult {
   checkRunId?: string | null;
   /** 强制完成：凭据带 forced 标记与原因。 */
   forced?: boolean;
+  /** 显式声明无产物完成时为 none。 */
+  artifacts?: "none";
   unverified?: string[];
 }
 
@@ -1029,6 +1037,22 @@ export function locateTaskDocument(
     if (document.frontmatter.id === taskId) return { dir, archived, document, raw: raw.data };
   }
   throw new InfrastructureError("io_error", `任务不存在: ${taskId}`);
+}
+
+/** 是否存在子任务（其他任务的 parent 指向本任务，含已归档）；损坏的任务文档跳过。 */
+export function hasChildTasks(root: string, taskId: string): boolean {
+  const tasksRoot = tasksRootOf(root);
+  for (const { name } of listTaskDirectories(root)) {
+    const file = join(tasksRoot, name, TASK_FILE);
+    const raw = readWithVersion(file);
+    if (raw === null) continue;
+    try {
+      if (parseTaskDocument(raw.data.toString("utf8"), file).frontmatter.parent === taskId) return true;
+    } catch {
+      // 损坏的其它任务不阻塞当前判断；doctor 另行报告。
+    }
+  }
+  return false;
 }
 
 const REMOTE_FS_TYPES = new Set([0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x65735546]);
@@ -2237,10 +2261,12 @@ export class TaskService {
       if (binding === null) throw new TaskGuardError("binding_missing", "任务绑定缺失，无法核对完成资格");
       // 父任务总体验收（DESIGN §3.10）：子任务全部结束后仍需主会话给出验收依据，
       // 子任务完成本身不自动使父任务可完成。
+      let parentTask = false;
       if (input.outcome === "completed") {
         const children = [...this.taskIndex(evidenceRoot).values()].filter(
           (entry) => entry.document.frontmatter.parent === input.taskId,
         );
+        parentTask = children.length > 0;
         if (children.length > 0) {
           const openChildren = children
             .filter((entry) => entry.document.frontmatter.status === "open")
@@ -2265,9 +2291,18 @@ export class TaskService {
           throw new TaskGuardError("invalid_request", "强制完成必须给出 --reason，写入完成凭据");
         }
       }
+      if (input.noArtifacts === true) {
+        if (input.outcome !== "completed") {
+          throw new TaskGuardError("invalid_request", "--no-artifacts 只能与 --outcome completed 同用");
+        }
+        if ((input.reason ?? "").trim() === "") {
+          throw new TaskGuardError("invalid_request", "声明无产物必须给出 --reason，写入完成凭据");
+        }
+      }
+      const noArtifactsReason = input.noArtifacts === true ? (input.reason ?? "").trim() : null;
       const completion = input.outcome === "completed"
         ? input.force === true
-          ? {
+          ? withArtifactsGuard({ noArtifactsReason, parentTask, scopeEmpty: completionService.scopeEmpty(evidenceRoot, input.taskId) }, {
               allowed: true as const,
               mode: verification,
               implementedBy: "forced" as const,
@@ -2275,7 +2310,7 @@ export class TaskService {
               checkRunId: null,
               unverified: ["用户强制完成：未核对实施记录与正式检查"],
               forcedReason: input.reason ?? null,
-            }
+            })
           : await completionService.assess({
               root: evidenceRoot,
               executionDir: executionRoot,
@@ -2283,9 +2318,17 @@ export class TaskService {
               document,
               raw: before.data,
               binding,
+              parentTask,
+              noArtifactsReason,
             })
         : null;
       if (completion !== null && completion.allowed === false) {
+        if (completion.reason === "empty_scope") {
+          throw new TaskGuardError(
+            "empty_scope",
+            "任务不能完成: empty_scope（没有已登记的成果路径；确实没有产物时用 --no-artifacts --reason <原因>，产物未归属时先 run accept --include 或 task implement 登记）",
+          );
+        }
         throw new TaskGuardError(completion.reason, `任务不能完成: ${completion.reason}`);
       }
       const transition = guardRejected(
@@ -2343,6 +2386,7 @@ export class TaskService {
               implementRunId: completion.implementRunId,
               checkRunId: completion.checkRunId,
               forced: completion.implementedBy === "forced",
+              ...(completion.artifacts === "none" ? { artifacts: "none" as const } : {}),
               unverified: completion.unverified,
             }
           : {}),

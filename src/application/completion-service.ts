@@ -32,6 +32,10 @@ export interface CompletionAssessInput {
   document: TaskDocument;
   raw: Buffer;
   binding: TaskBinding;
+  /** 存在子任务的父任务：总体验收不受空 scope 守卫约束。 */
+  parentTask?: boolean;
+  /** 用户显式声明无产物（--no-artifacts）的原因。 */
+  noArtifactsReason?: string | null;
 }
 
 export class CompletionService {
@@ -43,6 +47,13 @@ export class CompletionService {
     this.store = options.store;
     this.now = options.now ?? (() => new Date());
     this.randomHex = options.randomHex ?? (() => "000000000000");
+  }
+
+  /** 成果是否为空：累积 scope 与主会话实施记录都没有路径（审计 F4）。 */
+  scopeEmpty(root: string, taskId: string): boolean {
+    const runs = new RunStore(normalizeRoot(root));
+    const scope = loadScope(runs, taskId, this.now().toISOString());
+    return scope.entries.length === 0 && (runs.readImplementation(taskId)?.entries.length ?? 0) === 0;
   }
 
   /** 按当前任务事实评估完成资格；不写文件。 */
@@ -102,6 +113,10 @@ export class CompletionService {
       checkQualification,
       checkRunId,
       checkerChangedPaths,
+      // 空成果：累积 scope 与主会话实施记录都没有路径（审计 F4）。
+      scopeEmpty: scope.entries.length === 0 && (implementation?.entries.length ?? 0) === 0,
+      parentTask: input.parentTask === true,
+      noArtifactsReason: input.noArtifactsReason ?? null,
     });
   }
 
@@ -135,6 +150,9 @@ export class CompletionService {
       unverified: input.decision.unverified,
       forced: input.decision.implementedBy === "forced",
       forcedReason: input.decision.implementedBy === "forced" ? (input.decision.forcedReason ?? null) : null,
+      ...(input.decision.artifacts === "none" && (input.decision.noArtifactsReason ?? "") !== ""
+        ? { artifacts: "none" as const, noArtifactsReason: input.decision.noArtifactsReason ?? "" }
+        : {}),
       reason: input.reason ?? null,
       completedAt: this.now().toISOString(),
     };

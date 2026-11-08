@@ -16,6 +16,7 @@ function render(result: DeliveryResult): void {
   console.log(`任务: ${result.taskId}；分支: ${result.branch}`);
   console.log(`状态: ${result.state}${result.reason === null ? "" : `（${result.reason}）`}`);
   if (result.workCommit !== null) console.log(`业务产物提交: ${result.workCommit}`);
+  if (result.noArtifactCommit === true) console.log(`提示: ${result.noArtifactNotice ?? "本次交付没有产物提交"}`);
   if (result.metadataCommit !== null) console.log(`任务资料提交: ${result.metadataCommit}`);
   if (result.archiveCommit !== null) console.log(`归档提交: ${result.archiveCommit}`);
   for (const [label, message] of [

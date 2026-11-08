@@ -373,7 +373,7 @@ export default function (pi: any) {
       const base = pending
         ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
         : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
-      const text = [base, ...boundaryNotes(view.result)].join("\n");
+      const text = [base, ...boundaryNotes(view.result), ...(typeof view.noOutputNotice === "string" ? [view.noOutputNotice] : [])].join("\n");
       try {
         pi.sendMessage(
           { customType: NOTICE_ENTRY, content: text, display: true, details: { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature } },
@@ -929,6 +929,7 @@ export default function (pi: any) {
         if (params.reason) args.push("--reason", params.reason);
         if (params.runsSettled === true) args.push("--runs-settled");
         if (params.force === true) args.push("--force");
+        if (params.noArtifacts === true) args.push("--no-artifacts");
       }
       args.push("--dir", root);
       return toolResult(core(args), (data) => (params.action === "list" ? describeQuery(["task", "list"], data) : null));
@@ -1135,9 +1136,19 @@ export default function (pi: any) {
         const messageFiles = Array.isArray(params.messageFile) ? params.messageFile : [params.messageFile];
         for (const value of messageFiles) args.push("--message-file", String(value));
       }
-      return toolResult(core(args));
+      return toolResult(core(args), deliveryNotice);
     },
   });
+
+  /** 交付结果无产物提交时把提示放在最前（审计 F4），其余仍是完整 JSON。 */
+  function deliveryNotice(data: any): string | null {
+    const results: any[] = Array.isArray(data?.results) ? data.results.map((item: any) => item?.result) : [data];
+    const notes = results
+      .filter((result) => result?.noArtifactCommit === true)
+      .map((result) => `${result.taskId}：${result.noArtifactNotice ?? "本次交付没有产物提交"}`);
+    if (notes.length === 0) return null;
+    return [...notes, JSON.stringify({ outcome: "completed", data })].join("\n");
+  }
 
   pi.registerTool({
     name: "knit_snapshot",

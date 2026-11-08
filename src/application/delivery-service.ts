@@ -36,7 +36,7 @@ import { runSettled } from "./run-activity.js";
 import { GuardError } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
 import { validateCheckEvidence } from "./check-validation.js";
-import { locateTaskDocument, markTaskListArchiveChanged } from "./task-service.js";
+import { hasChildTasks, locateTaskDocument, markTaskListArchiveChanged } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
 import { parseConfig, defaultConfig, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { scanCredentials } from "../contracts/credentials.js";
@@ -242,6 +242,30 @@ export class DeliveryService {
   }
 
   private async run(input: DeliveryInput & { mode: "deliver" | "archive" }): Promise<DeliveryResult> {
+    const result = await this.runOperation(input);
+    return this.withArtifactNotice(normalizeRoot(input.dir), result);
+  }
+
+  /**
+   * 无产物提交的交付结果（审计 F4）：正常交付完成而 workCommit 为空时标 noArtifactCommit，
+   * 并附完成凭据中的原因；声明无产物与“成果路径没有待提交改动”分开描述。
+   */
+  private withArtifactNotice(root: string, result: DeliveryResult): DeliveryResult {
+    const noArtifactCommit = result.mode === "deliver" && result.state === "completed" && result.workCommit === null;
+    if (!noArtifactCommit) return { ...result, noArtifactCommit: false, noArtifactReason: null, noArtifactNotice: null };
+    const completion = new RunStore(root).readCompletion(result.taskId);
+    const declared = completion?.artifacts === "none";
+    const reason = (declared ? completion?.noArtifactsReason : null) ??
+      (completion?.forced === true ? completion.forcedReason : null) ??
+      completion?.reason ??
+      null;
+    const basis = declared
+      ? `完成时声明无产物：${reason ?? "未记录原因"}`
+      : `${new CompletionService({ store: this.store, now: this.now }).scopeEmpty(root, result.taskId) ? "未登记成果路径" : "成果路径没有待提交改动"}；完成原因：${reason ?? "未记录"}`;
+    return { ...result, noArtifactCommit: true, noArtifactReason: reason, noArtifactNotice: `本次交付没有产物提交（${basis}）` };
+  }
+
+  private async runOperation(input: DeliveryInput & { mode: "deliver" | "archive" }): Promise<DeliveryResult> {
     const root = normalizeRoot(input.dir);
     const caller = input.caller ?? "cli";
     const config = this.readConfig(root);
@@ -753,7 +777,7 @@ export class DeliveryService {
             throw new GuardError("check_self_modified", `任务不能完成: check_self_modified（检查 ${check.runId} 由检查者修复 ${checkerChangedPathsOf(check).length} 个路径；再派一次未改动文件的 pass 检查）`);
           }
         } else {
-          const decision = await completionService.assess({ root, taskId: input.taskId, document, raw, binding });
+          const decision = await completionService.assess({ root, taskId: input.taskId, document, raw, binding, parentTask: hasChildTasks(root, input.taskId) });
           if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
           if (decision.checkRunId !== null) {
             check = new RunStore(root).readCheck(decision.checkRunId);
@@ -1645,7 +1669,7 @@ export class DeliveryService {
     const binding = await this.store.bindings.get(taskId);
     if (binding === null) throw new GuardError("binding_missing", "任务绑定缺失，无法核对完成资格");
     const completionService = new CompletionService({ store: this.store, now: this.now, randomHex: this.randomHex });
-    const decision = await completionService.assess({ root, taskId, document, raw: before.data, binding });
+    const decision = await completionService.assess({ root, taskId, document, raw: before.data, binding, parentTask: hasChildTasks(root, taskId) });
     if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
     const facts: TaskFacts = {
       status: document.frontmatter.status,

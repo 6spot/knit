@@ -46,6 +46,8 @@ export interface RunStatusView extends RunStatusProjection {
   checkerChangedPaths: string[];
   /** 检查 run 的验证方式标注；检查者修复过路径时写明修复部分为自检，非检查 run 为 null。 */
   verificationLabel: string | null;
+  /** 空报告的实施 run 已接收时为“本轮未产生成果…”，其它为 null（审计 F4）。 */
+  noOutputNotice: string | null;
 }
 
 export interface TaskStatusView {
@@ -159,6 +161,25 @@ function checkerRepairNextActions(projection: RunStatusProjection, paths: string
   return actions;
 }
 
+/**
+ * 空报告的实施 run 已接收（审计 F4）：报告没有列出任何成果路径，scope 未增加。
+ * 只提示不拦；完成时由 empty_scope 守卫要求登记成果或显式声明无产物。
+ */
+export function noOutputNoticeOf(projection: RunStatusProjection): string | null {
+  if (projection.acceptance?.state !== "completed" || projection.acceptance.reason !== "implementation_accepted") return null;
+  const result = projection.result;
+  if (result === null || result.state !== "completed") return null;
+  const claimed = result.attribution?.claimedPaths ?? result.actualChangedPaths;
+  return claimed.length === 0 ? "本轮未产生成果：报告未列出改动路径，scope 未增加" : null;
+}
+
+function noOutputNextActions(projection: RunStatusProjection, notice: string | null): string[] {
+  if (notice === null) return [];
+  return [
+    `${notice}；产物已在工作区但未归属时用 knit task implement ${projection.taskId} --path <路径> --validation <验证> 登记，确实没有产物时 knit task close ${projection.taskId} --outcome completed --no-artifacts --reason <原因>`,
+  ];
+}
+
 export class StatusService {
   private readonly store: MetadataStore;
   private readonly now: () => Date;
@@ -199,6 +220,7 @@ export class StatusService {
     const workflow = loadWorkflow(root).workflow;
     const check = new RunStore(root).readCheck(runId);
     const checkerPaths = checkerChangedPathsOf(check);
+    const noOutputNotice = noOutputNoticeOf(projection);
     return {
       ...projection,
       taskTitle: task?.title ?? null,
@@ -213,7 +235,9 @@ export class StatusService {
         ...staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
         ...unattributedNextActions(projection),
         ...checkerRepairNextActions(projection, checkerPaths, this.taskVerificationOf(executionDir, projection.taskId)),
+        ...noOutputNextActions(projection, noOutputNotice),
       ],
+      noOutputNotice,
       checkerChangedPaths: checkerPaths,
       verificationLabel: check === null ? null : verificationLabel(this.taskVerificationOf(executionDir, projection.taskId) ?? "independent", checkerPaths),
     };

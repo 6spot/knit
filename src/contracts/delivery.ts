@@ -149,6 +149,15 @@ export interface DeliveryResult {
   needsAttention: boolean;
   /** worktree 合入／清理跟进；无 worktree 或旧操作记录为 null。 */
   worktree?: DeliveryWorktreeFollowUp | null;
+  /**
+   * 正常交付已完成但没有产物提交（workCommit 为空）；与 noArtifactReason／noArtifactNotice 一起
+   * 区分“声明无产物”“成果路径已无待提交改动”等情况（审计 F4）。其它情况为 false。
+   */
+  noArtifactCommit?: boolean;
+  /** 完成凭据中的原因（声明无产物、强制或完成说明）；无产物提交时才给出。 */
+  noArtifactReason?: string | null;
+  /** 人读提示“本次交付没有产物提交…”；有产物提交时为 null。 */
+  noArtifactNotice?: string | null;
   /** 三类提交的文案来源与首行；旧操作记录可为 null。 */
   messages: {
     artifact: DeliveryCommitMessage | null;

@@ -427,6 +427,7 @@ export function registerRunCommands(program: Command): void {
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
               for (const line of boundaryLines(status.result)) console.log(line);
               if (status.verificationLabel !== null && status.checkerChangedPaths.length > 0) console.log(`验证: ${status.verificationLabel}`);
+              if (status.noOutputNotice !== null) console.log(`提示: ${status.noOutputNotice}`);
             }
             for (const action of status.nextActions) console.log(`下一步: ${action}`);
           }

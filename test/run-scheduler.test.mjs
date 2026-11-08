@@ -108,6 +108,16 @@ function setAction(path, report = PASS_REPORT, extra = {}) {
   writeFileSync(path, action(report, extra));
 }
 
+/** 实施阶段写一个成果文件（空 scope 会被 empty_scope 守卫拒绝完成）；检查阶段覆盖该路径，其它阶段沿用 PASS_REPORT。 */
+function setWorkAction(path, file = "src/a/work.txt") {
+  setAction(path, PASS_REPORT, {
+    phases: {
+      implement: { report: { ...PASS_REPORT, changedPaths: [file] }, writes: [{ path: file, content: "work\n" }] },
+      check: { report: { ...PASS_REPORT, coverage: [file] } },
+    },
+  });
+}
+
 async function waitTerminal(root, runId, timeoutMs = 30_000) {
   const runs = new RunStore(root);
   const deadline = Date.now() + timeoutMs;
@@ -305,7 +315,7 @@ test("循环：独立任务自动接收 implement → check → deliver，未授
   const actionPath = join(f.base, "action.json");
   process.env.KNIT_PI_BIN = FAKE_PI;
   process.env.KNIT_FAKE_ACTION = actionPath;
-  setAction(actionPath);
+  setWorkAction(actionPath);
   try {
     const task = await readyTask(s, f.root, "loop-task", {
       verification: "independent",
@@ -322,6 +332,9 @@ test("循环：独立任务自动接收 implement → check → deliver，未授
     assert.equal(result.closed.length, 0);
     assert.deepEqual(result.pendingDelivery, [task.taskId]);
     assert.equal(existsSync(binding.worktree.path), true);
+    // 合入守卫拒绝源 worktree 里未提交的成果；与其它收尾用例一致，先把成果提交到执行分支。
+    git(binding.worktree.path, ["add", "--", "src/a/work.txt"]);
+    git(binding.worktree.path, ["commit", "-q", "-m", "work", "--", "src/a/work.txt"]);
     // 显式提交授权：独立检查凭据产生在 worktree 分支，合入后仍应可交付。
     const delivered = await s.scheduler.run({
       dir: f.root,
@@ -347,7 +360,7 @@ test("收尾：配置只授权合入／清理，缺少提交授权时自动关�
   const actionPath = join(f.base, "action.json");
   process.env.KNIT_PI_BIN = FAKE_PI;
   process.env.KNIT_FAKE_ACTION = actionPath;
-  setAction(actionPath);
+  setWorkAction(actionPath);
   try {
     const task = await readyTask(s, f.root, "config-only", { plan: "## 影响路径\n\n- src/a\n" });
     const first = await s.scheduler.run({ dir: f.root, mode: "until-idle", pollIntervalMs: 25 });
@@ -375,7 +388,7 @@ test("收尾：显式授权后自动 close + deliver + merge + cleanup 并记录
   const actionPath = join(f.base, "action.json");
   process.env.KNIT_PI_BIN = FAKE_PI;
   process.env.KNIT_FAKE_ACTION = actionPath;
-  setAction(actionPath);
+  setWorkAction(actionPath);
   try {
     const task = await readyTask(s, f.root, "deliver-task", { plan: "## 影响路径\n\n- src/a\n" });
     const first = await s.scheduler.run({ dir: f.root, mode: "until-idle", pollIntervalMs: 25 });

@@ -17,7 +17,11 @@ export type CompletionGuardReason =
   | "check_missing"
   | "check_not_valid"
   /** 最新检查由检查者改过成果（修复部分只算自检）；independent 须再派一次未改动文件的 pass 检查。 */
-  | "check_self_modified";
+  | "check_self_modified"
+  /** self／independent 没有任何成果路径（scope 与主会话实施记录皆空）；须显式 --no-artifacts --reason。 */
+  | "empty_scope"
+  /** 声明 --no-artifacts 但 scope／实施记录已有成果路径；声明与事实矛盾。 */
+  | "artifacts_present";
 
 export interface ImplementEvidence {
   runId: string;
@@ -52,6 +56,12 @@ export interface CompletionFacts {
   checkRunId: string | null;
   /** 最新检查凭据中检查者自行修复的路径；缺省视为空。 */
   checkerChangedPaths?: readonly string[];
+  /** 成果 scope 与主会话实施记录都没有路径；缺省视为非空（旧调用方不受影响）。 */
+  scopeEmpty?: boolean;
+  /** 存在子任务（其他任务的 parent 指向本任务）；父任务总体验收不受空 scope 守卫约束。 */
+  parentTask?: boolean;
+  /** 用户显式声明本任务没有产物（--no-artifacts）时的原因；未声明为 null。 */
+  noArtifactsReason?: string | null;
 }
 
 export interface CompletionApproval {
@@ -64,6 +74,10 @@ export interface CompletionApproval {
   unverified: string[];
   /** 强制完成的原因；仅 forced 时非空。 */
   forcedReason?: string | null;
+  /** 用户显式声明无产物（--no-artifacts）时为 none，凭据照记。 */
+  artifacts?: "none";
+  /** 声明无产物的原因；仅 artifacts=none 时非空。 */
+  noArtifactsReason?: string | null;
 }
 
 export type CompletionDecision = CompletionApproval | ({ allowed: false; reason: CompletionGuardReason });
@@ -90,8 +104,32 @@ export function checkerChangedPathsOf(check: { checkerChangedPaths?: string[]; c
  *   主会话实施记录不受阶段限制。都不要求独立检查。
  * - independent：最新正式检查当前有效且 pass；检查资格已覆盖目标、输入、规范与 scope。
  * 以上模式都不要求已有 Git 提交、交付回执或归档。
+ * 空成果守卫（审计 F4）：self／independent 在资格成立后，若 scope 与主会话实施记录都没有路径，
+ * 返回 empty_scope；用户显式声明无产物（noArtifactsReason）才完成并记 artifacts=none。
+ * none 模式、父任务（存在子任务）与用户强制完成（forced，已带原因）不受此守卫约束；
+ * 声明无产物而成果路径非空时返回 artifacts_present（声明与事实矛盾）。
  */
 export function completionDecision(facts: CompletionFacts): CompletionDecision {
+  const decision = qualificationDecision(facts);
+  if (decision.allowed === false) return decision;
+  return withArtifactsGuard(facts, decision);
+}
+
+/** 空成果守卫：资格已成立后核对是否有可交付的成果路径，或用户已显式声明无产物。 */
+export function withArtifactsGuard(
+  facts: Pick<CompletionFacts, "scopeEmpty" | "parentTask" | "noArtifactsReason">,
+  decision: CompletionApproval,
+): CompletionDecision {
+  const declared = (facts.noArtifactsReason ?? "").trim();
+  if (declared !== "") {
+    if (facts.scopeEmpty === false) return { allowed: false, reason: "artifacts_present" };
+    return { ...decision, artifacts: "none", noArtifactsReason: declared };
+  }
+  if (decision.mode === "none" || decision.implementedBy === "forced" || facts.parentTask === true || facts.scopeEmpty !== true) return decision;
+  return { allowed: false, reason: "empty_scope" };
+}
+
+function qualificationDecision(facts: CompletionFacts): CompletionDecision {
   if (facts.status !== "open" || facts.outcome !== null) return { allowed: false, reason: "task_not_open" };
   if (facts.pendingKind !== null) return { allowed: false, reason: "pending_draft_exists" };
 

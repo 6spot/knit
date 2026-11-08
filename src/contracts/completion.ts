@@ -28,6 +28,10 @@ export const CompletionFileSchema = obj(
     /** 用户强制完成：跳过完成资格证据核对，原因必填。 */
     forced: opt(bool()),
     forcedReason: opt(union([str(), nul()])),
+    /** 用户显式声明无产物（task close --no-artifacts）；旧凭据缺省。 */
+    artifacts: opt(lit("none")),
+    /** 声明无产物的原因；仅 artifacts=none 时存在。 */
+    noArtifactsReason: opt(str({ minLength: 1 })),
     reason: union([str(), nul()]),
     completedAt: str({ minLength: 1 }),
   },

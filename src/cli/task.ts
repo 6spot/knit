@@ -725,6 +725,7 @@ export function registerTaskCommands(program: Command): void {
     .option("--reason <reason>", "完成判断或结束说明；写入完成凭据")
     .option("--runs-settled", "确认该任务活动／未知运行与待接收结果已收敛", false)
     .option("--force", "强制完成：跳过完成资格证据核对，必须在 --reason 写明原因", false)
+    .option("--no-artifacts", "显式声明本任务没有产物：空 scope 的 self／independent 才能完成，必须在 --reason 写明原因")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (taskId, options) => {
       const requestId = `task-close-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -746,9 +747,10 @@ export function registerTaskCommands(program: Command): void {
             reason: options.reason,
             runsSettled: options.runsSettled === true,
             force: options.force === true,
+            noArtifacts: options.artifacts === false,
           }),
         (result) => {
-          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.verification ? `（${result.verification}${result.forced ? "，强制" : ""}）` : ""}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
+          console.log(`任务已关闭: ${result.taskId} → ${result.status}/${result.outcome}${result.verification ? `（${result.verification}${result.forced ? "，强制" : ""}${result.artifacts === "none" ? "，声明无产物" : ""}）` : ""}${result.pendingWithdrawn ? "（未应用草案已撤回留记录）" : ""}`);
         },
       );
     });

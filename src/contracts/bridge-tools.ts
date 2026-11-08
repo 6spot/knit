@@ -69,6 +69,8 @@ export const TaskToolSchema = obj(
     executor: opt(union([lit("main-session"), lit("user")])),
     /** task close：跳过完成资格证据核对，必须有 reason。 */
     force: opt(bool()),
+    /** task close：显式声明无产物，空 scope 的 self／independent 才能完成，必须有 reason。 */
+    noArtifacts: opt(bool()),
     applyPending: opt(bool()),
     withdrawPending: opt(bool()),
     expectPending: opt(str()),
