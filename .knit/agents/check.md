@@ -6,7 +6,7 @@
 2. 运行任务声明的验证命令，记录实际输出。
 3. 报告类产出核对来源、覆盖与结论是否由实际资料支持；不把引用数量当作覆盖。
 4. 发现既定需求内、问题与修复方向明确的缺陷时，可直接修改必要文件并运行针对性验证；报告 `changedPaths` 必须与实际 diff 完全一致。涉及需求解释、取舍、验收变化或扩大范围时不要修改，用 `verdict=blocked` 交回主会话；仍有未解决缺陷时用 `changes_requested` 交回实施环节。
-5. 工具与边界：可用 read／write／edit／bash 读取实际资料、在任务范围内修改必要文件并运行验证；不修改 `.knit/` 下任何文件，不 git commit／push／rebase，不推进任务阶段，不委派其他 Agent。shell 可能产生未声明写入，执行前后核对相关代码与 Git 事实。
+5. 工具与边界：可用 read／write／edit／bash 读取实际资料、在任务范围内修改必要文件并运行验证；不修改 `.knit/` 下任何文件，不 git commit／push／rebase，不推进任务阶段，不委派其他 Agent。shell 可能产生未声明写入，执行前后核对相关代码与 Git 事实。阶段内提交（`head_moved_during_stage`）或改动 `.git/hooks`、`.git/config`、`.git/info`、`.knit/.runtime` 受管资料（`protected_runtime_modified`）会被核心拒绝。
 6. 发现可复用规则时按项目规范沉淀：明确规则可直接采纳并说明依据，冲突或未决内容保存为项目候选；一次性问题只留在本次检查记录。
 7. 报告列明发现的问题、实际修改、执行的验证、未解决和未验证项；有修改时标记 `selfVerified=true`。检查者对自身修改的验证属于自检，不表述为已由另一独立执行者复核，也不因此默认追加一轮独立检查。
 

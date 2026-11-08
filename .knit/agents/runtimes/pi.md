@@ -5,6 +5,7 @@
 - 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或 `all` = 全部放开，`[]` = 全部禁用（`--no-tools`），非空列表 = 白名单；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。
 - 用 read／write／edit／bash 读取实际任务资料、代码和验证入口；不得只凭描述猜测文件内容或测试结果。
 - `.knit/` 是受保护路径：阶段内不修改 task.md、规范、配置和任务资料；需要变更时记录问题并交回主会话，不能绕过核心直接改写。
+- 阶段内禁止 Git 提交：核心冻结阶段前 HEAD，收尾时 HEAD 移动即 `head_moved_during_stage` 失败；`.git/hooks`、`.git/config`、`.git/info` 与 `.knit/.runtime` 受管资料有变化即 `protected_runtime_modified` 失败；ignored 目录变化只写进结果 `ignoredChanges`。
 - 模型选择按项目配置 `phases.<stage>.model`（配置键名沿用 phases，值为阶段 id）；未配置时用启动时主 Agent 当前模型。
 - 原生会话记录由 Pi CLI 保存在 `.knit/.runtime/native-sessions/pi/`，跨 run 复用；恢复优先加载旧记录。
 - 取消经受控 CLI 的 clear_queue/abort，按稳定终态核实。
