@@ -13,4 +13,10 @@
 
 按任务要求执行范围验证并记录实际结果、未验证项和限制；`independent` 任务完成自检后交独立检查，`self`／`none` 任务按完成条件交主会话收束。不宣称未验证的结果。
 
-最终报告使用 `StageReportSchema` 的实施字段：`summary` 概括产出与实际执行的验证；`changedPaths` 列出实际改动的项目相对路径，必须与实际 diff 完全一致；`unverified` 列出未执行或证据不足的验证。阶段、修复次数和结果接收由核心决定，报告不自行推进任务。
+最终报告使用 `StageReportSchema` 的实施字段：`summary` 概括产出与实际执行的验证；`changedPaths` 列出本 run 实际改动的项目相对路径；`unverified` 列出未执行或证据不足的验证。阶段、修复次数和结果接收由核心决定，报告不自行推进任务。
+
+改动来源归属：核心从本 run 原生会话解析 `write`／`edit` 的目标路径，作为“Agent 确定写过”的集合。
+- 用 `write`／`edit` 改的文件必须列进 `changedPaths`，漏列判 `changed_paths_mismatch`；
+- 用 bash 等其它方式产生、且属于本任务成果的文件照实列出，核心记为来源不明，接收挂起 `needs_attention: unattributed_paths`，由主会话确认，不要为此改用别的写法；
+- 不属于本 run 的改动（用户同时写的文件、之前轮次已被接收的成果）不要列出，未列出且非工具写入的改动由核心记为外部改动，不并入成果；
+- 任务上有失败或取消 run 的残留时，要继续这份工作就把残留路径列进 `changedPaths` 声明继承：指纹未变的沿用并入，已变的按本 run 改动处理。

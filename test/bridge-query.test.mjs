@@ -375,7 +375,7 @@ test("桥接按 workflow.yaml 派生阶段 schema；读取失败退回字符串�
     ].join("\n"));
     const { host } = await loadBridge(dir);
     const runStages = host.tools.get("knit_run").parameters.properties.action.anyOf.map((entry) => entry.const);
-    assert.deepEqual(runStages, ["build", "verify", "status", "list", "resume", "cancel"], "run.action 按配置派生");
+    assert.deepEqual(runStages, ["build", "verify", "status", "list", "resume", "cancel", "accept"], "run.action 按配置派生");
     const contextStages = host.tools.get("knit_context").parameters.properties.stage.anyOf.map((entry) => entry.const);
     assert.deepEqual(contextStages, ["start", "build", "verify", "deliver"], "context.stage 按配置派生");
     const workflowTool = host.tools.get("knit_workflow");

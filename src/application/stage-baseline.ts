@@ -339,8 +339,7 @@ export function inspectStageBoundary(baseline: StageBaseline, context: BoundaryC
     if (listed.code === 0) commits = listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line !== "");
   }
   const indexDigest = indexDigestOf(dir, git);
-  const extra = [...Object.keys(baseline.worktree.entries), ...pathsSinceBase(dir, baseline.summary.head, git)];
-  const worktree = worktreeSignature(dir, git, extra);
+  const worktree = observeWorktreeSince(baseline, context);
   return {
     worktree,
     facts: {
@@ -354,6 +353,17 @@ export function inspectStageBoundary(baseline: StageBaseline, context: BoundaryC
     },
     ignoredChanges: diffIgnored(baseline.ignored, ignoredSummary(context, git)),
   };
+}
+
+/**
+ * 基线以来的工作区签名（基线脏路径 ∪ 当前 Git 可见改动 ∪ 基线提交以来的改动路径）；
+ * 失败／取消收尾也用它取实际差异，作为任务残留的来源。
+ */
+export function observeWorktreeSince(baseline: StageBaseline, context: BoundaryContext): WorktreeSignature | null {
+  const git = context.git ?? gitSync;
+  const dir = context.executionDir;
+  const extra = [...Object.keys(baseline.worktree.entries), ...pathsSinceBase(dir, baseline.summary.head, git)];
+  return worktreeSignature(dir, git, extra);
 }
 
 /** `protected_runtime_modified:<paths>`；路径过多时截断并注明总数。 */

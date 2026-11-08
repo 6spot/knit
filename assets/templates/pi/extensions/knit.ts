@@ -150,7 +150,7 @@ export default function (pi: any) {
     const base = schemas && schemas[name] ? JSON.parse(JSON.stringify(schemas[name])) : { type: "object" };
     if (configuredStages === null) return base;
     if (name === "run" && base.properties?.action) {
-      base.properties.action = stageEnum([...configuredStages, "status", "list", "resume", "cancel"]);
+      base.properties.action = stageEnum([...configuredStages, "status", "list", "resume", "cancel", "accept"]);
     }
     if (name === "context" && base.properties?.stage) {
       base.properties.stage = stageEnum(["start", ...configuredStages, "deliver"]);
@@ -395,6 +395,14 @@ export default function (pi: any) {
     }
     if (result?.boundary?.headMoved === true && Array.isArray(result.boundary.commits)) {
       notes.push(`阶段内提交 ${result.boundary.commits.length} 个，未接收；请自行处理提交后重派。`);
+    }
+    const external = Array.isArray(result?.externalChanges) ? result.externalChanges : [];
+    if (external.length > 0) {
+      notes.push(`外部改动（未并入 scope）：${external.slice(0, 5).join(", ")}${external.length > 5 ? ` 等 ${external.length} 项` : ""}`);
+    }
+    const unattributed = Array.isArray(result?.attribution?.unattributedPaths) ? result.attribution.unattributedPaths : [];
+    if (unattributed.length > 0) {
+      notes.push(`来源不明，待确认：${unattributed.slice(0, 5).join(", ")}${unattributed.length > 5 ? ` 等 ${unattributed.length} 项` : ""}；用 knit_run action=accept 带 include／exclude 确认。`);
     }
     const ignored = Array.isArray(result?.ignoredChanges) ? result.ignoredChanges : [];
     if (ignored.length > 0) {
@@ -955,7 +963,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_run",
     label: "Knit run",
-    description: "派发正式任务的配置阶段（action 为 workflow.yaml 阶段 id）、查询、恢复或取消 run；无任务直接执行或使用宿主委派，不派发 Knit worker。",
+    description: "派发正式任务的配置阶段（action 为 workflow.yaml 阶段 id）、查询、恢复、取消或接收 run（accept 可带 include／exclude 确认来源不明路径）；无任务直接执行或使用宿主委派，不派发 Knit worker。",
     parameters: schema("run"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const model = ctx?.model;
@@ -992,6 +1000,20 @@ export default function (pi: any) {
       if (params.action === "cancel") {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run cancel 需要合法 runId");
         return toolResult(core(["run", "cancel", params.runId, "--reason", params.reason ?? "bridge cancel", "--dir", root]));
+      }
+      if (params.action === "accept") {
+        // 来源不明路径的确认出口（needs_attention: unattributed_paths）：--include 并入、--exclude 排除，确认人记主会话。
+        if (!params.runId || safeId(params.runId, "run-") === null) return failText("run accept 需要合法 runId");
+        const args = ["run", "accept", params.runId, "--dir", root];
+        const include = Array.isArray(params.include) ? params.include.filter((path: unknown) => typeof path === "string" && path !== "") : [];
+        const exclude = Array.isArray(params.exclude) ? params.exclude.filter((path: unknown) => typeof path === "string" && path !== "") : [];
+        if (include.length > 0) args.push("--include", ...include);
+        if (exclude.length > 0) args.push("--exclude", ...exclude);
+        if (include.length > 0 || exclude.length > 0) {
+          args.push("--by", state.nativeSessionId ? `pi:${state.nativeSessionId}` : "pi");
+          if (typeof params.reason === "string" && params.reason !== "") args.push("--reason", params.reason);
+        }
+        return toolResult(core(args));
       }
       if (params.action === "check" && Array.isArray(params.scope) && params.scope.length > 0) {
         const args = ["run", "check", "--scope", ...params.scope, "--dir", root];

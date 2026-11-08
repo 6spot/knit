@@ -30,6 +30,8 @@ export function taskLabel(view: {
 export function boundaryLines(result: {
   boundary?: { headMoved: boolean; commits: string[]; indexChanged: boolean; protectedPaths: string[] };
   ignoredChanges?: Array<{ path: string; change: string }>;
+  externalChanges?: string[];
+  attribution?: { source: string; unattributedPaths?: string[]; inheritedPaths?: string[] };
 }): string[] {
   const lines: string[] = [];
   const boundary = result.boundary;
@@ -38,6 +40,14 @@ export function boundaryLines(result: {
     if (boundary.protectedPaths.length > 0) lines.push(`敏感区改动: ${boundary.protectedPaths.slice(0, 10).join(", ")}${boundary.protectedPaths.length > 10 ? ` 等 ${boundary.protectedPaths.length} 项` : ""}`);
     if (boundary.indexChanged) lines.push("index: 阶段内有变化（仅记录）");
   }
+  const list = (paths: string[]) => `${paths.slice(0, 10).join(", ")}${paths.length > 10 ? ` 等 ${paths.length} 项` : ""}`;
+  const external = result.externalChanges ?? [];
+  if (external.length > 0) lines.push(`外部改动（未并入 scope）: ${list(external)}`);
+  const unattributed = result.attribution?.unattributedPaths ?? [];
+  if (unattributed.length > 0) lines.push(`来源不明（待 run accept --include／--exclude 确认）: ${list(unattributed)}`);
+  const inherited = result.attribution?.inheritedPaths ?? [];
+  if (inherited.length > 0) lines.push(`继承失败残留: ${list(inherited)}`);
+  if (result.attribution?.source === "unavailable") lines.push("来源归属: 原生会话不可读，改动全部按来源不明处理");
   const ignored = result.ignoredChanges ?? [];
   if (ignored.length > 0) {
     lines.push(`忽略区变化（仅报告）: ${ignored.slice(0, 10).map((item) => `${item.path}(${item.change})`).join(", ")}${ignored.length > 10 ? ` 等 ${ignored.length} 项` : ""}`);

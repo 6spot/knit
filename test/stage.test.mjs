@@ -644,12 +644,12 @@ test("报告改动路径与实际不符时不接收，失败原因带实际路�
   }
 });
 
-test("树基线已含改动时重派为零 diff，失败原因标注 zero_diff", async () => {
+test("树基线已含改动时重派：失败残留可声明继承，未声明且有虚报时仍标注 zero_diff", async () => {
   const dir = project("zero-diff");
   const s = services(dir);
   try {
     const task = await readyTask(dir, s);
-    // 第一次实施真实写入 README，但报告了错误路径：拒绝并保留实际改动在树中。
+    // 第一次实施真实写入 README，但报告了错误路径：拒绝并保留实际改动在树中，记为任务残留。
     const first = await startRun(s, dir, task.taskId, "implement", {
       writes: [{ path: "README.md", content: "# actual\n" }],
       report: { summary: "报告路径错误", changedPaths: ["other.txt"] },
@@ -658,18 +658,31 @@ test("树基线已含改动时重派为零 diff，失败原因标注 zero_diff",
     assert.equal(firstStatus.state, "failed");
     assert.equal(firstStatus.result.failureReason, "changed_paths_mismatch:README.md");
     assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# actual\n");
+    const runs = new RunStore(dir);
+    assert.deepEqual(runs.readResidue(task.taskId).entries.map((entry) => [entry.path, entry.toolWritten]), [["README.md", true]]);
 
-    // 未还原基线即重派：本次观察不到差异，正确拒绝并明确标注 zero_diff。
+    // 未还原基线即重派、报告虚报不存在的路径：本次观察不到差异，仍拒绝并标注 zero_diff。
+    const bogus = await startRun(s, dir, task.taskId, "implement", {
+      report: { summary: "重派", changedPaths: ["other.txt"] },
+    });
+    const bogusStatus = await waitTerminal(s, dir, bogus.runId);
+    assert.equal(bogusStatus.state, "failed");
+    assert.equal(bogusStatus.result.failureReason, "changed_paths_mismatch:zero_diff");
+    assert.deepEqual(bogusStatus.result.actualChangedPaths, []);
+
+    // 报告列出残留即声明继承：指纹未变、原 run 由 write 写入，按“沿用”并入 scope。
     const second = await startRun(s, dir, task.taskId, "implement", {
-      report: { summary: "重派", changedPaths: ["README.md"] },
+      report: { summary: "继承上一轮", changedPaths: ["README.md"] },
     });
     const secondStatus = await waitTerminal(s, dir, second.runId);
-    assert.equal(secondStatus.state, "failed");
-    assert.equal(secondStatus.result.failureReason, "changed_paths_mismatch:zero_diff");
+    assert.equal(secondStatus.state, "completed", secondStatus.result.failureReason ?? "");
+    assert.equal(secondStatus.acceptance.state, "completed");
     assert.deepEqual(secondStatus.result.actualChangedPaths, []);
+    assert.deepEqual(secondStatus.result.attribution.inheritedPaths, ["README.md"]);
+    assert.deepEqual(runs.readScope(task.taskId).entries.map((entry) => entry.path), ["README.md"]);
+    assert.equal(runs.readResidue(task.taskId).entries.length, 0, "已并入的残留被消费");
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
-    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
-    assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);
+    assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -1487,13 +1500,27 @@ test("原生引用不可恢复时保留执行结果，不把会话失败当代�
       report: { summary: "实现", changedPaths: ["README.md"] },
     });
     const status = await waitTerminal(s, dir, impl.runId);
-    assert.equal(status.state, "completed");
+    // 执行结果完成；接收挂起使 run state 收敛为 acceptance_ 失败（不占用任务），确认接收后回到 completed。
+    assert.equal(status.state, "failed");
+    assert.match(status.reason ?? "", /^acceptance_unattributed_paths/);
     assert.equal(status.result.state, "completed");
     assert.equal(status.result.session.nativeReadable, false);
     assert.equal(status.result.session.status, "opening");
     assert.equal(status.result.session.resumeReason, "no_previous_session");
     assert.equal(status.result.nativeEntries.startEntryId, null);
-    assert.equal(status.acceptance.state, "completed");
+    // 原生会话不可读：改动来源无法核实，全部按来源不明挂起，等主会话确认（不重跑模型）。
+    assert.equal(status.result.attribution.source, "unavailable");
+    assert.deepEqual(status.result.attribution.unattributedPaths, ["README.md"]);
+    assert.equal(status.acceptance.state, "needs_attention");
+    assert.equal(status.acceptance.reason, "unattributed_paths:README.md");
+    const accepted = await s.acceptance.accept({
+      dir,
+      runId: impl.runId,
+      decision: { include: ["README.md"], exclude: [], confirmedBy: "test", reason: "核对过内容" },
+    });
+    assert.equal(accepted.accepted, true, accepted.reason ?? "");
+    assert.deepEqual(new RunStore(dir).readScope(task.taskId).entries.map((entry) => entry.path), ["README.md"]);
+    assert.equal((await s.coordinator.status({ dir, runId: impl.runId })).state, "completed");
   } finally {
     if (previous === undefined) delete process.env.KNIT_FAKE_NO_FILE;
     else process.env.KNIT_FAKE_NO_FILE = previous;

@@ -48,14 +48,24 @@ let completed = false;
 function completeNow(spec) {
   if (completed) return;
   completed = true;
+  // 写入按工具调用记录到原生会话（write；via:"bash" 记 bash 调用），供改动来源归属解析。
   for (const write of spec.writes ?? []) {
     const target = join(cwd, write.path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, write.content ?? "");
+    const tool = write.via === "bash" ? "bash" : write.via === "edit" ? "edit" : "write";
+    toolCall(tool, tool === "bash" ? { command: `cat > ${write.path}` } : { path: write.toolPath ?? write.path, content: write.content ?? "" }, write.toolError === true);
   }
-  // 测试钩子：模拟阶段内 shell 副作用（如 git add／commit）；按顺序在 cwd 执行 argv。
+  // 测试钩子：模拟用户在 run 期间并发写入（不经任何工具调用，原生会话无记录）。
+  for (const write of spec.external ?? []) {
+    const target = join(cwd, write.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, write.content ?? "");
+  }
+  // 测试钩子：模拟阶段内 shell 副作用（如 git add／commit）；按顺序在 cwd 执行 argv，记 bash 调用。
   for (const command of spec.exec ?? []) {
     spawnSync(command[0], command.slice(1), { cwd, stdio: "ignore" });
+    toolCall("bash", { command: command.join(" ") }, false);
   }
   lastText = spec.text ?? "```json\n" + JSON.stringify(spec.report ?? { summary: "fake report" }) + "\n```";
   usage = { input: usage.input + 100, output: usage.output + 20, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, total: usage.total + 120 };
@@ -82,6 +92,13 @@ function entry(type, data) {
   }
   parentId = id;
   return id;
+}
+let toolSeq = 0;
+function toolCall(name, args, isError) {
+  toolSeq += 1;
+  const id = `fake-tool-${toolSeq}`;
+  entry("message", { message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] } });
+  entry("message", { message: { role: "toolResult", toolCallId: id, toolName: name, isError, content: [] } });
 }
 function respond(id, data) {
   send({ type: "response", id, success: true, data });

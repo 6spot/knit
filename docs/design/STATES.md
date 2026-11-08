@@ -149,7 +149,28 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，实施阶段接收时合并；检查阶段凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要。检查阶段可在既定需求内直接修复明确缺陷：报告 `changedPaths` 与实际 diff 一致且接收通过时，改动并入 scope 并更新检查凭据的 scope 摘要；未声明改动、外部改动或摘要不符时转 `scope_changed`。阶段 run 的结果在报告校验前先过边界核对（DESIGN §5.1）：阶段内提交为 `failed: head_moved_during_stage`、敏感区改动为 `failed: protected_runtime_modified:<paths>`，两者都不接收、不并入 scope、任务阶段不前进；index 与忽略区变化只记录在结果 `boundary`／`ignoredChanges`。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
+scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，实施阶段接收时合并；检查阶段凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要。检查阶段可在既定需求内直接修复明确缺陷：报告 `changedPaths` 经来源归属核对通过且接收通过时，改动并入 scope 并更新检查凭据的 scope 摘要；已并入路径在接收前被改动或摘要不符时转 `scope_changed`，外部改动按下文来源归属处理。阶段 run 的结果在报告校验前先过边界核对（DESIGN §5.1）：阶段内提交为 `failed: head_moved_during_stage`、敏感区改动为 `failed: protected_runtime_modified:<paths>`，两者都不接收、不并入 scope、任务阶段不前进；index 与忽略区变化只记录在结果 `boundary`／`ignoredChanges`。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。
+
+改动来源归属（任务 k-fdfd8c171736，主检出执行时生效；worktree 执行目录本身隔离，差异全部视为本 run 写入）：
+
+| 路径事实 | 处理 |
+| --- | --- |
+| 报告列出且本 run 原生会话有 `write`／`edit` 写入 | 正常接收，并入 scope |
+| 有差异、报告列出但非工具写入（bash 产物等）；原生会话不可读时的全部差异 | 接收 `needs_attention: unattributed_paths:<paths>`，run state 收敛为 `failed`（`acceptance_unattributed_paths…`），不并入 scope、任务不前进；`run accept <runId> --include／--exclude <path>...` 确认后重新接收，run state 回到 completed |
+| 报告未列出、也非工具写入 | 外部改动：写结果 `externalChanges`，不并入 scope，不让整轮失败，之后的变化也不核 |
+| 工具写入却未列出；报告列出的路径既无差异也不是残留 | 报告不实，`failed: changed_paths_mismatch`（零差异时 `:zero_diff`） |
+
+确认记录写 `runs/<run>/attribution.json`（include／exclude、确认人、原因、时间）；只接受该 run 来源不明集合里的路径，同一路径不能既并入又排除，已完成接收后不再改写。`--include` 按确认时的当前指纹并入 scope；被排除的路径不进 scope、不进交付，交付预检与外部改动一起提醒。
+
+失败残留：失败或取消的 run 在接收时把 `actualChangedPaths` 与发布时指纹记为任务级 `tasks/<id>/residue.json`（不进 scope，`.knit/**` 不记）；没有结果、确认 worker 与阶段 Pi 已死后收敛的旧 run，以其快照比较当前工作区，变化记为来源不明的残留。下一个 run 的报告列出残留路径即声明继承：
+
+| 残留事实 | 处理 |
+| --- | --- |
+| 本 run 有差异 | 按本 run 改动处理（工具写入正常接收，否则来源不明） |
+| 本 run 无差异、指纹未变、原 run 由 `write`／`edit` 写入 | 沿用并入 scope（结果 `attribution.inheritedPaths`） |
+| 本 run 无差异、指纹已变或原 run 来源不明 | 来源不明，等主会话确认 |
+
+并入或被排除的残留在接收检查点收敛时从 `residue.json` 移除；未处理的残留在交付预检中提醒。由此不再出现“不列残留判 `zero_diff`、列出判 `report_changed_paths_missing`”的死路。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选与沉淀
 

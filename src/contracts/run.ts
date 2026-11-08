@@ -216,6 +216,26 @@ export const IgnoredChangeSchema = obj({
 });
 export type IgnoredChange = Static<typeof IgnoredChangeSchema>;
 
+/** 改动来源归属事实（DESIGN §5.3）：只认原生会话里的 write／edit 工具目标。 */
+export const RunAttributionSchema = obj({
+  /**
+   * native_session：已从本 run 原生会话解析；unavailable：会话不可读或范围不可定位，全部路径按来源不明处理；
+   * isolated：worktree 执行目录本身隔离，实际差异全部视为本 run 写入。
+   */
+  source: union([lit("native_session"), lit("unavailable"), lit("isolated")]),
+  /** write／edit 工具调用的目标（项目相对路径，未必有差异）。 */
+  toolPaths: arr(str({ minLength: 1 })),
+  /** 报告 paths 字段中被接受的路径（含来源不明与继承）；接收按它复核报告。 */
+  claimedPaths: opt(arr(str({ minLength: 1 }))),
+  /** 报告列出且属 write／edit 写入：正常并入 scope。 */
+  attributedPaths: opt(arr(str({ minLength: 1 }))),
+  /** 来源不明、需主会话 `run accept --include/--exclude` 确认的路径；接收挂起 needs_attention: unattributed_paths。 */
+  unattributedPaths: opt(arr(str({ minLength: 1 }))),
+  /** 报告声明继承的失败残留（本 run 观察不到差异的路径）。 */
+  inheritedPaths: opt(arr(str({ minLength: 1 }))),
+});
+export type RunAttribution = Static<typeof RunAttributionSchema>;
+
 /** 不可变 run 结果；先写 result 再收敛 state，接收由固定 operation 复核。 */
 export const RunResultFileSchema = obj(
   {
@@ -260,9 +280,48 @@ export const RunResultFileSchema = obj(
     boundary: opt(StageBoundaryFactsSchema),
     /** 忽略区目录级变化；只报告不判失败。 */
     ignoredChanges: opt(arr(IgnoredChangeSchema)),
+    /** 改动来源：本 run 原生会话中 write／edit 工具的目标路径；会话不可读时 source=unavailable。旧结果缺省。 */
+    attribution: opt(RunAttributionSchema),
+    /** 报告未列出、也非工具写入的外部改动；不并入 scope、不让整轮失败。 */
+    externalChanges: opt(arr(str({ minLength: 1 }))),
   },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;
+
+/** 失败／取消 run 留下的改动（任务级，不进 scope）；下一个 run 的报告列出即声明继承。 */
+export const ResidueEntrySchema = obj({
+  path: str({ minLength: 1 }),
+  digest: union([str({ minLength: 1 }), nul()]),
+  absent: bool(),
+  factsKind: opt(union([lit("file"), lit("directory"), lit("link"), lit("absent")])),
+  mode: opt(union([str({ minLength: 1 }), nul()])),
+  /** 留下该残留的 run。 */
+  runId: str({ minLength: 1 }),
+  /** 该 run 的原生会话中由 write／edit 写入；false 表示来源不明，继承时仍需确认。 */
+  toolWritten: bool(),
+});
+export type ResidueEntry = Static<typeof ResidueEntrySchema>;
+
+export const ResidueFileSchema = obj({
+  schemaVersion: lit(1),
+  taskId: str({ minLength: 1 }),
+  entries: arr(ResidueEntrySchema),
+  updatedAt: str({ minLength: 1 }),
+});
+export type ResidueFile = Static<typeof ResidueFileSchema>;
+
+/** `run accept --include/--exclude` 的确认记录：确认人、原因与路径决定。 */
+export const AttributionConfirmationSchema = obj({
+  schemaVersion: lit(1),
+  runId: str({ minLength: 1 }),
+  taskId: str({ minLength: 1 }),
+  include: arr(str({ minLength: 1 })),
+  exclude: arr(str({ minLength: 1 })),
+  confirmedBy: str({ minLength: 1 }),
+  reason: union([str(), nul()]),
+  confirmedAt: str({ minLength: 1 }),
+});
+export type AttributionConfirmation = Static<typeof AttributionConfirmationSchema>;
 
 /** 终态回执；result 先持久化、state 再收敛，终态不覆写。 */
 export const RunResultSchema = obj(

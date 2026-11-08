@@ -18,6 +18,8 @@ import {
   RunStageProcessSchema,
   RunStateFileSchema,
   ScopeFileSchema,
+  ResidueFileSchema,
+  AttributionConfirmationSchema,
   CheckFileSchema,
   SnapshotManifestSchema,
   SNAPSHOT_MANIFEST_VERSION,
@@ -33,6 +35,8 @@ import {
   type RunStageProcess,
   type RunStateFile,
   type ScopeFile,
+  type ResidueFile,
+  type AttributionConfirmation,
   type SnapshotManifest,
 } from "../contracts/run.js";
 import { AcceptanceJournalSchema, type AcceptanceJournal } from "../contracts/acceptance.js";
@@ -291,6 +295,43 @@ export class RunStore {
     atomicWrite({
       path,
       data: Buffer.from(JSON.stringify(scope, null, 2) + "\n"),
+      expectedSha256: readWithVersion(path)?.sha256 ?? null,
+      mode: 0o600,
+    });
+  }
+
+  residuePath(taskId: string): string {
+    return join(this.root, ".knit", ".runtime", "tasks", taskId, "residue.json");
+  }
+
+  /** 失败／取消 run 的残留（任务级，不进 scope）；接收写入，后续 run 声明继承时消费。 */
+  readResidue(taskId: string): ResidueFile | null {
+    return parseJson<ResidueFile>(this.residuePath(taskId), ResidueFileSchema, "residue.json");
+  }
+
+  writeResidue(taskId: string, residue: ResidueFile): void {
+    if (!checkSchema(ResidueFileSchema, residue)) throw new InfrastructureError("io_error", "residue 结构不符");
+    const path = this.residuePath(taskId);
+    privateDir(join(this.root, ".knit", ".runtime", "tasks", taskId));
+    atomicWrite({
+      path,
+      data: Buffer.from(JSON.stringify(residue, null, 2) + "\n"),
+      expectedSha256: readWithVersion(path)?.sha256 ?? null,
+      mode: 0o600,
+    });
+  }
+
+  /** 来源确认记录（run accept --include/--exclude）；每 run 至多一份，重复确认按最新覆盖。 */
+  readAttributionConfirmation(runId: string): AttributionConfirmation | null {
+    return parseJson<AttributionConfirmation>(join(this.runDir(runId), "attribution.json"), AttributionConfirmationSchema, "attribution.json");
+  }
+
+  writeAttributionConfirmation(runId: string, confirmation: AttributionConfirmation): void {
+    if (!checkSchema(AttributionConfirmationSchema, confirmation)) throw new InfrastructureError("io_error", "attribution 结构不符");
+    const path = join(this.runDir(runId), "attribution.json");
+    atomicWrite({
+      path,
+      data: Buffer.from(JSON.stringify(confirmation, null, 2) + "\n"),
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });

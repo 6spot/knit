@@ -31,7 +31,7 @@
 | `validation` | 固定字段 | string[]，可省略；给出时必须为字符串数组 | 每项记录方法、结果与证据；未执行标 `not_run` |
 | `blockers` | 固定字段 | string[]，可省略；给出时必须为字符串数组 | 阻塞或待决事项；无则空数组 |
 | 阶段声明字段 | 按 `report` | `string`／`string[]`／`paths`／`bool`／非空枚举数组 | 按声明类型校验；未声明只校验固定字段 |
-| `changedPaths` | 当阶段声明 `paths` 时 | string[]，通常名为 `changedPaths` | 路径与实际 Git 可见差异完全一致，不得省略实际改动、不得虚报未改文件 |
+| `changedPaths` | 当阶段声明 `paths` 时 | string[]，通常名为 `changedPaths` | 列出本 run 实际改动：`write`／`edit` 写过的不得省略，bash 等产出照实列出（来源不明、交主会话确认），不列外部改动与之前轮次成果，不得虚报未改文件；列出失败残留即声明继承（DESIGN §5.3） |
 
 `onVerdict` 的键必须是某报告枚举字段声明的值，目标必须是已声明阶段 id 或 `deliver`；未命中走顺序下一阶段。回退目标必须是有限环，阶段访问超过 `maxVisits` 时停止并报告 `repair_round_limit`。
 

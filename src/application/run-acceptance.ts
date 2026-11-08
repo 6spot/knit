@@ -44,6 +44,8 @@ import { sha256Bytes } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
+import { GuardError } from "./guard-error.js";
+import { consumeResidue, recordResidue, residueFromResult } from "./residue.js";
 
 /** 接收取任务＋state 短锁的最长等待：worker 收尾不应因主会话短写失败。 */
 const ACCEPT_LOCK_WAIT_MS = 5_000;
@@ -65,6 +67,15 @@ export interface AcceptanceResult {
   verdict: string | null;
 }
 
+/** `run accept --include/--exclude`：主会话对来源不明路径的确认。 */
+export interface AttributionDecision {
+  include: string[];
+  exclude: string[];
+  /** 确认人：CLI 缺省 `cli`，桥接传主会话身份。 */
+  confirmedBy: string;
+  reason: string | null;
+}
+
 export class RunAcceptanceService {
   private readonly store: MetadataStore;
   private readonly locks: LockManager;
@@ -83,11 +94,14 @@ export class RunAcceptanceService {
    * 因此 worker 持租约时可直接接收，外部 run accept 也不被其它执行目录的占用阻塞。
    * 返回 accepted=false 时 operation 置 needs_attention，保留现场供人工核对。
    */
-  async accept(input: { dir: string; runId: string }): Promise<AcceptanceResult> {
+  async accept(input: { dir: string; runId: string; decision?: AttributionDecision }): Promise<AcceptanceResult> {
     const root = normalizeRoot(input.dir);
     const runs = new RunStore(root);
     const request = runs.readRequest(input.runId);
     if (request === null) throw new InfrastructureError("io_error", `run 不存在: ${input.runId}`);
+    const decision = input.decision !== undefined && (input.decision.include.length > 0 || input.decision.exclude.length > 0)
+      ? input.decision
+      : null;
     let result = null;
     try {
       result = runs.readResult(input.runId);
@@ -96,6 +110,9 @@ export class RunAcceptanceService {
     }
     const operationId = request.acceptanceOperationId;
     const operation = await this.store.operations.get(operationId);
+    if (operation?.state === "completed" && decision !== null) {
+      throw new GuardError("already_accepted", `run 已完成接收，确认不再生效: ${request.runId}`);
+    }
     if (operation?.state === "completed") {
       if (result?.state === "completed") this.reconcileState(runs, request);
       const journalStage = runs.readAcceptanceJournal(request.runId)?.target.stage;
@@ -133,6 +150,9 @@ export class RunAcceptanceService {
         result = null;
       }
       const currentOperation = await this.store.operations.get(operationId);
+      if (currentOperation?.state === "completed" && decision !== null) {
+        throw new GuardError("already_accepted", `run 已完成接收，确认不再生效: ${request.runId}`);
+      }
       if (currentOperation?.state === "completed") {
         if (result?.state === "completed") this.reconcileState(runs, request);
         return {
@@ -152,7 +172,11 @@ export class RunAcceptanceService {
       if (result.acceptanceOperationId !== operationId) {
         throw new InfrastructureError("version_conflict", "result 的 acceptanceOperationId 与 request 不一致");
       }
+      // 主会话确认在锁内落盘：与接收互斥，确认与本次接收看到同一份事实；非完成结果在此拒绝。
+      if (decision !== null) this.recordDecision(runs, request, decision);
       if (result.state !== "completed") {
+        // 失败／取消 run 的实际改动记为任务残留（不进 scope）；下一轮报告列出即声明继承（STATES §8）。
+        recordResidue(runs, request.taskId, residueFromResult(result), this.now().toISOString());
         await this.store.operations.save({
           operationId,
           kind: "run.acceptance",
@@ -307,11 +331,44 @@ export class RunAcceptanceService {
     }
     const decision = request.stageDefinition?.decision ?? isDecisionStage(effectiveStage);
     const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
-    const actualSet = new Set(actualChangedPaths);
-    const validation = validateReportForStage(effectiveStage, report, actualChangedPaths);
+    // 来源归属（DESIGN §5.3）：新结果按 worker 已核对的 claimedPaths 接收，旧结果仍按“报告＝实际差异”。
+    const attribution = result.attribution?.claimedPaths !== undefined ? result.attribution : null;
+    const validation = attribution === null
+      ? validateReportForStage(effectiveStage, report, actualChangedPaths)
+      : validateReportForStage(effectiveStage, report, [], { comparePaths: false });
     if (!validation.ok) {
       return this.attention(operationId, request, validation.reason ?? "report_invalid", result);
     }
+    let mergePaths = actualChangedPaths;
+    /** 主会话确认并入的来源不明路径：按当前指纹并入，不核发布时指纹。 */
+    let confirmedPaths = new Set<string>();
+    let residueConsumed: string[] = [];
+    if (attribution !== null) {
+      const unattributed = attribution.unattributedPaths ?? [];
+      const confirmation = unattributed.length > 0 ? runs.readAttributionConfirmation(request.runId) : null;
+      const included = new Set(confirmation?.include ?? []);
+      const excluded = new Set(confirmation?.exclude ?? []);
+      const pending = unattributed.filter((path) => !included.has(path) && !excluded.has(path));
+      if (pending.length > 0) {
+        return this.attention(operationId, request, `unattributed_paths:${pending.join(",")}`, result);
+      }
+      confirmedPaths = new Set(unattributed.filter((path) => included.has(path)));
+      mergePaths = [...new Set([
+        ...(attribution.attributedPaths ?? []),
+        ...(attribution.inheritedPaths ?? []),
+        ...confirmedPaths,
+      ])].sort();
+      const residuePaths = new Set((runs.readResidue(request.taskId)?.entries ?? []).map((entry) => entry.path));
+      residueConsumed = [...new Set([...mergePaths, ...unattributed.filter((path) => excluded.has(path))])]
+        .filter((path) => residuePaths.has(path))
+        .sort();
+    }
+    const mergeSet = new Set(mergePaths);
+    const actualSet = mergeSet;
+    // 发布时指纹只核对要并入的路径；外部改动与被排除的路径不属本任务，不因其后续变化拒收。
+    const driftEntries = (result.actualEntries ?? []).filter(
+      (entry) => attribution === null || (mergeSet.has(normalizePath(entry.path)) && !confirmedPaths.has(normalizePath(entry.path))),
+    );
 
     if (!decision) {
       const next = transition(workflow, facts, { kind: "implementationAccepted" });
@@ -321,16 +378,14 @@ export class RunAcceptanceService {
         }
         return this.attention(operationId, request, next.reason, result);
       }
-      if (result.actualEntries !== undefined) {
-        // 接收前按当前事实重核发布时指纹：路径、类型、模式和内容，检查窗口的改动不接收（STATES.md 第8节，任务027）。
-        for (const entry of result.actualEntries) {
-          if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
-        }
+      // 接收前按当前事实重核发布时指纹：路径、类型、模式和内容，检查窗口的改动不接收（STATES.md 第8节，任务027）。
+      for (const entry of driftEntries) {
+        if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
       }
       const nextScope = mergeScope(scope, {
         runId: request.runId,
         taskId: request.taskId,
-        paths: actualChangedPaths,
+        paths: mergePaths,
         root: executionDir,
         now: this.now().toISOString(),
       });
@@ -372,6 +427,7 @@ export class RunAcceptanceService {
         check: null,
         reason: "implementation_accepted",
         verdict: null,
+        ...(residueConsumed.length > 0 ? { residueConsumed } : {}),
         createdAt: this.now().toISOString(),
       };
       runs.writeAcceptanceJournal(request.runId, journal);
@@ -411,10 +467,8 @@ export class RunAcceptanceService {
 
     // 检查者可在既定范围内修复；先重核发布时指纹，再允许已声明路径变化。
     // 未被检查修改的既有 scope 路径仍须与当前事实一致，外部改动转 scope_changed（STATES.md 第8节）。
-    if (result.actualEntries !== undefined) {
-      for (const entry of result.actualEntries) {
-        if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
-      }
+    for (const entry of driftEntries) {
+      if (entryDrifts(executionDir, entry)) return this.attention(operationId, request, "scope_changed", result);
     }
     const untouched = scope.entries.filter((entry) => !actualSet.has(normalizePath(entry.path)));
     if (!scopeEntriesCurrent(executionDir, untouched)) {
@@ -423,11 +477,11 @@ export class RunAcceptanceService {
     // 检查者有实际修改时并入 scope；append 语义保留既有条目与历史 run。
     // 即使结论为 changes_requested，落盘修复仍是真实成果，不能让后续检查看到过期指纹。
     const nextScope =
-      actualChangedPaths.length > 0
+      mergePaths.length > 0
         ? mergeScope(scope, {
             runId: request.runId,
             taskId: request.taskId,
-            paths: actualChangedPaths,
+            paths: mergePaths,
             root: executionDir,
             now: this.now().toISOString(),
           })
@@ -440,7 +494,7 @@ export class RunAcceptanceService {
       branch: request.expected.branch,
       verdict,
       report,
-      ...(actualChangedPaths.length > 0 ? { changedPaths: actualChangedPaths } : {}),
+      ...(mergePaths.length > 0 ? { changedPaths: mergePaths } : {}),
       ...(selfVerified !== null ? { selfVerified } : {}),
       inputsDigest: inputs.inputsDigest,
       standardsDigest: inputs.standardsDigest,
@@ -516,6 +570,7 @@ export class RunAcceptanceService {
       check,
       reason: `check_${verdict}`,
       verdict,
+      ...(residueConsumed.length > 0 ? { residueConsumed } : {}),
       createdAt: this.now().toISOString(),
     };
     runs.writeAcceptanceJournal(request.runId, journal);
@@ -586,6 +641,10 @@ export class RunAcceptanceService {
       if (scope.digest !== journal.scopeAfter.digest) {
         runs.writeScope(request.taskId, journal.scopeAfter);
       }
+      // 并入 scope 或被确认排除的残留从任务残留移除；幂等，重入不重复。
+      if ((journal.residueConsumed ?? []).length > 0) {
+        consumeResidue(runs, request.taskId, journal.residueConsumed ?? [], this.now().toISOString());
+      }
       if (bindingIsBefore) {
         await this.store.bindings.save(journal.bindingAfter);
       }
@@ -640,6 +699,53 @@ export class RunAcceptanceService {
     };
     atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
     return { document: updated, binding };
+  }
+
+  /**
+   * 记录主会话对来源不明路径的确认（`run accept --include/--exclude`）：路径必须属于该 run 的来源不明集合，
+   * 同一路径不能既并入又排除；与已有确认合并（后来决定覆盖），确认人与原因随记录保存。已完成接收的 run 不再改写。
+   */
+  private recordDecision(runs: RunStore, request: RunRequestFile, decision: AttributionDecision): void {
+    const include = [...new Set(decision.include.map(normalizePath))];
+    const exclude = [...new Set(decision.exclude.map(normalizePath))];
+    const both = include.filter((path) => exclude.includes(path));
+    if (both.length > 0) throw new GuardError("invalid_request", `同一路径不能既 --include 又 --exclude: ${both.join(", ")}`);
+    let result: RunResultFile | null = null;
+    try {
+      result = runs.readResult(request.runId);
+    } catch {
+      result = null;
+    }
+    if (result === null || result.state !== "completed") {
+      throw new GuardError("result_missing", `run 没有可接收的完成结果: ${request.runId}`);
+    }
+    const unattributed = new Set(result.attribution?.unattributedPaths ?? []);
+    const unknown = [...include, ...exclude].filter((path) => !unattributed.has(path));
+    if (unknown.length > 0) {
+      const listed = [...unattributed].join(", ") || "无";
+      throw new GuardError("path_not_unattributed", `不是该 run 来源不明的路径: ${unknown.join(", ")}（来源不明：${listed}）`);
+    }
+    const previous = runs.readAttributionConfirmation(request.runId);
+    const nextInclude = new Set((previous?.include ?? []).filter((path) => !exclude.includes(path)));
+    const nextExclude = new Set((previous?.exclude ?? []).filter((path) => !include.includes(path)));
+    for (const path of include) nextInclude.add(path);
+    for (const path of exclude) nextExclude.add(path);
+    runs.writeAttributionConfirmation(request.runId, {
+      schemaVersion: 1,
+      runId: request.runId,
+      taskId: request.taskId,
+      include: [...nextInclude].sort(),
+      exclude: [...nextExclude].sort(),
+      confirmedBy: decision.confirmedBy,
+      reason: decision.reason,
+      confirmedAt: this.now().toISOString(),
+    });
+    runs.appendEvent(request.runId, {
+      event: "attribution_confirmed",
+      include: include.length,
+      exclude: exclude.length,
+      confirmedBy: decision.confirmedBy,
+    });
   }
 
   private async attention(

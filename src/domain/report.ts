@@ -3,8 +3,9 @@
  *
  * - 固定字段：`summary`（string）、`validation`（string[]）、`blockers`（string[]）。
  * - 阶段声明字段按 `.knit/workflow.yaml` 的类型校验；未声明的额外字段不参与判定。
- * - `paths` 类型必须与实际 Git 可见差异完全一致；有差异而漏报时给出
+ * - `paths` 类型默认与实际 Git 可见差异完全一致；有差异而漏报时给出
  *   `report_changed_paths_missing`，路径不符时给出带实际清单的原因。
+ *   阶段收尾与新结果接收传 comparePaths=false，路径对照改由来源归属（domain/attribution.ts）完成。
  * - 枚举字段是阶段结论；声明了就必须给出合法值，供 `onVerdict` 或顺序流转使用。
  *
  * 纯函数：不做 IO、不看时钟、不信模型自报；实际差异由调用方传入。
@@ -115,7 +116,10 @@ export function validateReportForStage(
   stage: WorkflowStage | null,
   report: StageReport,
   actualChangedPaths: string[] = [],
+  options: { comparePaths?: boolean } = {},
 ): ReportValidation {
+  // comparePaths=false：只校验形状与结论，paths 与实际差异的对照由来源归属（domain/attribution.ts）负责。
+  const comparePaths = options.comparePaths ?? true;
   // 固定字段：schema 已保证 summary；这里补校验数组字段，兼容直接写入 result 的旧结果。
   for (const field of ["validation", "blockers"] as const) {
     const value = report[field];
@@ -139,7 +143,7 @@ export function validateReportForStage(
         };
       }
       // 产出类阶段必须列出 paths（即使本次零 diff）；结论阶段无修改时可缺省。
-      if (type === "paths" && (!isDecisionStage(stage) || actual.length > 0)) {
+      if (type === "paths" && comparePaths && (!isDecisionStage(stage) || actual.length > 0)) {
         return { ok: false, reason: "report_changed_paths_missing" };
       }
       continue;
@@ -153,7 +157,7 @@ export function validateReportForStage(
         return { ok: false, reason: `report_field_value:${field}` };
       }
     }
-    if (type === "paths") {
+    if (type === "paths" && comparePaths) {
       // 任务资料不计成果（实际差异已剔除）：如实列出它们的报告不因此整轮失败。
       const reported = (value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/"));
       if (!samePaths(reported, actual)) {

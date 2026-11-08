@@ -34,6 +34,7 @@ import { ensureWorktreeForDispatch, resolveWorktreePolicy, type WorktreePolicy }
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { RunAcceptanceService } from "./run-acceptance.js";
+import { recordResidue, residueFromSnapshot } from "./residue.js";
 import { legalStageList, loadWorkflow, freezeStageDefinition } from "./workflow.js";
 import { isDecisionStage } from "../domain/report.js";
 import { LockManager, orderKeys, type LockReclaimRecord } from "../infrastructure/locks.js";
@@ -862,8 +863,22 @@ export class RunCoordinator {
     return true;
   }
 
-  /** 关闭已确认无进程执行的旧活动 run：有取消请求记 cancelled，否则 failed。 */
+  /**
+   * 关闭已确认无进程执行的旧活动 run：有取消请求记 cancelled，否则 failed。
+   * 没有结果的产出类 run 以其快照比较当前工作区，变化记为来源不明的任务残留（STATES §8），
+   * 下一轮报告列出即可声明继承、经主会话确认并入，不再落入 zero_diff／report_changed_paths_missing。
+   */
   private closeDeadRun(runs: RunStore, runId: string, state: RunStateFile, detail: Record<string, unknown>): void {
+    try {
+      const request = runs.readRequest(runId);
+      const manifest = runs.readSnapshot(runId);
+      if (request !== null && manifest !== null && manifest.state === "ready") {
+        const executionDir = request.expected.executionDir ?? runs.root;
+        recordResidue(runs, request.taskId, residueFromSnapshot(executionDir, manifest, runId), this.now().toISOString());
+      }
+    } catch {
+      // 残留只是续做出口；核对失败不阻止收敛旧 run，现场仍可由快照与 git 核实。
+    }
     const cancelled = runs.readCancel(runId) !== null;
     runs.writeState(runId, {
       ...state,

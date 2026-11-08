@@ -117,6 +117,10 @@ export interface DeliveryPlanItem {
   reason: string | null;
   /** 产物提交文案预览：主会话文案或模板兜底。 */
   message: DeliveryPlanMessage;
+  /** 本任务各 run 记录的外部改动与被确认排除的路径（不在 scope、不进产物提交），仅提醒。 */
+  externalChanges: string[];
+  /** 未处理的失败残留（任务级，不在 scope、不进产物提交），仅提醒。 */
+  residue: string[];
 }
 
 export interface DeliveryPlan {
@@ -214,6 +218,7 @@ export class DeliveryService {
         status: hasStagedConflict ? "conflict" : "ready",
         reason: hasStagedConflict ? "preexisting_staged" : null,
         message: this.planMessage(located.document, input.taskId, input.messageFile),
+        ...this.outsideScopeReminders(root, input.taskId, classified.artifacts),
       });
     }
     const owners = new Map<string, string[]>();
@@ -593,6 +598,32 @@ export class DeliveryService {
     const path = join(root, ".knit", "config.json");
     if (!existsSync(path)) return defaultConfig();
     return parseConfig(readFileSync(path, "utf8"));
+  }
+
+  /**
+   * 交付预检提醒（DESIGN §5.3）：外部改动、被确认排除的路径与未处理残留不在 scope，不进产物提交；
+   * 列出供用户核对工作区，不阻塞交付。
+   */
+  private outsideScopeReminders(root: string, taskId: string, artifacts: string[]): { externalChanges: string[]; residue: string[] } {
+    const runs = new RunStore(root);
+    const inScope = new Set(artifacts);
+    const external = new Set<string>();
+    for (const runId of runs.listRunIds()) {
+      let result = null;
+      try {
+        result = runs.readResult(runId);
+      } catch {
+        result = null;
+      }
+      if (result === null || result.taskId !== taskId) continue;
+      for (const path of result.externalChanges ?? []) external.add(path);
+      for (const path of runs.readAttributionConfirmation(runId)?.exclude ?? []) external.add(path);
+    }
+    const residue = (runs.readResidue(taskId)?.entries ?? []).map((entry) => entry.path);
+    return {
+      externalChanges: [...external].filter((path) => !inScope.has(path)).sort(),
+      residue: residue.filter((path) => !inScope.has(path)).sort(),
+    };
   }
 
   /** 业务产物与任务资料分开：任务目录只进 metadata；scope 中其余路径是 artifacts。 */

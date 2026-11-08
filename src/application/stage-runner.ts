@@ -3,9 +3,9 @@
  * （DESIGN.md 5.1、5.4–5.6、9.4）。不写 Task／binding；接收由 RunAcceptanceService 负责。
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ContextPlan, ToolPolicy } from "../contracts/context-plan.js";
 import type {
   FrozenInputs,
@@ -13,6 +13,7 @@ import type {
   RunRequestFile,
   RunResultFile,
   RunSessionRecord,
+  RunAttribution,
   RunUsage,
   StageReport,
 } from "../contracts/run.js";
@@ -28,6 +29,7 @@ import {
   findStageSessionFile,
   readEntryRange,
   readLeafEntryId,
+  readToolWriteTargets,
   type ResumeDecision,
 } from "../adapters/pi/index.js";
 import { RunStore } from "../infrastructure/run-store.js";
@@ -49,6 +51,7 @@ import {
   existingPaths,
   attributedChangedPaths,
   inspectStageBoundary,
+  observeWorktreeSince,
   protectedRuntimeReason,
   type BoundaryContext,
   type StageBaseline,
@@ -57,7 +60,9 @@ import {
   type IgnoredChange,
 } from "./stage-baseline.js";
 import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
-import { isDecisionStage, validateReportForStage } from "../domain/report.js";
+import { isDecisionStage, reportField, validateReportForStage } from "../domain/report.js";
+import { classifyChangedPaths } from "../domain/attribution.js";
+import { residueFactsOf } from "./residue.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import type { ToolCapability } from "../contracts/workflow.js";
 import { currentEntry } from "./scope.js";
@@ -239,6 +244,8 @@ export class StageRunner {
   /** 收尾边界核对事实；未走到收尾为 null。 */
   private boundary: StageBoundaryFacts | null = null;
   private ignoredChanges: IgnoredChange[] | null = null;
+  /** 本 run 原生会话的起点条目（之前的最末条目；null 为从头）；undefined 表示未能定位，归属按来源不明。 */
+  private nativeStartLeaf: string | null | undefined = undefined;
   /** 当前持有的 Session 锁；阶段进程登记与心跳使用。 */
   private activeSessionLock: AcquiredLock | null = null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
@@ -471,6 +478,7 @@ export class StageRunner {
     this.writeStageProcess(session, "running", piPid, processStartedAt);
     const sessionFile = runtime.sessionFile;
     const beforeLeaf = sessionFile !== null && existsSync(sessionFile) ? await readLeafEntryId(sessionFile) : null;
+    this.nativeStartLeaf = beforeLeaf;
     const statsBefore = await runtime.getStats();
     let cancelRequested = false;
     let ownershipLost: string | null = null;
@@ -862,7 +870,8 @@ export class StageRunner {
       if (!workStage) continue;
       const result = this.runs.readResult(runId);
       if (result?.state !== "completed") continue;
-      return { summary: result.reportSummary, changedPaths: result.actualChangedPaths };
+      const external = new Set(result.externalChanges ?? []);
+      return { summary: result.reportSummary, changedPaths: result.actualChangedPaths.filter((path) => !external.has(path)) };
     }
     return null;
   }
@@ -929,6 +938,7 @@ export class StageRunner {
     const beforeLeaf = session.sessionFile !== null && existsSync(session.sessionFile)
       ? await readLeafEntryId(session.sessionFile)
       : null;
+    this.nativeStartLeaf = beforeLeaf;
     let cancelRequested = false;
     let ownershipLost: string | null = null;
     const cancelWatch = setInterval(() => {
@@ -1083,7 +1093,8 @@ export class StageRunner {
     }
     // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
     if (!liveBranchMatches(this.executionDir, this.request.expected.branch, gitSync)) {
-      return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
+      // 换分支后的差异包含分支间全部差别，不记为任务残留。
+      return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text, null, []);
     }
     const afterSignature = inspection?.worktree ?? null;
     if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
@@ -1117,26 +1128,109 @@ export class StageRunner {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
     const parsed = parsedEarly;
-    if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
-    const validation = validateReportForStage(this.stage, parsed.report, changedPaths);
-    if (!validation.ok) {
-      const actualPaths = [...new Set(changedPaths.map(normalizePath))].sort();
+    if (parsed.report === null) {
+      return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text, null, changedPaths);
+    }
+    const actualPaths = [...new Set(changedPaths.map(normalizePath))].sort();
+    // 固定字段、类型与结论先校验；paths 与实际差异的对照交给来源归属（DESIGN §5.3）。
+    const shape = validateReportForStage(this.stage, parsed.report, [], { comparePaths: false });
+    if (!shape.ok) {
+      return this.failure(session, shape.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
+    }
+    const tools = this.toolAttribution(session, sessionFile, actualPaths);
+    const pathsField = pathsFieldOf(this.stage);
+    let reported: string[] | null;
+    if (pathsField === null) {
+      // 阶段未声明 paths 字段：没有报告可核对，工具写入的差异即本 run 产出，会话不可读时全部来源不明。
+      reported = tools.toolPaths === null ? actualPaths : actualPaths.filter((path) => tools.toolPaths?.includes(path));
+    } else {
+      const value = reportField(parsed.report, pathsField);
+      reported = Array.isArray(value)
+        ? [...new Set((value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/")))]
+        : null;
+      // 产出类阶段必须列出 paths（即使本次零 diff）；结论阶段无修改时可缺省。
+      if (reported === null && this.stage !== null && !isDecisionStage(this.stage)) {
+        return this.failure(session, "report_changed_paths_missing", usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
+      }
+    }
+    const outcome = classifyChangedPaths({
+      actual: actualPaths,
+      reported,
+      toolPaths: tools.toolPaths,
+      residue: residueFactsOf(this.executionDir, this.runs.readResidue(this.request.taskId)),
+    });
+    const attribution: RunAttribution = {
+      source: tools.source,
+      toolPaths: tools.toolPaths ?? [],
+      claimedPaths: outcome.claimed,
+      attributedPaths: outcome.attributed,
+      unattributedPaths: outcome.unattributed,
+      inheritedPaths: outcome.inherited,
+    };
+    if (!outcome.ok) {
       return this.failure(
         session,
-        validation.reason ?? "report_invalid",
+        outcome.reason ?? "report_invalid",
         usage,
         nativeEntries,
         sessionFile,
         text,
         parsed.report,
         actualPaths,
+        { source: attribution.source, toolPaths: attribution.toolPaths },
       );
     }
+    this.runs.appendEvent(this.request.runId, {
+      event: "attribution_checked",
+      source: attribution.source,
+      attributed: outcome.attributed.length,
+      unattributed: outcome.unattributed.length,
+      external: outcome.external.length,
+      inherited: outcome.inherited.length,
+    });
 
     return {
       session: this.sessionRecord(session, nativeReadable, sessionFile),
-      result: this.result("completed", parsed.report, usage, nativeEntries, session, text, changedPaths, null),
+      result: this.result("completed", parsed.report, usage, nativeEntries, session, text, actualPaths, null, {
+        attribution,
+        externalChanges: outcome.external,
+        entryPaths: [...actualPaths, ...outcome.inherited],
+      }),
     };
+  }
+
+  /**
+   * 工具调用归属：本 run 原生会话中 write／edit 的目标（项目相对路径）。
+   * worktree 执行目录本身隔离，差异全部视为本 run 写入；会话不可读或起点不可定位时返回 null（全部来源不明）。
+   */
+  private toolAttribution(
+    session: PreparedSession,
+    sessionFile: string | null,
+    actualPaths: string[],
+  ): { source: RunAttribution["source"]; toolPaths: string[] | null } {
+    if (!sameDir(this.executionDir, this.root)) return { source: "isolated", toolPaths: [...actualPaths] };
+    const file = sessionFile ?? session.sessionFile;
+    if (file === null || !session.nativeReadable || this.nativeStartLeaf === undefined) {
+      return { source: "unavailable", toolPaths: null };
+    }
+    const scan = readToolWriteTargets(file, this.nativeStartLeaf);
+    if (scan.problem !== null) return { source: "unavailable", toolPaths: null };
+    const paths = scan.paths
+      .map((raw) => projectRelativePath(this.executionDir, raw))
+      .filter((path): path is string => path !== null);
+    return { source: "native_session", toolPaths: [...new Set(paths)].sort() };
+  }
+
+  /** 失败／取消收尾时的实际差异：基线以来的变化（剔除任务资料）；作为任务残留的来源。 */
+  private observedChangedPaths(): string[] {
+    if (this.baseline === null) return [];
+    try {
+      const after = observeWorktreeSince(this.baseline, this.boundaryContext());
+      if (after === null) return [];
+      return [...new Set(attributedChangedPaths(diffSignatures(this.baseline.worktree, after)).map(normalizePath))].sort();
+    } catch {
+      return [];
+    }
   }
 
   private result(
@@ -1148,6 +1242,7 @@ export class StageRunner {
     summary: string,
     actualChangedPaths: string[],
     failureReason: string | null,
+    extra: { attribution?: RunAttribution; externalChanges?: string[]; entryPaths?: string[] } = {},
   ): RunResultFile {
     return {
       schemaVersion: 1,
@@ -1161,7 +1256,7 @@ export class StageRunner {
       usage,
       session: this.sessionRecord(session, session.nativeReadable, session.sessionFile),
       actualChangedPaths,
-      actualEntries: actualChangedPaths.map((path) => currentEntry(this.executionDir, path, { factsKind: true })),
+      actualEntries: [...new Set(extra.entryPaths ?? actualChangedPaths)].map((path) => currentEntry(this.executionDir, path, { factsKind: true })),
       acceptanceOperationId: this.request.acceptanceOperationId,
       recordedAt: this.now().toISOString(),
       failureReason,
@@ -1170,6 +1265,8 @@ export class StageRunner {
       ...(this.baseline === null ? {} : { baseline: this.baseline.summary }),
       ...(this.boundary === null ? {} : { boundary: this.boundary }),
       ...(this.ignoredChanges === null ? {} : { ignoredChanges: this.ignoredChanges }),
+      ...(extra.attribution === undefined ? {} : { attribution: extra.attribution }),
+      ...(extra.externalChanges === undefined ? {} : { externalChanges: extra.externalChanges }),
     };
   }
 
@@ -1181,9 +1278,18 @@ export class StageRunner {
     sessionFile: string | null,
     text = "",
     report: StageReport | null = null,
-    actualChangedPaths: string[] = [],
+    actualChangedPaths: string[] | null = null,
+    attribution: RunAttribution | null = null,
   ): StageExecution {
     const entries = nativeEntries ?? { startEntryId: null, leafEntryId: null };
+    // 未给出实际差异时按基线重新观察：失败 run 的改动记为任务残留，供下一轮声明继承（STATES §8）。
+    const actual = actualChangedPaths ?? this.observedChangedPaths();
+    const facts =
+      attribution ??
+      (actual.length === 0 ? null : (() => {
+        const tools = this.toolAttribution(session, sessionFile, actual);
+        return { source: tools.source, toolPaths: tools.toolPaths ?? [] };
+      })());
     return {
       session: this.sessionRecord(session, session.nativeReadable, sessionFile ?? session.sessionFile),
       result: this.result(
@@ -1193,8 +1299,9 @@ export class StageRunner {
         entries,
         session,
         text,
-        actualChangedPaths,
+        actual,
         reason,
+        facts === null ? {} : { attribution: facts },
       ),
     };
   }
@@ -1206,9 +1313,21 @@ export class StageRunner {
     nativeEntries: { startEntryId: string | null; leafEntryId: string | null },
     sessionFile: string | null,
   ): StageExecution {
+    const actual = this.observedChangedPaths();
+    const tools = actual.length === 0 ? null : this.toolAttribution(session, sessionFile, actual);
     return {
       session: this.sessionRecord(session, session.nativeReadable, sessionFile ?? session.sessionFile),
-      result: this.result("cancelled", null, usage, nativeEntries, session, text, [], "agent_aborted"),
+      result: this.result(
+        "cancelled",
+        null,
+        usage,
+        nativeEntries,
+        session,
+        text,
+        actual,
+        "agent_aborted",
+        tools === null ? {} : { attribution: { source: tools.source, toolPaths: tools.toolPaths ?? [] } },
+      ),
     };
   }
 }
@@ -1226,4 +1345,31 @@ interface PreparedSession {
 
 function normalizePath(path: string): string {
   return path.replace(/^\.\//, "").replace(/\\/g, "/");
+}
+
+/** 阶段声明的第一个 paths 字段（通常为 changedPaths）；未声明为 null。 */
+function pathsFieldOf(stage: WorkflowStage | null): string | null {
+  if (stage === null) return null;
+  for (const [field, type] of Object.entries(stage.report)) if (type === "paths") return field;
+  return null;
+}
+
+/**
+ * 工具参数路径 → 执行目录相对路径（与 Pi 解析一致：去 @ 前缀、展开 ~、相对 cwd）；
+ * 越出执行目录的返回 null。父目录经别名（符号链接）时按 realpath 再算一次。
+ */
+function projectRelativePath(dir: string, raw: string): string | null {
+  let path = raw.startsWith("@") ? raw.slice(1) : raw;
+  if (path === "~" || path.startsWith("~/")) path = join(homedir(), path.slice(1));
+  const absolute = isAbsolute(path) ? resolve(path) : resolve(dir, path);
+  let rel = relative(dir, absolute);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    try {
+      rel = relative(dir, join(realpathSync(dirname(absolute)), basename(absolute)));
+    } catch {
+      return null;
+    }
+  }
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
+  return normalizePath(rel.split(sep).join("/"));
 }

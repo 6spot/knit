@@ -53,11 +53,20 @@ function renderPlan(plan: DeliveryPlan): void {
     if (task.message.source === "template") console.log("  提示: 未提供产物提交文案，将使用模板正文");
     if (task.stagedArtifacts.length > 0) console.log(`  已暂存业务路径: ${task.stagedArtifacts.join(", ")}`);
     if (task.stagedMetadata.length > 0) console.log(`  已暂存任务资料: ${task.stagedMetadata.join(", ")}`);
+    for (const line of outsideScopeLines(task)) console.log(`  ${line}`);
   }
   if (plan.conflicts.length > 0) {
     console.log("\n跨任务同路径冲突：");
     for (const conflict of plan.conflicts) console.log(`  ${conflict.path}: ${conflict.taskIds.join(", ")}`);
   }
+}
+
+/** 不在 scope、不进产物提交的路径提醒：外部改动（含确认排除）与未处理失败残留。 */
+function outsideScopeLines(task: { externalChanges: string[]; residue: string[] }): string[] {
+  const lines: string[] = [];
+  if (task.externalChanges.length > 0) lines.push(`提醒: 外部改动不在本任务 scope、不进产物提交: ${task.externalChanges.join(", ")}`);
+  if (task.residue.length > 0) lines.push(`提醒: 未处理的失败残留不在 scope、不进产物提交: ${task.residue.join(", ")}`);
+  return lines;
 }
 
 interface DeliveryOptions {
@@ -180,6 +189,9 @@ export function registerDeliveryCommands(program: Command): void {
           if (jsonMode()) emit(jsonResponse(requestId, "needs_attention", plan, "needs_review"));
           else renderPlan(plan);
           return;
+        }
+        if (!jsonMode()) {
+          for (const task of plan.tasks) for (const line of outsideScopeLines(task)) console.log(`${task.taskId} ${line}`);
         }
         if (taskIds.length === 1) {
           const result = await withService(options, (service) => service.deliver(inputOf(taskIds[0] ?? "", options, messageFiles)));

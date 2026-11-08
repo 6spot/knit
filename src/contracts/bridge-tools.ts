@@ -90,11 +90,15 @@ export const ContextToolSchema = obj(
 
 export const RunToolSchema = obj(
   {
-    /** 阶段动作与 status／list／resume／cancel 由桥接按 config 派生；这里只约束非空字符串。 */
+    /** 阶段动作与 status／list／resume／cancel／accept 由桥接按 config 派生；这里只约束非空字符串。 */
     action: str({ minLength: 1 }),
     taskId: opt(str({ minLength: 1 })),
     runId: opt(str({ minLength: 1 })),
     scope: opt(arr(str({ minLength: 1 }))),
+    /** accept：确认并入 scope 的来源不明路径（needs_attention: unattributed_paths）。 */
+    include: opt(arr(str({ minLength: 1 }))),
+    /** accept：确认排除的来源不明路径；不进 scope、不进交付。 */
+    exclude: opt(arr(str({ minLength: 1 }))),
     provider: opt(str({ minLength: 1 })),
     model: opt(str({ minLength: 1 })),
     resumeSession: opt(str({ minLength: 1 })),

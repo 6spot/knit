@@ -2,6 +2,7 @@
  * 原生会话文件条目定位（只读）。
  * run 只保存原生起止条目引用和本次用量；历史权威在所属客户端。
  */
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { LfFrameDecoder } from "../../contracts/frames.js";
 
@@ -283,4 +284,72 @@ export async function readEntrySummaries(
         unknownCostEntries: values.filter((value) => value.cost === null).length,
       };
   return { problem: null, entries: limited, usage };
+}
+
+/** 改动来源归属只认的文件写入工具（Pi 内置 write／edit，参数 `path`）。 */
+const FILE_WRITE_TOOLS = new Set(["write", "edit"]);
+
+export interface NativeToolWriteScan {
+  problem: null | "unreadable" | "no_session_header" | "range_unknown";
+  /** 工具参数中的原始路径（未解析）；失败的工具调用（toolResult.isError）不计。 */
+  paths: string[];
+}
+
+/**
+ * 本 run 原生会话中 write／edit 工具调用的目标路径（只读、同步）。
+ * 范围为 beforeLeaf 之后的条目；beforeLeaf 为 null 表示从会话开头，已不在文件中时如实报 range_unknown。
+ * bash 等其它工具的副作用不在这里，归属由调用方按“来源不明”处理。
+ */
+export function readToolWriteTargets(filePath: string, beforeLeaf: string | null): NativeToolWriteScan {
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch {
+    return { problem: "unreadable", paths: [] };
+  }
+  const decoder = new LfFrameDecoder();
+  const frames = decoder.push(new TextEncoder().encode(content));
+  const tail = decoder.end();
+  const all = tail !== null ? [...frames, tail] : frames;
+  let sawSession = false;
+  let inRange = beforeLeaf === null;
+  const calls: Array<{ id: string | null; path: string }> = [];
+  const failed = new Set<string>();
+  for (const frame of all) {
+    let record: unknown;
+    try {
+      record = JSON.parse(frame);
+    } catch {
+      continue;
+    }
+    if (typeof record !== "object" || record === null) continue;
+    const typed = record as { type?: unknown; id?: unknown; message?: unknown };
+    if (typed.type === "session") {
+      sawSession = true;
+      continue;
+    }
+    if (!inRange) {
+      if (typed.id === beforeLeaf) inRange = true;
+      continue;
+    }
+    if (typed.type !== "message" || typeof typed.message !== "object" || typed.message === null) continue;
+    const message = typed.message as { role?: unknown; content?: unknown; toolCallId?: unknown; isError?: unknown };
+    if (message.role === "toolResult") {
+      if (message.isError === true && typeof message.toolCallId === "string") failed.add(message.toolCallId);
+      continue;
+    }
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content as unknown[]) {
+      if (typeof part !== "object" || part === null) continue;
+      const call = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+      if (call.type !== "toolCall" || typeof call.name !== "string" || !FILE_WRITE_TOOLS.has(call.name)) continue;
+      const args = call.arguments as { path?: unknown } | undefined;
+      if (typeof args?.path !== "string" || args.path === "") continue;
+      calls.push({ id: typeof call.id === "string" ? call.id : null, path: args.path });
+    }
+  }
+  if (!sawSession) return { problem: "no_session_header", paths: [] };
+  if (!inRange) return { problem: "range_unknown", paths: [] };
+  const paths = calls.filter((call) => call.id === null || !failed.has(call.id)).map((call) => call.path);
+  return { problem: null, paths: [...new Set(paths)] };
 }

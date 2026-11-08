@@ -39,7 +39,7 @@ export interface RunStatusView extends RunStatusProjection {
   heartbeat: RunHeartbeat | null;
   /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
   startupDiagnostics: RunDiagnosticsFile | null;
-  /** 待处理结果的下一步；目前覆盖 needs_attention: stale_input，其余为空。 */
+  /** 待处理结果的下一步；覆盖 needs_attention: stale_input 与 unattributed_paths，其余为空。 */
   nextActions: string[];
 }
 
@@ -122,6 +122,21 @@ function staleInputNextActions(
   return actions;
 }
 
+/**
+ * needs_attention: unattributed_paths 的出口（DESIGN §5.3）：来源不明的路径等主会话确认，
+ * `run accept --include` 按当前指纹并入 scope，`--exclude` 不进 scope、不进交付。
+ */
+function unattributedNextActions(projection: RunStatusProjection): string[] {
+  const reason = projection.acceptance?.reason ?? null;
+  if (projection.acceptance?.state !== "needs_attention" || reason === null || !reason.startsWith("unattributed_paths")) return [];
+  const paths = reason.slice("unattributed_paths:".length).split(",").filter((path) => path !== "");
+  const listed = paths.length > 0 ? paths.join(" ") : "<path>";
+  return [
+    `来源不明的改动（非 write／edit 工具写入）：${paths.join(", ") || "见 result.attribution.unattributedPaths"}；核对内容后确认归属`,
+    `并入 scope：knit run accept ${projection.runId} --include ${listed} --reason <原因>；排除：knit run accept ${projection.runId} --exclude ${listed} --reason <原因>`,
+  ];
+}
+
 export class StatusService {
   private readonly store: MetadataStore;
   private readonly now: () => Date;
@@ -170,7 +185,10 @@ export class StatusService {
       lastActivityAt,
       heartbeat: this.heartbeat(locksRoot ?? this.lockRoot, executionDir),
       startupDiagnostics,
-      nextActions: staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
+      nextActions: [
+        ...staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
+        ...unattributedNextActions(projection),
+      ],
     };
   }
 

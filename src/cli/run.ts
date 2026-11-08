@@ -439,8 +439,12 @@ export function registerRunCommands(program: Command): void {
 
   run
     .command("accept")
-    .description("接收已完成 run 的结果（固定 acceptanceOperationId 复核；不重跑模型）")
+    .description("接收已完成 run 的结果（固定 acceptanceOperationId 复核；不重跑模型）；--include／--exclude 确认来源不明的路径")
     .argument("<runId>", "run ID")
+    .option("--include <path...>", "确认并入 scope 的来源不明路径（按当前指纹并入）")
+    .option("--exclude <path...>", "确认排除的来源不明路径（不进 scope、不进交付）")
+    .option("--reason <text>", "确认原因（随确认记录保存）")
+    .option("--by <who>", "确认人（缺省 cli）")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
@@ -449,10 +453,18 @@ export function registerRunCommands(program: Command): void {
       try {
         const { RunAcceptanceService } = await import("../application/run-acceptance.js");
         const { LockManager } = await import("../infrastructure/locks.js");
+        const include: string[] = options.include ?? [];
+        const exclude: string[] = options.exclude ?? [];
         const result = await new RunAcceptanceService({
           store,
           locks: new LockManager(options.locks === undefined ? {} : { root: options.locks }),
-        }).accept({ dir: root, runId });
+        }).accept({
+          dir: root,
+          runId,
+          ...(include.length > 0 || exclude.length > 0
+            ? { decision: { include, exclude, confirmedBy: options.by ?? "cli", reason: options.reason ?? null } }
+            : {}),
+        });
         if (jsonMode()) emit(jsonResponse("run-accept", result.accepted ? "completed" : "needs_attention", result));
         else {
           console.log(`run ${runId}: ${result.accepted ? "已接收" : "待处理"}（${result.reason ?? "无原因"}）`);

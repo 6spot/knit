@@ -3,7 +3,7 @@
  * 在改 Task／binding／scope／check 前落盘完整目标；重入按该记录幂等收敛，
  * 不重新调用模型，也不把半写入当成功。它只是操作恢复证据，不替代业务权威。
  */
-import { lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, lit, nul, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { TaskBindingSchema } from "./metadata.js";
 import { CheckFileSchema, ScopeFileSchema } from "./run.js";
 
@@ -42,6 +42,8 @@ export const AcceptanceJournalSchema = obj(
     reason: str({ minLength: 1 }),
     /** 阶段声明的结论值；默认流程为 pass／changes_requested／blocked，旧记录可为 null。 */
     verdict: union([str({ minLength: 1 }), nul()]),
+    /** 本次接收消费的失败残留路径（并入 scope 或被确认排除）；收敛时从任务 residue 移除。旧记录缺省。 */
+    residueConsumed: opt(arr(str({ minLength: 1 }))),
     createdAt: str({ minLength: 1 }),
   },
 );

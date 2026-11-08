@@ -179,7 +179,7 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
     const pathRequirement =
       pathsFields.length === 0
         ? ""
-        : `最终报告的 ${pathsFields.join("／")} 必须与实际改动的项目相对路径完全一致。`;
+        : `最终报告的 ${pathsFields.join("／")} 列出本 run 实际改动的项目相对路径：write／edit 写过的必须列出，bash 等方式产出的成果照实列出（交主会话确认来源），不列用户同时写的文件与之前轮次的成果；继续失败 run 的残留时一并列出即声明继承。`;
     return `完成本阶段产出，并运行必要验证。${pathRequirement}未执行或证据不足的验证写入 validation（结果标 not_run），不得谎报。`;
   }
   const verdictField = Object.entries(stage.report).find(([, type]) => isReportEnum(type));
@@ -221,6 +221,7 @@ export function buildSystemPrompt(plan: ContextPlan, stage: WorkflowStage | null
     "只执行本阶段；不要修改 .knit/ 下规范、配置、流程与提示词（改动判 protected_path_modified），不要 git commit／push／rebase，不要委派其他 Agent。",
     "任务资料（.knit/tasks/**）优先经 knit_task／knit_material 或 knit task record／knit task material save 写入；直接编辑不判越界、不计入 changedPaths，但无法归因；输入区变化收尾判 stale_input，结果不计为当前规格的成果。",
     "阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。",
+    "改动来源由核心按原生会话里的 write／edit 调用归属：工具写过的文件必须列进 changedPaths；bash 等方式产出的成果照实列出，记为来源不明、交主会话确认；用户同时写的文件与之前轮次的成果不要列出，未列出且非工具写入的记为外部改动、不并入成果；要继续失败 run 留下的改动时把这些路径列出即声明继承。",
     "必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。",
     "任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。",
     role,

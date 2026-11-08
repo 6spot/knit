@@ -96,14 +96,23 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 | --- | --- | --- |
 | HEAD 提交与符号引用 | `git rev-parse HEAD`、`git symbolic-ref HEAD` | HEAD 不同即 `failed: head_moved_during_stage`；`boundary.commits` 为 `git rev-list <基线>..HEAD`；不接收、不并入 scope、任务不前进 |
 | index 摘要 | `git ls-files -s -z` 的 SHA-256 | 变化写 `boundary.indexChanged`，单纯暂存不判失败 |
-| 工作区 | 基线时 Git 可见脏路径的内容指纹 | 实际差异 = 基线脏路径 ∪ 当前脏路径 ∪ `git diff --name-only <基线提交>` 的指纹差，再整体剔除 `.knit/tasks/**`（报告里如实列出这些路径也不算不一致）；阶段内提交过的路径也出现在 `actualChangedPaths`；其余 `.knit/**`（规范、候选、配置、流程、提示词）出现即 `failed: protected_path_modified`，已授权为成果的正式规范除外 |
+| 工作区 | 基线时 Git 可见脏路径的内容指纹 | 实际差异 = 基线脏路径 ∪ 当前脏路径 ∪ `git diff --name-only <基线提交>` 的指纹差，再整体剔除 `.knit/tasks/**`（报告里如实列出这些路径也不算不一致），之后按下文来源归属分类；阶段内提交过的路径也出现在 `actualChangedPaths`；其余 `.knit/**`（规范、候选、配置、流程、提示词）出现即 `failed: protected_path_modified`，已授权为成果的正式规范除外 |
 | Git 敏感区 | `.git/hooks/**`、`.git/config`、`.git/info/**`（共用 Git 目录，含 worktree）内容与权限 | 有变化即 `failed: protected_runtime_modified:<paths>` |
 | runtime 敏感区 | `.knit/.runtime/` 下 `checks/`、`completions/`、`implementations/` 内容，`installation.json`、`init-manifest.json`，其它已终态 run 的 `request／result／inputs／instructions` 与 `snapshot/**` stat | 同上；完整路径列表在 `boundary.protectedPaths`，失败原因最多列 20 条 |
 | 忽略区 | `git status --ignored` 的目录级条目（不含 `.knit/.runtime`、`.knit/worktrees` 与项目内锁根），每条取自身与直接子项 stat 摘要 | 变化写结果 `ignoredChanges`（added／removed／modified），`run status`、`status --run` 与桥接通知显示，不判失败 |
 
-不在敏感区内：本 run 自有目录、`pi-sessions／sessions` 会话目录、`task-list` 列表缓存、`metadata.db`、`tasks/<id>/scope.json`（由接收写）、诊断与恢复记录。并发的合法 Knit 写入按路径归属排除（任务写入只取短锁，不被工作树租约挡住）：基线时仍活动（claimed／preparing／running，或接收失败待重收）的其它 run 目录及其新建检查凭据由其自身 worker／接收写入；基线后新建的 run 目录及其检查凭据来自其它工作树的并行派发；其它任务的完成／实施凭据由 `task close`／`implement`／`update` 写入；本任务凭据只放行删除（运行中输入更新使其失效）。终态 run 的 gc 删除需要主检出租约：阶段在 worktree 执行时不计，在主检出执行时出现即视为越权。
+不在敏感区内：本 run 自有目录、`pi-sessions／sessions` 会话目录、`task-list` 列表缓存、`metadata.db`、`tasks/<id>/scope.json` 与 `tasks/<id>/residue.json`（由接收写）、本 run 的 `attribution.json`（`run accept` 确认写）、诊断与恢复记录。并发的合法 Knit 写入按路径归属排除（任务写入只取短锁，不被工作树租约挡住）：基线时仍活动（claimed／preparing／running，或接收失败待重收）的其它 run 目录及其新建检查凭据由其自身 worker／接收写入；基线后新建的 run 目录及其检查凭据来自其它工作树的并行派发；其它任务的完成／实施凭据由 `task close`／`implement`／`update` 写入；本任务凭据只放行删除（运行中输入更新使其失效）。终态 run 的 gc 删除需要主检出租约：阶段在 worktree 执行时不计，在主检出执行时出现即视为越权。
 
 任务资料归属（任务 k-f0d9a8952aff）：`.knit/tasks/**`（`task.md`、`plan.md`、`design.md`、`research/` 与归档目录）整体从 `changedPaths` 剔除，不判越界，也不引入写入 journal 或 actor 归属；只按路径与摘要判定。谁写、怎么写（接口或直接编辑）都一样：输入区变化由 `inputsDigest` 在接收时检出并判 `stale_input`，记录区与材料变化不影响摘要、不使 run 失败。推荐经 `knit_task`／`knit_material`（或同名 CLI）写任务资料，接口做版本核对、输入摘要与阶段守卫；直接编辑不留 actor 记录，并发写入只能靠内容差异与 Git 状态辨认。同区段并发写靠 `expectSha256`／`expectDigest` 失败重试，记录区为追加。由此 worker 直接改自己任务的验收标准也不会判越界，但输入区改动必然触发 stale，这是已接受的取舍。阶段基线（`stage-baseline.ts`）与成果路径计算共用同一剔除规则（`attributedChangedPaths`），交付提交后的工作区核对同样不把并发任务资料写入当作 hook 副作用。
+
+结果接收与来源归属（任务 k-fdfd8c171736）：worker 收尾在上述剔除后的实际差异上做来源归属，再决定结果。
+
+1. 读取本 run 原生会话（起点为阶段开始前的最末条目），收集 `write`／`edit` 成功调用的 `path` 参数，按执行目录解析为项目相对路径；会话不可读、起点不在文件中时 `attribution.source=unavailable`，全部差异按来源不明处理。worktree 执行目录 `source=isolated`，差异全部视为本 run 写入。
+2. 报告 `changedPaths` 中：有差异且工具写入 → `attributedPaths`；有差异但非工具写入 → `unattributedPaths`；无差异但属任务残留 → 指纹未变且原 run 工具写入为 `inheritedPaths`，否则 `unattributedPaths`；既无差异也非残留 → `failed: changed_paths_mismatch`。
+3. 未列出的差异中：工具写入 → `failed: changed_paths_mismatch`；非工具写入 → `externalChanges`；会话不可读时 → `unattributedPaths`。
+4. 接收（`run-acceptance.ts`）：有未确认的 `unattributedPaths` 时 `needs_attention: unattributed_paths:<paths>`，run state 收敛为 `failed`（`acceptance_` 前缀，不占用任务）；`run accept <runId> --include <path>... --exclude <path>... [--reason] [--by]` 在任务＋state 短锁内写 `runs/<run>/attribution.json` 后重新接收。并入集合为已归属 ∪ 继承 ∪ 确认并入；发布时指纹只核对已归属与继承路径，确认并入的按当前指纹进入 scope，外部改动与被排除路径不核指纹。接收检查点记录 `residueConsumed`，收敛时从 `tasks/<id>/residue.json` 移除。
+5. 失败／取消结果接收时把 `actualChangedPaths` 与 `actualEntries` 记为残留（`toolWritten` 取自结果的 `attribution`）；结果缺失、确认已死后由 `run resume`／`prepare` 收敛的旧 run，以快照比较当前工作区记来源不明残留。阶段内换分支（`branch_mismatch_after_run`）不记残留。
+6. 交付预检（`deliver --plan` 与交付前计划）列出本任务各 run 的 `externalChanges`、被确认排除的路径与未处理残留，作为提醒；产物提交仍只含 scope 路径。
 
 失败结果保留现场：阶段内提交不回滚、不 reset，敏感区改动不还原；基线摘要写入 run `state.json` 的 `baseline` 与结果 `baseline`，边界事实写结果 `boundary`。用户处理提交或敏感区改动后重新派发。首版不提供“接纳阶段内提交为成果”的出口，也不对整个 ignored 目录做内容指纹（成本过高），深层文件原地改写不保证出现在 `ignoredChanges`。
 
