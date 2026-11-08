@@ -90,4 +90,10 @@ title: 阶段基线冻结：HEAD／index 与敏感区核对
 - 结果: 正常交付；检查 run-2f2731c63797 通过
 - 归档目标: .knit/tasks/archive/2026-11/11-07-stage-baseline-freeze
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-2aac514e42f9 -->
+- 任务资料提交: 5617019dd79dcfc9ab905f669939afe9a92b8c52
+- 归档目标: .knit/tasks/archive/2026-11/11-07-stage-baseline-freeze
+
 <!-- knit:progress:end -->
