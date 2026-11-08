@@ -26,6 +26,25 @@ export function taskLabel(view: {
   return shortId(view.taskId);
 }
 
+/** 结果附带的阶段边界事实人读行：阶段内提交、敏感区改动、index 变化与忽略区变化。 */
+export function boundaryLines(result: {
+  boundary?: { headMoved: boolean; commits: string[]; indexChanged: boolean; protectedPaths: string[] };
+  ignoredChanges?: Array<{ path: string; change: string }>;
+}): string[] {
+  const lines: string[] = [];
+  const boundary = result.boundary;
+  if (boundary !== undefined) {
+    if (boundary.headMoved) lines.push(`阶段内提交: ${boundary.commits.length} 个${boundary.commits.length > 0 ? `（${boundary.commits.slice(0, 5).map((oid) => oid.slice(0, 12)).join(", ")}）` : ""}`);
+    if (boundary.protectedPaths.length > 0) lines.push(`敏感区改动: ${boundary.protectedPaths.slice(0, 10).join(", ")}${boundary.protectedPaths.length > 10 ? ` 等 ${boundary.protectedPaths.length} 项` : ""}`);
+    if (boundary.indexChanged) lines.push("index: 阶段内有变化（仅记录）");
+  }
+  const ignored = result.ignoredChanges ?? [];
+  if (ignored.length > 0) {
+    lines.push(`忽略区变化（仅报告）: ${ignored.slice(0, 10).map((item) => `${item.path}(${item.change})`).join(", ")}${ignored.length > 10 ? ` 等 ${ignored.length} 项` : ""}`);
+  }
+  return lines;
+}
+
 /** 阶段展示：显示名与 id 不同时并列，避免只看到配置 id。 */
 export function stageLabel(name: string, id: string, style: "space" | "paren"): string {
   if (name === "" || name === id) return id;

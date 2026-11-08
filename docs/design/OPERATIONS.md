@@ -76,6 +76,23 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 已知 iCloud/File Provider、Dropbox 等同步根采用平台可取得的根路径与规范化实际路径尽力识别，不扫描个人文件或读取服务凭据；检测不完整，未命中不代表安全。Git 忽略不阻止云同步，不能同步／跨机并发使用活跃 runtime，SQLite WAL 和文件锁均不因此获得跨机互斥。建议使用非同步目录或验证已排除 runtime；doctor 不自动移动数据或修改云配置。此告警归 M2 最小诊断，M3A 完善展示；不新增云服务集成。
 
+### 2.1 阶段运行边界
+
+阶段 worker 不是操作系统沙箱，不拦截 shell 调用；它在阶段前后各取一次事实并比较（实现：`src/application/stage-baseline.ts`，由 `stage-runner.ts` 在启动阶段 Agent 前冻结、在报告校验前核对）。
+
+| 核对项 | 基线记录 | 收尾处理 |
+| --- | --- | --- |
+| HEAD 提交与符号引用 | `git rev-parse HEAD`、`git symbolic-ref HEAD` | HEAD 不同即 `failed: head_moved_during_stage`；`boundary.commits` 为 `git rev-list <基线>..HEAD`；不接收、不并入 scope、任务不前进 |
+| index 摘要 | `git ls-files -s -z` 的 SHA-256 | 变化写 `boundary.indexChanged`，单纯暂存不判失败 |
+| 工作区 | 基线时 Git 可见脏路径的内容指纹 | 实际差异 = 基线脏路径 ∪ 当前脏路径 ∪ `git diff --name-only <基线提交>` 的指纹差；阶段内提交过的路径也出现在 `actualChangedPaths` |
+| Git 敏感区 | `.git/hooks/**`、`.git/config`、`.git/info/**`（共用 Git 目录，含 worktree）内容与权限 | 有变化即 `failed: protected_runtime_modified:<paths>` |
+| runtime 敏感区 | `.knit/.runtime/` 下 `checks/`、`completions/`、`implementations/` 内容，`installation.json`、`init-manifest.json`，其它已终态 run 的 `request／result／inputs／instructions` 与 `snapshot/**` stat | 同上；完整路径列表在 `boundary.protectedPaths`，失败原因最多列 20 条 |
+| 忽略区 | `git status --ignored` 的目录级条目（不含 `.knit/.runtime`、`.knit/worktrees` 与项目内锁根），每条取自身与直接子项 stat 摘要 | 变化写结果 `ignoredChanges`（added／removed／modified），`run status`、`status --run` 与桥接通知显示，不判失败 |
+
+不在敏感区内：本 run 自有目录、`pi-sessions／sessions` 会话目录、`task-list` 列表缓存、`metadata.db`、`tasks/<id>/scope.json`（由接收写）、诊断与恢复记录。并发的合法 Knit 写入按占用归属排除：基线时仍活动（claimed／preparing／running，或接收失败待重收）的其它 run 目录及其新建检查凭据由其自身 worker／接收写入；阶段在 worktree 执行（不持主检出占用）时，主会话并发新建的 run 目录、其它任务的完成／实施凭据与终态 run 的 gc 删除也不计。阶段在主检出执行时持有主检出占用，这些写入无法并发发生，出现即视为越权。
+
+失败结果保留现场：阶段内提交不回滚、不 reset，敏感区改动不还原；基线摘要写入 run `state.json` 的 `baseline` 与结果 `baseline`，边界事实写结果 `boundary`。用户处理提交或敏感区改动后重新派发。首版不提供“接纳阶段内提交为成果”的出口，也不对整个 ignored 目录做内容指纹（成本过高），深层文件原地改写不保证出现在 `ignoredChanges`。
+
 ## 3. 实施快照与显式恢复
 
 每次正式 implement 的可信 worker 程序取得执行占用后，在 `.knit/.runtime/runs/<run-id>/snapshot/` 建立 preparing 对照，ready 后才调用阶段模型／写代码，失败保留 failed。占用由该执行者一直持有，不从 CLI 交接。保存仓库／分支、HEAD、index、脏路径、类型／模式、工作和暂存内容、未忽略的未跟踪内容及指纹；新增路径起点为不存在。前后核对源码、有效输入、HEAD 与 index，变化即重核。Task 记录在短锁内捕捉版本，后来的合法纯记录不会使快照准备反复失败。

@@ -391,6 +391,8 @@ async function main(): Promise<number> {
         onStageProcess: (pid) => {
           if (lock !== null && heartbeatError === null) locks.attachProcess(lock, pid);
         },
+        // 基线冻结写入 run 状态：阶段 Agent 启动前的 HEAD／符号引用／index 摘要与工作区签名。
+        onBaseline: (baseline) => writeState({ ...state, baseline }),
       }).execute();
     } catch (error) {
       const reason = error instanceof InfrastructureError ? error.code : "stage_error";

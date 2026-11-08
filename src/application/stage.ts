@@ -219,6 +219,7 @@ export function buildSystemPrompt(plan: ContextPlan, stage: WorkflowStage | null
     "你是 Knit 的独立阶段执行器，不是主 Agent。",
     `本次阶段：${stageName}（${plan.role}）。`,
     "只执行本阶段；不要修改 .knit/ 下任何文件（包括 task.md、规范、配置），不要 git commit／push／rebase，不要委派其他 Agent。",
+    "阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。",
     "必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。",
     "任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。",
     role,

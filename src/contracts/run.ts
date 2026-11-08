@@ -182,6 +182,40 @@ export const RunSessionRecordSchema = obj(
 );
 export type RunSessionRecord = Static<typeof RunSessionRecordSchema>;
 
+/** 阶段基线摘要（启动阶段 Agent 前记录）；HEAD／符号引用／index 摘要与工作区签名摘要。 */
+export const StageBaselineSummarySchema = obj({
+  /** 基线 HEAD 提交；空仓库为 null。 */
+  head: union([str({ minLength: 1 }), nul()]),
+  /** HEAD 的符号引用（如 refs/heads/main）；detached 为 null。 */
+  symbolicRef: union([str({ minLength: 1 }), nul()]),
+  /** `git ls-files -s` 的 SHA-256；不可得为 null。 */
+  indexDigest: union([str({ minLength: 1 }), nul()]),
+  worktreeDigest: str({ minLength: 1 }),
+  capturedAt: str({ minLength: 1 }),
+});
+export type StageBaselineSummary = Static<typeof StageBaselineSummarySchema>;
+
+/** 收尾边界事实：HEAD 移动判失败，敏感区变化判失败，index 变化只记录。 */
+export const StageBoundaryFactsSchema = obj({
+  head: union([str({ minLength: 1 }), nul()]),
+  symbolicRef: union([str({ minLength: 1 }), nul()]),
+  headMoved: bool(),
+  /** `git rev-list <基线>..HEAD`；HEAD 未移动时为空。 */
+  commits: arr(str({ minLength: 1 })),
+  indexDigest: union([str({ minLength: 1 }), nul()]),
+  indexChanged: bool(),
+  /** 阶段前后变化的敏感区路径（`.git/...`、`.knit/.runtime/...`）。 */
+  protectedPaths: arr(str({ minLength: 1 })),
+});
+export type StageBoundaryFacts = Static<typeof StageBoundaryFactsSchema>;
+
+/** 忽略区目录级条目变化；只报告不判失败。 */
+export const IgnoredChangeSchema = obj({
+  path: str({ minLength: 1 }),
+  change: union([lit("added"), lit("removed"), lit("modified")]),
+});
+export type IgnoredChange = Static<typeof IgnoredChangeSchema>;
+
 /** 不可变 run 结果；先写 result 再收敛 state，接收由固定 operation 复核。 */
 export const RunResultFileSchema = obj(
   {
@@ -220,6 +254,12 @@ export const RunResultFileSchema = obj(
     branch: opt(union([str({ minLength: 1 }), nul()])),
     /** 实际生效的流程模式；旧结果可缺省。 */
     workflowMode: opt(WorkflowModeSchema),
+    /** 阶段基线摘要；未进入阶段或旧结果缺省。 */
+    baseline: opt(StageBaselineSummarySchema),
+    /** 收尾边界核对事实；未走到收尾或旧结果缺省。 */
+    boundary: opt(StageBoundaryFactsSchema),
+    /** 忽略区目录级变化；只报告不判失败。 */
+    ignoredChanges: opt(arr(IgnoredChangeSchema)),
   },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;
@@ -644,6 +684,8 @@ export const RunStateFileSchema = obj(
       ),
       nul(),
     ]),
+    /** 阶段基线摘要；阶段 Agent 启动前写入，旧 state 缺省。 */
+    baseline: opt(StageBaselineSummarySchema),
     reason: union([str(), nul()]),
   },
 );

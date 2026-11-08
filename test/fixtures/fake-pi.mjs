@@ -3,6 +3,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
 const argv = process.argv.slice(2);
@@ -51,6 +52,10 @@ function completeNow(spec) {
     const target = join(cwd, write.path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, write.content ?? "");
+  }
+  // 测试钩子：模拟阶段内 shell 副作用（如 git add／commit）；按顺序在 cwd 执行 argv。
+  for (const command of spec.exec ?? []) {
+    spawnSync(command[0], command.slice(1), { cwd, stdio: "ignore" });
   }
   lastText = spec.text ?? "```json\n" + JSON.stringify(spec.report ?? { summary: "fake report" }) + "\n```";
   usage = { input: usage.input + 100, output: usage.output + 20, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, total: usage.total + 120 };

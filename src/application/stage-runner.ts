@@ -42,7 +42,18 @@ import {
   loadSectionContents,
   parseStageReport,
 } from "./stage.js";
-import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
+import { type WorktreeSignature } from "./worktree.js";
+import {
+  captureStageBaseline,
+  existingPaths,
+  inspectStageBoundary,
+  protectedRuntimeReason,
+  type BoundaryContext,
+  type StageBaseline,
+  type StageBaselineSummary,
+  type StageBoundaryFacts,
+  type IgnoredChange,
+} from "./stage-baseline.js";
 import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
 import { isDecisionStage, validateReportForStage } from "../domain/report.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
@@ -76,6 +87,8 @@ export interface StageRunnerOptions {
   heartbeatIntervalMs?: number;
   /** 阶段 Pi 进程登记回调（worker 登记到执行目录锁 owner）；null 表示已退出。 */
   onStageProcess?: (pid: number | null) => void;
+  /** 基线冻结回调：阶段 Agent 启动前调用，worker 据此写入 run state。 */
+  onBaseline?: (baseline: StageBaselineSummary) => void;
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
   /** 测试注入；缺省创建真实 RexLauncher。 */
   rexLauncherFactory?: (options: RexLauncherOptions) => RexLauncher;
@@ -217,6 +230,12 @@ export class StageRunner {
   private readonly lostOwnership: (() => string | null) | null;
   private readonly heartbeatIntervalMs: number;
   private readonly onStageProcess: ((pid: number | null) => void) | null;
+  private readonly onBaseline: ((baseline: StageBaselineSummary) => void) | null;
+  /** 本次阶段冻结的基线；未进入阶段为 null，结果据此附带基线摘要。 */
+  private baseline: StageBaseline | null = null;
+  /** 收尾边界核对事实；未走到收尾为 null。 */
+  private boundary: StageBoundaryFacts | null = null;
+  private ignoredChanges: IgnoredChange[] | null = null;
   /** 当前持有的 Session 锁；阶段进程登记与心跳使用。 */
   private activeSessionLock: AcquiredLock | null = null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
@@ -244,6 +263,7 @@ export class StageRunner {
     this.lostOwnership = options.lostOwnership ?? null;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
     this.onStageProcess = options.onStageProcess ?? null;
+    this.onBaseline = options.onBaseline ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
     this.rexLauncherFactory = options.rexLauncherFactory ?? ((launcherOptions) => new RexLauncher(launcherOptions));
     const loaded = loadWorkflow(this.executionDir);
@@ -363,7 +383,7 @@ export class StageRunner {
         session.decision,
       ),
     );
-    const beforeSignature = worktreeSignature(this.executionDir);
+    const beforeSignature = this.freezeBaseline();
     if (beforeSignature === null) {
       await runtime.dispose(1_000);
       return this.failure(session, "worktree_unknown", null, null, null);
@@ -563,6 +583,39 @@ export class StageRunner {
     signalProcessTree(piPid, "SIGTERM", tree);
     await new Promise((resolve) => setTimeout(resolve, 500));
     signalProcessTree(piPid, "SIGKILL", tree);
+  }
+
+  /** 边界核对上下文：执行目录、主检出 runtime 与项目内锁根排除。 */
+  private boundaryContext(): BoundaryContext {
+    return {
+      executionDir: this.executionDir,
+      root: this.root,
+      runId: this.request.runId,
+      taskId: this.request.taskId,
+      ignoredExclusions: existingPaths([this.locks?.rootPath]),
+    };
+  }
+
+  /**
+   * 阶段 Agent 启动前冻结基线（HEAD／符号引用／index 摘要、工作区签名、敏感区与忽略区摘要），
+   * 写入 run 状态（经 worker 回调）并留作收尾比对；工作区签名不可得返回 null。
+   */
+  private freezeBaseline(): WorktreeSignature | null {
+    const baseline = captureStageBaseline(this.boundaryContext(), this.now);
+    if (baseline === null) return null;
+    this.baseline = baseline;
+    this.runs.appendEvent(this.request.runId, {
+      event: "baseline_frozen",
+      head: baseline.summary.head,
+      symbolicRef: baseline.summary.symbolicRef,
+      indexDigest: baseline.summary.indexDigest,
+    });
+    try {
+      this.onBaseline?.(baseline.summary);
+    } catch {
+      // state 写入失败不改变阶段执行；基线摘要仍随 result 发布。
+    }
+    return baseline.worktree;
   }
 
   /** 启动失败诊断（DESIGN.md 5.6）：只作辅助证据，不作权威回执、不参与状态机。 */
@@ -820,7 +873,7 @@ export class StageRunner {
   ): Promise<StageExecution> {
     const processStartedAt = this.now().toISOString();
     this.writeStageProcess(session, "starting", null, processStartedAt);
-    const beforeSignature = worktreeSignature(this.executionDir);
+    const beforeSignature = this.freezeBaseline();
     if (beforeSignature === null) {
       await this.markSession(session, "opening", "worktree_unknown", false);
       return this.failure(session, "worktree_unknown", null, null, null);
@@ -1008,13 +1061,46 @@ export class StageRunner {
     text: string,
     nativeReadable: boolean,
   ): StageExecution {
+    // 边界核对先取事实：HEAD／index／敏感区／忽略区随所有收尾结果发布，供诊断与报告核对。
+    const inspection = this.baseline === null ? null : inspectStageBoundary(this.baseline, this.boundaryContext());
+    if (inspection !== null) {
+      this.boundary = inspection.facts;
+      this.ignoredChanges = inspection.ignoredChanges;
+      this.runs.appendEvent(this.request.runId, {
+        event: "boundary_checked",
+        headMoved: inspection.facts.headMoved,
+        commits: inspection.facts.commits.length,
+        indexChanged: inspection.facts.indexChanged,
+        protectedPaths: inspection.facts.protectedPaths.length,
+        ignoredChanges: inspection.ignoredChanges.length,
+      });
+    }
     // 运行中外部换分支：停止后续副作用，保留可核实证据（任务028）。
     if (!liveBranchMatches(this.executionDir, this.request.expected.branch, gitSync)) {
       return this.failure(session, "branch_mismatch_after_run", usage, nativeEntries, sessionFile, text);
     }
-    const afterSignature = worktreeSignature(this.executionDir);
+    const afterSignature = inspection?.worktree ?? null;
     if (afterSignature === null) return this.failure(session, "worktree_unknown", usage, nativeEntries, sessionFile, text);
+    // 改动以“基线提交＋基线脏文件指纹”为准：阶段内提交过的路径也出现在实际差异里。
     const changedPaths = diffSignatures(beforeSignature, afterSignature);
+    const parsedEarly = parseStageReport(text);
+    // 阶段内禁止提交：HEAD 移动即失败、保留现场，不接收也不并入 scope；提交列表见 result.boundary.commits。
+    if (inspection !== null && inspection.facts.headMoved) {
+      return this.failure(session, "head_moved_during_stage", usage, nativeEntries, sessionFile, text, parsedEarly.report, changedPaths);
+    }
+    // 敏感区（.git hooks／config／info 与 .knit/.runtime 受管资料）阶段前后有变化即拒绝。
+    if (inspection !== null && inspection.facts.protectedPaths.length > 0) {
+      return this.failure(
+        session,
+        protectedRuntimeReason(inspection.facts.protectedPaths),
+        usage,
+        nativeEntries,
+        sessionFile,
+        text,
+        parsedEarly.report,
+        changedPaths,
+      );
+    }
     // 明确授权为成果的正式规范不在 .knit 保护之列；其余 .knit 元数据、候选与未授权规范仍然拒绝（任务037）。
     const authorizedStandardPaths = new Set((this.request.expected.authorizedStandardOutputs ?? []).map((output) => output.path));
     const protectedPaths = changedPaths.filter(
@@ -1023,7 +1109,7 @@ export class StageRunner {
     if (protectedPaths.length > 0) {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
-    const parsed = parseStageReport(text);
+    const parsed = parsedEarly;
     if (parsed.report === null) return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text);
     const validation = validateReportForStage(this.stage, parsed.report, changedPaths);
     if (!validation.ok) {
@@ -1074,6 +1160,9 @@ export class StageRunner {
       failureReason,
       branch: this.request.expected.branch,
       workflowMode: this.workflowMode,
+      ...(this.baseline === null ? {} : { baseline: this.baseline.summary }),
+      ...(this.boundary === null ? {} : { boundary: this.boundary }),
+      ...(this.ignoredChanges === null ? {} : { ignoredChanges: this.ignoredChanges }),
     };
   }
 

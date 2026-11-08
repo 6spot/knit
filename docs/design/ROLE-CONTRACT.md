@@ -58,7 +58,7 @@
 | `external` | 放开项目扩展、MCP 与技能；声明后工具不存在要报错，不静默降级 |
 | `network` | 放开网络；默认阶段离线执行 |
 
-不写 `tools` 或写标量 `all`（大小写不敏感）表示全部放开；写 `[]` 表示全部禁用（无任何工具，保持离线并禁用扩展／MCP／技能）；写了非空列表就是白名单，没列出的能力不能用，列表里不能混入 `all`（如 `[all, read]` 报 `invalid_tools`）。`knit workflow set-tools <id> all|[]|<清单>` 分别设为全部放开、全部禁用或白名单，`--clear` 删除字段（等同全部放开）。`external`／`network` 明确改变可移植性与安全边界，应由项目显式声明。能力不是操作系统沙箱，shell 仍可能产生未声明副作用；阶段边界核对 HEAD／分支、index 与实际成果，发现无法确认的副作用时保留事实并报告。
+不写 `tools` 或写标量 `all`（大小写不敏感）表示全部放开；写 `[]` 表示全部禁用（无任何工具，保持离线并禁用扩展／MCP／技能）；写了非空列表就是白名单，没列出的能力不能用，列表里不能混入 `all`（如 `[all, read]` 报 `invalid_tools`）。`knit workflow set-tools <id> all|[]|<清单>` 分别设为全部放开、全部禁用或白名单，`--clear` 删除字段（等同全部放开）。`external`／`network` 明确改变可移植性与安全边界，应由项目显式声明。能力不是操作系统沙箱，shell 仍可能产生未声明副作用；阶段边界冻结并核对 HEAD／分支、index、敏感区与实际成果：阶段内提交判 `head_moved_during_stage`，改动 `.git/hooks`／`.git/config`／`.git/info` 或 `.knit/.runtime` 受管资料判 `protected_runtime_modified`，index 与忽略区变化如实记录（DESIGN §5.1）。
 
 | 事实 | 说明 |
 | --- | --- |

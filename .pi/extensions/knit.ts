@@ -370,9 +370,10 @@ export default function (pi: any) {
       const stage = typeof view.stageName === "string" && view.stageName !== "" ? view.stageName : view.phase;
       const shortRunId = shortId(view.runId);
       const outcome = view.result?.report?.verdict ?? resultState ?? view.state;
-      const text = pending
+      const base = pending
         ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
         : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
+      const text = [base, ...boundaryNotes(view.result)].join("\n");
       try {
         pi.sendMessage(
           { customType: NOTICE_ENTRY, content: text, display: true, details: { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature } },
@@ -384,6 +385,23 @@ export default function (pi: any) {
         diag("notice_failed", { runId: view.runId, reason: String(error) });
       }
     }
+  }
+
+  /** 阶段边界事实：失败原因（阶段内提交、敏感区改动等）与忽略区变化；忽略区只报告不判失败。 */
+  function boundaryNotes(result: any): string[] {
+    const notes: string[] = [];
+    if (result?.state === "failed" && typeof result.failureReason === "string" && result.failureReason !== "") {
+      notes.push(`失败原因：${result.failureReason}`);
+    }
+    if (result?.boundary?.headMoved === true && Array.isArray(result.boundary.commits)) {
+      notes.push(`阶段内提交 ${result.boundary.commits.length} 个，未接收；请自行处理提交后重派。`);
+    }
+    const ignored = Array.isArray(result?.ignoredChanges) ? result.ignoredChanges : [];
+    if (ignored.length > 0) {
+      const shown = ignored.slice(0, 5).map((item: any) => `${item.path}(${item.change})`).join(", ");
+      notes.push(`忽略区变化（仅报告）：${shown}${ignored.length > 5 ? ` 等 ${ignored.length} 项` : ""}`);
+    }
+    return notes;
   }
 
   function startObserver(ctx: any): void {
@@ -579,6 +597,7 @@ export default function (pi: any) {
         `  run ${data.runId}: ${data.state ?? "?"}（启动 ${data.launchState ?? "?"}，尝试 ${data.attempts ?? "?"}）；任务 ID: ${data.taskId}`,
       ];
       if (data.result) lines.push(`  结果: ${data.result.state ?? "?"}${data.result.report?.verdict ? ` / ${data.result.report.verdict}` : ""}`);
+      if (data.result) lines.push(...boundaryNotes(data.result).map((note) => `  ${note}`));
       if (data.acceptance) lines.push(`  接收: ${data.acceptance.state ?? "?"}${data.acceptance.reason ? `（${data.acceptance.reason}）` : ""}`);
       return lines.join("\n");
     }

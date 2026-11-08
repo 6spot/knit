@@ -31,9 +31,16 @@ function signatureOf(root: string, paths: string[]): WorktreeSignature {
   return { entries, digest: sha256Text(JSON.stringify(entries)) };
 }
 
-/** 当前 Git 可见改动路径（含未跟踪）；Git 不可用时返回 null，调用方不得宣称检查无副作用。 */
-export function worktreeSignature(root: string, git = gitSync): WorktreeSignature | null {
+/**
+ * 当前 Git 可见改动路径（含未跟踪）；Git 不可用时返回 null，调用方不得宣称检查无副作用。
+ * `extraPaths` 追加需要一并取指纹的路径（阶段收尾传入基线脏路径与基线提交以来的改动，见 stage-baseline）。
+ */
+export function worktreeSignature(
+  root: string,
+  git: (args: string[], cwd: string) => { code: number; stdout: string } = gitSync,
+  extraPaths: readonly string[] = [],
+): WorktreeSignature | null {
   const result = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"], root);
   if (result.code !== 0) return null;
-  return signatureOf(root, porcelainStatusPaths(result.stdout));
+  return signatureOf(root, [...new Set([...porcelainStatusPaths(result.stdout), ...extraPaths])]);
 }

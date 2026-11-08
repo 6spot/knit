@@ -138,7 +138,7 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
-scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，实施阶段接收时合并；检查阶段凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要。检查阶段可在既定需求内直接修复明确缺陷：报告 `changedPaths` 与实际 diff 一致且接收通过时，改动并入 scope 并更新检查凭据的 scope 摘要；未声明改动、外部改动或摘要不符时转 `scope_changed`。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
+scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013）：`scope.json` 保存路径与当前指纹，实施阶段接收时合并；检查阶段凭据 `checks/<run>.json` 绑定输入／规范／scope 摘要。检查阶段可在既定需求内直接修复明确缺陷：报告 `changedPaths` 与实际 diff 一致且接收通过时，改动并入 scope 并更新检查凭据的 scope 摘要；未声明改动、外部改动或摘要不符时转 `scope_changed`。阶段 run 的结果在报告校验前先过边界核对（DESIGN §5.1）：阶段内提交为 `failed: head_moved_during_stage`、敏感区改动为 `failed: protected_runtime_modified:<paths>`，两者都不接收、不并入 scope、任务阶段不前进；index 与忽略区变化只记录在结果 `boundary`／`ignoredChanges`。规范为授权输出时，冻结旧输入与新产物分开，新规则是否追用于本任务由主 Agent 明确。工作提交后对选定 commit 核实，不把后来工作区新变动算已交付。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选与沉淀
 

@@ -9,7 +9,7 @@ import { StatusService } from "../application/status-service.js";
 import { doctor, storage } from "../application/diagnostics.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
-import { shortId, stageLabel, taskLabel } from "./display.js";
+import { boundaryLines, shortId, stageLabel, taskLabel } from "./display.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -122,6 +122,7 @@ export function registerStatusCommands(program: Command): void {
             const usage = result.result.usage;
             console.log(`用量: input ${usage.inputTokens ?? "未知"}（含缓存），output ${usage.outputTokens ?? "未知"}；未知值不填零`);
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);
+            for (const line of boundaryLines(result.result)) console.log(line);
           }
         } else {
           console.log(`项目状态 ${result.generatedAt}：活动任务 ${result.tasks.filter((task) => !task.archived).length}，活动 run ${result.activeRuns.length}`);

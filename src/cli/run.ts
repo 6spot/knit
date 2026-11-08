@@ -15,7 +15,7 @@ import { reportStringArrayField, reportVerdictLabel } from "../contracts/run.js"
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
-import { stageLabel, taskLabel } from "./display.js";
+import { boundaryLines, stageLabel, taskLabel } from "./display.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
@@ -425,6 +425,7 @@ export function registerRunCommands(program: Command): void {
             if (status.result !== null) {
               console.log(`结果: ${status.result.state}${status.result.report && reportVerdictLabel(status.result.report) ? ` / ${reportVerdictLabel(status.result.report)}` : ""}`);
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
+              for (const line of boundaryLines(status.result)) console.log(line);
             }
           }
         } finally {
