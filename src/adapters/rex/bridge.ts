@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, rmSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
+import { ensureSocketDirectory } from "./state.js";
 
 export const MAX_FRAME = 256 * 1024;
 
@@ -113,6 +114,8 @@ export class BridgeServer {
   }
 
   async listen(): Promise<void> {
+    // 短路径回退位于 $TMPDIR 下的私有目录；目录缺失时创建，归属不符拒绝。
+    ensureSocketDirectory(this.socketPath);
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error): void => {
         this.server.removeListener("listening", onListening);

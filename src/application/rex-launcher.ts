@@ -26,6 +26,7 @@ import {
   rexAssociationPath,
   rexDirectory,
   rexManifestPath,
+  rexSocketPathFor,
   rexStatePath,
   writeRexAssociation,
   writeRexWorkerManifest,
@@ -525,7 +526,8 @@ export class RexLauncher {
       cwd: this.cwd,
       runDirectory: this.runDirectory,
       directory,
-      socketPath: join(directory, "bridge.sock"),
+      // 路径超过平台 sun_path 上限（macOS 104 字节）时改用 $TMPDIR 短路径；实际值随 manifest／rex.json 记录。
+      socketPath: rexSocketPathFor(this.runDirectory),
       promptPath: join(directory, "prompt.txt"),
       statePath: join(directory, "state.json"),
       ownerPath: join(directory, "owner.json"),
@@ -771,6 +773,8 @@ export class RexLauncher {
     this.stopWatch();
     this.client?.close();
     this.client = null;
+    const socketPath = this.association?.socketPath ?? this.manifest?.socketPath ?? null;
+    if (socketPath !== null) rmSync(socketPath, { force: true });
     rmSync(join(this.rexDirectory, "bridge.sock"), { force: true });
   }
 

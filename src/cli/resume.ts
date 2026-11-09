@@ -2,7 +2,6 @@
 import { Command } from "commander";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
-import { RunCoordinator } from "../application/run-coordinator.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { RunAcceptanceService } from "../application/run-acceptance.js";
 import { DeliveryService } from "../application/delivery-service.js";
@@ -13,6 +12,7 @@ import { GuardError } from "../application/guard-error.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
+import { cancelOptions, cancelRun, emitCancel, emitResume, resumeRun } from "./run-control.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -41,10 +41,9 @@ export function registerResumeCommands(program: Command): void {
       const store = new SqliteMetadataStore(join(start.mainRoot, RUNTIME_DIR, "metadata.db"));
       try {
         if (runId !== undefined) {
-          const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-          const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: runId, executionDir: start.executionDir });
-          if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
-          else console.log(`run ${runId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
+          // 与 `run resume` 共用同一实现（cli/run-control.ts）。
+          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId, locks: options.locks });
+          emitResume(requestId, jsonMode(), `run ${runId}`, result);
           return;
         }
         if (operationId !== undefined) {
@@ -80,10 +79,8 @@ export function registerResumeCommands(program: Command): void {
             .filter((request): request is NonNullable<typeof request> => request !== null && request.taskId === taskId);
           const latest = candidates.at(-1);
           if (latest === undefined) throw new GuardError("unknown_run", `任务没有可恢复 run: ${taskId}`);
-          const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-          const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: latest.runId, executionDir: start.executionDir });
-          if (jsonMode()) emit(jsonResponse(requestId, "completed", result));
-          else console.log(`任务 ${taskId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
+          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId: latest.runId, locks: options.locks });
+          emitResume(requestId, jsonMode(), `任务 ${taskId}`, result);
           return;
         }
         throw new GuardError("invalid_request", "resume 需要 run ID、operation ID 或 task ID");
@@ -94,13 +91,13 @@ export function registerResumeCommands(program: Command): void {
       }
     });
 
-  program
-    .command("cancel")
-    .description("按 run 或 operation 落盘取消意图；--terminate 只终止本 run 已核实的自有进程组")
-    .option("--run <runId>", "run ID")
-    .option("--operation <operationId>", "操作 ID")
-    .option("--reason <text>", "取消理由")
-    .option("--terminate", "worker 已退出但阶段 Pi 记录仍存活时，显式终止该进程组")
+  cancelOptions(
+    program
+      .command("cancel")
+      .description("按 run 或 operation 落盘取消意图；--terminate 只终止本 run 已核实的自有进程组")
+      .option("--run <runId>", "run ID")
+      .option("--operation <operationId>", "操作 ID"),
+  )
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       const requestId = `cancel-${Date.now()}`;
@@ -108,21 +105,15 @@ export function registerResumeCommands(program: Command): void {
       const store = new SqliteMetadataStore(join(root, RUNTIME_DIR, "metadata.db"));
       try {
         if (options.run !== undefined) {
-          const coordinator = new RunCoordinator({ store });
-          const result = await coordinator.cancel({
-            dir: root,
+          // 与 `run cancel` 共用同一实现（cli/run-control.ts）。
+          const result = await cancelRun({
+            store,
+            root,
             runId: options.run,
             reason: options.reason ?? null,
             terminate: options.terminate === true,
           });
-          if (jsonMode()) emit(jsonResponse(requestId, result.requested ? "completed" : "needs_attention", result));
-          else {
-            console.log(
-              `run ${options.run}: ${result.requested ? "已记录取消意图" : `未新取消（${result.reason ?? result.state}）`}` +
-                `；worker=${result.workerVerdict} stage=${result.stageVerdict}` +
-                `${result.terminated ? "；已终止阶段进程组" : ""}${result.terminalized ? "；已收敛为 cancelled" : ""}`,
-            );
-          }
+          emitCancel(requestId, jsonMode(), options.run, result);
           return;
         }
         if (options.operation !== undefined) {

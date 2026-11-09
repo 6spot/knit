@@ -13,7 +13,7 @@
 
 [旧任务索引](docs/history/TASKS.md)、[001–060 执行记录](docs/history/tasks/)和[旧阻塞记录](docs/history/BLOCKERS.md)保留为历史档案，不再排新任务或维护后续任务状态。其旧启动指令、编号顺序和各任务执行时的边界只说明当时约定。历史证据保留在 [validation/](validation/)。
 
-后续真机／真实模型验收按用户决定延期；macOS 开发环境中的本地测试不等于已完成 macOS 安装与运行验收。NPM 发布、外部部署和其它真实项目操作尚未进行。
+后续真机／真实模型验收按用户决定延期。macOS 的支持级别是开发环境：在 macOS 开发机上 `npm test` 必须全绿（Rex 终端与普通终端各跑一次），改动涉及进程信号、socket 路径或文件路径比较时按 [TECHNOLOGY.md](docs/design/TECHNOLOGY.md) 第 6 节核对 macOS 差异；开发机测试通过不等于已完成 macOS 安装与运行验收，后者仍延期。NPM 发布、外部部署和其它真实项目操作尚未进行。
 
 本文件是开发 Knit 仓库的 Agent 入口，不作为 `knit init` 的产品模板。用户项目入口由安装包模板生成，并保留用户原有规则。
 

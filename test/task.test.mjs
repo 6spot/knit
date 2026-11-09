@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -330,7 +330,8 @@ test("task adopt：frontmatter 已绑当前分支但绑定行缺失时补齐绑�
     assert.equal(adopted.checkInvalidated, false);
     const binding = await store.bindings.get(task.taskId);
     assert.equal(binding.branch, "refs/heads/main");
-    assert.equal(binding.repoRoot, dir);
+    // repoRoot 是 normalizeRoot 的真实路径；macOS 临时目录经 /var → /private/var 符号链接。
+    assert.equal(binding.repoRoot, realpathSync(dir));
     assert.equal(binding.relativePath, task.relativePath);
     // 再跑一次仍幂等，不重复改写。
     const again = await service.adopt({ dir, taskId: task.taskId, branch: "current" });

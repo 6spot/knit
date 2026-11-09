@@ -108,7 +108,8 @@ function fakeRex(binDir, mode = "ok") {
       : mode === "connection_failed"
         ? `process.stderr.write("server unavailable\\n"); process.exit(1);`
         : `console.log(JSON.stringify({ methods: ${JSON.stringify(REQUIRED_METHODS.map((name) => ({ name })))} }));`;
-  writeFileSync(path, `#!/usr/bin/env node\n${body}\n`);
+  // 用当前 node 的绝对路径作解释器：rexEnv 的 PATH 只有 /usr/bin:/bin，macOS（Homebrew／nvm）的 node 不在其中。
+  writeFileSync(path, `#!${process.execPath}\n${body}\n`);
   chmodSync(path, 0o755);
   return path;
 }
@@ -122,11 +123,12 @@ function rexEnv(binDir) {
   };
 }
 
+/** 普通终端环境：去掉全部 REX_* 与 TERM_PROGRAM，测试结果与是否在 Rex 终端内运行无关。 */
 function withoutRexEnv(extra = {}) {
   const env = { ...process.env, ...extra };
-  delete env.REX_SESSION;
-  delete env.REX_BLOCK;
-  delete env.REX_BIN_DIR;
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("REX_") || key === "TERM_PROGRAM" || key === "TERM_PROGRAM_VERSION") delete env[key];
+  }
   return env;
 }
 
@@ -378,7 +380,7 @@ test("CLI：无 --rex 时按 execution.host=auto 与环境自动使用 Rex", asy
     const prepared = spawnSync(
       process.execPath,
       [CLI, "--json", "run", "prepare", "--task", task.taskId, "--stage", "implement", "--provider", "fake", "--model", "fake", "--dir", dir],
-      { encoding: "utf8", env: { ...process.env, ...rexEnv(binDir) } },
+      { encoding: "utf8", env: { ...withoutRexEnv(), ...rexEnv(binDir) } },
     );
     assert.equal(prepared.status, 0, prepared.stderr);
     const response = JSON.parse(prepared.stdout);

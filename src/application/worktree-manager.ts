@@ -8,7 +8,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { GuardError } from "./guard-error.js";
-import { hashKey, normalizeRoot, safeJoin } from "../infrastructure/paths.js";
+import { canonicalPath, hashKey, normalizeRoot, safeJoin, samePath } from "../infrastructure/paths.js";
 import { sha256Text } from "../infrastructure/fingerprint.js";
 import { gitSync } from "../infrastructure/process.js";
 import { porcelainStatusPaths } from "./git-status.js";
@@ -242,7 +242,7 @@ function assertPathAvailable(root: string, path: string): string {
 function branchOccupiedBy(root: string, branch: string, targetPath: string | null): string | null {
   for (const entry of worktreeList(root)) {
     if (entry.branch !== branch) continue;
-    if (targetPath === null || resolve(entry.path) !== resolve(targetPath)) return entry.path;
+    if (targetPath === null || !samePath(entry.path, targetPath)) return entry.path;
   }
   return null;
 }
@@ -252,7 +252,7 @@ export function verifyRegisteredWorktree(root: string, info: WorktreeInfo): { ok
   if (!existsSync(info.path) || !statSync(info.path).isDirectory()) {
     return { ok: false, problem: `登记路径缺失: ${info.path}` };
   }
-  const entry = worktreeList(root).find((candidate) => resolve(candidate.path) === resolve(info.path));
+  const entry = worktreeList(root).find((candidate) => samePath(candidate.path, info.path));
   if (entry === undefined) {
     return { ok: false, problem: `登记路径未在 git worktree list 中: ${info.path}` };
   }
@@ -274,11 +274,12 @@ function verifyConnectTarget(root: string, target: string): { branch: string; he
   if (inside.code !== 0) {
     throw new TaskGuardError("repo_mismatch", `目标目录不是 Git 工作区: ${target}`);
   }
+  // Git 报告真实路径；目标可能经符号链接别名给出（macOS /var → /private/var），按规范形式比较。
   const toplevel = resolve(inside.stdout.trim());
-  if (toplevel !== resolve(target)) {
+  if (!samePath(toplevel, target)) {
     throw new TaskGuardError("path_occupied", `目标目录不是 worktree 根: ${target}（实际 ${toplevel}）`);
   }
-  const entry = worktreeList(root).find((candidate) => resolve(candidate.path) === resolve(target));
+  const entry = worktreeList(root).find((candidate) => samePath(candidate.path, target));
   if (entry === undefined) {
     throw new TaskGuardError("repo_mismatch", `目录未在主仓库 git worktree list 中登记: ${target}`);
   }
@@ -413,7 +414,7 @@ export class WorktreeService {
         const baseName = `${mm}-${dd}-${slug}`;
         const expectedPath = join(container, baseName);
         const crashed = branchOccupiedBy(root, `refs/heads/knit/${baseName}`, null);
-        if (crashed !== null && resolve(crashed) === resolve(expectedPath)) {
+        if (crashed !== null && samePath(crashed, expectedPath)) {
           targetPath = crashed;
           branch = `refs/heads/knit/${baseName}`;
         } else {
@@ -493,11 +494,12 @@ export class WorktreeService {
     const root = normalizeRoot(input.dir);
     const now = this.now();
     this.locateOpenTask(root, input.taskId);
-    const target = resolve(input.path);
+    // 已有目录按规范形式登记：与 normalizeRoot 的项目根一致，符号链接别名不影响布局判定与后续比较。
+    const target = canonicalPath(input.path);
     return await this.withTaskLock(root, input.taskId, "worktree.connect", async () => {
       const binding = await this.requireBinding(input.taskId);
       const registered = binding.worktree ?? null;
-      if (registered !== null && resolve(registered.path) !== target) {
+      if (registered !== null && !samePath(registered.path, target)) {
         throw new TaskGuardError("worktree_mismatch", `任务已登记其它 worktree: ${registered.path}`);
       }
       const verified = verifyConnectTarget(root, target);

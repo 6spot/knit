@@ -7,15 +7,17 @@
  *   rex/state.json           worker 生命周期状态（idle/running/blocked/completed/aborted/error/closed）
  *   rex/owner.json           worker 单实例锁（pid + token；存活 owner 不被抢占）
  *   rex/prompt.txt           只在启动时注入一次的阶段 prompt
- *   rex/bridge.sock          worker 侧 Unix socket JSON-RPC
+ *   rex/bridge.sock          worker 侧 Unix socket JSON-RPC（路径超过平台 sun_path 上限时改用
+ *                            $TMPDIR/knit-rex-<uid>/<hash>.sock，实际路径记在 manifest 与 rex.json）
  *   rex/results/<rev>.json   每轮 settle 后不可变结果
  *
  * 这些是观察与恢复事实，不替代核心 run 的 state/result；业务终态仍由 StageRunner 复核。
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -24,6 +26,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { bool, int, lit, nul, obj, str, union, type Static } from "@earendil-works/pi-schema";
 import { checkSchema } from "../../contracts/schema.js";
@@ -151,6 +154,54 @@ export function rexPromptPath(runDirectory: string): string {
 }
 export function rexSocketPath(runDirectory: string): string {
   return join(rexDirectory(runDirectory), "bridge.sock");
+}
+
+/**
+ * Unix socket 路径的最大字节数（不含结尾 NUL）：macOS／BSD sun_path 为 104 字节，Linux 为 108 字节。
+ * 超过即 listen/connect 报 EINVAL 或 ENAMETOOLONG。
+ */
+export function unixSocketPathLimit(platform: NodeJS.Platform = process.platform): number {
+  return platform === "linux" ? 107 : 103;
+}
+
+export interface RexSocketPathOptions {
+  /** 路径字节上限；缺省按当前平台。 */
+  limit?: number;
+  /** 短路径候选临时目录，按顺序取第一个不超限的；缺省 [os.tmpdir()（即 $TMPDIR）, /tmp]。 */
+  tmpDirs?: readonly string[];
+  /** 私有子目录后缀；缺省当前 uid。 */
+  owner?: string;
+}
+
+/**
+ * worker bridge socket 位置：run 目录内路径不超过上限时沿用 rex/bridge.sock；
+ * 超过时改用 $TMPDIR/knit-rex-<uid>/<run 目录摘要>.sock（同一 run 目录稳定），$TMPDIR 仍过长时再试 /tmp。
+ * 调用方把返回值写进 manifest 与 rex.json，恢复时以记录为准，不重新推算。
+ */
+export function rexSocketPathFor(runDirectory: string, options: RexSocketPathOptions = {}): string {
+  const limit = options.limit ?? unixSocketPathLimit();
+  const local = rexSocketPath(runDirectory);
+  if (Buffer.byteLength(local) <= limit) return local;
+  const owner = options.owner ?? (typeof process.getuid === "function" ? String(process.getuid()) : "user");
+  const digest = createHash("sha256").update(runDirectory, "utf8").digest("hex").slice(0, 16);
+  const directories = options.tmpDirs ?? (process.platform === "win32" ? [tmpdir()] : [tmpdir(), "/tmp"]);
+  const candidates = directories.map((directory) => join(directory, `knit-rex-${owner}`, `${digest}.sock`));
+  const chosen = candidates.find((candidate) => Buffer.byteLength(candidate) <= limit);
+  if (chosen !== undefined) return chosen;
+  throw new Error(`Rex worker socket 路径超过平台上限 ${limit} 字节：${local}；临时目录候选 ${candidates.join("、")} 仍过长，请设置更短的 TMPDIR`);
+}
+
+/**
+ * 准备 socket 所在目录：缺失时按 0700 创建；已存在时必须是本用户拥有的真实目录（不跟随符号链接）。
+ */
+export function ensureSocketDirectory(socketPath: string): void {
+  const directory = dirname(socketPath);
+  if (!existsSync(directory)) mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(directory);
+  if (!stat.isDirectory()) throw new Error(`Rex worker socket 目录不是目录：${directory}`);
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    throw new Error(`Rex worker socket 目录不属于当前用户：${directory}`);
+  }
 }
 export function rexResultsDirectory(runDirectory: string): string {
   return join(rexDirectory(runDirectory), "results");

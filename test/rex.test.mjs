@@ -33,6 +33,7 @@ import {
   rexOwnerPath,
   rexResultPath,
   rexStatePath,
+  rexSocketPathFor,
   writeRexAssociation,
   writeRexPrompt,
   writeRexWorkerManifest,
@@ -99,7 +100,8 @@ function manifestFor(dir, runId, runDirectory, overrides = {}) {
     cwd: dir,
     runDirectory,
     directory,
-    socketPath: join(directory, "bridge.sock"),
+    // 与 RexLauncher 同一规则：macOS 临时目录较长，run 目录内 socket 可能超过 104 字节。
+    socketPath: rexSocketPathFor(runDirectory),
     promptPath: join(directory, "prompt.txt"),
     statePath: join(directory, "state.json"),
     ownerPath: join(directory, "owner.json"),
@@ -480,6 +482,9 @@ test("RexLauncher：创建浮层、写入 rex.json、bridge 等待与 steer", as
     assert.equal(association.blockId, "block-1");
     assert.equal(association.layerId, "layer-1");
     assert.equal(association.label, rexLabel(runId));
+    // socket 实际位置（超长时为 $TMPDIR 短路径）记入 manifest 与 rex.json，恢复以记录为准。
+    assert.equal(association.socketPath, rexSocketPathFor(runDirectory));
+    assert.equal(association.socketPath, readRexWorkerManifest(rexManifestPath(runDirectory)).socketPath);
   } finally {
     await launcher.dispose();
     if (server !== null) await server.close();

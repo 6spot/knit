@@ -17,6 +17,7 @@ import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
 import { boundaryLines, stageLabel, taskLabel } from "./display.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
+import { cancelOptions, cancelRun, emitCancel, emitResume, resumeRun } from "./run-control.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -479,20 +480,25 @@ export function registerRunCommands(program: Command): void {
       }
     });
 
-  run
-    .command("cancel")
-    .description("落盘取消意图；只影响本 run，不直接杀进程")
-    .argument("<runId>", "run ID")
-    .option("--reason <text>", "取消理由")
+  cancelOptions(
+    run
+      .command("cancel")
+      .description("落盘取消意图；只影响本 run，不直接杀进程（与顶层 cancel --run 同一实现）")
+      .argument("<runId>", "run ID"),
+  )
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
       const root = cliMainRoot(options.dir);
       const store = openStore(root);
       try {
-        const coordinator = new RunCoordinator({ store });
-        const result = await coordinator.cancel({ dir: root, runId, reason: options.reason ?? null });
-        if (jsonMode()) emit(jsonResponse("run-cancel", "completed", result));
-        else console.log(`run ${runId}: ${result.requested ? "已记录取消意图" : `已是终态 ${result.state}`}`);
+        const result = await cancelRun({
+          store,
+          root,
+          runId,
+          reason: options.reason ?? null,
+          terminate: options.terminate === true,
+        });
+        emitCancel("run-cancel", jsonMode(), runId, result);
       } catch (error) {
         fail("run-cancel", error);
       } finally {
@@ -502,7 +508,7 @@ export function registerRunCommands(program: Command): void {
 
   run
     .command("resume")
-    .description("旧执行结束后恢复：结果待同步先接收不重跑；否则用原／新会话续做")
+    .description("旧执行结束后恢复：结果待同步先接收不重跑；否则用原／新会话续做（与顶层 resume --run 同一实现）")
     .argument("<runId>", "旧 run ID")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
@@ -510,10 +516,8 @@ export function registerRunCommands(program: Command): void {
       const start = resolveProjectStart(options.dir);
       const store = openStore(start.mainRoot);
       try {
-        const coordinator = new RunCoordinator({ store, lockRoot: options.locks });
-        const result = await coordinator.resume({ dir: start.mainRoot, oldRunId: runId, executionDir: start.executionDir });
-        if (jsonMode()) emit(jsonResponse("run-resume", "completed", result));
-        else console.log(`旧 run ${runId}: ${result.accepted ? "已接收" : "待处理"}；${result.resumed ? `新 run ${result.request?.runId}` : result.reason ?? ""}`);
+        const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId, locks: options.locks });
+        emitResume("run-resume", jsonMode(), `run ${runId}`, result);
       } catch (error) {
         fail("run-resume", error);
       } finally {

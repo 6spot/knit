@@ -13,6 +13,29 @@ export function normalizeRoot(path: string): string {
   return realpathSync(path);
 }
 
+/**
+ * 任意绝对路径的规范形式：最近存在祖先按 realpath 解析，尚不存在的尾段原样拼回。
+ * 用于与 Git 报告的路径（git worktree list／rev-parse 均给真实路径）比较或落库，
+ * 避免 macOS `/var` → `/private/var` 这类符号链接别名被误判为不同目录。
+ */
+export function canonicalPath(path: string): string {
+  const target = resolve(path);
+  let existing = target;
+  while (!existsSync(existing) && existing !== dirname(existing)) {
+    existing = dirname(existing);
+  }
+  try {
+    return join(realpathSync(existing), relative(existing, target));
+  } catch {
+    return target;
+  }
+}
+
+/** 两个路径按规范形式是否指向同一位置（符号链接别名视为相同）。 */
+export function samePath(a: string, b: string): boolean {
+  return resolve(a) === resolve(b) || canonicalPath(a) === canonicalPath(b);
+}
+
 /** 稳定摘要键：SHA-256 前 32 个 hex 字符；同一输入恒定，不泄漏原路径。 */
 export function hashKey(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 32);

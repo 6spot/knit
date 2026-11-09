@@ -346,8 +346,8 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | run schedule [--once] [--until-idle] [--max <n>] [--authorization-ref <ref>] | Worktree 模式下按就绪集、影响路径与并发上限派发；`--once` 只派一批，默认循环接收并推进到 deliver 前；未开启 worktree.default 时只说明、不派发。长循环不暴露为桥接工具 |
 | run check --scope <路径...> | 非正式检查，不建 Task 绑定，不赋正式交付资格 |
 | context --task <id> [--stage <id>] | 生成阶段分层输入与顶部提示；阶段目标由生效流程派生 |
-| resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作 |
-| cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome |
+| resume [id] [--run <id> 或 --operation <id>] | 新 run 恢复或核实效果后继续同一操作；`run resume <id>` 与 `resume --run <id>` 共用同一实现 |
+| cancel --run <id> / --operation <id> | 指定对象和执行 token 取消，核实实际停止，不改变业务 outcome；`run cancel <id>` 与 `cancel --run <id>` 共用同一实现（同样接受 `--reason`、`--terminate`）。已终态 run 返回 `requested: false, reason: already_terminal`（JSON outcome `completed`），人读输出“run 已结束，无需取消”；结果已发布未接收返回 `result_published`（`needs_attention`，用 resume 接收） |
 | worktree create --task <id> [--path/--branch/--global/--allow-dirty] | 从主检出当前已提交 HEAD 建立任务 worktree 并登记绑定；任务之外有未提交改动时须显式 --allow-dirty，默认拒绝 |
 | worktree connect --task <id> --path <dir> | 连接已有目录；核对 porcelain 登记、仓库归属与本地分支，不创建、不搬运 |
 | worktree handoff --task <id> [--to <dir>] | 交接本任务资料到已登记 worktree：快照、基线核对、冲突检测、回执与绑定切换 |
