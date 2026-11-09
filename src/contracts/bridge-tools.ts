@@ -60,6 +60,7 @@ export const TaskToolSchema = obj(
     body: opt(str()),
     reason: opt(str()),
     outcome: opt(union([lit("completed"), lit("cancelled"), lit("superseded")])),
+    /** 兼容参数（无操作）：close 时活动／未知运行与待接收结果由核心直接核对。 */
     runsSettled: opt(bool()),
     /** 主会话实施事实：实际改动路径、验证与未验证项。 */
     paths: opt(arr(str({ minLength: 1 }))),

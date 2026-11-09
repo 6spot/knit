@@ -12,7 +12,7 @@ import { GuardError } from "../application/guard-error.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
-import { cancelOptions, cancelRun, emitCancel, emitResume, resumeRun } from "./run-control.js";
+import { cancelOptions, cancelRun, emitCancel, emitResume, resumeOptions, resumeRun } from "./run-control.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -25,9 +25,11 @@ export function registerResumeCommands(program: Command): void {
     else console.error(`knit: ${message}`);
   };
 
-  program
-    .command("resume [id]")
-    .description("按 run 恢复；按 operation 先核实已有效果后继续同一操作")
+  resumeOptions(
+    program
+      .command("resume [id]")
+      .description("按 run 恢复并启动新 run（--no-start 只准备）；按 operation 先核实已有效果后继续同一操作"),
+  )
     .option("--run <runId>", "旧 run ID")
     .option("--operation <operationId>", "操作 ID")
     .option("--locks <dir>", "锁根目录")
@@ -39,10 +41,12 @@ export function registerResumeCommands(program: Command): void {
       const taskId = options.run === undefined && options.operation === undefined && typeof id === "string" && !id.startsWith("run-") && !id.startsWith("op-") ? id : undefined;
       const start = resolveProjectStart(options.dir);
       const store = new SqliteMetadataStore(join(start.mainRoot, RUNTIME_DIR, "metadata.db"));
+      const startNew = options.start !== false;
+      const wait = options.wait === true;
       try {
         if (runId !== undefined) {
           // 与 `run resume` 共用同一实现（cli/run-control.ts）。
-          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId, locks: options.locks });
+          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId, locks: options.locks, start: startNew, wait });
           emitResume(requestId, jsonMode(), `run ${runId}`, result);
           return;
         }
@@ -79,7 +83,7 @@ export function registerResumeCommands(program: Command): void {
             .filter((request): request is NonNullable<typeof request> => request !== null && request.taskId === taskId);
           const latest = candidates.at(-1);
           if (latest === undefined) throw new GuardError("unknown_run", `任务没有可恢复 run: ${taskId}`);
-          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId: latest.runId, locks: options.locks });
+          const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId: latest.runId, locks: options.locks, start: startNew, wait });
           emitResume(requestId, jsonMode(), `任务 ${taskId}`, result);
           return;
         }

@@ -17,7 +17,7 @@ import { devEnabled } from "./dev.js";
 import { cliMainRoot } from "./root.js";
 import { boundaryLines, stageLabel, taskLabel } from "./display.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
-import { cancelOptions, cancelRun, emitCancel, emitResume, resumeRun } from "./run-control.js";
+import { cancelOptions, cancelRun, emitCancel, emitResume, resumeOptions, resumeRun } from "./run-control.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -506,17 +506,27 @@ export function registerRunCommands(program: Command): void {
       }
     });
 
-  run
-    .command("resume")
-    .description("旧执行结束后恢复：结果待同步先接收不重跑；否则用原／新会话续做（与顶层 resume --run 同一实现）")
-    .argument("<runId>", "旧 run ID")
+  resumeOptions(
+    run
+      .command("resume")
+      .description("旧执行结束后恢复：结果待同步先接收不重跑；否则用原／新会话续做并启动新 run（与顶层 resume --run 同一实现）")
+      .argument("<runId>", "旧 run ID"),
+  )
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
       const start = resolveProjectStart(options.dir);
       const store = openStore(start.mainRoot);
       try {
-        const result = await resumeRun({ store, mainRoot: start.mainRoot, executionDir: start.executionDir, runId, locks: options.locks });
+        const result = await resumeRun({
+          store,
+          mainRoot: start.mainRoot,
+          executionDir: start.executionDir,
+          runId,
+          locks: options.locks,
+          start: options.start !== false,
+          wait: options.wait === true,
+        });
         emitResume("run-resume", jsonMode(), `run ${runId}`, result);
       } catch (error) {
         fail("run-resume", error);

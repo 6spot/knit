@@ -750,6 +750,12 @@ export const RunStateFileSchema = obj(
     ]),
     /** 阶段基线摘要；阶段 Agent 启动前写入，旧 state 缺省。 */
     baseline: opt(StageBaselineSummarySchema),
+    /**
+     * 实际生效的呈现方式：auto 选中 Rex 但 worker 从未报到、本 run 无阶段副作用时回退 local，
+     * request 不可变，回退事实写在这里；缺省表示按 request.presentation 执行。
+     */
+    presentation: opt(RunPresentationSchema),
+    presentationFallbackReason: opt(union([str({ minLength: 1 }), nul()])),
     reason: union([str(), nul()]),
   },
 );
@@ -786,8 +792,9 @@ export const RunDiagnosticsFileSchema = obj(
     runId: str({ minLength: 1 }),
     taskId: str({ minLength: 1 }),
     phase: RunPhaseSchema,
-    kind: lit("runtime_start_failed"),
-    /** RuntimeStartCheck.failure 代码；语义不变，诊断不参与状态机。 */
+    /** runtime_start_failed：本地 Pi 启动失败；rex_start_failed：Rex 浮层启动失败或 worker 未报到（stderrTail 为 Rex 侧 stderr／块屏幕尾部，detail 含块状态）。 */
+    kind: union([lit("runtime_start_failed"), lit("rex_start_failed")]),
+    /** RuntimeStartCheck.failure 代码或 Rex 启动失败码；语义不变，诊断不参与状态机。 */
     failure: str({ minLength: 1 }),
     detail: str(),
     stderrTail: str(),

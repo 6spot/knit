@@ -723,7 +723,7 @@ export function registerTaskCommands(program: Command): void {
     .description("业务结束：--outcome completed/cancelled/superseded；不等于已提交归档")
     .requiredOption("--outcome <outcome>", "completed、cancelled 或 superseded")
     .option("--reason <reason>", "完成判断或结束说明；写入完成凭据")
-    .option("--runs-settled", "确认该任务活动／未知运行与待接收结果已收敛", false)
+    .option("--runs-settled", "兼容参数（无操作）：活动／未知运行与待接收结果由核心直接核对", false)
     .option("--force", "强制完成：跳过完成资格证据核对，必须在 --reason 写明原因", false)
     .option("--no-artifacts", "显式声明本任务没有产物：空 scope 的 self／independent 才能完成，必须在 --reason 写明原因")
     .option("--dir <dir>", "项目目录", ".")

@@ -141,6 +141,8 @@ export interface RunStatusProjection {
   standardsDigest: string | null;
   reason: string | null;
   handle: LaunchRecord["handle"];
+  /** worker 句柄核实：absent 为未启动；unknown 为跨启动周期或无法核实，不冒充死亡。 */
+  workerVerdict: "alive" | "not_alive" | "unknown" | "absent";
   events: number;
   lastEventAt: string | null;
   lastEvent: string | null;
@@ -597,9 +599,10 @@ export class RunCoordinator {
       taskId: request.taskId,
       phase: request.phase,
       workflowMode: state?.workflowMode ?? result?.workflowMode ?? request.workflowMode ?? null,
-      presentation: request.presentation ?? "local",
+      // auto 选中 Rex 但 worker 未报到而回退 local 时，实际呈现与回退原因记在 state（request 不可变）。
+      presentation: state?.presentation ?? request.presentation ?? "local",
       presentationSource: request.presentationSource ?? "config",
-      presentationFallbackReason: request.presentationFallbackReason ?? null,
+      presentationFallbackReason: state?.presentationFallbackReason ?? request.presentationFallbackReason ?? null,
       branch: request.expected.branch,
       initiator: request.initiator,
       createdAt: request.createdAt,
@@ -614,6 +617,7 @@ export class RunCoordinator {
       standardsDigest: inputs?.standardsDigest ?? null,
       reason: state?.reason ?? launch?.lastError ?? null,
       handle: launch?.handle ?? null,
+      workerVerdict: this.handleVerdict(launch?.handle ?? null),
       events: events.length,
       lastEventAt: typeof last?.at === "string" ? last.at : null,
       lastEvent: typeof last?.event === "string" ? last.event : null,

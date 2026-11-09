@@ -9,6 +9,7 @@ import { cliMainRoot } from "./root.js";
 import type { SessionKind, SessionRole, SessionSourceKind } from "../contracts/session.js";
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 import { loadWorkflow } from "../application/workflow.js";
+import { StatusService } from "../application/status-service.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -252,14 +253,24 @@ export function registerSessionCommands(program: Command): void {
       await withStore(
         requestId,
         options.dir,
-        async (store) =>
-          new ContextPlanner({ store }).plan({
+        async (store) => {
+          const plan = await new ContextPlanner({ store }).plan({
             dir: options.dir,
             taskId: options.task,
             stage,
             // 展示新 run 将使用的计划：已降级时不套旧阶段提示词。
             keepLegacyStagePrompt: loadWorkflow(options.dir).mode !== "fallback",
-          }),
+          });
+          // 任务级确定性下一步：与 status <task> 同一推导；计划本身不含任务状态，卡点在这里给出口。
+          let nextAction = null;
+          try {
+            const view = await new StatusService({ store }).taskStatus(cliMainRoot(options.dir), options.task);
+            nextAction = view.nextAction;
+          } catch {
+            nextAction = null;
+          }
+          return { ...plan, nextAction };
+        },
         (plan) => {
           console.log(`上下文计划 ${plan.planId}  [${plan.taskId}/${plan.role}]`);
           if (plan.stageBrief !== undefined) console.log(plan.stageBrief);
@@ -271,6 +282,10 @@ export function registerSessionCommands(program: Command): void {
             );
           }
           for (const blocker of plan.blockers) console.log(`  阻塞: ${blocker}`);
+          if (plan.nextAction !== null) {
+            console.log(`下一步（${plan.nextAction.kind}）: ${plan.nextAction.summary}`);
+            for (const command of plan.nextAction.commands) console.log(`  ${command}`);
+          }
         },
       );
     });

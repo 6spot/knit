@@ -380,6 +380,11 @@ async function main(): Promise<number> {
         },
         // 基线冻结写入 run 状态：阶段 Agent 启动前的 HEAD／符号引用／index 摘要与工作区签名。
         onBaseline: (baseline) => writeState({ ...state, baseline }),
+        // auto 选中 Rex 但 worker 从未报到、无阶段副作用：同一 run 以 local 重启，实际呈现与原因写进 state。
+        onPresentationFallback: (presentation, reason) => {
+          writeState({ ...state, presentation, presentationFallbackReason: reason });
+          diag("presentation_fallback", { state: state.state, reason });
+        },
       }).execute();
     } catch (error) {
       const reason = error instanceof InfrastructureError ? error.code : "stage_error";

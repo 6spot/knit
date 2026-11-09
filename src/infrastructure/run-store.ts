@@ -225,6 +225,23 @@ export class RunStore {
     atomicWrite({ path, data: Buffer.from(JSON.stringify(diagnostics, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
   }
 
+  /** Rex 启动诊断（kind=rex_start_failed）；与本地启动诊断分文件，回退 local 后两者可并存。 */
+  readRexDiagnostics(runId: string): RunDiagnosticsFile | null {
+    return parseJson<RunDiagnosticsFile>(join(this.runDir(runId), "rex-diagnostics.json"), RunDiagnosticsFileSchema, "rex-diagnostics.json");
+  }
+
+  /** 辅助证据；同一次尝试内后写覆盖先写，不参与状态机。 */
+  writeRexDiagnostics(runId: string, diagnostics: RunDiagnosticsFile): void {
+    if (!checkSchema(RunDiagnosticsFileSchema, diagnostics)) throw new InfrastructureError("io_error", "rex diagnostics 结构不符");
+    const path = join(this.runDir(runId), "rex-diagnostics.json");
+    atomicWrite({
+      path,
+      data: Buffer.from(JSON.stringify(diagnostics, null, 2) + "\n"),
+      expectedSha256: readWithVersion(path)?.sha256 ?? null,
+      mode: 0o600,
+    });
+  }
+
   readInputs(runId: string): FrozenInputs | null {
     return parseJson<FrozenInputs>(join(this.runDir(runId), "inputs.json"), FrozenInputsSchema, "inputs.json");
   }
@@ -536,7 +553,7 @@ export class RunStore {
     // Rex 事实与核心 run 同属一次尝试；显式 retry 不得把旧 worker 结果当成本次结果。
     rmSync(join(dir, "rex"), { recursive: true, force: true });
     rmSync(join(dir, "rex.json"), { force: true });
-    for (const name of ["state.json", "inputs.json", "instructions.json", "result.json", "check.json", "cancel.json", "diagnostics.json"]) {
+    for (const name of ["state.json", "inputs.json", "instructions.json", "result.json", "check.json", "cancel.json", "diagnostics.json", "rex-diagnostics.json"]) {
       rmSync(join(dir, name), { force: true });
     }
   }

@@ -202,6 +202,38 @@ export interface RexExecution {
   failure: string | null;
 }
 
+/**
+ * Rex 启动失败的根因诊断：只作辅助证据，不参与状态机。
+ * 浮层内 Pi 的 stderr 直接写在终端里，只能在关闭浮层前用 `rex capture` 取尾部。
+ */
+export interface RexStartupDiagnostics {
+  /** rex_launcher_error（装配抛错）、io_error 等基础设施码，或 rex_worker_not_started。 */
+  failure: string;
+  /** 原始错误消息与块状态摘要。 */
+  detail: string;
+  /** Rex CLI 的 stderr（装配抛错时）或块内屏幕尾部（worker 未报到时）。 */
+  output: string;
+  truncated: boolean;
+}
+
+/** 诊断尾部上限：启动发生在 prompt 之前，但屏幕可能很长，只留尾部。 */
+const REX_DIAGNOSTICS_TAIL_LIMIT = 4_000;
+
+function tailOf(text: string): { text: string; truncated: boolean } {
+  const trimmed = text.trim();
+  if (trimmed.length <= REX_DIAGNOSTICS_TAIL_LIMIT) return { text: trimmed, truncated: false };
+  return { text: trimmed.slice(-REX_DIAGNOSTICS_TAIL_LIMIT), truncated: true };
+}
+
+/** 子进程错误的 stderr（execFile 的 error.stderr）；没有时为空。 */
+function stderrOf(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "";
+  const value = (error as { stderr?: unknown }).stderr;
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
+  return "";
+}
+
 type RexDiscovery =
   | { state: "missing"; association: RexAssociation | null }
   | { state: "completed"; association: RexAssociation | null; result: RexWorkerResult }
@@ -256,6 +288,7 @@ export class RexLauncher {
   private terminated = false;
   private layerClosed = false;
   private bridgeClosed = false;
+  private startupDiagnostics: RexStartupDiagnostics | null = null;
 
   constructor(options: RexLauncherOptions) {
     this.root = options.root;
@@ -347,11 +380,58 @@ export class RexLauncher {
     try {
       return await this.createAndWait();
     } catch (error) {
+      // 保留原始错误与 Rex 侧 stderr；块已创建时在关闭前取屏幕尾部与进程状态。
+      await this.recordStartupFailure(
+        error instanceof InfrastructureError ? error.code : "rex_launcher_error",
+        error instanceof Error ? error.message : String(error),
+        stderrOf(error),
+      ).catch(() => {});
       // 新建浮层后任何装配失败都清理本次自有对象；不把半成品留给下一次发现。
       await this.terminate().catch(() => {});
       await this.dispose().catch(() => {});
       throw error;
     }
+  }
+
+  /** 最近一次启动失败的根因诊断；正常启动或已报到后的失败为 null。 */
+  diagnostics(): RexStartupDiagnostics | null {
+    return this.startupDiagnostics;
+  }
+
+  /** 本次新建的块在 worker 报到前退出：关闭浮层前取屏幕尾部（Pi 自身 stderr）与退出状态。 */
+  private async noteExitBeforeReport(): Promise<void> {
+    if (this.latestState !== null || this.startupDiagnostics !== null) return;
+    await this.recordStartupFailure("agent_exited", "Rex 块内进程在 worker 报到前退出", "").catch(() => {});
+  }
+
+  /**
+   * 启动失败诊断：原始错误、关联块与层、块内进程状态与屏幕尾部（浮层内 Pi 的 stderr）。
+   * 各项查询失败只写进 detail，不报错；必须在 terminate() 关闭浮层之前调用。
+   */
+  private async recordStartupFailure(failure: string, message: string, stderr: string): Promise<void> {
+    const lines = [`${failure}: ${message}`];
+    const association = this.association;
+    let output = stderr;
+    if (association === null) {
+      lines.push("浮层：未创建（rex.json 未写入）");
+    } else {
+      lines.push(`浮层：block=${association.blockId} layer=${association.layerId ?? "未知"} label=${association.label}`);
+      try {
+        const process = await this.rex.process(association.blockId);
+        lines.push(`块进程：${process.running ? "运行中" : `已退出（last_exit=${JSON.stringify(process.lastExit)}）`}`);
+      } catch (error) {
+        lines.push(`块进程：无法查询（${error instanceof Error ? error.message.split("\n")[0] : String(error)}）`);
+      }
+      try {
+        const screen = await this.rex.capture(association.blockId);
+        output = [stderr.trim(), screen.trim()].filter((part) => part !== "").join("\n");
+      } catch (error) {
+        lines.push(`屏幕：无法读取（${error instanceof Error ? error.message.split("\n")[0] : String(error)}）`);
+      }
+    }
+    lines.push(`worker 状态：${this.latestState === null ? "从未报到" : this.latestState.status}`);
+    const tail = tailOf(output);
+    this.startupDiagnostics = { failure, detail: lines.join("\n"), output: tail.text, truncated: tail.truncated };
   }
 
   /** 只读恢复发现；测试与主会话重入可单独调用。 */
@@ -639,6 +719,7 @@ export class RexLauncher {
               await this.sleep(50);
               const afterExit = readLatestRexWorkerResult(this.rexDirectory);
               if (afterExit !== null) return this.executionFromResult(afterExit, this.latestState);
+              await this.noteExitBeforeReport();
               return this.executionFromExit(this.latestState);
             }
           }
@@ -650,6 +731,7 @@ export class RexLauncher {
               if (!blocks.some((block) => block.blockId === association.blockId)) {
                 const afterDisappear = readLatestRexWorkerResult(this.rexDirectory);
                 if (afterDisappear !== null) return this.executionFromResult(afterDisappear, this.latestState);
+                await this.noteExitBeforeReport();
                 return this.executionFromExit(this.latestState);
               }
             } catch {
@@ -668,6 +750,11 @@ export class RexLauncher {
 
       // 启动超时只覆盖“worker 从未报到”；阶段本身无总时限，正常跑模型不触发。
       if (this.latestState === null && Date.now() - startedAt >= this.startupTimeoutMs) {
+        await this.recordStartupFailure(
+          "rex_worker_not_started",
+          `Rex worker 在 ${this.startupTimeoutMs}ms 内未报到（state.json／bridge 均无状态）`,
+          "",
+        ).catch(() => {});
         await this.terminate();
         const late = readLatestRexWorkerResult(this.rexDirectory);
         if (late !== null) return this.executionFromResult(late, this.latestState);

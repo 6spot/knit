@@ -13,6 +13,7 @@ import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { RunStore } from "../dist/infrastructure/run-store.js";
+import { machineBootId } from "../dist/infrastructure/process.js";
 import { renderInitialTaskBody } from "../dist/application/task-service.js";
 import { renderTaskDocument } from "../dist/application/task-document.js";
 
@@ -705,6 +706,68 @@ test("knit_task action=list：默认只列活跃并提示归档条数，archive 
 
     await host.handlers.get("session_shutdown")();
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("knit_run action=resume：生成新 run 后真启动，wait 观察到终态；每轮上下文与 knit_context 显示 nextAction（k-836997c84864）", async () => {
+  const dir = project("resume-bridge");
+  const savedBin = process.env.KNIT_PI_BIN;
+  const savedAction = process.env.KNIT_FAKE_ACTION;
+  try {
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "桥接恢复", "--slug", "bridge-resume", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const taskId = created.data.taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    // 旧 run：已认领、worker 句柄指向已退出进程、阶段 Pi 已退出且无结果（worker 被杀的现场）。
+    const old = prepareBridgeRun(dir, taskId, "implement");
+    const dead = spawnSync(process.execPath, ["-e", ""]).pid;
+    const now = new Date().toISOString();
+    const runs = new RunStore(dir);
+    const bootId = machineBootId();
+    runs.writeLaunch(old.runId, { ...runs.readLaunch(old.runId), state: "confirmed", attempts: 1, handle: { pid: dead, bootId, procStartTicks: "1", hostname: "h", recordedAt: now } });
+    runs.writeState(old.runId, {
+      schemaVersion: 1, runId: old.runId, taskId, phase: "implement", state: "running",
+      worker: { workerId: "w-dead", pid: dead, bootId, procStartTicks: "1", hostname: "h" },
+      claimedAt: now, updatedAt: now, prepared: true, preparedAt: now, snapshot: null, reason: null,
+    });
+    runs.writeStageProcess(old.runId, {
+      schemaVersion: 1, runId: old.runId, taskId, phase: "implement", state: "exited", workerPid: dead, piPid: null,
+      bootId, procStartTicks: null, hostname: "h", nativeSessionId: "stub-stage", knitSessionId: "ks-stub", startedAt: now, recordedAt: now,
+    });
+
+    // 每轮上下文：选择任务后显示核心推导的 resume 出口。
+    execFileSync(process.execPath, [CLI, "--json", "task", "use", taskId, "--session", resolveMain(dir), "--entry", "sel-resume", "--persisted", "--dir", dir], { encoding: "utf8" });
+    appendFileSync(nativeFile, JSON.stringify({ timestamp: "2026-11-02T00:00:02.000Z", type: "custom", customType: "knit.selection", id: "sel-resume", parentId: null, data: { taskId, branch: "refs/heads/main", operationId: "sel-resume-op" } }) + "\n");
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    assert.match(host.systemPromptOptions.sections.knit, new RegExp(`下一步（run_worker_exited）.*\\n  knit run resume ${old.runId}`));
+    const context = await host.tools.get("knit_context").execute("c1", { taskId, stage: "implement" }, null, null, host.ctx);
+    assert.equal(context.isError, false, context.content?.[0]?.text ?? "");
+    assert.match(context.content[0].text, /^下一步（run_worker_exited）/);
+
+    // resume：生成新 run 并真启动；wait 观察终态。
+    process.env.KNIT_PI_BIN = join(import.meta.dirname, "fixtures", "fake-pi.mjs");
+    const actionPath = join(dir, "fake-action.json");
+    writeFileSync(actionPath, JSON.stringify({ writes: [{ path: "a.txt", content: "resumed\n" }], report: { summary: "桥接恢复完成", changedPaths: ["a.txt"] } }));
+    process.env.KNIT_FAKE_ACTION = actionPath;
+    const resumed = await host.tools.get("knit_run").execute("r1", { action: "resume", runId: old.runId, wait: true }, null, null, host.ctx);
+    assert.equal(resumed.isError, false, resumed.content?.[0]?.text ?? "");
+    assert.equal(resumed.details.started, true);
+    assert.equal(resumed.details.launch.state, "confirmed");
+    assert.equal(resumed.details.status.state, "completed");
+    assert.match(resumed.content[0].text, new RegExp(`已恢复为新 run ${resumed.details.request.runId}：启动 confirmed`));
+    assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "resumed\n");
+
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    if (savedBin === undefined) delete process.env.KNIT_PI_BIN;
+    else process.env.KNIT_PI_BIN = savedBin;
+    if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
+    else process.env.KNIT_FAKE_ACTION = savedAction;
     rmSync(dir, { recursive: true, force: true });
   }
 });

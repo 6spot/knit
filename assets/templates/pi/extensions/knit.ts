@@ -238,6 +238,13 @@ export default function (pi: any) {
     return { isError: true, content: [{ type: "text", text: message }], details: null };
   }
 
+  /** 核心推导的任务级确定性下一步（status／context 的 nextAction）转可读行；缺失返回空。 */
+  function nextActionLines(next: any): string[] {
+    if (next === null || typeof next !== "object" || typeof next.summary !== "string") return [];
+    const commands: string[] = Array.isArray(next.commands) ? next.commands.filter((command: unknown) => typeof command === "string") : [];
+    return [`下一步（${next.kind ?? "?"}）: ${next.summary}`, ...commands.map((command) => `  ${command}`)];
+  }
+
   function safeId(value: unknown, prefix: string): string | null {
     if (typeof value !== "string") return null;
     return new RegExp(`^${prefix}[0-9a-z-]+$`).test(value) ? value : null;
@@ -476,6 +483,8 @@ export default function (pi: any) {
       if (materialList.length > 0) lines.push(`规划资料: ${materialList.map((entry: any) => entry.path).join(", ")}`);
       else lines.push("规划资料: 无（简单任务可只用 task.md）");
       lines.push("下一步: 按当前阶段推进；写动作由核心核对授权与状态。");
+      // 核心推导的确定性出口（输入已变、待接收、锁残留、无绑定等）紧跟在通用规则后。
+      lines.push(...nextActionLines(data.nextAction));
     } else {
       lines.push("当前无选定任务。");
       lines.push("是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。");
@@ -626,6 +635,7 @@ export default function (pi: any) {
       if (data.pendingDraft) lines.push(`  待应用草案: ${data.pendingDraft.kind ?? "?"}`);
       lines.push(`  运行（${runs.length}）：`);
       lines.push(...(runs.length > 0 ? runs.map((run: any) => `  - ${shortId(run.runId)} · ${stageText(run.stageName, run.phase ?? "?", "paren")} · ${run.state ?? "?"}${run.reason ? ` · ${run.reason}` : ""}`) : ["  - （无）"]));
+      lines.push(...nextActionLines(data.nextAction).map((line) => `  ${line}`));
       return lines.join("\n");
     }
     // 其它对象：键值摘要，不混入诊断。
@@ -944,7 +954,12 @@ export default function (pi: any) {
     async execute(_toolCallId: string, params: any) {
       if (safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
       const stage = params.stage ?? configuredStages?.[0] ?? "implement";
-      return toolResult(core(["context", "--task", params.taskId, "--stage", stage, "--dir", root]));
+      return toolResult(core(["context", "--task", params.taskId, "--stage", stage, "--dir", root]), (data) => {
+        // 计划原样返回（JSON），另把确定性下一步放在最前，不让空 blockers 被误读为可继续。
+        if (data === null || typeof data !== "object") return null;
+        const next = nextActionLines(data.nextAction);
+        return next.length === 0 ? null : `${next.join("\n")}\n${JSON.stringify(data)}`;
+      });
     },
   });
 
@@ -996,7 +1011,24 @@ export default function (pi: any) {
       }
       if (params.action === "resume") {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run resume 需要合法 runId");
-        return toolResult(core(["run", "resume", params.runId, "--dir", root]));
+        // resume 与 CLI 同一实现：生成新 run 后立即启动（与 run implement 同一 start 流程），返回 launch 已确认的状态。
+        const resumed = core(["run", "resume", params.runId, "--dir", root]);
+        const newRunId = resumed.response?.data?.request?.runId;
+        if (params.wait === true && resumed.response?.data?.started === true && typeof newRunId === "string") {
+          const status = waitForRun(newRunId);
+          if (status.response?.data?.state !== undefined && resumed.response !== null) {
+            resumed.response = { ...resumed.response, data: { ...resumed.response.data, status: status.response.data } };
+          }
+        }
+        return toolResult(resumed, (data) => {
+          if (data === null || typeof data !== "object") return null;
+          if (data.resumed !== true) return `run ${params.runId}: ${data.accepted ? "已接收" : "待处理"}；${data.reason ?? "未新建 run"}`;
+          const launch = data.launch?.state ?? "?";
+          const lines = [`run ${params.runId} 已恢复为新 run ${data.request?.runId ?? "?"}：启动 ${launch}，准备 ${data.state?.prepared === true}`];
+          if (data.launch?.lastError) lines.push(`  原因: ${data.launch.lastError}`);
+          if (data.status?.state) lines.push(`  终态: ${data.status.state}${data.status.result?.state ? `（结果 ${data.status.result.state}）` : ""}`);
+          return lines.join("\n");
+        });
       }
       if (params.action === "cancel") {
         if (!params.runId || safeId(params.runId, "run-") === null) return failText("run cancel 需要合法 runId");

@@ -22,6 +22,8 @@ init 维护两类文件：配置、流程配置、阶段提示词和规范属于
 
 实现（REX 自动呈现）：`run prepare`／`start`（`--stage <id>`）按调用级 `--rex`／`--local` > 项目 `execution.host` > `auto` 解析宿主；`--rex` 与 `--local` 同用报 `invalid_request`。`auto` 仅在派发前检查 `REX_SESSION`／`REX_BLOCK`、`rex` CLI（`REX_BIN_DIR` 或 PATH）与 `REX_REQUIRED_METHODS`，通过则使用 REX，否则回退 local 并记录原因；显式或配置 `rex` 不可用返回 `rex_unavailable`，不回退。prepare 落盘 `presentation`、`presentationSource`、`presentationFallbackReason`，start 与 resume 只读已落盘值；活动 run 的呈现不可变。`run list`／`run status`／`knit status --run` 展示实际宿主、来源与回退原因；`run check --scope` 仍拒绝 REX。Rex 终端内的 `knit_run` 不传 `--rex` 也按同一配置／环境规则自动生效。浮层创建即最小化；run 到达终态（completed／aborted／error，含恢复发现）时宿主按 `rex.json` 关联关闭本次 layer（`layerId` 优先，缺失时按 `blockId` 反查），取消／失败走同一路径，关闭失败只忽略、不改变 run 终态；`closeOnSettle=false` 仅用于测试／调试时保留浮层。
 
+实现（Rex 启动回退与诊断，任务 k-836997c84864）：`presentationSource=auto` 选中 Rex 后，若 worker 在启动超时（默认 30 秒）内从未报到（state.json／bridge 都没有状态；含块内进程在报到前退出、浮层装配抛错），且本 run 没有阶段副作用（工作区相对基线无变化、原生会话无新增条目、没有 Rex 结果、未取消且未丢占用），StageRunner 关闭本次浮层后在同一 run、同一原生会话与 Session 锁内以 local 重启：request 不变，run state 记 `presentation: local` 与 `presentationFallbackReason: rex_worker_not_started`，事件 `presentation_fallback`；`run status`／`status --run` 按 state 展示实际呈现与回退原因。显式 `--rex` 与 `execution.host=rex` 不回退，失败原因为 `rex_start_failed:rex_worker_not_started[:<子原因>]`（装配抛错为 `rex_start_failed:<代码>`，原始消息首行写进 result 摘要）；worker 已报到后的失败一律不回退。根因诊断写 `runs/<run-id>/rex-diagnostics.json`（`kind: rex_start_failed`）：原始错误、块／层 ID、块进程状态（`last_exit`）与 worker 报到情况，以及关闭浮层前用 `rex capture -b <block> --trim` 取的屏幕尾部（浮层内 Pi 的 stderr）和 Rex CLI 自身 stderr，尾部上限 4000 字符；诊断只作辅助证据，不参与状态机，与本地启动诊断 `diagnostics.json` 分文件，回退后两者可并存，由 `status --run` 的 `rexDiagnostics` 展示。
+
 ## 2. 占用与解除
 
 首版只协调本用户、本机 Knit 的执行。项目与锁目录要求本地文件系统；已识别 NFS／SMB 或确实不能满足原子占用／身份核实条件时阻塞写操作。实现（任务026）：正式 `task new`／`task ready` 核对 Git 工作区、HEAD、本地分支、未完成 merge/rebase/cherry-pick/revert/bisect、index 冲突与 `.knit/.runtime` 跟踪；doctor 同时报告项目根文件系统与已知云同步根。已知云同步根内的本地目录由 doctor 告警，不仅因目录名阻塞。跨机并发及外部编辑器、Git 进程不受 Knit 锁控制，阶段边界仍要核对实际状态。
@@ -54,7 +56,7 @@ init 维护两类文件：配置、流程配置、阶段提示词和规范属于
 
 记录只改记录区，输入 update 声明 clarify/change 与说明。clarify 保持当前阶段，摘要变化使检查 stale；当前 deliver 一旦选定目标检查失效就回最近检查阶段或工作阶段并清 completed，change 回 start。摘要未变不迁移。运行中直接改输入须声明 `--run`，旧 run 收尾判 `stale_input`；只想等终态后再应用时显式用 `--pending` 存草案，不借记录绕输入。挂起输入只保留当前草案及基线摘要；按 DESIGN3.6 的 --apply-pending／--withdraw-pending 和 --expect-pending 校验处理。应用前核实旧执行／结果和基线，撤回只留原因且可在活动 run 中进行。任务关闭先收敛本任务活动／未知运行及待接收事实，撤回未生效草案；关闭与启动／接收共用该任务短临界区，旧结果不重开任务。
 
-实现（任务009）：`src/application/task-service.ts` 的 TaskService 提供 new/rename/list/record/ready/update/close；输入摘要在 `src/contracts/task-inputs.ts`（inputsDigestOf 排除记录区标记内正文；草案版本摘要含生成它的更新操作 ID，同内容重建得新版本）。task.md 读写用 `src/application/task-document.ts`（YAML Document frontmatter，记录区标记 `<!-- knit:progress:start/end -->`，结构错误报 io_error 不静默修复）。占用：record/withdraw/草案保存用任务短锁（scope=task，按稳定 ID），rename/ready/update-direct/apply/close 在任务＋state 短锁内重核版本。封存中 record 返回未保存（sealed）不写文件；封存标记由 deliver/archive 落盘。binding 新增 confirmedInputsDigest（ready 冻结）与 pendingDraft（至多一份）；run 活跃状态与 runsSettled 收敛核对待 run 仓储（任务012/013），当前由调用方传入。
+实现（任务009）：`src/application/task-service.ts` 的 TaskService 提供 new/rename/list/record/ready/update/close；输入摘要在 `src/contracts/task-inputs.ts`（inputsDigestOf 排除记录区标记内正文；草案版本摘要含生成它的更新操作 ID，同内容重建得新版本）。task.md 读写用 `src/application/task-document.ts`（YAML Document frontmatter，记录区标记 `<!-- knit:progress:start/end -->`，结构错误报 io_error 不静默修复）。占用：record/withdraw/草案保存用任务短锁（scope=task，按稳定 ID），rename/ready/update-direct/apply/close 在任务＋state 短锁内重核版本。封存中 record 返回未保存（sealed）不写文件；封存标记由 deliver/archive 落盘。binding 新增 confirmedInputsDigest（ready 冻结）与 pendingDraft（至多一份）；run 活跃状态与 runsSettled 收敛核对待 run 仓储（任务012/013），当前由调用方传入。更新（任务 k-836997c84864）：CLI／桥接注入 `RunActivityService` 后 `task close` 由核心直接核对活动／未知 run 与待接收结果，`--runs-settled`（桥接 `runsSettled`）保留为兼容参数、无操作，也不能绕过核对；未注入仓储的库调用无法自证，仍须显式传 `runsSettled: true`。
 
 实现（任务010）：`src/application/session-service.ts` 的 SessionService 提供 attach／verify／list／useTask／clearTask／resolveSelection／history；索引存 DESIGN9.5 字段，按（客户端、原生 ID、阶段 id）定位，Knit Session ID 为 `s-`+12hex。原生有效路径用 `src/adapters/pi/native-entries.ts` 的 parentId 回溯核实，只有路径上的最后选择事件生效；树切换后旧条目不在路径上，不复活索引快照。未落盘选择只记 `persisted:false` 待确认，`available` 仅在原生文件身份核实后置位；文件从已落盘变为缺失时为 missing，不冒充可恢复。临时 cwd／项目迁移由 cwd 比对返回未生效，不误选。`src/application/context-planner.ts` 的 ContextPlanner 生成分层输入：任务输入区与正式规范／阶段提示词计入 inputsDigest，记录区、未生效草案、候选规范只作背景并列入 excluded；阶段提示词文件缺失时列入 excluded，用核心默认 agent 指令，不阻断执行。`knit session` 与 `knit context` 命令提供同能力；`inputs.json` 落盘与桥接原生条目写入分别归 012/013 与 015。
 
@@ -137,6 +139,22 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖后来记录和业务状态；输入恢复经 task update 保留记录。本机 runtime、索引和原生 Session 不由源码 restore 覆盖。每次真实恢复记录独立操作并使旧检查不再适用于新目标。
 
 `git stash create` 能保存已跟踪文件和暂存对照，但通常不包含未跟踪文件；仅有未跟踪文件时可能不产生对象。它可作为用户另行选择的操作，不作为完整备份证明。
+
+### 3.1 run 恢复与下一步出口
+
+实现（任务 k-836997c84864）：`knit run resume <run-id>` 与顶层 `knit resume <run-id|--run|task-id>` 共用 `src/cli/run-control.ts`。协调器 `resume` 先按旧规则收敛旧 run（结果待同步则只接收不重跑；worker 与阶段 Pi 都确认已死且无结果则收敛为 failed／取消意图下为 cancelled），生成新 run 后默认立即执行与 `run implement` 相同的 start 流程（落盘 starting、启动 worker、等认领与 prepared 确认），返回 `started`、`confirmed`、启动后的 `launch` 与 `state`；启动失败（launch failed）以 `needs_attention` 返回并退出码 1。`--no-start` 保留只准备的旧行为（launch 停在 planned，之后 `run start <run-id>`）；`--wait` 只观察新 run 到终态（不接收）。桥接 `knit_run action=resume` 调同一命令，`wait: true` 时轮询新 run 终态。恢复的会话选择策略（prefer／new）不变，呈现沿用旧 run 的 request。
+
+`knit status <task>` 与 `knit context --task <id>` 返回任务级确定性 `nextAction`（`kind`／`summary`／`commands`／`runId`），只读已落盘事实，同一现场总给同一条；给出的命令仍由核心按授权／阶段／锁／版本重新核对。按优先级取第一条：
+
+1. `binding_missing`：本机没有绑定（clone／换机后常见），参见跨机任务（`task rebind`，任务 k-434714cbbb68），当前给 `task adopt`；
+2. 未收敛的 run（最近一条）：`run_not_started`（只准备未启动 → `run start`）、`run_active`（worker 存活或无法核实 → 等待或 `run cancel`）、`run_pending_acceptance`（结果已发布未接收 → `run accept`）、`run_stage_alive`（worker 已退、阶段 Pi 仍在 → `run cancel --terminate` 后 `run resume`）、`run_worker_exited`（无结果 → `run resume`）；终态但接收操作缺失同样是 `run_pending_acceptance`；
+3. `pending_draft`：应用或撤回待应用草案；
+4. `lock_residue`：无活动 run 时仍在的执行目录锁（owner 已不在或无法核实）→ `knit locks` 核实后 `unlock <id> --expect-token <token>`（非 not_alive 加 `--force`）；可自动回收时一并说明；
+5. `run_needs_attention`：最近 run 的接收停在 needs_attention（非 stale_input）→ 原因、该 run 的 `nextActions` 与可用命令（来源不明路径给 `run accept --include`／`--exclude`）；
+6. `inputs_changed`：确认摘要与当前输入不一致或最近 run 判 stale_input（含审计中 deliver 阶段输入被改、`ready` 报 `phase_mismatch` 的场景）→ `task update --kind clarify`（补充；deliver 时回到需要证据的阶段）或 `--kind change`（目标／范围变化，回到 start）；
+7. `stage`：按当前阶段推进（start → `task ready`；工作阶段 → `run prepare`＋`run start`；deliver → `task close --outcome completed` 与 `deliver --plan`，independent 且检查者修复过时 → 再派 `run check`）。
+
+任务已关闭或归档时 `nextAction` 为 null。桥接每轮上下文、`knit_status <task>` 与 `knit_context` 同步显示同一条（`下一步（<kind>）: …` 加命令行）。
 
 ## 4. 主会话工作流与任务规划资料
 

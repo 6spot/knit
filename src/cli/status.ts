@@ -104,6 +104,10 @@ export function registerStatusCommands(program: Command): void {
             console.log(`最近 run: ${run.runId} ${run.phase}/${run.state}；呈现 ${run.presentation}/${run.presentationSource}；耗时 ${formatMs(run.elapsedMs)}；活动 ${run.lastEvent ?? "无"} @ ${run.lastActivityAt ?? "未知"}`);
             if (run.heartbeat !== null) console.log(`心跳: ${run.heartbeat.at}（${run.heartbeat.verdict}）`);
           }
+          if (result.nextAction !== null) {
+            console.log(`下一步（${result.nextAction.kind}）: ${result.nextAction.summary}`);
+            for (const command of result.nextAction.commands) console.log(`  ${command}`);
+          }
         } else if ("runId" in result && "elapsedMs" in result) {
           console.log(`任务：${taskLabel(result)}（阶段：${stageLabel(result.stageName, result.phase, "space")}）`);
           console.log(`run ${result.runId}: ${result.state}（启动 ${result.launchState}，尝试 ${result.attempts}；耗时 ${formatMs(result.elapsedMs)}）`);
@@ -117,6 +121,11 @@ export function registerStatusCommands(program: Command): void {
           if (result.cancelRequestedAt !== null) console.log(`取消意图: ${result.cancelRequestedAt}${result.cancelReason ? `（${result.cancelReason}）` : ""}`);
           console.log(`阶段进程: ${result.stageProcess ? `${result.stageProcess.state}/${result.stageProcessVerdict}` : "无记录"}`);
           if (result.reason !== null) console.log(`原因: ${result.reason}`);
+          if (result.rexDiagnostics !== null) {
+            console.log(`Rex 启动诊断: ${result.rexDiagnostics.failure}`);
+            for (const line of result.rexDiagnostics.detail.split("\n")) console.log(`  ${line}`);
+            if (result.rexDiagnostics.stderrTail !== "") console.log(`  Rex 侧输出（尾部${result.rexDiagnostics.truncated ? "，已截断" : ""}）：\n${result.rexDiagnostics.stderrTail}`);
+          }
           if (result.result !== null) {
             console.log(`结果: ${result.result.state}${result.result.report && reportVerdictLabel(result.result.report) ? ` / ${reportVerdictLabel(result.result.report)}` : ""}`);
             const usage = result.result.usage;

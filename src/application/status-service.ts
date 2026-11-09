@@ -20,6 +20,8 @@ import type { TaskBinding } from "../contracts/metadata.js";
 import type { RunDiagnosticsFile } from "../contracts/run.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { checkerChangedPathsOf, verificationLabel } from "../domain/completion.js";
+import { inputsDigestOf } from "../contracts/task-inputs.js";
+import type { WorkflowDefinition } from "../domain/workflow.js";
 
 export interface RunHeartbeat {
   at: string;
@@ -40,6 +42,8 @@ export interface RunStatusView extends RunStatusProjection {
   heartbeat: RunHeartbeat | null;
   /** runtime_start_failed 前缀失败时读取的启动诊断（diagnostics.json）；只作辅助证据，其余失败为 null。 */
   startupDiagnostics: RunDiagnosticsFile | null;
+  /** Rex 启动诊断（rex-diagnostics.json）：Rex 启动失败或 auto 回退 local 时的原始错误、块状态与 Rex 侧 stderr；没有为 null。 */
+  rexDiagnostics: RunDiagnosticsFile | null;
   /** 待处理结果的下一步；覆盖 needs_attention: stale_input 与 unattributed_paths、检查者修复后的复查，其余为空。 */
   nextActions: string[];
   /** 已发布检查凭据中检查者自行修复的路径；非检查 run 或无修复为空。 */
@@ -83,6 +87,8 @@ export interface TaskStatusView {
   verificationLabel: string;
   /** 最新检查凭据中检查者自行修复的路径；非空时 independent 任务完成被 check_self_modified 拒绝。 */
   lastCheckChangedPaths: string[];
+  /** 完成验证要求与当前任务卡点的确定性下一步（按优先级取第一条）；已结束且无后续时为 null。 */
+  nextAction: TaskNextAction | null;
   completion: CompletionFile | null;
   runs: RunStatusView[];
   latestRun: RunStatusView | null;
@@ -104,6 +110,32 @@ export interface StatusOverview {
     activeRuns: number;
   }>;
   activeRuns: RunStatusView[];
+}
+
+/**
+ * 任务级下一步（审计 S2／S3／中等 9）：只读事实推导，同一现场总给同一条。
+ * kind 按优先级：binding_missing > run_*（未启动／活动／worker 已退出／待接收）> pending_draft >
+ * lock_residue > run_needs_attention > inputs_changed > stage（按当前阶段推进）。
+ */
+export interface TaskNextAction {
+  kind:
+    | "binding_missing"
+    | "pending_draft"
+    | "run_not_started"
+    | "run_active"
+    | "run_stage_alive"
+    | "run_worker_exited"
+    | "run_pending_acceptance"
+    | "lock_residue"
+    | "run_needs_attention"
+    | "inputs_changed"
+    | "stage";
+  /** 一句话原因（含事实依据）。 */
+  summary: string;
+  /** 可直接执行的命令；尖括号为需要填写的占位。 */
+  commands: string[];
+  /** 相关 run；无为 null。 */
+  runId: string | null;
 }
 
 export interface StatusInput {
@@ -180,6 +212,210 @@ function noOutputNextActions(projection: RunStatusProjection, notice: string | n
   ];
 }
 
+const TERMINAL_RUN_STATES = new Set(["completed", "cancelled", "failed"]);
+
+/** Rex 启动诊断只读；文件缺失或损坏都按 null，不影响状态投影。 */
+function rexDiagnosticsOf(root: string, runId: string): RunDiagnosticsFile | null {
+  try {
+    return new RunStore(root).readRexDiagnostics(runId);
+  } catch {
+    return null;
+  }
+}
+
+/** 任务卡点推导所需的只读事实；由 taskStatus 收集后交给纯函数，便于单测。 */
+export interface TaskNextActionFacts {
+  taskId: string;
+  status: string;
+  stage: string;
+  verification: VerificationMode;
+  archived: boolean;
+  binding: TaskBinding | null;
+  /** 当前 task.md 输入区摘要（与 binding.confirmedInputsDigest 同口径）。 */
+  currentInputsDigest: string;
+  runs: RunStatusView[];
+  /** 本任务执行目录的项目锁残留（owner 已不在或无法核实，且没有活动 run 持有）。 */
+  lockResidue: { id: string; token: string | null; verdict: "alive" | "not_alive" | "unknown"; reclaimable: boolean } | null;
+  workflow: WorkflowDefinition;
+  /** 最新检查凭据带检查者修复路径；independent 须再派一次未改动文件的检查。 */
+  checkerRepaired: boolean;
+}
+
+function runLabel(run: RunStatusView): string {
+  return `${run.runId}（${run.phase}/${run.state}）`;
+}
+
+/**
+ * 任务级确定性下一步（审计 S2／S3／中等 9）：只看已落盘事实，同一现场总是同一条。
+ * 不代替守卫：给出的命令仍由核心按授权／阶段／锁／版本重新核对。
+ */
+export function taskNextAction(facts: TaskNextActionFacts): TaskNextAction | null {
+  const id = facts.taskId;
+  if (facts.status !== "open" || facts.archived) return null;
+  // 无绑定：本机没有确认摘要、scope 与凭据（常见于 clone 后），跨机重建由 k-434714cbbb68 提供。
+  if (facts.binding === null) {
+    return {
+      kind: "binding_missing",
+      summary: `任务在本机没有绑定（确认摘要、scope 与凭据是本机事实）；常见于 clone／换机后，参见跨机任务（task rebind）`,
+      commands: [`knit task adopt ${id} --branch current`],
+      runId: null,
+    };
+  }
+  const binding = facts.binding;
+  // 未收敛的 run：按最近一条给出口；未知存活不冒充死亡。
+  const pendingRuns = facts.runs.filter((run) => !TERMINAL_RUN_STATES.has(run.state));
+  const latestPending = pendingRuns.at(-1) ?? null;
+  if (latestPending !== null) {
+    const run = latestPending;
+    if (run.launchState === "planned" || run.workerVerdict === "absent") {
+      return {
+        kind: "run_not_started",
+        summary: `run ${runLabel(run)} 只准备了、worker 未启动`,
+        commands: [`knit run start ${run.runId}`, `knit run cancel ${run.runId} --reason <原因>`],
+        runId: run.runId,
+      };
+    }
+    if (run.workerVerdict === "alive" || run.workerVerdict === "unknown" || run.result !== null) {
+      if (run.result !== null && run.workerVerdict === "not_alive") {
+        return {
+          kind: "run_pending_acceptance",
+          summary: `run ${runLabel(run)} 已发布结果（${run.result.state}）但未接收`,
+          commands: [`knit run accept ${run.runId}`],
+          runId: run.runId,
+        };
+      }
+      return {
+        kind: "run_active",
+        summary: `run ${runLabel(run)} 执行中（worker ${run.workerVerdict}）；使用冻结输入，等它结束或取消`,
+        commands: [`knit status --run ${run.runId}`, `knit run cancel ${run.runId} --reason <原因>`],
+        runId: run.runId,
+      };
+    }
+    // worker 已确认退出且无结果：阶段 Pi 仍在时先终止，否则 resume 收敛并真启动新 run。
+    if (run.stageProcessVerdict === "alive" || run.stageProcessVerdict === "unknown") {
+      return {
+        kind: "run_stage_alive",
+        summary: `run ${runLabel(run)} 的 worker 已退出，但阶段 Pi／工具仍在或无法核实（${run.stageProcessVerdict}）`,
+        commands: [`knit run cancel ${run.runId} --terminate --reason <原因>`, `knit run resume ${run.runId}`],
+        runId: run.runId,
+      };
+    }
+    return {
+      kind: "run_worker_exited",
+      summary: `run ${runLabel(run)} 的 worker 已退出且没有结果`,
+      commands: [`knit run resume ${run.runId}`],
+      runId: run.runId,
+    };
+  }
+  // 终态但接收未完成：结果已发布，接收操作缺失（崩溃在发布与接收之间）。
+  const unaccepted = facts.runs.filter((run) => run.result !== null && run.acceptance === null).at(-1) ?? null;
+  if (unaccepted !== null) {
+    return {
+      kind: "run_pending_acceptance",
+      summary: `run ${runLabel(unaccepted)} 已发布结果（${unaccepted.result?.state ?? "?"}）但未接收`,
+      commands: [`knit run accept ${unaccepted.runId}`],
+      runId: unaccepted.runId,
+    };
+  }
+  // 待应用草案：旧执行已收敛后才能应用；优先于锁与阶段推进。
+  if (binding.pendingDraft !== null) {
+    return {
+      kind: "pending_draft",
+      summary: `有待应用的 ${binding.pendingDraft.kind} 草案；应用或撤回后再推进`,
+      commands: [
+        `knit task update ${id} --apply-pending --expect-pending ${binding.pendingDraft.digest}`,
+        `knit task update ${id} --withdraw-pending --expect-pending ${binding.pendingDraft.digest} --reason <原因>`,
+      ],
+      runId: null,
+    };
+  }
+  if (facts.lockResidue !== null) {
+    const lock = facts.lockResidue;
+    const token = lock.token ?? "<token>";
+    return {
+      kind: "lock_residue",
+      summary: `执行目录锁 ${lock.id} 残留（owner 核实 ${lock.verdict}，无活动 run 持有）${lock.reclaimable ? "；下次取锁会自动回收" : ""}`,
+      commands: [
+        `knit locks --dir .`,
+        `knit unlock ${lock.id} --expect-token ${token}${lock.verdict === "not_alive" ? "" : " --force"}`,
+      ],
+      runId: null,
+    };
+  }
+  // 最近一个 run 的接收停在 needs_attention：给原因与可用命令（输入已变交给下方统一处理）。
+  const latest = facts.runs.at(-1) ?? null;
+  const inputsChanged = binding.confirmedInputsDigest !== null && binding.confirmedInputsDigest !== facts.currentInputsDigest;
+  if (latest !== null && latest.acceptance?.state === "needs_attention" && latest.acceptance.reason !== "stale_input") {
+    const reason = latest.acceptance.reason ?? "unknown";
+    const commands = latest.nextActions.length > 0 ? [] : [`knit status --run ${latest.runId}`, `knit run accept ${latest.runId}`];
+    if (reason.startsWith("unattributed_paths")) {
+      commands.push(
+        `knit run accept ${latest.runId} --include <path...> --reason <原因>`,
+        `knit run accept ${latest.runId} --exclude <path...> --reason <原因>`,
+      );
+    }
+    return {
+      kind: "run_needs_attention",
+      summary: `run ${runLabel(latest)} 的接收停在 needs_attention（${reason}）${latest.nextActions.length > 0 ? `；${latest.nextActions.join("；")}` : ""}`,
+      commands: [...new Set(commands)],
+      runId: latest.runId,
+    };
+  }
+  // 输入已变（含 stale_input）：确认摘要与当前输入不一致时，只能经 task update 重新确认。
+  const staleRun = latest !== null && latest.acceptance?.reason === "stale_input" ? latest : null;
+  if (inputsChanged || staleRun !== null) {
+    const where = facts.stage === "deliver" ? "交付前" : `当前阶段 ${facts.stage}`;
+    return {
+      kind: "inputs_changed",
+      summary: `${where}任务输入与已确认摘要不一致${staleRun !== null ? `（run ${staleRun.runId} 收尾判 stale_input，结果不计为当前规格的成果）` : ""}；补充说明用 clarify（deliver 时回到需要证据的阶段），目标／范围变化用 change（回到 start）`,
+      commands: [
+        `knit task update ${id} --kind clarify --reason <原因> --file <当前输入区文件>`,
+        `knit task update ${id} --kind change --reason <原因> --file <当前输入区文件>`,
+      ],
+      runId: staleRun?.runId ?? null,
+    };
+  }
+  return stageNextAction(facts);
+}
+
+/** 没有卡点时按当前阶段推进。 */
+function stageNextAction(facts: TaskNextActionFacts): TaskNextAction {
+  const id = facts.taskId;
+  if (facts.stage === "start") {
+    return {
+      kind: "stage",
+      summary: "讨论阶段：确认目标、范围与验收后冻结输入",
+      commands: [`knit task ready ${id}`],
+      runId: null,
+    };
+  }
+  if (facts.stage === "deliver") {
+    if (facts.verification === "independent" && facts.checkerRepaired) {
+      return {
+        kind: "stage",
+        summary: "最新检查由检查者修复过成果（修复部分只算自检）；independent 完成前须再派一次未改动文件的检查",
+        commands: [`knit run check --task ${id}`],
+        runId: null,
+      };
+    }
+    return {
+      kind: "stage",
+      summary: "交付阶段：核对完成条件后标记业务完成，再按授权交付",
+      commands: [`knit task close ${id} --outcome completed --reason <完成判断>`, `knit deliver ${id} --branch <refs/heads/...> --plan`],
+      runId: null,
+    };
+  }
+  const configured = facts.workflow.stages.some((stage) => stage.id === facts.stage);
+  return {
+    kind: "stage",
+    summary: configured ? `当前阶段 ${facts.stage}：派发本阶段 run` : `任务阶段 ${facts.stage} 不在生效流程中；核对 .knit/workflow.yaml 或用 task update --kind change 回到 start`,
+    commands: configured
+      ? [`knit run prepare --task ${id} --stage ${facts.stage}`, `knit run start <run-id>`]
+      : [`knit workflow show`, `knit task update ${id} --kind change --reason <原因> --file <当前输入区文件>`],
+    runId: null,
+  };
+}
+
 export class StatusService {
   private readonly store: MetadataStore;
   private readonly now: () => Date;
@@ -231,6 +467,7 @@ export class StatusService {
       lastActivityAt,
       heartbeat: this.heartbeat(locksRoot ?? this.lockRoot, executionDir),
       startupDiagnostics,
+      rexDiagnostics: rexDiagnosticsOf(root, runId),
       nextActions: [
         ...staleInputNextActions(projection, this.taskStageOf(executionDir, projection.taskId)),
         ...unattributedNextActions(projection),
@@ -294,8 +531,46 @@ export class StatusService {
       completion,
       runs,
       latestRun: runs.at(-1) ?? null,
-      activeRuns: runs.filter((run) => !["completed", "cancelled", "failed"].includes(run.state)).length,
+      activeRuns: runs.filter((run) => !TERMINAL_RUN_STATES.has(run.state)).length,
+      nextAction: taskNextAction({
+        taskId,
+        status: document.frontmatter.status,
+        stage: document.frontmatter.stage,
+        verification: verificationModeOf(document.frontmatter),
+        archived: located.archived,
+        binding,
+        currentInputsDigest: inputsDigestOf(located.raw.toString("utf8")),
+        runs,
+        lockResidue: runs.some((run) => !TERMINAL_RUN_STATES.has(run.state))
+          ? null
+          : this.lockResidueOf(locksRoot ?? this.lockRoot, executionRouteOf(binding, root).dir),
+        workflow,
+        checkerRepaired: lastCheckChangedPaths.length > 0,
+      }),
     };
+  }
+
+  /**
+   * 本任务执行目录的项目锁残留：无活动 run 时仍存在的 project 锁。owner 存活且不是 run
+   * （如 deliver／restore 正在进行）也一并列出，由命令侧再核对；只读，不回收。
+   */
+  private lockResidueOf(locksRoot: string | undefined, executionDir: string): TaskNextActionFacts["lockResidue"] {
+    try {
+      const manager = new LockManager(locksRoot === undefined ? {} : { root: locksRoot });
+      const status = manager.inspect({ scope: "project", rawKey: executionDir });
+      if (!status.exists) return null;
+      // owner 存活时是其它操作正在持有，不是残留。
+      if (status.processVerdict === "alive") return null;
+      const entry = manager.list().find((item) => item.scope === "project" && item.key === executionDir);
+      return {
+        id: entry?.id ?? "project/<hash>",
+        token: status.owner?.token ?? null,
+        verdict: status.processVerdict,
+        reclaimable: manager.reclaimable(status),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async overview(root: string, locksRoot?: string): Promise<StatusOverview> {

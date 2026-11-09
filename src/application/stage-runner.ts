@@ -99,7 +99,18 @@ export interface StageRunnerOptions {
   runtimeFactory?: (options: ConstructorParameters<typeof PiAgentRuntime>[0]) => PiAgentRuntime;
   /** 测试注入；缺省创建真实 RexLauncher。 */
   rexLauncherFactory?: (options: RexLauncherOptions) => RexLauncher;
+  /**
+   * auto 选中 Rex 但 worker 从未报到、本 run 无阶段副作用而回退 local 时调用；
+   * worker 据此把实际呈现与回退原因写进 run state（request 不可变）。
+   */
+  onPresentationFallback?: (presentation: "local", reason: string) => void;
 }
+
+/** Rex 分支的结果：正常收敛为执行结果，或要求以 local 重启同一 run（仅 auto 且 worker 从未报到）。 */
+type RexStageOutcome = StageExecution | { fallback: string };
+
+/** auto 回退 local 的原因：Rex worker 在启动超时内从未报到（含报到前装配失败）。 */
+const REX_FALLBACK_REASON = "rex_worker_not_started";
 
 export interface StageExecution {
   result: RunResultFile;
@@ -250,6 +261,7 @@ export class StageRunner {
   private activeSessionLock: AcquiredLock | null = null;
   private readonly runtimeFactory: NonNullable<StageRunnerOptions["runtimeFactory"]>;
   private readonly rexLauncherFactory: NonNullable<StageRunnerOptions["rexLauncherFactory"]>;
+  private readonly onPresentationFallback: StageRunnerOptions["onPresentationFallback"] | null;
   private readonly workflow: WorkflowDefinition;
   private readonly workflowMode: "config" | "fallback";
   private readonly stage: WorkflowStage | null;
@@ -276,6 +288,7 @@ export class StageRunner {
     this.onBaseline = options.onBaseline ?? null;
     this.runtimeFactory = options.runtimeFactory ?? ((runtimeOptions) => new PiAgentRuntime(runtimeOptions));
     this.rexLauncherFactory = options.rexLauncherFactory ?? ((launcherOptions) => new RexLauncher(launcherOptions));
+    this.onPresentationFallback = options.onPresentationFallback ?? null;
     const loaded = loadWorkflow(this.executionDir);
     this.workflow = loaded.workflow;
     this.workflowMode = loaded.mode;
@@ -370,7 +383,15 @@ export class StageRunner {
     sessionHeartbeat.unref?.();
     try {
     if (this.request.presentation === "rex") {
-      return await this.executeRexStage(session, systemPrompt, userPrompt, runtimeTools);
+      const rex = await this.executeRexStage(session, systemPrompt, userPrompt, runtimeTools);
+      if (!("fallback" in rex)) return rex;
+      // auto 回退：worker 从未报到且无阶段副作用，以 local 重启同一 run（同一会话与 Session 锁）。
+      this.runs.appendEvent(this.request.runId, { event: "presentation_fallback", from: "rex", to: "local", reason: rex.fallback });
+      try {
+        this.onPresentationFallback?.("local", rex.fallback);
+      } catch {
+        // state 写入失败不阻止回退；事件与 rex-diagnostics.json 仍记录事实。
+      }
     }
     const sessionDir = join(this.root, ".knit", ".runtime", "pi-sessions");
     processStartedAt = this.now().toISOString();
@@ -885,7 +906,7 @@ export class StageRunner {
     systemPrompt: string,
     userPrompt: string,
     runtimeTools: StageRuntimeTools,
-  ): Promise<StageExecution> {
+  ): Promise<RexStageOutcome> {
     const processStartedAt = this.now().toISOString();
     this.writeStageProcess(session, "starting", null, processStartedAt);
     const beforeSignature = this.freezeBaseline();
@@ -962,9 +983,17 @@ export class StageRunner {
       execution = await launcher.execute();
     } catch (error) {
       const reason = error instanceof InfrastructureError ? error.code : "rex_launcher_error";
+      // 保留原始错误：消息与 Rex 侧 stderr／块状态写进 rex-diagnostics.json，摘要写进 result（S7）。
+      const message = error instanceof Error ? error.message : String(error);
       await launcher.dispose().catch(() => {});
+      this.writeRexDiagnostics(launcher, reason, message);
+      if (await this.rexFallbackEligible(launcher, null, session, beforeLeaf, cancelRequested || ownershipLost !== null)) {
+        if (typeof launcher.closeLayer === "function") await launcher.closeLayer().catch(() => {});
+        this.writeStageProcess(session, "exited", null, processStartedAt);
+        return { fallback: REX_FALLBACK_REASON };
+      }
       await this.markSession(session, "incompatible", `rex_start_failed:${reason}`, false);
-      return this.failure(session, `rex_start_failed:${reason}`, null, null, null);
+      return this.failure(session, `rex_start_failed:${reason}`, null, null, null, firstLine(message));
     } finally {
       clearInterval(cancelWatch);
       clearInterval(ownershipWatch);
@@ -973,6 +1002,15 @@ export class StageRunner {
     try {
       if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
       const lostAfter = ownershipLost ?? this.lostOwnership?.() ?? null;
+      // worker 从未报到（启动超时或块进程在报到前退出）：先留诊断；auto 且无副作用时以 local 重启。
+      const neverReported = this.rexNeverReported(launcher, execution);
+      if (neverReported) {
+        this.writeRexDiagnostics(launcher, REX_FALLBACK_REASON, execution.failure ?? "worker 未报到");
+        if (await this.rexFallbackEligible(launcher, execution, session, beforeLeaf, cancelRequested || lostAfter !== null)) {
+          await launcher.terminate().catch(() => {});
+          return { fallback: REX_FALLBACK_REASON };
+        }
+      }
       if (lostAfter !== null) {
         await launcher.terminate().catch(() => {});
         const sessionFileAfter = execution.sessionFile ?? session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
@@ -1017,9 +1055,13 @@ export class StageRunner {
         if (cancelRequested || execution.aborted) {
           return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
         }
+        // 未报到且不回退（显式／配置 rex 或已有副作用）：失败原因带上未报到的事实，详情在 rex-diagnostics.json。
+        const failure = neverReported
+          ? `rex_start_failed:${REX_FALLBACK_REASON}${execution.failure !== null && execution.failure !== REX_FALLBACK_REASON ? `:${execution.failure}` : ""}`
+          : execution.failure ?? "agent_not_settled";
         return this.failure(
           session,
-          execution.failure ?? "agent_not_settled",
+          failure,
           execution.usage,
           nativeEntries,
           finalSessionFile,
@@ -1064,6 +1106,64 @@ export class StageRunner {
       } catch {
         // 退出记录失败不覆盖已产生的执行结果。
       }
+    }
+  }
+
+  /**
+   * worker 是否从未报到：启动超时（rex_worker_not_started），或块内进程在写出任何状态前退出。
+   * 已报到（bridge／state.json 有过状态）或已有结果的失败不在此列，按原路径收敛。
+   */
+  private rexNeverReported(launcher: RexLauncher, execution: RexExecution): boolean {
+    if (execution.settled || execution.aborted || execution.result !== null) return false;
+    const reported = typeof launcher.status === "function" ? launcher.status() : null;
+    if (reported !== null) return false;
+    return execution.failure === REX_FALLBACK_REASON || execution.failure === "agent_exited";
+  }
+
+  /**
+   * auto 回退 local 的门槛（任务关键决定）：只有 presentationSource=auto、worker 从未报到、
+   * 没有取消／占用丢失，且本 run 无阶段副作用（工作区相对基线无变化、原生会话无新增条目、
+   * 无 Rex 结果文件）时才以 local 重启；显式／配置 rex 一律不回退。
+   */
+  private async rexFallbackEligible(
+    launcher: RexLauncher,
+    execution: RexExecution | null,
+    session: PreparedSession,
+    beforeLeaf: string | null,
+    interrupted: boolean,
+  ): Promise<boolean> {
+    if ((this.request.presentationSource ?? "config") !== "auto") return false;
+    if (interrupted || this.runs.readCancel(this.request.runId) !== null) return false;
+    if (typeof launcher.status === "function" && launcher.status() !== null) return false;
+    if (execution !== null && (execution.settled || execution.result !== null)) return false;
+    if (this.observedChangedPaths().length > 0) return false;
+    const sessionFile = execution?.sessionFile ?? session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
+    if (sessionFile !== null && existsSync(sessionFile)) {
+      const leaf = await readLeafEntryId(sessionFile).catch(() => null);
+      if (leaf !== beforeLeaf) return false;
+    }
+    return true;
+  }
+
+  /** Rex 启动诊断（rex-diagnostics.json）：原始错误、块状态与 Rex 侧 stderr／屏幕尾部；只作辅助证据。 */
+  private writeRexDiagnostics(launcher: RexLauncher, failure: string, message: string): void {
+    try {
+      const recorded = typeof launcher.diagnostics === "function" ? launcher.diagnostics() : null;
+      const diagnostics: RunDiagnosticsFile = {
+        schemaVersion: 1,
+        runId: this.request.runId,
+        taskId: this.request.taskId,
+        phase: this.request.phase,
+        kind: "rex_start_failed",
+        failure: recorded?.failure ?? failure,
+        detail: recorded?.detail ?? `${failure}: ${message}`,
+        stderrTail: recorded?.output ?? "",
+        truncated: recorded?.truncated ?? false,
+        recordedAt: this.now().toISOString(),
+      };
+      this.runs.writeRexDiagnostics(this.request.runId, diagnostics);
+    } catch {
+      // 诊断写失败不改变失败／回退路径。
     }
   }
 
@@ -1364,6 +1464,11 @@ interface PreparedSession {
 
 function normalizePath(path: string): string {
   return path.replace(/^\.\//, "").replace(/\\/g, "/");
+}
+
+/** 错误消息首行（写进 result 摘要）；完整内容在 rex-diagnostics.json。 */
+function firstLine(message: string): string {
+  return (message.split("\n")[0] ?? "").slice(0, 500);
 }
 
 /** 阶段声明的第一个 paths 字段（通常为 changedPaths）；未声明为 null。 */

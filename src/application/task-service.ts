@@ -390,8 +390,11 @@ export interface TaskCloseInput {
   dir: string;
   taskId: string;
   outcome: "completed" | "cancelled" | "superseded";
-  /** 调用方已核实的收尾事实：无活动／未知 run、无未核实 Git 效果（STATES.md 第3节）。 */
-  runsSettled: boolean;
+  /**
+   * 兼容参数：注入 runActivity（CLI／桥接）时由核心直接核对活动／未知 run 与待接收结果，不读此值；
+   * 未注入仓储的库调用无法自证，仍须显式传 true（STATES.md 第3节）。
+   */
+  runsSettled?: boolean;
   /**
    * 任务正文所在执行目录根（worktree 路由下为 worktree 路径）；缺省同 dir。
    * 运行记录与完成凭据仍读 evidenceRoot，使 worktree 内关闭能核对主检出中的实施事实。
@@ -2251,7 +2254,9 @@ export class TaskService {
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
-      if (!input.runsSettled) {
+      // 收敛由核心直接核对（注入 run 仓储时）；runsSettled 只是兼容参数。
+      // 没有仓储的库调用无法自证，仍须调用方显式声明已收敛。
+      if (this.runActivity === null && input.runsSettled !== true) {
         throw new TaskGuardError("runs_unsettled", "关闭前须先收敛该任务活动／未知运行与待接收结果");
       }
       if (this.runActivity !== null && !(await this.runActivity.settled(evidenceRoot, input.taskId))) {

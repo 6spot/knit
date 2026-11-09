@@ -274,6 +274,18 @@ export class RexApi {
     await this.call("session.close_layer", { layer_id: layerId });
   }
 
+  /**
+   * 读取块内终端屏幕与回滚（`rex capture`）；只用于启动失败诊断，内容不进入业务证据。
+   * Rex 浮层内 Pi 的 stderr 直接写在终端里，这是它唯一可读的来源。
+   */
+  async capture(blockId: string): Promise<string> {
+    const { stdout } = await this.exec(
+      [...this.base(), "capture", "-b", blockId, ...(this.session === null ? [] : ["-s", this.session]), "--trim"],
+      { timeoutMs: this.timeoutMs },
+    );
+    return stdout;
+  }
+
   /** 订阅 Rex 事件；任何事件都只是触发重新核对，不被当作业务终态。 */
   watch(onChange: () => void): RexEventWatch {
     return this.watchFactory(
