@@ -106,4 +106,10 @@ CLI 参数也不一致：`locks` 不接受 `--dir`；`resume` 与 `run resume` �
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-07-macos-tests-cli-consistency
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3126f2647e12 -->
+- 任务资料提交: 17ece5e361322c263266bdeb0f300b0ac20864f6
+- 归档目标: .knit/tasks/archive/2026-11/11-07-macos-tests-cli-consistency
+
 <!-- knit:progress:end -->
