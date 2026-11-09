@@ -123,4 +123,10 @@ title: resume 真启动、Rex 自动回退与下一步出口
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-07-resume-rex-next-action
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d19638648fef -->
+- 任务资料提交: af42164b030c9a816495d7a6f4fb398979689aa7
+- 归档目标: .knit/tasks/archive/2026-11/11-07-resume-rex-next-action
+
 <!-- knit:progress:end -->
