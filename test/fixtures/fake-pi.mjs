@@ -45,6 +45,7 @@ let settled = false;
 let pendingSpec = null;
 let abortCompleted = false;
 let completed = false;
+let promptSeq = 0;
 function completeNow(spec) {
   if (completed) return;
   completed = true;
@@ -173,14 +174,25 @@ rl.on("line", async (line) => {
     return;
   }
   if (type === "prompt") {
+    // 每轮 prompt 重置本轮的完成状态；补报测试会在同一进程内再次 prompt。
+    completed = false;
+    settled = false;
     // 测试钩子：记录用户提示正文，用于核对阶段上下文（如上一实施结果）。
     const promptFile = process.env.KNIT_FAKE_PROMPT_FILE;
     if (promptFile) writeFileSync(promptFile, String(request.message ?? ""));
+    // 测试钩子：逐轮追加 prompt 正文，用于核对补报次数与纠正提示。
+    const promptLog = process.env.KNIT_FAKE_PROMPT_LOG;
+    if (promptLog) appendFileSync(promptLog, JSON.stringify(String(request.message ?? "")) + "\n");
     respond(id, {});
     const loaded = action();
     // 测试钩子：phases.<阶段>按提示中的“本次阶段：…（<阶段>）”覆盖动作（如只在 implement 写文件）。
     const phase = /本次阶段：[^（\n]*（([^）]+)）/.exec(`${arg("--append-system-prompt") ?? ""}\n${String(request.message ?? "")}`)?.[1] ?? null;
-    const spec = phase !== null && loaded.phases?.[phase] !== undefined ? { ...loaded, ...loaded.phases[phase] } : loaded;
+    const base = phase !== null && loaded.phases?.[phase] !== undefined ? { ...loaded, ...loaded.phases[phase] } : loaded;
+    // 测试钩子：prompts 按第 1、2…轮覆盖动作；超出后沿用最后一项，便于验证“只补一次”。
+    const sequence = Array.isArray(loaded.prompts) ? loaded.prompts : Array.isArray(base.prompts) ? base.prompts : null;
+    const nth = sequence === null || sequence.length === 0 ? null : sequence[Math.min(promptSeq, sequence.length - 1)];
+    const spec = nth === null ? base : { ...base, ...nth };
+    promptSeq += 1;
     if (abortCompleted) return;
     pendingSpec = spec;
     if (spec.waitFile) {

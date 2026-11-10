@@ -174,6 +174,8 @@ export class PiAgentRuntime {
   private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
   private settledSeen = false;
   private lastSettledAborted = false;
+  /** 下一次 prompt 只观察它启动后的 agent_settled；之前的轮次不得冒充本次终态。 */
+  private settledCursor = 0;
   private started = false;
 
   constructor(private readonly options: PiRuntimeOptions) {}
@@ -287,6 +289,7 @@ export class PiAgentRuntime {
     const connection = this.requireConnection();
     this.settledSeen = false;
     this.lastSettledAborted = false;
+    this.settledCursor = connection.events.length;
     void connection.call("prompt", { message }, timeoutMs ?? 600_000).catch(() => {
       // prompt 响应失败或超时不代表模型已停止；终态以 agent_settled / exit 为准。
     });
@@ -299,7 +302,7 @@ export class PiAgentRuntime {
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
     for (;;) {
       const index = connection.events.findIndex(
-        (event) => event.type === "agent_settled",
+        (event, position) => position >= this.settledCursor && event.type === "agent_settled",
       );
       if (index >= 0) {
         const event = connection.events[index] as { aborted?: unknown };

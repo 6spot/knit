@@ -216,6 +216,23 @@ export const IgnoredChangeSchema = obj({
 });
 export type IgnoredChange = Static<typeof IgnoredChangeSchema>;
 
+/** 报告校验失败的“实际 vs 报告”对照；供主会话与用户阅读，不直接改状态。 */
+export const ReportIssueSchema = obj(
+  {
+    reason: str({ minLength: 1 }),
+    /** 核心观察到的实际改动路径（已剔除任务资料）。 */
+    actualPaths: opt(arr(str({ minLength: 1 }))),
+    /** 报告 paths 字段的原值；缺少字段为 null。 */
+    reportedPaths: opt(union([arr(str({ minLength: 1 })), nul()])),
+    /** 检查报告缺少 coverage 的 scope 路径。 */
+    uncoveredPaths: opt(arr(str({ minLength: 1 }))),
+    /** 人读对照：实际、报告、缺失 coverage 与解析／结构错误细节。 */
+    detail: str({ minLength: 1 }),
+  },
+  { open: true },
+);
+export type ReportIssue = Static<typeof ReportIssueSchema>;
+
 /** 改动来源归属事实（DESIGN §5.3）：只认原生会话里的 write／edit 工具目标。 */
 export const RunAttributionSchema = obj({
   /**
@@ -284,6 +301,12 @@ export const RunResultFileSchema = obj(
     attribution: opt(RunAttributionSchema),
     /** 报告未列出、也非工具写入的外部改动；不并入 scope、不让整轮失败。 */
     externalChanges: opt(arr(str({ minLength: 1 }))),
+    /** 报告校验失败后同一会话补报的次数；0 表示未补报或已关闭。 */
+    reportRetries: opt(int({ minimum: 0 })),
+    /** 补报轮额外用量（不含首轮）；unknown 如实为 null。 */
+    reportRetryUsage: opt(RunUsageSchema),
+    /** 最终报告失败时的实际 vs 报告对照；补报成功后清除。 */
+    reportIssue: opt(ReportIssueSchema),
   },
 );
 export type RunResultFile = Static<typeof RunResultFileSchema>;

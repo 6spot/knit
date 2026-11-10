@@ -28,9 +28,9 @@ import { workflowOf, workflowStageOf } from "./workflow.js";
 import {
   isDecisionStage,
   reportBoolean,
-  reportCoverageOf,
   reportString,
   reportVerdictOf,
+  uncoveredScopePaths,
   validateReportForStage,
 } from "../domain/report.js";
 import type { WorkflowStage } from "../domain/workflow.js";
@@ -460,25 +460,10 @@ export class RunAcceptanceService {
     // 结论阶段：枚举值决定 onVerdict 跳转；未命中走配置顺序下一阶段。
     const verdict = reportVerdictOf(effectiveStage, report);
     if (verdict === null) return this.attention(operationId, request, "report_verdict_missing", result);
-    const coverageDeclared =
-      effectiveStage !== null && Object.prototype.hasOwnProperty.call(effectiveStage.report, "coverage");
-    if (coverageDeclared) {
-      const coverage = (reportCoverageOf(effectiveStage, report) ?? []).map(normalizePath);
-      // 检查报告常用“路径：说明”形式；路径前缀命中即视为覆盖，不要求逐字相等。
-      const uncovered = scope.entries
-        .map((entry) => entry.path)
-        .filter((path) => {
-          const normalized = normalizePath(path);
-          return !coverage.some((item) => {
-            if (item === normalized) return true;
-            if (!item.startsWith(normalized)) return false;
-            // 路径后必须是分隔／说明文字；避免 app.txt 命中 app.txt.bak。
-            return !/[A-Za-z0-9._/-]/.test(item[normalized.length] ?? "");
-          });
-        });
-      if (uncovered.length > 0) {
-        return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
-      }
+    // 检查报告常用“路径：说明”形式；路径前缀命中即视为覆盖，不要求逐字相等。
+    const uncovered = uncoveredScopePaths(effectiveStage, report, scope.entries.map((entry) => entry.path));
+    if (uncovered.length > 0) {
+      return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
     }
     const next = transition(workflow, facts, { kind: "stageAccepted", verdict });
     if (isTransitionRefusal(next)) {

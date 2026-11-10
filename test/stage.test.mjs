@@ -103,6 +103,15 @@ function actionFile(dir, action) {
   return path;
 }
 
+/** fake-pi 的逐轮 prompt 记录（JSONL），用于核对补报次数与纠正提示。 */
+function readPromptLog(path) {
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line));
+}
+
 async function startRun(s, dir, taskId, phase, action, extra = {}, prepareExtra = {}) {
   const prepared = await s.coordinator.prepare(prepareInput(dir, taskId, phase, { ...extra, ...prepareExtra }));
   process.env.KNIT_PI_BIN = FAKE_PI;
@@ -2282,6 +2291,213 @@ test("检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸
     const badStatus = await waitTerminal(s, dir, prepared.request.runId);
     assert.equal(badStatus.state, "failed");
     assert.ok(badStatus.result.failureReason.startsWith("report_not_json:"));
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：首轮缺路径，同一会话补报一次后接收并记录次数／用量", async () => {
+  const dir = project("report-retry");
+  const s = services(dir);
+  const log = join(dir, ".knit", ".runtime", "fake-prompts.log");
+  process.env.KNIT_FAKE_PROMPT_LOG = log;
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      prompts: [
+        {
+          writes: [{ path: "README.md", content: "# retry\n" }],
+          report: { summary: "首轮路径错误", changedPaths: ["other.txt"] },
+        },
+        { report: { summary: "补报成功", changedPaths: ["README.md"] } },
+      ],
+    });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.acceptance.state, "completed");
+    assert.equal(status.result.reportSummary, "补报成功");
+    assert.equal(status.result.reportRetries, 1);
+    assert.deepEqual(status.result.reportRetryUsage, { inputTokens: 100, outputTokens: 20 });
+    assert.equal(status.result.usage.inputTokens, 200);
+    assert.equal(status.result.usage.outputTokens, 40);
+    assert.ok(status.result.nativeEntries.startEntryId);
+    assert.ok(status.result.nativeEntries.leafEntryId);
+    assert.equal(status.result.reportIssue, undefined);
+
+    const prompts = readPromptLog(log);
+    assert.equal(prompts.length, 2, "同一会话只追加一次补报提示");
+    assert.match(prompts[1], /失败原因：changed_paths_mismatch:README\.md/);
+    assert.match(prompts[1], /实际改动路径：README\.md/);
+    assert.match(prompts[1], /报告 changedPaths：other\.txt/);
+    assert.match(prompts[1], /只重新输出最终报告 JSON/);
+
+    const runs = new RunStore(dir);
+    assert.deepEqual(runs.readScope(task.taskId).entries.map((entry) => entry.path), ["README.md"]);
+    const events = readFileSync(join(dir, ".knit", ".runtime", "runs", impl.runId, "events.jsonl"), "utf8");
+    assert.match(events, /"event":"report_retry"/);
+  } finally {
+    delete process.env.KNIT_FAKE_PROMPT_LOG;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：首轮畸形 JSON 也只补报一次，最终报告完整", async () => {
+  const dir = project("report-retry-json");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      prompts: [
+        {
+          writes: [{ path: "README.md", content: "# invalid first\n" }],
+          text: "报告如下：\n```json\n{summary: 未加引号}\n```",
+        },
+        { report: { summary: "补报 JSON", changedPaths: ["README.md"] } },
+      ],
+    });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.result.reportSummary, "补报 JSON");
+    assert.equal(status.result.reportRetries, 1);
+    assert.deepEqual(status.result.actualChangedPaths, ["README.md"]);
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：补报轮写入文件即失败，不把二次实施当作报告修复", async () => {
+  const dir = project("report-retry-write");
+  const s = services(dir);
+  const log = join(dir, ".knit", ".runtime", "fake-prompts.log");
+  process.env.KNIT_FAKE_PROMPT_LOG = log;
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      prompts: [
+        {
+          writes: [{ path: "README.md", content: "# first\n" }],
+          report: { summary: "首轮", changedPaths: ["other.txt"] },
+        },
+        {
+          writes: [{ path: "retry.txt", content: "should fail\n" }],
+          report: { summary: "补报时改文件", changedPaths: ["README.md", "retry.txt"] },
+        },
+      ],
+    });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "failed");
+    assert.equal(status.result.failureReason, "report_retry_worktree_changed:retry.txt");
+    assert.equal(status.result.reportRetries, 1);
+    assert.deepEqual(status.result.actualChangedPaths, ["README.md", "retry.txt"]);
+    // 失败结果保留最后一轮报告作为证据；失败原因已明确说明补报期间有改动。
+    assert.equal(status.result.report.summary, "首轮");
+    assert.equal(readFileSync(join(dir, "retry.txt"), "utf8"), "should fail\n");
+    assert.equal(readPromptLog(log).length, 2);
+    const runs = new RunStore(dir);
+    assert.equal(runs.readScope(task.taskId), null, "失败结果不并入 scope");
+    assert.deepEqual(runs.readResidue(task.taskId).entries.map((entry) => entry.path).sort(), ["README.md", "retry.txt"]);
+  } finally {
+    delete process.env.KNIT_FAKE_PROMPT_LOG;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：limits.reportRetries=0 维持首轮失败语义，不发起第二次模型轮次", async () => {
+  const dir = project("report-retry-off");
+  const s = services(dir);
+  const log = join(dir, ".knit", ".runtime", "fake-prompts.log");
+  process.env.KNIT_FAKE_PROMPT_LOG = log;
+  try {
+    const configPath = join(dir, ".knit", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.limits.reportRetries = 0;
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      prompts: [
+        {
+          writes: [{ path: "README.md", content: "# no retry\n" }],
+          report: { summary: "首轮", changedPaths: ["other.txt"] },
+        },
+        { report: { summary: "不应执行", changedPaths: ["README.md"] } },
+      ],
+    });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "failed");
+    assert.equal(status.result.failureReason, "changed_paths_mismatch:README.md");
+    assert.equal(status.result.reportRetries, 0);
+    assert.equal(status.result.reportRetryUsage, undefined);
+    assert.equal(status.result.reportIssue.reason, "changed_paths_mismatch:README.md");
+    assert.match(status.result.reportIssue.detail, /实际改动路径：README\.md/);
+    assert.match(status.result.reportIssue.detail, /报告 changedPaths：other\.txt/);
+    assert.equal(readPromptLog(log).length, 1, "关闭补报后只执行首轮");
+  } finally {
+    delete process.env.KNIT_FAKE_PROMPT_LOG;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：首轮报告有效时不追加轮次", async () => {
+  const dir = project("report-retry-none");
+  const s = services(dir);
+  const log = join(dir, ".knit", ".runtime", "fake-prompts.log");
+  process.env.KNIT_FAKE_PROMPT_LOG = log;
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      prompts: [
+        {
+          writes: [{ path: "README.md", content: "# valid first\n" }],
+          report: { summary: "首轮有效", changedPaths: ["README.md"] },
+        },
+        {
+          writes: [{ path: "unexpected.txt", content: "should not run\n" }],
+          report: { summary: "不应执行", changedPaths: ["README.md", "unexpected.txt"] },
+        },
+      ],
+    });
+    const status = await waitTerminal(s, dir, impl.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.result.reportRetries, 0);
+    assert.equal(status.result.reportSummary, "首轮有效");
+    assert.equal(existsSync(join(dir, "unexpected.txt")), false);
+    assert.equal(readPromptLog(log).length, 1);
+  } finally {
+    delete process.env.KNIT_FAKE_PROMPT_LOG;
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("报告补报：检查报告 coverage 缺项在同一会话补报后接收", async () => {
+  const dir = project("report-retry-coverage");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [
+        { path: "README.md", content: "# coverage impl\n" },
+        { path: "docs.md", content: "# docs\n" },
+      ],
+      report: { summary: "实现", changedPaths: ["README.md", "docs.md"] },
+    });
+    await waitTerminal(s, dir, impl.runId);
+    const check = await startRun(s, dir, task.taskId, "check", {
+      prompts: [
+        { report: { summary: "首轮漏覆盖", verdict: "pass", coverage: ["README.md"] } },
+        { report: { summary: "补报覆盖", verdict: "pass", coverage: ["README.md", "docs.md"] } },
+      ],
+    });
+    const status = await waitTerminal(s, dir, check.runId);
+    assert.equal(status.state, "completed", status.result.failureReason ?? "");
+    assert.equal(status.result.reportRetries, 1);
+    assert.equal(status.result.reportSummary, "补报覆盖");
+    assert.equal(status.acceptance.state, "completed");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });

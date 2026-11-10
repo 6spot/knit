@@ -425,6 +425,14 @@ export function registerRunCommands(program: Command): void {
             }
             if (status.result !== null) {
               console.log(`结果: ${status.result.state}${status.result.report && reportVerdictLabel(status.result.report) ? ` / ${reportVerdictLabel(status.result.report)}` : ""}`);
+              if (status.result.reportRetries !== undefined && status.result.reportRetries > 0) {
+                const retryUsage = status.result.reportRetryUsage;
+                console.log(`报告补报: ${status.result.reportRetries} 次${retryUsage ? `；额外用量 input ${retryUsage.inputTokens ?? "未知"}，output ${retryUsage.outputTokens ?? "未知"}` : ""}`);
+              }
+              if (status.result.reportIssue) {
+                console.log(`报告问题: ${status.result.reportIssue.reason}`);
+                for (const line of status.result.reportIssue.detail.split("\n")) console.log(`  ${line}`);
+              }
               if (status.acceptance !== null) console.log(`接收: ${status.acceptance.state}${status.acceptance.reason ? `（${status.acceptance.reason}）` : ""}`);
               for (const line of boundaryLines(status.result)) console.log(line);
               if (status.verificationLabel !== null && status.checkerChangedPaths.length > 0) console.log(`验证: ${status.verificationLabel}`);

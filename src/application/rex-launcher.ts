@@ -285,6 +285,8 @@ export class RexLauncher {
   private association: RexAssociation | null = null;
   private client: BridgeClient | null = null;
   private latestState: RexWorkerState | null = null;
+  /** 已读取的最新结果轮次；补报只等待比它更新的结果。 */
+  private latestResultRevision = 0;
   private watch: { stop(): void } | null = null;
   private wake: (() => void) | null = null;
   private stopRequestedAt: number | null = null;
@@ -366,7 +368,7 @@ export class RexLauncher {
         }
       }
       this.startWatch();
-      return this.waitForTerminal(this.association);
+      return this.waitForTerminal(this.association, 0);
     }
     if (discovery.state === "ambiguous") {
       throw new InfrastructureError("io_error", `Rex 浮层 label ${this.label} 匹配到 ${discovery.matches} 个块，拒绝冒认`, {
@@ -589,7 +591,7 @@ export class RexLauncher {
       // bridge 起不来时仍以 state.json/result 文件兜底；不因此伪造成功。
       this.client = null;
     }
-    return this.waitForTerminal(association);
+    return this.waitForTerminal(association, 0);
   }
 
   private prepareManifest(): RexWorkerManifest {
@@ -702,12 +704,12 @@ export class RexLauncher {
     this.watch = null;
   }
 
-  private async waitForTerminal(association: RexAssociation): Promise<RexExecution> {
+  private async waitForTerminal(association: RexAssociation, afterRevision = 0): Promise<RexExecution> {
     let iteration = 0;
     const startedAt = Date.now();
     for (;;) {
       const result = readLatestRexWorkerResult(this.rexDirectory);
-      if (result !== null) return this.executionFromResult(result, this.latestState);
+      if (result !== null && result.revision > afterRevision) return this.executionFromResult(result, this.latestState);
 
       const fileState = readRexWorkerState(rexStatePath(this.runDirectory));
       if (fileState !== null) this.noteState(fileState);
@@ -721,7 +723,9 @@ export class RexLauncher {
             if (!process.running) {
               await this.sleep(50);
               const afterExit = readLatestRexWorkerResult(this.rexDirectory);
-              if (afterExit !== null) return this.executionFromResult(afterExit, this.latestState);
+              if (afterExit !== null && afterExit.revision > afterRevision) {
+                return this.executionFromResult(afterExit, this.latestState);
+              }
               await this.noteExitBeforeReport();
               return this.executionFromExit(this.latestState);
             }
@@ -733,7 +737,9 @@ export class RexLauncher {
               const blocks = await this.rex.listBlocks();
               if (!blocks.some((block) => block.blockId === association.blockId)) {
                 const afterDisappear = readLatestRexWorkerResult(this.rexDirectory);
-                if (afterDisappear !== null) return this.executionFromResult(afterDisappear, this.latestState);
+                if (afterDisappear !== null && afterDisappear.revision > afterRevision) {
+                  return this.executionFromResult(afterDisappear, this.latestState);
+                }
                 await this.noteExitBeforeReport();
                 return this.executionFromExit(this.latestState);
               }
@@ -747,7 +753,9 @@ export class RexLauncher {
       if (this.stopRequestedAt !== null && Date.now() - this.stopRequestedAt >= this.cancelGraceMs) {
         await this.terminate();
         const afterStop = readLatestRexWorkerResult(this.rexDirectory);
-        if (afterStop !== null) return this.executionFromResult(afterStop, this.latestState);
+        if (afterStop !== null && afterStop.revision > afterRevision) {
+          return this.executionFromResult(afterStop, this.latestState);
+        }
         return this.executionFromExit(this.latestState, true);
       }
 
@@ -760,7 +768,9 @@ export class RexLauncher {
         ).catch(() => {});
         await this.terminate();
         const late = readLatestRexWorkerResult(this.rexDirectory);
-        if (late !== null) return this.executionFromResult(late, this.latestState);
+        if (late !== null && late.revision > afterRevision) {
+          return this.executionFromResult(late, this.latestState);
+        }
         return { ...this.executionFromExit(null), failure: "rex_worker_not_started" };
       }
 
@@ -799,6 +809,22 @@ export class RexLauncher {
   async steer(message: string): Promise<void> {
     if (this.client === null) throw new InfrastructureError("io_error", "Rex worker bridge 未连接，无法 steer");
     await this.client.call("steer", message);
+  }
+
+  /**
+   * 同一 Rex worker 会话追加一轮提示（报告补报）。worker 空闲时 steer 会触发新轮次；
+   * 只等待比上一次已读取结果更新的 revision，避免把旧结果当成补报结果。
+   */
+  async prompt(message: string): Promise<RexExecution> {
+    if (this.client === null || this.association === null) {
+      throw new InfrastructureError("io_error", "Rex worker bridge 未连接，无法补报报告");
+    }
+    const before = this.latestResultRevision;
+    const accepted = (await this.client.call("steer", message)) as { accepted?: unknown } | null;
+    if (accepted === null || accepted.accepted !== true) {
+      throw new InfrastructureError("io_error", "Rex worker 未接受补报提示");
+    }
+    return this.waitForTerminal(this.association, before);
   }
 
   /** 最近一次从 bridge／state.json 观察到的 worker 状态。 */
@@ -877,6 +903,7 @@ export class RexLauncher {
 
   private executionFromResult(result: RexWorkerResult, state: RexWorkerState | null): RexExecution {
     this.stopWatch();
+    this.latestResultRevision = Math.max(this.latestResultRevision, result.revision);
     return {
       settled: true,
       aborted: result.outcome === "aborted",

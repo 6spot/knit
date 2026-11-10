@@ -52,6 +52,8 @@ export const ProjectConfigSchema = obj(
         cancelGraceMs: int({ minimum: 1 }),
         snapshotsMaxBytes: int({ minimum: 1 }),
         storageWarnBytes: int({ minimum: 1 }),
+        /** 报告校验失败后同一会话补报的次数上限；缺省 1，0 表示不补报。 */
+        reportRetries: opt(int({ minimum: 0 })),
       },
       { open: true },
     ),
@@ -144,6 +146,11 @@ export function schedulerSettingsOf(config: ProjectConfig): { maxConcurrent: num
   };
 }
 
+/** 报告补报次数：缺省 1；0 关闭补报，不改变 maxAttempts。 */
+export function reportRetriesOf(config: ProjectConfig): number {
+  return config.limits.reportRetries ?? 1;
+}
+
 export function defaultConfig(): ProjectConfig {
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
@@ -160,6 +167,7 @@ export function defaultConfig(): ProjectConfig {
       cancelGraceMs: 5000,
       snapshotsMaxBytes: 67108864,
       storageWarnBytes: 536870912,
+      reportRetries: 1,
     },
   };
 }

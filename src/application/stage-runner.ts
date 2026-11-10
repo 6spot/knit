@@ -9,6 +9,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import type { ContextPlan, ToolPolicy } from "../contracts/context-plan.js";
 import type {
   FrozenInputs,
+  ReportIssue,
   RunDiagnosticsFile,
   RunRequestFile,
   RunResultFile,
@@ -40,12 +41,13 @@ import { InfrastructureError } from "../infrastructure/errors.js";
 import { LockManager, currentIdentity, type AcquiredLock } from "../infrastructure/locks.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import {
+  buildReportRetryPrompt,
   buildSystemPrompt,
   buildUserPrompt,
   loadSectionContents,
   parseStageReport,
 } from "./stage.js";
-import { type WorktreeSignature } from "./worktree.js";
+import { worktreeSignature, type WorktreeSignature } from "./worktree.js";
 import {
   captureStageBaseline,
   existingPaths,
@@ -60,7 +62,13 @@ import {
   type IgnoredChange,
 } from "./stage-baseline.js";
 import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
-import { isDecisionStage, reportField, validateReportForStage } from "../domain/report.js";
+import {
+  isDecisionStage,
+  isRetryableReportFailure,
+  reportField,
+  uncoveredScopePaths,
+  validateReportForStage,
+} from "../domain/report.js";
 import { classifyChangedPaths, stageMayWrite, writeWithoutCapabilityReason } from "../domain/attribution.js";
 import { residueFactsOf } from "./residue.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
@@ -93,6 +101,8 @@ export interface StageRunnerOptions {
   promptTimeoutMs?: number | null;
   /** 取消后等待 agent 自行结束的宽限；超时则终止本次 Pi 进程组。 */
   cancelGraceMs?: number;
+  /** 报告校验失败后同一会话补报次数；缺省取项目配置 limits.reportRetries（缺省 1）。 */
+  reportRetries?: number;
   /** 与项目执行锁同源的锁管理器；传入后阶段独占该 Session 锁。 */
   locks?: LockManager;  /** 校验执行占用；返回非 null 错误码即占用已丢失，立即中止本阶段新动作并失败终止。 */
   lostOwnership?: () => string | null;
@@ -121,6 +131,30 @@ const REX_FALLBACK_REASON = "rex_worker_not_started";
 export interface StageExecution {
   result: RunResultFile;
   session: RunSessionRecord | null;
+}
+
+/** 可补报的报告失败：issue 带实际 vs 报告对照，report 为上一轮解析出的报告。 */
+interface ReportRetrySignal {
+  retry: { issue: ReportIssue; report: StageReport | null };
+}
+
+type CompletionEvaluation = StageExecution | ReportRetrySignal;
+
+/** 补报轮的结果：文本、取消／失败／占用丢失，或同一会话的下一轮报告。 */
+type ReportRetryTurn =
+  | { kind: "text"; text: string; usage: RunUsage; sessionFile?: string | null }
+  | { kind: "cancelled"; text: string; usage: RunUsage; sessionFile?: string | null }
+  | { kind: "failed"; reason: string; text: string; usage: RunUsage; sessionFile?: string | null }
+  | { kind: "ownership_lost"; lost: string; text: string; usage: RunUsage; sessionFile?: string | null };
+
+/** 补报时的 prompt 观察：取消／占用丢失与终态事实，用量为本轮增量。 */
+interface PromptObservation {
+  settled: boolean;
+  aborted: boolean;
+  exit: { code: number | null; signal: string | null } | null;
+  cancelled: boolean;
+  ownershipLost: string | null;
+  usage: RunUsage;
 }
 
 /** 启动诊断尾部上限；启动发生在任何 prompt 之前，stderr 不含消息正文，只防超长。 */
@@ -251,6 +285,12 @@ export class StageRunner {
   private readonly agentDir: string;
   private readonly promptTimeoutMs: number | null;
   private readonly cancelGraceMs: number;
+  private readonly reportRetryLimit: number;
+  /** 本 run 已使用的补报轮数与额外用量；写进 result。 */
+  private reportRetriesUsed = 0;
+  private reportRetryUsage: RunUsage = { inputTokens: null, outputTokens: null };
+  /** 本阶段当前 scope 路径；检查报告 coverage 核对照此判断缺项。 */
+  private scopePaths: string[] = [];
   private readonly locks: LockManager | null;
   private readonly lostOwnership: (() => string | null) | null;
   private readonly heartbeatIntervalMs: number;
@@ -287,6 +327,7 @@ export class StageRunner {
     // 阶段无固定总时限（OPERATIONS §4、DESIGN §5.9）：只有显式取消、占用丢失、控制请求超时收敛（任务034）。
     this.promptTimeoutMs = options.promptTimeoutMs ?? null;
     this.cancelGraceMs = options.cancelGraceMs ?? 5_000;
+    this.reportRetryLimit = options.reportRetries ?? 1;
     this.locks = options.locks ?? null;
     this.lostOwnership = options.lostOwnership ?? null;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
@@ -314,6 +355,7 @@ export class StageRunner {
           ? !isDecisionStage(this.stage)
           : stageId !== "check";
     const scope = this.runs.readScope(this.request.taskId);
+    this.scopePaths = scope?.entries.map((entry) => entry.path) ?? [];
     const binding = await this.store.bindings.get(this.request.taskId);
     const previousImplement = await this.previousImplementResult(binding?.lastRunIds ?? []);
     const contents = loadSectionContents(this.executionDir, this.plan, binding?.pendingDraft?.content ?? null);
@@ -503,20 +545,115 @@ export class StageRunner {
       return this.failure(session, `runtime_start_failed:${failure}`, null, null, null);
     }
     piPid = runtime.processId;
+    // 恢复回退后 runtime 已定型；闭包内的补报轮次必须指向同一个 Pi 进程。
+    const stageRuntime = runtime;
     this.writeStageProcess(session, "running", piPid, processStartedAt);
-    const sessionFile = runtime.sessionFile;
+    const sessionFile = stageRuntime.sessionFile;
     const beforeLeaf = sessionFile !== null && existsSync(sessionFile) ? await readLeafEntryId(sessionFile) : null;
     this.nativeStartLeaf = beforeLeaf;
+    const first = await this.promptObserved(stageRuntime, userPrompt);
+    if (first.ownershipLost !== null) {
+      // 丢失占用：立即终止本阶段 Pi 进程组，以 lock_ownership_lost 失败终止，不写回任何推进性结果。
+      await this.terminatePiTree(piPid);
+      await stageRuntime.dispose(3_000).catch(() => null);
+      const sessionFileAfterLost = session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
+      await this.markSession(
+        session,
+        sessionFileAfterLost !== null ? "available" : "opening",
+        `lock_ownership_lost:${first.ownershipLost}`,
+        sessionFileAfterLost !== null,
+        sessionFileAfterLost,
+      );
+      return this.failure(
+        session,
+        `lock_ownership_lost:${first.ownershipLost}`,
+        { inputTokens: null, outputTokens: null },
+        { startEntryId: null, leafEntryId: null },
+        sessionFileAfterLost,
+      );
+    }
+    if (!first.settled && first.cancelled) {
+      await this.terminatePiTree(piPid);
+      await stageRuntime.dispose(3_000).catch(() => null);
+      const sessionFileAfterCancel = session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
+      await this.markSession(session, "available", "cancelled_tool_terminated", sessionFileAfterCancel !== null, sessionFileAfterCancel);
+      return this.cancelled(session, "", { inputTokens: null, outputTokens: null }, { startEntryId: null, leafEntryId: null }, sessionFileAfterCancel);
+    }
+    if (!first.settled) {
+      const facts = await this.nativeSessionFacts(session, sessionFile, beforeLeaf);
+      const reason = first.exit !== null ? `agent_exited:${first.exit.code ?? first.exit.signal ?? "unknown"}` : "agent_not_settled";
+      return this.failure(session, reason, first.usage, facts.nativeEntries, sessionFile);
+    }
+    if (first.aborted || first.cancelled) {
+      const text = await stageRuntime.getLastAssistantText().catch(() => "");
+      if (first.cancelled) await this.terminatePiTree(piPid);
+      const facts = await this.nativeSessionFacts(session, sessionFile, beforeLeaf);
+      return this.cancelled(session, text, first.usage, facts.nativeEntries, sessionFile);
+    }
+
+    const firstText = await stageRuntime.getLastAssistantText().catch(() => "");
+    return await this.completeWithRetries({
+      session,
+      beforeSignature,
+      sessionFile,
+      text: firstText,
+      usage: first.usage,
+      nativeFacts: (file) => this.nativeSessionFacts(session, file, beforeLeaf),
+      resend: async (message) => {
+        const turn = await this.promptObserved(stageRuntime, message);
+        if (turn.ownershipLost !== null) {
+          await this.terminatePiTree(piPid);
+          await stageRuntime.dispose(3_000).catch(() => null);
+          return { kind: "ownership_lost", lost: turn.ownershipLost, text: "", usage: turn.usage };
+        }
+        if (!turn.settled) {
+          if (turn.cancelled) {
+            await this.terminatePiTree(piPid);
+            await stageRuntime.dispose(3_000).catch(() => null);
+            return { kind: "cancelled", text: "", usage: turn.usage };
+          }
+          const reason = turn.exit !== null ? `agent_exited:${turn.exit.code ?? turn.exit.signal ?? "unknown"}` : "agent_not_settled";
+          return { kind: "failed", reason, text: "", usage: turn.usage };
+        }
+        if (turn.aborted || turn.cancelled) {
+          const text = await stageRuntime.getLastAssistantText().catch(() => "");
+          if (turn.cancelled) await this.terminatePiTree(piPid);
+          return { kind: "cancelled", text, usage: turn.usage };
+        }
+        return { kind: "text", text: await stageRuntime.getLastAssistantText().catch(() => ""), usage: turn.usage };
+      },
+    });
+    } finally {
+      if (runtime !== null) await runtime.dispose(1_000).catch(() => null);
+      if (processStartedAt !== null) {
+        try {
+          const stillAlive = piPid !== null && procStartTicks(piPid) !== null;
+          this.writeStageProcess(session, stillAlive ? "running" : "exited", piPid, processStartedAt);
+        } catch {
+          // 退出记录失败不覆盖已经产生的执行结果；现场仍可由 stage-process 旧版本与进程表核实。
+        }
+      }
+      clearInterval(sessionHeartbeat);
+      this.activeSessionLock = null;
+      if (sessionLock !== null && this.locks !== null) this.locks.release(sessionLock);
+    }
+  }
+
+  /**
+   * 发起一轮 prompt 并等待稳定终态；取消／占用丢失立即 abort，超过宽限未稳定时由调用方终止进程组。
+   * 返回本轮增量用量与真实终态，供首轮和补报轮共用（补报不另建模型轮次语义）。
+   */
+  private async promptObserved(runtime: PiAgentRuntime, message: string): Promise<PromptObservation> {
     const statsBefore = await runtime.getStats();
     let cancelRequested = false;
     let ownershipLost: string | null = null;
-    const promptPromise = runtime.prompt(userPrompt, this.promptTimeoutMs);
+    const promptPromise = runtime.prompt(message, this.promptTimeoutMs);
     void promptPromise.catch(() => {});
     const cancelWatch = setInterval(() => {
       if (cancelRequested) return;
       if (this.runs.readCancel(this.request.runId) !== null) {
         cancelRequested = true;
-        void runtime?.abort().catch(() => {});
+        void runtime.abort().catch(() => {});
       }
     }, 100);
     // 占用丢失同样立即中止：不再执行任何新的工具调用或写回（OPERATIONS.md 第2节）。
@@ -525,7 +662,7 @@ export class StageRunner {
       const lost = this.lostOwnership?.() ?? null;
       if (lost !== null) {
         ownershipLost = lost;
-        void runtime?.abort().catch(() => {});
+        void runtime.abort().catch(() => {});
       }
     }, 100);
     // 取消不是只看 RPC ack：超过宽限仍未稳定则终止本次 Pi 进程组，并留下真实终态。
@@ -541,80 +678,16 @@ export class StageRunner {
     clearInterval(cancelWatch);
     clearInterval(ownershipWatch);
     if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
-    const lostDuringPrompt = ownershipLost ?? this.lostOwnership?.() ?? null;
-    if (lostDuringPrompt !== null) {
-      // 丢失占用：立即终止本阶段 Pi 进程组，以 lock_ownership_lost 失败终止，不写回任何推进性结果。
-      await this.terminatePiTree(piPid);
-      await runtime.dispose(3_000).catch(() => null);
-      const sessionFileAfterLost = session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
-      await this.markSession(
-        session,
-        sessionFileAfterLost !== null ? "available" : "opening",
-        `lock_ownership_lost:${lostDuringPrompt}`,
-        sessionFileAfterLost !== null,
-        sessionFileAfterLost,
-      );
-      return this.failure(
-        session,
-        `lock_ownership_lost:${lostDuringPrompt}`,
-        { inputTokens: null, outputTokens: null },
-        { startEntryId: null, leafEntryId: null },
-        sessionFileAfterLost,
-      );
-    }
-    if (!settled.settled && cancelRequested) {
-      await this.terminatePiTree(piPid);
-      await runtime.dispose(3_000).catch(() => null);
-      const sessionFileAfterCancel = session.sessionFile ?? findStageSessionFile(this.root, session.nativeSessionId);
-      await this.markSession(session, "available", "cancelled_tool_terminated", sessionFileAfterCancel !== null, sessionFileAfterCancel);
-      return this.cancelled(session, "", { inputTokens: null, outputTokens: null }, { startEntryId: null, leafEntryId: null }, sessionFileAfterCancel);
-    }
+    const lost = ownershipLost ?? this.lostOwnership?.() ?? null;
     const statsAfter = await runtime.getStats();
-    const usage = usageDelta(statsBefore, statsAfter);
-    let nativeEntries = { startEntryId: null as string | null, leafEntryId: null as string | null };
-    let nativeReadable = false;
-    if (sessionFile !== null) {
-      const check = await checkNativeSessionFile(sessionFile, session.nativeSessionId);
-      nativeReadable = check.exists && check.problem === null;
-      if (nativeReadable) {
-        nativeEntries = await readEntryRange(sessionFile, beforeLeaf);
-        await this.markSession(session, "available", null, true, sessionFile);
-      } else {
-        await this.markSession(session, "opening", "native_file_not_persisted", false, sessionFile);
-      }
-    } else {
-      await this.markSession(session, "opening", "native_file_not_persisted", false, null);
-    }
-
-    if (!settled.settled) {
-      await runtime.dispose(3_000);
-      const reason = settled.exit !== null ? `agent_exited:${settled.exit.code ?? settled.exit.signal ?? "unknown"}` : "agent_not_settled";
-      return this.failure(session, reason, usage, nativeEntries, sessionFile);
-    }
-    if (settled.aborted || cancelRequested) {
-      const text = await runtime.getLastAssistantText().catch(() => "");
-      if (cancelRequested) await this.terminatePiTree(piPid);
-      await runtime.dispose(3_000);
-      return this.cancelled(session, text, usage, nativeEntries, sessionFile);
-    }
-
-    const text = await runtime.getLastAssistantText().catch(() => "");
-    await runtime.dispose(3_000);
-    return this.finalizeCompleted(session, beforeSignature, usage, nativeEntries, sessionFile, text, nativeReadable);
-    } finally {
-      if (runtime !== null) await runtime.dispose(1_000).catch(() => null);
-      if (processStartedAt !== null) {
-        try {
-          const stillAlive = piPid !== null && procStartTicks(piPid) !== null;
-          this.writeStageProcess(session, stillAlive ? "running" : "exited", piPid, processStartedAt);
-        } catch {
-          // 退出记录失败不覆盖已经产生的执行结果；现场仍可由 stage-process 旧版本与进程表核实。
-        }
-      }
-      clearInterval(sessionHeartbeat);
-      this.activeSessionLock = null;
-      if (sessionLock !== null && this.locks !== null) this.locks.release(sessionLock);
-    }
+    return {
+      settled: settled.settled,
+      aborted: settled.aborted,
+      exit: settled.exit,
+      cancelled: cancelRequested,
+      ownershipLost: lost,
+      usage: usageDelta(statsBefore, statsAfter),
+    };
   }
 
   /** 取消时清理本阶段 Pi 的完整后代树；工具可能自建进程组，不能只杀 Pi 组。 */
@@ -958,6 +1031,8 @@ export class StageRunner {
       // 不把 StageRunner 的默认目录硬塞给 Rex shell；保留宿主显式配置。
       agentDir: process.env.PI_CODING_AGENT_DIR ?? undefined,
       cancelGraceMs: this.cancelGraceMs,
+      // 报告可能补报：settle 后保持 worker 存活，由核心决定再补一轮还是关闭浮层。
+      closeOnSettle: false,
       onPid: (pid) => {
         piPid = pid;
         if (pid !== null) this.writeStageProcess(session, "running", pid, processStartedAt);
@@ -1040,27 +1115,11 @@ export class StageRunner {
 
       // 与 local 分支一致：先核实原生引用并更新 Session，再按真实终态收敛；
       // 取消/失败仍保留可读的原生文件引用。
-      const finalSessionFile = execution.sessionFile ?? session.sessionFile;
-      const nativeEntries = { startEntryId: null as string | null, leafEntryId: null as string | null };
-      let nativeReadable = false;
-      if (finalSessionFile !== null) {
-        const check = await checkNativeSessionFile(finalSessionFile, session.nativeSessionId);
-        nativeReadable = check.exists && check.problem === null;
-        if (nativeReadable) {
-          const range = await readEntryRange(finalSessionFile, beforeLeaf);
-          nativeEntries.startEntryId = range.startEntryId;
-          nativeEntries.leafEntryId = range.leafEntryId;
-          await this.markSession(session, "available", null, true, finalSessionFile);
-        } else {
-          await this.markSession(session, "opening", "native_file_not_persisted", false, finalSessionFile);
-        }
-      } else {
-        await this.markSession(session, "opening", "native_file_not_persisted", false, null);
-      }
-
+      const initialSessionFile = execution.sessionFile ?? session.sessionFile;
       if (!execution.settled) {
+        const facts = await this.nativeSessionFacts(session, initialSessionFile, beforeLeaf);
         if (cancelRequested || execution.aborted) {
-          return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+          return this.cancelled(session, execution.text, execution.usage, facts.nativeEntries, initialSessionFile);
         }
         // 未报到且不回退（显式／配置 rex 或已有副作用）：失败原因带上未报到的事实，详情在 rex-diagnostics.json。
         const failure = neverReported
@@ -1070,37 +1129,100 @@ export class StageRunner {
           session,
           failure,
           execution.usage,
-          nativeEntries,
-          finalSessionFile,
+          facts.nativeEntries,
+          initialSessionFile,
           execution.text,
         );
       }
       if (execution.aborted || cancelRequested) {
-        return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+        const facts = await this.nativeSessionFacts(session, initialSessionFile, beforeLeaf);
+        return this.cancelled(session, execution.text, execution.usage, facts.nativeEntries, initialSessionFile);
       }
       if (execution.failure !== null && execution.result?.outcome === "error") {
+        const facts = await this.nativeSessionFacts(session, initialSessionFile, beforeLeaf);
         return this.failure(
           session,
           `rex_worker_error:${execution.failure}`,
           execution.usage,
-          nativeEntries,
-          finalSessionFile,
+          facts.nativeEntries,
+          initialSessionFile,
           execution.text,
         );
       }
       if (this.runs.readCancel(this.request.runId) !== null) cancelRequested = true;
       if (cancelRequested) {
-        return this.cancelled(session, execution.text, execution.usage, nativeEntries, finalSessionFile);
+        const facts = await this.nativeSessionFacts(session, initialSessionFile, beforeLeaf);
+        return this.cancelled(session, execution.text, execution.usage, facts.nativeEntries, initialSessionFile);
       }
-      return this.finalizeCompleted(
+      return await this.completeWithRetries({
         session,
         beforeSignature,
-        execution.usage,
-        nativeEntries,
-        finalSessionFile,
-        execution.text,
-        nativeReadable,
-      );
+        sessionFile: initialSessionFile,
+        text: execution.text,
+        usage: execution.usage,
+        nativeFacts: (file) => this.nativeSessionFacts(session, file, beforeLeaf),
+        resend: async (message) => {
+          let retryCancelled = false;
+          let retryLost: string | null = null;
+          const retryCancelWatch = setInterval(() => {
+            if (retryCancelled) return;
+            if (this.runs.readCancel(this.request.runId) !== null) {
+              retryCancelled = true;
+              void launcher.stop().catch(() => {});
+            }
+          }, 100);
+          const retryOwnershipWatch = setInterval(() => {
+            if (retryLost !== null) return;
+            const lost = this.lostOwnership?.() ?? null;
+            if (lost !== null) {
+              retryLost = lost;
+              void launcher.stop().catch(() => {});
+            }
+          }, 100);
+          let next: RexExecution;
+          try {
+            next = await launcher.prompt(message);
+          } finally {
+            clearInterval(retryCancelWatch);
+            clearInterval(retryOwnershipWatch);
+          }
+          if (this.runs.readCancel(this.request.runId) !== null) retryCancelled = true;
+          const lost = retryLost ?? this.lostOwnership?.() ?? null;
+          if (lost !== null) {
+            return { kind: "ownership_lost", lost, text: next.text, usage: next.usage };
+          }
+          if (!next.settled) {
+            if (retryCancelled || next.aborted) {
+              return { kind: "cancelled", text: next.text, usage: next.usage };
+            }
+            return {
+              kind: "failed",
+              reason: next.failure ?? "agent_not_settled",
+              text: next.text,
+              usage: next.usage,
+              sessionFile: next.sessionFile ?? session.sessionFile,
+            };
+          }
+          if (next.aborted || retryCancelled) {
+            return { kind: "cancelled", text: next.text, usage: next.usage };
+          }
+          if (next.failure !== null && next.result?.outcome === "error") {
+            return {
+              kind: "failed",
+              reason: `rex_worker_error:${next.failure}`,
+              text: next.text,
+              usage: next.usage,
+              sessionFile: next.sessionFile ?? session.sessionFile,
+            };
+          }
+          return {
+            kind: "text",
+            text: next.text,
+            usage: next.usage,
+            sessionFile: next.sessionFile ?? session.sessionFile,
+          };
+        },
+      });
     } finally {
       // 终态统一收口：completed／aborted／error 与恢复发现路径都在此关闭本次浮层；
       // terminate() 已关闭时 closeLayer() 幂等跳过，关闭失败不改变已落盘结果。
@@ -1174,8 +1296,12 @@ export class StageRunner {
     }
   }
 
-  /** 报告校验与 changedPaths 核对；local 与 Rex 共用，避免两条链路分叉。 */
-  private finalizeCompleted(
+  /**
+   * 报告校验与 changedPaths 核对；local 与 Rex 共用，避免两条链路分叉。
+   * 可补报的报告失败返回 retry 信号，由 completeWithRetries 在同一会话追加纠正提示；
+   * 执行、边界、能力或归属失败直接生成终态结果，不能用补报掩盖。
+   */
+  private evaluateCompleted(
     session: PreparedSession,
     beforeSignature: WorktreeSignature,
     usage: RunUsage,
@@ -1183,7 +1309,7 @@ export class StageRunner {
     sessionFile: string | null,
     text: string,
     nativeReadable: boolean,
-  ): StageExecution {
+  ): CompletionEvaluation {
     // 边界核对先取事实：HEAD／index／敏感区／忽略区随所有收尾结果发布，供诊断与报告核对。
     const inspection = this.baseline === null ? null : inspectStageBoundary(this.baseline, this.boundaryContext());
     if (inspection !== null) {
@@ -1208,10 +1334,10 @@ export class StageRunner {
     // 改动以“基线提交＋基线脏文件指纹”为准：阶段内提交过的路径也出现在实际差异里。
     // 任务资料（.knit/tasks/**）不计成果：输入变化由摘要在接收时判 stale_input，记录与材料不影响成果。
     const changedPaths = attributedChangedPaths(diffSignatures(beforeSignature, afterSignature));
-    const parsedEarly = parseStageReport(text);
+    const parsed = parseStageReport(text);
     // 阶段内禁止提交：HEAD 移动即失败、保留现场，不接收也不并入 scope；提交列表见 result.boundary.commits。
     if (inspection !== null && inspection.facts.headMoved) {
-      return this.failure(session, "head_moved_during_stage", usage, nativeEntries, sessionFile, text, parsedEarly.report, changedPaths);
+      return this.failure(session, "head_moved_during_stage", usage, nativeEntries, sessionFile, text, parsed.report, changedPaths);
     }
     // 敏感区（.git hooks／config／info 与 .knit/.runtime 受管资料）阶段前后有变化即拒绝。
     if (inspection !== null && inspection.facts.protectedPaths.length > 0) {
@@ -1222,7 +1348,7 @@ export class StageRunner {
         nativeEntries,
         sessionFile,
         text,
-        parsedEarly.report,
+        parsed.report,
         changedPaths,
       );
     }
@@ -1234,31 +1360,41 @@ export class StageRunner {
     if (protectedPaths.length > 0) {
       return this.failure(session, `protected_path_modified:${protectedPaths.join(",")}`, usage, nativeEntries, sessionFile, text);
     }
-    const parsed = parsedEarly;
-    if (parsed.report === null) {
-      return this.failure(session, parsed.error ?? "report_invalid", usage, nativeEntries, sessionFile, text, null, changedPaths);
-    }
     const actualPaths = [...new Set(changedPaths.map(normalizePath))].sort();
+    const pathsField = pathsFieldOf(this.stage);
+    if (parsed.report === null) {
+      const reason = parsed.error ?? "report_invalid";
+      if (isRetryableReportFailure(reason)) {
+        return this.reportRetry(reason, null, actualPaths, null, [], `解析／结构错误：${clipText(reason)}`);
+      }
+      return this.failure(session, reason, usage, nativeEntries, sessionFile, text, null, changedPaths);
+    }
+    const reportedPaths = reportedPathsOf(parsed.report, pathsField);
+    const uncovered = uncoveredScopePaths(this.stage, parsed.report, this.scopePaths);
     // 固定字段、类型与结论先校验；paths 与实际差异的对照交给来源归属（DESIGN §5.3）。
     const shape = validateReportForStage(this.stage, parsed.report, [], { comparePaths: false });
     if (!shape.ok) {
-      return this.failure(session, shape.reason ?? "report_invalid", usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
+      const reason = shape.reason ?? "report_invalid";
+      if (isRetryableReportFailure(reason)) {
+        return this.reportRetry(reason, parsed.report, actualPaths, reportedPaths, uncovered, `报告结构错误：${reason}`);
+      }
+      return this.failure(session, reason, usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
     }
     const tools = this.toolAttribution(session, sessionFile, actualPaths);
-    const pathsField = pathsFieldOf(this.stage);
-    let reported: string[] | null;
+    let reported: string[] | null = reportedPaths;
     if (pathsField === null) {
       // 阶段未声明 paths 字段：没有报告可核对，工具写入的差异即本 run 产出，会话不可读时全部来源不明。
       reported = tools.toolPaths === null ? actualPaths : actualPaths.filter((path) => tools.toolPaths?.includes(path));
-    } else {
-      const value = reportField(parsed.report, pathsField);
-      reported = Array.isArray(value)
-        ? [...new Set((value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/")))]
-        : null;
+    } else if (reported === null && this.stage !== null && !isDecisionStage(this.stage)) {
       // 产出类阶段必须列出 paths（即使本次零 diff）；结论阶段无修改时可缺省。
-      if (reported === null && this.stage !== null && !isDecisionStage(this.stage)) {
-        return this.failure(session, "report_changed_paths_missing", usage, nativeEntries, sessionFile, text, parsed.report, actualPaths);
-      }
+      return this.reportRetry(
+        "report_changed_paths_missing",
+        parsed.report,
+        actualPaths,
+        null,
+        uncovered,
+        "报告缺少 changedPaths 字段，产出类阶段必须列出实际改动（零 diff 也要显式空数组）。",
+      );
     }
     const outcome = classifyChangedPaths({
       actual: actualPaths,
@@ -1294,9 +1430,13 @@ export class StageRunner {
       }
     }
     if (!outcome.ok) {
+      const reason = outcome.reason ?? "report_invalid";
+      if (isRetryableReportFailure(reason)) {
+        return this.reportRetry(reason, parsed.report, actualPaths, reported, uncovered, `路径归属不通过：${reason}`);
+      }
       return this.failure(
         session,
-        outcome.reason ?? "report_invalid",
+        reason,
         usage,
         nativeEntries,
         sessionFile,
@@ -1305,6 +1445,11 @@ export class StageRunner {
         actualPaths,
         { source: attribution.source, toolPaths: attribution.toolPaths },
       );
+    }
+    // 检查报告 coverage 必须逐路径覆盖当前 scope；与接收侧共用规则，避免两处判定分叉。
+    if (uncovered.length > 0) {
+      const reason = `check_scope_incomplete:${uncovered.join(",")}`;
+      return this.reportRetry(reason, parsed.report, actualPaths, reported, uncovered, `coverage 未覆盖 scope 路径：${uncovered.join(", ")}`);
     }
     this.runs.appendEvent(this.request.runId, {
       event: "attribution_checked",
@@ -1323,6 +1468,216 @@ export class StageRunner {
         entryPaths: [...actualPaths, ...outcome.inherited],
       }),
     };
+  }
+
+  /** 可补报的报告失败信号：带上实际 vs 报告对照，由调用方决定是否还有补报预算。 */
+  private reportRetry(
+    reason: string,
+    report: StageReport | null,
+    actualPaths: string[],
+    reportedPaths: string[] | null,
+    uncoveredPaths: string[],
+    extra: string | null,
+  ): ReportRetrySignal {
+    return {
+      retry: {
+        report,
+        issue: {
+          reason,
+          actualPaths,
+          reportedPaths,
+          uncoveredPaths,
+          detail: reportIssueDetail({
+            actualPaths,
+            reportedPaths,
+            uncoveredPaths,
+            extra,
+          }),
+        },
+      },
+    };
+  }
+
+  /**
+   * 在成功完成阶段工作后处理报告失败：同一会话最多追加 limits.reportRetries 次纠正提示。
+   * 补报只重发报告；补报期间出现工作区新改动、HEAD／敏感区变化、取消或占用丢失仍按原语义终止。
+   * 执行结果与用量覆盖全部轮次，补报次数与额外用量写进 result。
+   */
+  private async completeWithRetries(input: {
+    session: PreparedSession;
+    beforeSignature: WorktreeSignature;
+    sessionFile: string | null;
+    text: string;
+    usage: RunUsage;
+    nativeFacts: (sessionFile: string | null) => Promise<{
+      nativeEntries: { startEntryId: string | null; leafEntryId: string | null };
+      nativeReadable: boolean;
+    }>;
+    resend: (message: string) => Promise<ReportRetryTurn>;
+  }): Promise<StageExecution> {
+    let text = input.text;
+    let usage = input.usage;
+    let sessionFile = input.sessionFile;
+    let retryUsage: RunUsage = { inputTokens: 0, outputTokens: 0 };
+    for (;;) {
+      const facts = await input.nativeFacts(sessionFile);
+      const evaluation = this.evaluateCompleted(
+        input.session,
+        input.beforeSignature,
+        usage,
+        facts.nativeEntries,
+        sessionFile,
+        text,
+        facts.nativeReadable,
+      );
+      if (!("retry" in evaluation)) return evaluation;
+      const retry = evaluation.retry;
+      if (this.reportRetriesUsed >= this.reportRetryLimit) {
+        return this.failure(
+          input.session,
+          retry.issue.reason,
+          usage,
+          facts.nativeEntries,
+          sessionFile,
+          text,
+          retry.report,
+          retry.issue.actualPaths,
+          null,
+          retry.issue,
+        );
+      }
+      // 补报前冻结一次工作区；期间任何新改动都判失败，避免用补报掩盖二次实施。
+      const retryBaseline = worktreeSignature(this.executionDir);
+      if (retryBaseline === null) {
+        return this.failure(input.session, "worktree_unknown", usage, facts.nativeEntries, sessionFile, text);
+      }
+      this.runs.appendEvent(this.request.runId, {
+        event: "report_retry",
+        attempt: this.reportRetriesUsed + 1,
+        reason: retry.issue.reason,
+        actualPaths: retry.issue.actualPaths,
+        reportedPaths: retry.issue.reportedPaths,
+        uncoveredPaths: retry.issue.uncoveredPaths,
+      });
+      let turn: ReportRetryTurn;
+      try {
+        turn = await input.resend(buildReportRetryPrompt(this.stage, retry.issue));
+        this.reportRetriesUsed += 1;
+      } catch (error) {
+        // 补报机制本身不可用（如 Rex bridge 断开）时保留原报告失败语义，另留事件说明原因。
+        const reason = error instanceof InfrastructureError ? error.code : "report_retry_failed";
+        this.runs.appendEvent(this.request.runId, {
+          event: "report_retry_unavailable",
+          attempt: this.reportRetriesUsed + 1,
+          reason,
+          detail: clipText(error instanceof Error ? error.message : String(error)),
+        });
+        const failedFacts = await input.nativeFacts(sessionFile);
+        return this.failure(
+          input.session,
+          retry.issue.reason,
+          usage,
+          failedFacts.nativeEntries,
+          sessionFile,
+          text,
+          retry.report,
+          retry.issue.actualPaths,
+          null,
+          retry.issue,
+        );
+      }
+      usage = addUsage(usage, turn.usage);
+      retryUsage = addUsage(retryUsage, turn.usage);
+      this.reportRetryUsage = retryUsage;
+      if (turn.sessionFile !== undefined) sessionFile = turn.sessionFile;
+      if (turn.kind === "ownership_lost") {
+        const lostFacts = await input.nativeFacts(sessionFile);
+        return this.failure(
+          input.session,
+          `lock_ownership_lost:${turn.lost}`,
+          usage,
+          lostFacts.nativeEntries,
+          sessionFile,
+          turn.text,
+        );
+      }
+      if (turn.kind === "cancelled") {
+        const cancelFacts = await input.nativeFacts(sessionFile);
+        return this.cancelled(input.session, turn.text, usage, cancelFacts.nativeEntries, sessionFile);
+      }
+      if (turn.kind === "failed") {
+        const failedFacts = await input.nativeFacts(sessionFile);
+        return this.failure(input.session, turn.reason, usage, failedFacts.nativeEntries, sessionFile, turn.text);
+      }
+      const afterRetry = worktreeSignature(this.executionDir);
+      if (afterRetry === null) {
+        const failedFacts = await input.nativeFacts(sessionFile);
+        return this.failure(input.session, "worktree_unknown", usage, failedFacts.nativeEntries, sessionFile, turn.text);
+      }
+      // HEAD／runtime 敏感区变化优先按原边界原因失败，不被“补报期间有改动”覆盖。
+      const retryBoundary = this.baseline === null ? null : inspectStageBoundary(this.baseline, this.boundaryContext());
+      if (retryBoundary !== null) {
+        this.boundary = retryBoundary.facts;
+        this.ignoredChanges = retryBoundary.ignoredChanges;
+        if (retryBoundary.facts.headMoved) {
+          const failedFacts = await input.nativeFacts(sessionFile);
+          return this.failure(input.session, "head_moved_during_stage", usage, failedFacts.nativeEntries, sessionFile, turn.text, retry.report);
+        }
+        if (retryBoundary.facts.protectedPaths.length > 0) {
+          const failedFacts = await input.nativeFacts(sessionFile);
+          return this.failure(
+            input.session,
+            protectedRuntimeReason(retryBoundary.facts.protectedPaths),
+            usage,
+            failedFacts.nativeEntries,
+            sessionFile,
+            turn.text,
+            retry.report,
+          );
+        }
+      }
+      const retryChanged = diffSignatures(retryBaseline, afterRetry);
+      if (retryChanged.length > 0) {
+        // 补报期间新改动：报告即使修好也不接收，保留首轮工作与新改动作为残留。
+        const failedFacts = await input.nativeFacts(sessionFile);
+        return this.failure(
+          input.session,
+          `report_retry_worktree_changed:${retryChanged.join(",")}`,
+          usage,
+          failedFacts.nativeEntries,
+          sessionFile,
+          turn.text,
+          retry.report,
+        );
+      }
+      text = turn.text;
+    }
+  }
+
+  /** 仅按原生文件核对并登记 Session；报告补报多轮后最后一次调用覆盖完整 entry range。 */
+  private async nativeSessionFacts(
+    session: PreparedSession,
+    sessionFile: string | null,
+    beforeLeaf: string | null,
+  ): Promise<{
+    nativeEntries: { startEntryId: string | null; leafEntryId: string | null };
+    nativeReadable: boolean;
+  }> {
+    let nativeEntries = { startEntryId: null as string | null, leafEntryId: null as string | null };
+    let nativeReadable = false;
+    if (sessionFile !== null) {
+      const check = await checkNativeSessionFile(sessionFile, session.nativeSessionId);
+      nativeReadable = check.exists && check.problem === null;
+      if (nativeReadable) {
+        nativeEntries = await readEntryRange(sessionFile, beforeLeaf);
+        await this.markSession(session, "available", null, true, sessionFile);
+      } else {
+        await this.markSession(session, "opening", "native_file_not_persisted", false, sessionFile);
+      }
+    } else {
+      await this.markSession(session, "opening", "native_file_not_persisted", false, null);
+    }
+    return { nativeEntries, nativeReadable };
   }
 
   /**
@@ -1368,7 +1723,12 @@ export class StageRunner {
     summary: string,
     actualChangedPaths: string[],
     failureReason: string | null,
-    extra: { attribution?: RunAttribution; externalChanges?: string[]; entryPaths?: string[] } = {},
+    extra: {
+      attribution?: RunAttribution;
+      externalChanges?: string[];
+      entryPaths?: string[];
+      reportIssue?: ReportIssue;
+    } = {},
   ): RunResultFile {
     return {
       schemaVersion: 1,
@@ -1393,6 +1753,9 @@ export class StageRunner {
       ...(this.ignoredChanges === null ? {} : { ignoredChanges: this.ignoredChanges }),
       ...(extra.attribution === undefined ? {} : { attribution: extra.attribution }),
       ...(extra.externalChanges === undefined ? {} : { externalChanges: extra.externalChanges }),
+      reportRetries: this.reportRetriesUsed,
+      ...(this.reportRetriesUsed > 0 ? { reportRetryUsage: this.reportRetryUsage } : {}),
+      ...(extra.reportIssue === undefined ? {} : { reportIssue: extra.reportIssue }),
     };
   }
 
@@ -1406,6 +1769,7 @@ export class StageRunner {
     report: StageReport | null = null,
     actualChangedPaths: string[] | null = null,
     attribution: RunAttribution | null = null,
+    reportIssue: ReportIssue | null = null,
   ): StageExecution {
     const entries = nativeEntries ?? { startEntryId: null, leafEntryId: null };
     // 未给出实际差异时按基线重新观察：失败 run 的改动记为任务残留，供下一轮声明继承（STATES §8）。
@@ -1427,7 +1791,10 @@ export class StageRunner {
         text,
         actual,
         reason,
-        facts === null ? {} : { attribution: facts },
+        {
+          ...(facts === null ? {} : { attribution: facts }),
+          ...(reportIssue === null ? {} : { reportIssue }),
+        },
       ),
     };
   }
@@ -1471,6 +1838,46 @@ interface PreparedSession {
 
 function normalizePath(path: string): string {
   return path.replace(/^\.\//, "").replace(/\\/g, "/");
+}
+
+/** 报告 paths 字段的安全读取：只接受字符串数组并剔除任务资料；缺失／类型不符为 null。 */
+function reportedPathsOf(report: StageReport, field: string | null): string[] | null {
+  if (field === null) return null;
+  const value = reportField(report, field);
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
+  return [...new Set((value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/")))];
+}
+
+/** 报告失败对照文案：实际 vs 报告，再补缺失 coverage 与解析／结构细节。 */
+function reportIssueDetail(input: {
+  actualPaths: string[];
+  reportedPaths: string[] | null;
+  uncoveredPaths: string[];
+  extra: string | null;
+}): string {
+  const list = (paths: string[]): string => (paths.length === 0 ? "（无）" : paths.join(", "));
+  return [
+    `实际改动路径：${list(input.actualPaths)}`,
+    `报告 changedPaths：${input.reportedPaths === null ? "（缺失）" : list(input.reportedPaths)}`,
+    ...(input.uncoveredPaths.length === 0
+      ? []
+      : [`coverage 未覆盖的 scope 路径：${list(input.uncoveredPaths)}`]),
+    ...(input.extra === null ? [] : [input.extra]),
+  ].join("\n");
+}
+
+/** 补报提示中的错误文本截断，避免把超长 JSON 解析错误整段塞回模型。 */
+function clipText(text: string, limit = 1_500): string {
+  return text.length <= limit ? text : `${text.slice(0, limit)}…（已截断）`;
+}
+
+/** 用量相加；任一侧未知时保持 unknown，不把缺失值当 0。 */
+function addUsage(left: RunUsage, right: RunUsage): RunUsage {
+  const add = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : a + b);
+  return {
+    inputTokens: add(left.inputTokens, right.inputTokens),
+    outputTokens: add(left.outputTokens, right.outputTokens),
+  };
 }
 
 /** 错误消息首行（写进 result 摘要）；完整内容在 rex-diagnostics.json。 */

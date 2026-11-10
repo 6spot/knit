@@ -69,12 +69,51 @@ export function reportVerdictOf(stage: WorkflowStage | null, report: StageReport
   return null;
 }
 
+/** 报告失败是否只涉及报告本身，可在同一会话补报后重试；执行／边界失败不在此列。 */
+export function isRetryableReportFailure(reason: string): boolean {
+  return (
+    reason === "report_invalid" ||
+    reason === "report_changed_paths_missing" ||
+    reason === "report_verdict_missing" ||
+    reason.startsWith("report_not_json:") ||
+    reason.startsWith("report_schema_invalid:") ||
+    reason.startsWith("report_field_type:") ||
+    reason.startsWith("report_field_missing:") ||
+    reason.startsWith("report_field_value:") ||
+    reason.startsWith("changed_paths_mismatch:") ||
+    reason.startsWith("check_scope_incomplete:")
+  );
+}
+
 /** 声明为 `coverage` 的字符串数组；未声明或缺失返回 null（不强制覆盖核对）。 */
 export function reportCoverageOf(stage: WorkflowStage | null, report: StageReport): string[] | null {
   if (stage === null) return null;
   const type = stage.report.coverage;
   if (type !== "string[]" && type !== "paths") return null;
   return reportStringArray(report, "coverage");
+}
+
+/**
+ * 检查报告 coverage 未覆盖的 scope 路径；阶段未声明 coverage 时返回空。
+ * 路径前缀命中即算覆盖（`src/app.ts：说明`），但路径后必须是分隔／说明文字，
+ * 避免 `app.txt` 命中 `app.txt.bak`。与接收侧共用，避免两处规则分叉。
+ */
+export function uncoveredScopePaths(
+  stage: WorkflowStage | null,
+  report: StageReport,
+  scopePaths: readonly string[],
+): string[] {
+  if (stage === null || !Object.prototype.hasOwnProperty.call(stage.report, "coverage")) return [];
+  const coverage = (reportCoverageOf(stage, report) ?? []).map(normalizePath);
+  return scopePaths
+    .map(normalizePath)
+    .filter((path) => {
+      return !coverage.some((item) => {
+        if (item === path) return true;
+        if (!item.startsWith(path)) return false;
+        return !/[A-Za-z0-9._/-]/.test(item[path.length] ?? "");
+      });
+    });
 }
 
 function typeMatches(type: ReportFieldType, value: unknown): boolean {

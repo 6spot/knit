@@ -12,6 +12,7 @@
     "heartbeatStaleMs": 30000,
     "cancelGraceMs": 5000,
     "snapshotsMaxBytes": 67108864,
-    "storageWarnBytes": 536870912
+    "storageWarnBytes": 536870912,
+    "reportRetries": 1
   }
 }

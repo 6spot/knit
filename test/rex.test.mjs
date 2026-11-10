@@ -485,6 +485,27 @@ test("RexLauncher：创建浮层、写入 rex.json、bridge 等待与 steer", as
     // socket 实际位置（超长时为 $TMPDIR 短路径）记入 manifest 与 rex.json，恢复以记录为准。
     assert.equal(association.socketPath, rexSocketPathFor(runDirectory));
     assert.equal(association.socketPath, readRexWorkerManifest(rexManifestPath(runDirectory)).socketPath);
+
+    // 同一 worker 会话追加补报轮：只等待比首轮更新的结果 revision。
+    const followPromise = launcher.prompt("只重新输出最终报告");
+    const manifest = readRexWorkerManifest(rexManifestPath(runDirectory));
+    writeRexWorkerResult(manifest.directory, {
+      schemaVersion: 1,
+      runId,
+      revision: 2,
+      outcome: "completed",
+      text: "```json\n{\"summary\":\"补报\",\"changedPaths\":[]}\n```",
+      error: null,
+      sessionFile,
+      leafId: "a2",
+      completedAt: new Date().toISOString(),
+    });
+    simulatedState = { ...simulatedState, status: "completed", resultRevision: 2, leafId: "a2" };
+    server.publish();
+    const follow = await followPromise;
+    assert.equal(follow.result.revision, 2);
+    assert.match(follow.text, /补报/);
+    assert.equal(steers.at(-1), "只重新输出最终报告");
   } finally {
     await launcher.dispose();
     if (server !== null) await server.close();

@@ -130,6 +130,14 @@ export function registerStatusCommands(program: Command): void {
             console.log(`结果: ${result.result.state}${result.result.report && reportVerdictLabel(result.result.report) ? ` / ${reportVerdictLabel(result.result.report)}` : ""}`);
             const usage = result.result.usage;
             console.log(`用量: input ${usage.inputTokens ?? "未知"}（含缓存），output ${usage.outputTokens ?? "未知"}；未知值不填零`);
+            if (result.result.reportRetries !== undefined && result.result.reportRetries > 0) {
+              const retryUsage = result.result.reportRetryUsage;
+              console.log(`报告补报: ${result.result.reportRetries} 次${retryUsage ? `；额外用量 input ${retryUsage.inputTokens ?? "未知"}，output ${retryUsage.outputTokens ?? "未知"}` : ""}`);
+            }
+            if (result.result.reportIssue) {
+              console.log(`报告问题: ${result.result.reportIssue.reason}`);
+              for (const line of result.result.reportIssue.detail.split("\n")) console.log(`  ${line}`);
+            }
             console.log(`接收: ${result.acceptance?.state ?? "未开始"}${result.acceptance?.reason ? `（${result.acceptance.reason}）` : ""}`);
             for (const line of boundaryLines(result.result)) console.log(line);
             if (result.verificationLabel !== null && result.checkerChangedPaths.length > 0) console.log(`验证: ${result.verificationLabel}`);

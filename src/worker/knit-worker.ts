@@ -23,7 +23,7 @@ import { loadWorkflow, workflowStageOf } from "../application/workflow.js";
 import { isDecisionStage, reportString } from "../domain/report.js";
 import { StageRunner, type StageExecution } from "../application/stage-runner.js";
 import { SnapshotService } from "../application/snapshot.js";
-import { parseConfig } from "../application/config.js";
+import { parseConfig, reportRetriesOf } from "../application/config.js";
 import { currentBranch } from "../application/delivery.js";
 import { locateTaskDocument } from "../application/task-service.js";
 import { executionRouteOf } from "../application/worktree-routing.js";
@@ -373,6 +373,7 @@ async function main(): Promise<number> {
         runs: store,
         locks,
         cancelGraceMs: config.limits.cancelGraceMs,
+        reportRetries: reportRetriesOf(config),
         lostOwnership: () => heartbeatError,
         heartbeatIntervalMs: config.limits.heartbeatIntervalMs,
         onStageProcess: (pid) => {

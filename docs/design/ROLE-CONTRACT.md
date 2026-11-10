@@ -33,6 +33,8 @@
 | 阶段声明字段 | 按 `report` | `string`／`string[]`／`paths`／`bool`／非空枚举数组 | 按声明类型校验；未声明只校验固定字段 |
 | `changedPaths` | 当阶段声明 `paths` 时 | string[]，通常名为 `changedPaths` | 列出本 run 实际改动：`write`／`edit` 写过的不得省略，bash 等产出照实列出（来源不明、交主会话确认），不列外部改动与之前轮次成果，不得虚报未改文件；列出失败残留即声明继承（DESIGN §5.3） |
 
+报告补报：阶段工作已成功结束、仅报告本身不通过时（缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete`），worker 在同一原生会话追加一条只要求重发报告的纠正提示，最多 `limits.reportRetries` 次（默认 1，0 关闭）。提示列出实际改动 vs 报告路径、缺失的 coverage 与报告形状；补报轮只允许输出报告，不得改文件、调用工具或重跑验证。补报期间出现工作区新改动、HEAD 移动、敏感区改动、取消或占用丢失仍按原失败语义终止；补报次数不计入阶段访问、修复预算或 `maxAttempts`。最终仍失败时结果保留原失败原因，并以 `reportIssue` 给出实际 vs 报告对照；`reportRetries`／`reportRetryUsage` 记录补报次数与额外用量，原生范围与总用量覆盖全部轮次。
+
 `onVerdict` 的键必须是某报告枚举字段声明的值，目标必须是已声明阶段 id 或 `deliver`；未命中走顺序下一阶段。回退目标必须是有限环，阶段访问超过 `maxVisits` 时停止并报告 `repair_round_limit`。
 
 报告中的路径使用项目相对路径。未执行或证据不足的验证写入 `unverified`，不写成通过。正式检查以核心写入的检查凭据为准；检查阶段自报 pass 不替代核心核对。

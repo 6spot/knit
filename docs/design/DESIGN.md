@@ -487,6 +487,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | 固定字段 | `summary` 为文本，`validation`、`blockers` 为数组，可为空。每条验证记录方法、结果和证据，结果为 `pass`、`fail` 或 `not_run` |
 | 阶段声明字段 | 按 `workflow.yaml` 的 `report` 校验；`paths` 类型（通常为 `changedPaths`）必须与实际 Git 可见差异一致，`bool` 与枚举按声明核对 |
 | `onVerdict` | 报告值命中时跳转声明目标；未命中的普通完成走顺序下一阶段 |
+| 报告补报 | 缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete` 且阶段工作已成功结束时，同一会话最多补报 `limits.reportRetries` 次（默认 1）；补报只重发报告，期间工作区新改动或边界越界仍失败；结果记 `reportRetries`／`reportRetryUsage`，最终失败带 `reportIssue` 实际 vs 报告对照 |
 | 收尾 | 锚点 `deliver` 不产生 worker 报告；交付由主会话协调，commits、archivePath、pending 来自核心操作结果 |
 
 主会话的讨论确认与收尾事实写核心操作和任务记录，不伪造 worker run/result。正常执行结果由核心按 request 中固定 acceptanceOperationId 复核并接收。进程在接收中断时先恢复操作，不再执行一次模型阶段；worker 崩溃后的核实结论另记 run.reconcile，不能冒充正常报告。
@@ -804,6 +805,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `limits.cancelGraceMs` | `5000`，取消后等待工具自行退出的宽限；超时才终止完整进程树 |
 | `limits.snapshotsMaxBytes` | `67108864`，64 MiB，按快照内容总量计（非单文件上限），保存失败或超限阻塞实施 |
 | `limits.storageWarnBytes` | `536870912`，512 MiB，只告警不自动清理 |
+| `limits.reportRetries` | 非负整数，缺省 `1`；报告本身校验失败后同一会话补报的上限，`0` 关闭。补报只重发报告，不改 `maxAttempts`、阶段访问或修复预算 |
 
 ```json
 {

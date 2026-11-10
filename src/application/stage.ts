@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { ContextPlan, ContextSection } from "../contracts/context-plan.js";
 import { inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
 import { researchDigestSummary } from "./task-materials.js";
-import { StageReportSchema, type StageReport } from "../contracts/run.js";
+import { StageReportSchema, type ReportIssue, type StageReport } from "../contracts/run.js";
 import { isReportEnum, type ReportFieldType } from "../contracts/workflow.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { checkSchema, schemaErrors } from "../contracts/schema.js";
@@ -212,6 +212,24 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
     coverageRequirement,
     values.length > 0 ? `结论字段只能是 ${values.join("／")}。` : "",
   ].join("");
+}
+
+/**
+ * 报告补报提示：同一会话追加一条只要求重发报告的纠正指令。
+ * 明确列出实际 vs 报告差异、缺失 coverage 与可复制的报告形状；不改工具面、不重跑实施。
+ */
+export function buildReportRetryPrompt(stage: WorkflowStage | null, issue: ReportIssue): string {
+  return [
+    "上一轮阶段工作已经结束，但最终报告未通过核心校验，不能作为本 run 结果接收。",
+    `失败原因：${issue.reason}`,
+    issue.detail,
+    "",
+    "请只重新输出最终报告 JSON，不要修改任何文件、不要调用工具、不要重跑验证、不要重复实施；已有工作区内容与验证结果保持不变。",
+    "报告形状：",
+    "```json",
+    reportTemplateOf(stage),
+    "```",
+  ].join("\n");
 }
 
 export function buildSystemPrompt(plan: ContextPlan, stage: WorkflowStage | null, contents: SectionContents): string {

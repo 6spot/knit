@@ -12,7 +12,9 @@ import {
 } from "../dist/domain/workflow.js";
 import {
   isDecisionStage,
+  isRetryableReportFailure,
   reportVerdictOf,
+  uncoveredScopePaths,
   validateReportForStage,
 } from "../dist/domain/report.js";
 import { stageBriefOf } from "../dist/application/workflow.js";
@@ -182,6 +184,26 @@ test("报告按阶段声明校验：paths 严格、枚举必填、未声明字�
   );
   assert.match(prompt, /coverage 每项一个路径（可写成「路径：核对内容」），不要合并多项；scope 中每个路径都要单独出现，否则接收会以 check_scope_incomplete 拒绝。/);
   assert.match(prompt, /"src\/app\.ts：核对内容"/);
+
+  // 补报只覆盖报告本身失败；执行／边界／归属挂起不在同一会话重发。
+  for (const reason of [
+    "report_not_json:truncated",
+    "report_schema_invalid:/summary: expected string",
+    "report_changed_paths_missing",
+    "changed_paths_mismatch:a.txt",
+    "report_field_type:coverage:string[]",
+    "report_field_value:verdict",
+    "report_verdict_missing",
+    "check_scope_incomplete:docs.md",
+  ]) {
+    assert.equal(isRetryableReportFailure(reason), true, reason);
+  }
+  for (const reason of ["head_moved_during_stage", "protected_path_modified:a", "write_without_capability:a", "unattributed_paths:a", "agent_not_settled"]) {
+    assert.equal(isRetryableReportFailure(reason), false, reason);
+  }
+  assert.deepEqual(uncoveredScopePaths(check, { summary: "x", verdict: "pass", coverage: ["README.md：核对"] }, ["README.md", "docs.md"]), ["docs.md"]);
+  assert.deepEqual(uncoveredScopePaths(check, { summary: "x", verdict: "pass", coverage: ["docs.md"] }, ["docs.md.bak"]), ["docs.md.bak"], "前缀命中后必须是分隔或说明文字");
+  assert.deepEqual(uncoveredScopePaths(implement, { summary: "x", changedPaths: [] }, ["a"]), [], "未声明 coverage 不做覆盖核对");
 });
 
 test("顶部提示行使用 name／description 渲染流程、本步目标与完成条件", () => {
