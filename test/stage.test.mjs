@@ -812,6 +812,59 @@ test("阶段 maxVisits：回退进入超过上限时接收需人工处理并写 
   }
 });
 
+test("阶段访问计数从第一次接收 run 开始：失败 run 不算开始，接收后 change 保留计数", async () => {
+  const dir = project("visits-start");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s);
+    let binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+    // 失败 run：报告列出不存在的路径且漏报实际改动，结果不被接收（lastRunIds 不追加）。
+    const failed = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# failed\n" }],
+      report: { summary: "失败轮", changedPaths: ["other.txt"] },
+    });
+    const failedStatus = await waitTerminal(s, dir, failed.runId);
+    assert.equal(failedStatus.state, "failed");
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.lastRunIds, [], "失败 run 不写 lastRunIds");
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+
+    // 未开始：change 回 start 并清空计数，ready 重新只占一格。
+    const change = await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "失败后调整目标", content: "## 目标与边界\n\n新目标\n" });
+    assert.equal(change.stage, "start");
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.stageVisits, {});
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+
+    // 复原工作区后完成并接收一轮实施：lastRunIds 记录接收事实。
+    writeFileSync(join(dir, "README.md"), "# demo\n");
+    const impl = await startRun(s, dir, task.taskId, "implement", {
+      writes: [{ path: "README.md", content: "# accepted\n" }],
+      report: { summary: "实施", changedPaths: ["README.md"] },
+    });
+    const implStatus = await waitTerminal(s, dir, impl.runId);
+    assert.equal(implStatus.state, "completed", implStatus.result.failureReason ?? "");
+    assert.equal(implStatus.acceptance.state, "completed");
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.lastRunIds, [impl.runId]);
+    assert.deepEqual(binding.stageVisits, { implement: 1, check: 1 });
+
+    // 已开始：change 保留计数，随后 ready 正常累加。
+    await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "接收后改范围", content: "## 目标与边界\n\n再次调整\n" });
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1, check: 1 }, "已开始 change 保留计数");
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    binding = await s.store.bindings.get(task.taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 2, check: 1 });
+  } finally {
+    s.store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("自定义阶段：按声明校验报告、按配置流转并累计访问", async () => {
   const dir = project("custom-stage");
   const s = services(dir);

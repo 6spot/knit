@@ -526,6 +526,82 @@ test("task update：clarify 保持 stage 且不使摘要未变任务迁移；cha
   }
 });
 
+test("阶段访问计数：未开始 change 清空；已开始保留并累计到 repair_round_limit", async () => {
+  const dir = gitProject("visits-start");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    // 未开始：连续 4 轮 ready + change 都不涨计数，也不触发 repair_round_limit（默认 maxVisits=2）。
+    for (let round = 1; round <= 4; round += 1) {
+      const ready = await service.ready({ dir, taskId });
+      assert.equal(ready.stage, "implement");
+      let binding = await store.bindings.get(taskId);
+      assert.deepEqual(binding.stageVisits, { implement: 1 }, `第 ${round} 次 ready 只占一格`);
+      const change = await service.update({
+        dir,
+        taskId,
+        kind: "change",
+        reason: "准备期改需求",
+        content: `## 目标与边界\n\n目标 v${round}\n`,
+      });
+      assert.equal(change.stage, "start");
+      binding = await store.bindings.get(taskId);
+      assert.deepEqual(binding.stageVisits, {}, "未开始 change 清空访问计数");
+    }
+    // 已有接收 run（lastRunIds 非空）：change 保留计数，ready 正常累加。
+    let binding = await store.bindings.get(taskId);
+    await store.bindings.save({ ...binding, lastRunIds: ["run-accepted-1"] });
+    await service.ready({ dir, taskId });
+    binding = await store.bindings.get(taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+    for (const expected of [2, 3]) {
+      const change = await service.update({ dir, taskId, kind: "change", reason: "已开始改范围", content: `## 目标与边界\n\n范围 v${expected}\n` });
+      assert.equal(change.stage, "start");
+      binding = await store.bindings.get(taskId);
+      assert.deepEqual(binding.stageVisits, { implement: expected - 1 }, "已开始 change 保留计数");
+      await service.ready({ dir, taskId });
+      binding = await store.bindings.get(taskId);
+      assert.deepEqual(binding.stageVisits, { implement: expected });
+    }
+    // 第三次进入之后 change 仍保留计数；第四次 ready 超 maxVisits 被拒。
+    await service.update({ dir, taskId, kind: "change", reason: "再改范围", content: "## 目标与边界\n\n最终范围\n" });
+    await assert.rejects(
+      () => service.ready({ dir, taskId }),
+      (error) => error instanceof TaskGuardError && error.guardReason === "repair_round_limit",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("旧绑定缺 lastRunIds 按未开始处理，不报错", async () => {
+  const dir = gitProject("visits-legacy-binding");
+  const { store, service } = makeService(dir);
+  try {
+    const { taskId } = await service.newTask({ dir, title: "T" });
+    await service.ready({ dir, taskId });
+    let binding = await store.bindings.get(taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+    // 模拟旧记录：没有 lastRunIds 字段。
+    const { lastRunIds: _ignored, ...legacy } = binding;
+    await store.bindings.save(legacy);
+    binding = await store.bindings.get(taskId);
+    assert.equal(Object.hasOwn(binding, "lastRunIds"), false);
+    const change = await service.update({ dir, taskId, kind: "change", reason: "旧绑定时改需求", content: "## 目标与边界\n\n新目标\n" });
+    assert.equal(change.stage, "start");
+    binding = await store.bindings.get(taskId);
+    assert.deepEqual(binding.stageVisits, {});
+    const ready = await service.ready({ dir, taskId });
+    assert.equal(ready.stage, "implement");
+    binding = await store.bindings.get(taskId);
+    assert.deepEqual(binding.stageVisits, { implement: 1 });
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("task update：活动 run 只保存草案；apply/withdraw 按摘要与基线核对", async () => {
   const dir = gitProject("pending");
   const { store, service } = makeService(dir);

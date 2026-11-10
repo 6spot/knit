@@ -199,7 +199,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 ### 3.8 阶段权威与推导
 
-frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；本机无绑定时 `task ready` 报 `binding_missing`，先用 `task rebind` 重建，不静默推进 stage。阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
+frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；本机无绑定时 `task ready` 报 `binding_missing`，先用 `task rebind` 重建，不静默推进 stage。阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`，访问计数从第一次被接收的 run 开始，准备期改需求不消耗预算（§4）。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
 
 业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效且检查者未改动文件的正式检查（最新检查带 `checkerChangedPaths` 时报 `check_self_modified`，§5.1）；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。`self`／`independent` 的成果范围为空（scope 与主会话实施记录都没有路径，如实施报告 `changedPaths: []` 被接收）时完成以 `empty_scope` 拒绝，避免“本来没有产物”“产物已被外部提交”“产物留在工作区未归属”三种情况静默完成；确实没有产物时用 `task close --outcome completed --no-artifacts --reason <原因>`，凭据记 `artifacts: none` 与 `noArtifactsReason`，成果非空时声明无产物报 `artifacts_present`。`none` 模式、主会话 `task implement` 已登记路径、强制完成与父任务（存在子任务）总体验收不受此守卫约束；`deliver` 预检同一守卫。交付没有产物提交（`workCommit` 为空）时结果带 `noArtifactCommit: true` 与完成凭据中的原因，人读输出与桥接通知写明“本次交付没有产物提交”；空报告的实施 run 被接收时 `run status` 提示“本轮未产生成果”（任务 k-86d01bf85274，审计 F4）。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
 
@@ -278,6 +278,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 
 - `task ready` 从 `start` 进入第一个阶段；阶段报告被接收后按 `onVerdict` 命中值跳转，否则顺序进入下一阶段；最后一个阶段完成进入 `deliver`。
 - `onVerdict` 的回退目标可以是已声明阶段；回退环必须有有限上限，超限停止并报告 `repair_round_limit`，不自动续跑。
+- 阶段访问计数从任务第一次被接收的 run 开始：尚无已接收 run 时 `task update --kind change`（含应用 change 草案）回到 start 并清空计数，准备期改需求不消耗进入预算；已有接收 run 时保持计数并正常累计。失败、取消或派发未接收的 run 不算开始，旧绑定缺 `lastRunIds` 按未开始处理。
 - 自动流转只推进业务阶段，不代表提交、推送或发布授权；交付仍由主会话按授权协调。
 - `independent` 任务在实施后保留正式检查；`self`／`none` 可按配置直接进入收尾。change 回讨论，clarify 保持当前阶段，deliver 的检查 stale 时按 verification 回到最近工作阶段或检查阶段。
 - 运行中改输入：目标有活动 run 时 `task update` 须声明 `--run <id>`（否则 `task_busy`），按同一 clarify／change 转移直接写入；旧 run 收尾按摘要判 `needs_attention: stale_input`，结果与工作区保留、不计为当前规格的成果，之后只能等其结束或取消再重新 `ready`／开新 run，不提供强制接受。`--pending` 保留为显式草案选项。
@@ -421,7 +422,7 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 需求摘要与绑定分支分别校验，分支改变使旧检查失去交付资格，但不等于需求要重新讨论。阶段内 HEAD 移动按第 5.1 节判失败；index 摘要只用于定位和诊断，纯暂存变化不能替代内容判断。检查者声明的修复随接收并入 scope，来源归属规则与实施相同；外部改动不并入，有效输入变化或恢复源文件时重新核对。
 
-阻塞发现和一般建议分别列出。默认独立性来自分离的阶段、Session 和实际复核，实施与检查可使用同一模型；不同模型是按用户选择配置的补充，不能替代验证。
+阻塞发现和一般建议分别列出。默认独立性来自分离的阶段、Session 和实际复核，实施与检查可使用同一模型；不同模型是按用户选择配置的补充，不能替代验证。阶段访问计数从第一次被接收的 run 开始，准备期（尚无已接收 run）的 `change` 不占进入预算，失败／取消 run 不算开始；修复轮次仍按检查结论累计（§4）。
 
 ### 5.4 核心 worker 与执行宿主
 

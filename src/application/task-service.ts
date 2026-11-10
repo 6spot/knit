@@ -540,13 +540,15 @@ function factsOf(document: TaskDocument): TaskFacts {
   };
 }
 
-/** 绑定侧的阶段计数与停止原因；旧绑定缺省为空。 */
+/** 绑定侧的阶段计数、停止原因与已开始事实；旧绑定缺省为空。 */
 function stageFactsOf(document: TaskDocument, binding: TaskBinding | null): TaskFacts {
   return {
     ...factsOf(document),
     pendingKind: binding?.pendingDraft?.kind ?? null,
     visits: binding?.stageVisits ?? {},
     stopReason: binding?.stopReason ?? null,
+    // “已开始”按至少一个被接收的 run 判定；失败／取消 run 不写 lastRunIds，旧绑定缺字段按未开始处理。
+    started: (binding?.lastRunIds?.length ?? 0) > 0,
   };
 }
 

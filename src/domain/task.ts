@@ -48,6 +48,8 @@ export interface TaskFacts {
   visits?: StageVisits;
   /** 流程停止原因；非空表示不自动续跑（如 repair_round_limit、check_blocked）。 */
   stopReason?: string | null;
+  /** 任务是否已开始：至少有一个被接收的 run。旧绑定缺省按未开始处理。 */
+  started?: boolean;
 }
 
 /**
@@ -369,8 +371,12 @@ function inputsUpdateRefusal(task: TaskFacts, archived: boolean, applyPending = 
 function inputsUpdated(workflow: WorkflowDefinition, task: TaskFacts, kind: UpdateKind, digestChanged: boolean, archived: boolean): TaskTransitionResult {
   const refusal = inputsUpdateRefusal(task, archived);
   if (refusal) return refusal;
-  // change 是目标／范围变化：回到 start，保留访问计数（不重置回退历史）。
-  if (kind === "change") return OPEN(ANCHOR_START, visitsOf(task), stopReasonOf(task));
+  // change 是目标／范围变化：回到 start。尚未开始时（没有接收过 run）准备期改需求不占进入预算，
+  // 清空访问计数；已开始后保留计数，不重置回退历史。
+  if (kind === "change") {
+    if (task.started !== true) return OPEN(ANCHOR_START, {}, stopReasonOf(task));
+    return OPEN(ANCHOR_START, visitsOf(task), stopReasonOf(task));
+  }
   if (!digestChanged) return stay(workflow, task);
   if (task.stage !== ANCHOR_DELIVER) return stay(workflow, task);
   return staleDeliverTransition(workflow, task);

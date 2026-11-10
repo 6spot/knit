@@ -48,6 +48,8 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | BusinessClosed：deliver 或 task close | 按 verification 核对当前目标、成果与验证；父任务还要求直接子任务全部结束并给出总体验收说明；不要求 Git 提交／回执／归档 | closed/completed/deliver；完成凭据另存，Git 收尾后做 |
 | TaskEndRequested：task close | 明确取消／替代，无该任务活动／未知 run 或未核实 Git 效果；待接收结果先核实事实并收敛 | closed 及相应 outcome，不默认提交部分源码 |
 
+阶段访问计数（`stageVisits`）从任务第一次被接收的 run 开始：首次 `task ready` 照常占一格；尚无已接收 run 时，`task update --kind change`（含应用 change 草案）回 start 并清空计数，准备期改需求不消耗进入预算。已有接收 run 时 change 保留计数，超 `maxVisits` 照常报 `repair_round_limit`。失败、取消或派发未接收的 run 不算开始；旧绑定缺 `lastRunIds` 按未开始处理。修复轮次仍按第 4 节在检查结论接收后累计。
+
 前置依赖（DESIGN §3.11）：`task ready` 与工作阶段的 `run prepare` 在推进／启动前核对 `dependsOn`，未满足时拒绝（`dependency_unmet`，列出未满足项），不改变 stage 与冻结输入；优先级、父子层级与用户明确指定都不绕过。依赖结构错误（缺失／自依赖／成环）在设置依赖时拒绝；已取消、替代或已归档但未完成的前置保留为具体阻塞原因，由用户显式调整。检查、交付、记录与只读查询不受此门禁影响。
 
 需求澄清（DESIGN §4.2）：「待澄清」区段与 `- [blocking] `／`- [assumed] ` 标记不是独立状态，仍是 task.md 输入。`task ready` 只机械核对顶格 `- [blocking] ` 行：存在时拒绝（`clarify_blocking`，消息含数量与前 3 条），无区段、空区段或只有 `[assumed]` 时放行；`assumed` 是否已确认属主 Agent 语义判断。解决后折入目标与完成条件并删除该行，摘要变化按 clarify 处理；不新增需求状态机，也不统计提问轮数。

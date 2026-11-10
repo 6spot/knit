@@ -225,6 +225,102 @@ test("change 回到 start", () => {
   assert.equal(t.status, "open");
 });
 
+test("change：未开始时清空阶段访问计数，已开始后保留", () => {
+  // 尚无已接收 run：准备期改需求不占进入预算。
+  const fresh = stageOf(
+    transition(workflow, at("implement", { visits: { implement: 3 }, started: false }), {
+      kind: "inputsUpdated",
+      updateKind: "change",
+      digestChanged: true,
+    }),
+  );
+  assert.equal(fresh.stage, "start");
+  assert.deepEqual(fresh.visits, {});
+  // 旧事实缺 started 按未开始处理。
+  const legacy = stageOf(
+    transition(workflow, at("check", { visits: { implement: 1, check: 1 } }), {
+      kind: "inputsUpdated",
+      updateKind: "change",
+      digestChanged: false,
+    }),
+  );
+  assert.deepEqual(legacy.visits, {});
+  // 已有接收 run：保持计数，不重置回退历史。
+  const started = stageOf(
+    transition(workflow, at("check", { visits: { implement: 3, check: 1 }, started: true }), {
+      kind: "inputsUpdated",
+      updateKind: "change",
+      digestChanged: false,
+    }),
+  );
+  assert.equal(started.stage, "start");
+  assert.deepEqual(started.visits, { implement: 3, check: 1 });
+  // pendingResolved 走同一转移：change 草案同样按已开始与否处理。
+  const appliedFresh = stageOf(
+    transition(workflow, at("check", { pendingKind: "change", visits: { implement: 1 } }), {
+      kind: "pendingResolved",
+      updateKind: "change",
+      digestChanged: true,
+    }),
+  );
+  assert.deepEqual(appliedFresh.visits, {});
+  const appliedStarted = stageOf(
+    transition(workflow, at("check", { pendingKind: "change", visits: { implement: 1 }, started: true }), {
+      kind: "pendingResolved",
+      updateKind: "change",
+      digestChanged: true,
+    }),
+  );
+  assert.deepEqual(appliedStarted.visits, { implement: 1 });
+  // clarify 不受影响。
+  const clarified = stageOf(
+    transition(workflow, at("implement", { visits: { implement: 2 } }), {
+      kind: "inputsUpdated",
+      updateKind: "clarify",
+      digestChanged: true,
+    }),
+  );
+  assert.deepEqual(clarified.visits, { implement: 2 });
+});
+
+test("准备期多次 change 不消耗进入预算；已开始后仍按 maxVisits 拒绝", () => {
+  // 未开始：每轮 change 清空、ready 只占一格，可反复讨论。
+  let facts = at("implement", { visits: { implement: 1 } });
+  for (let round = 0; round < 4; round += 1) {
+    const change = stageOf(transition(workflow, facts, { kind: "inputsUpdated", updateKind: "change", digestChanged: true }));
+    assert.equal(change.stage, "start");
+    assert.deepEqual(change.visits, {});
+    const ready = stageOf(transition(workflow, next(change), { kind: "ready" }));
+    assert.equal(ready.stage, "implement");
+    assert.deepEqual(ready.visits, { implement: 1 });
+    facts = next(ready);
+  }
+  // 已开始：change 保留计数，ready 正常累加；maxVisits=2 时第三次进入后第四次被拒。
+  const startedNext = (result) => ({ ...next(result), started: true });
+  let started = startedNext(
+    stageOf(
+      transition(workflow, at("check", { visits: { implement: 1, check: 1 }, started: true }), {
+        kind: "inputsUpdated",
+        updateKind: "change",
+        digestChanged: true,
+      }),
+    ),
+  );
+  assert.deepEqual(started.visits, { implement: 1, check: 1 });
+  for (const expected of [2, 3]) {
+    started = startedNext(stageOf(transition(workflow, started, { kind: "ready" })));
+    assert.equal(started.stage, "implement");
+    assert.equal(started.visits.implement, expected);
+    started = startedNext(
+      stageOf(transition(workflow, started, { kind: "inputsUpdated", updateKind: "change", digestChanged: false })),
+    );
+    assert.equal(started.visits.implement, expected, "已开始 change 保留计数");
+  }
+  const refused = transition(workflow, started, { kind: "ready" });
+  assert.equal(reasonOf(refused), "repair_round_limit");
+  assert.equal(refused.stopReason, "repair_round_limit");
+});
+
 test("待应用草案存在时阻止代码阶段与交付", () => {
   const withPending = at("implement", { pendingKind: "change" });
   assert.equal(reasonOf(transition(workflow, withPending, { kind: "implementationAccepted" })), "pending_draft_exists");
