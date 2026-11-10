@@ -861,7 +861,7 @@ REX 执行适配已实现；后续增加 Codex、Claude Code 等客户端适配�
 
 monorepo 子目录统一使用已确认仓库根和相对路径，验证命令可指定包 cwd。子模块可明确选为独立项目；父子仓库跨界修改或 gitlink 提交不自动处理。已有脏文件本身不阻塞，先保存对照并区分归属。占用仅协调 Knit，外部并发和网络盘边界见运行细则。
 
-保留现有 Git hooks，限定路径提交不得混入无关 index；不使用 `--no-verify`。hook 失败保留现场，hook 修改已检查内容时使检查失效。提交后核对实际 commit、index 与工作区；无法在现有 hook 行为下保持范围时报告阻塞。
+Knit 不修改、不删除仓库里的 Git hooks，也不使用 `--no-verify`；Knit 发起的交付类 Git 操作是否执行这些 hooks 由 `delivery.hooks` 决定（§10.2）：缺省 `skip`，以私有空目录作 `core.hooksPath` 隔离，阶段写入的 hook 不会在交付时执行；配置为 `run` 时现有 hooks 照常执行，hook 失败保留现场，hook 修改已检查内容时使检查失效。限定路径提交不得混入无关 index。提交后核对实际 commit、index 与工作区；无法在现有 hook 行为下保持范围时报告阻塞。
 
 ## 15. 交付范围
 

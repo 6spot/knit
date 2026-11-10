@@ -1,0 +1,88 @@
+
+== 场景 1 阶段内 git commit
+PASS  [1] 夹具确实在阶段内产生了提交
+PASS  [1] run 失败，原因 head_moved_during_stage
+PASS  [1] 边界记录 headMoved 与阶段内提交
+PASS  [1] 任务不前进、不并入 scope
+
+== 场景 2 写受保护运行时路径与 ignored 目录
+PASS  [2] 写 .git/hooks/pre-commit → protected_runtime_modified
+PASS  [2] 写 .git/hooks/pre-commit 后任务不前进
+PASS  [2] 写 .knit/.runtime/checks/x.json → protected_runtime_modified
+PASS  [2] 写 .knit/.runtime/checks/x.json 后任务不前进
+PASS  [2] 写 node_modules/ → 正常接收
+PASS  [2] ignoredChanges 有记录
+
+== 场景 3 改动归属：用户并发写入与来源不明
+PASS  [3] 用户写入且 Agent 未列 → 接收成功
+PASS  [3] user.txt 进 externalChanges，不进 scope
+PASS  [3] 产物提交只含 README.md，user.txt 仍未跟踪
+PASS  [3] Agent 列出但非工具写入 → needs_attention unattributed_paths
+PASS  [3] 来源不明时任务不前进、scope 为空
+PASS  [3] include 非来源不明路径 → 拒绝（path_not_unattributed），scope 不变
+PASS  [3] --include 确认后并入 scope，任务前进
+
+== 场景 4 失败 run 残留，下一轮声明继承
+PASS  [4] 第一轮失败（changed_paths_mismatch），文件留在工作区
+PASS  [4] 第二轮声明继承 → 接收成功
+PASS  [4] README.md 记为继承路径，scope 含三个路径
+
+== 场景 5 检查阶段写入约束
+PASS  [5] [read, exec] 检查阶段写文件 → write_without_capability
+PASS  [5] 被拒的检查不产生 pass 凭据，任务停在 check
+PASS  [5] 允许写的检查阶段修复后 pass → 接收为 check_pass
+PASS  [5] 状态视图标注检查者修复
+PASS  [5] independent 完成被 check_self_modified 拒绝
+PASS  [5] 交付同样被 check_self_modified 拒绝
+PASS  [5] 无改动复查 pass 后可完成并交付
+PASS  [5] 提交如实标注 independent 与检查 run（资料提交「验证」行、产物提交尾注）
+
+== 场景 6 空 scope 的 self 任务
+PASS  [6] 空报告的实施 run 被接收，scope 为空，并提示未产生成果
+PASS  [6] close → empty_scope
+PASS  [6] deliver 同一守卫 → empty_scope
+PASS  [6] --no-artifacts --reason 后可完成，交付如实标注无产物提交
+
+== 场景 7 杀 worker 后自动回收锁并 resume
+PASS  [7] worker 被杀后留下已死进程的残留锁
+PASS  [7] 下一条命令（task new）不需手工 unlock 即成功
+PASS  [7] resume 启动了新 run
+PASS  [7] 新 run 真实执行并被接收
+PASS  [7] 残留锁已自动回收且有回收记录
+
+== 场景 8 auto 模式 Rex 未报到回退 local
+PASS  [8] auto 先选中 Rex
+PASS  [8] worker 未报到 → 同一 run 回退 local 并完成接收
+PASS  [8] 保留 Rex 启动失败诊断
+
+== 场景 9 clone 后 rebind 可完成
+PASS  [9] clone 后只有 Git 内资料，没有本机运行态
+PASS  [9] task list 指出绑定缺失
+PASS  [9] rebind 前不能派发阶段
+PASS  [9] task rebind 成功
+PASS  [9] rebind 后可实施、完成并交付
+
+== 场景 10 凭据完整性、调用边界与 hooks
+PASS  [10] 检查凭据带本机签名，密钥在项目外
+PASS  [10] 篡改检查凭据 → 交付以 credential_tampered 拒绝，无提交
+PASS  [10] 篡改后 task close 同样拒绝
+PASS  [10] 篡改完成凭据 → 交付以 credential_tampered 拒绝，无提交
+PASS  [10] 阶段进程带 KNIT_STAGE_RUN_ID
+PASS  [10] worker 环境中调用 deliver → stage_context_forbidden，未产生提交
+PASS  [10] 交付预检列出新增 hooks（skip 模式）
+PASS  [10] 交付成功且植入的 hook 一次也没执行
+
+== 场景 11 运行中编辑输入区与并发 task new
+PASS  [11] run 期间可以 task new
+PASS  [11] 活动 run 中未声明 --run 的 task update → task_busy
+PASS  [11] 用户编辑输入区 → 结果完成、接收判 stale_input（不是 protected_path_modified）
+PASS  [11] 结果与工作区保留
+
+== 场景 12 tools 语义
+PASS  [12] workflow 校验通过
+PASS  [12] tools: [] → 空能力，Pi 启动参数含 --no-tools（并离线、禁用扩展／MCP／技能）
+PASS  [12] tools: all → 全部放开（不传 --tools／--no-tools）
+PASS  [12] 不写 tools → 全部放开（不传 --tools／--no-tools）
+
+合计 61，通过 61，失败 0
+EXIT=0

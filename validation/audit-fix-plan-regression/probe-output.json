@@ -1,0 +1,1558 @@
+{
+  "head": "de6b4c7a985596e71703615a9d01e937a10e2fa3",
+  "node": "v24.21.0",
+  "platform": "linux arm64",
+  "cli": "dist/cli/knit.js",
+  "total": 61,
+  "passed": 61,
+  "failed": 0,
+  "results": [
+    {
+      "scenario": 1,
+      "check": "夹具确实在阶段内产生了提交",
+      "pass": true,
+      "actual": null
+    },
+    {
+      "scenario": 1,
+      "check": "run 失败，原因 head_moved_during_stage",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "reason": "head_moved_during_stage"
+      }
+    },
+    {
+      "scenario": 1,
+      "check": "边界记录 headMoved 与阶段内提交",
+      "pass": true,
+      "actual": {
+        "head": "bb591dd6693c78c5865553db07227215d612a993",
+        "symbolicRef": "refs/heads/main",
+        "headMoved": true,
+        "commits": [
+          "bb591dd6693c78c5865553db07227215d612a993"
+        ],
+        "indexDigest": "cb6497c716485b5e3278018b2e82a50dd36e9f3eb15789476fd65787f6d3a250",
+        "indexChanged": true,
+        "protectedPaths": []
+      }
+    },
+    {
+      "scenario": 1,
+      "check": "任务不前进、不并入 scope",
+      "pass": true,
+      "actual": {
+        "stage": "implement",
+        "scope": []
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "写 .git/hooks/pre-commit → protected_runtime_modified",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "reason": "protected_runtime_modified:.git/hooks/pre-commit"
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "写 .git/hooks/pre-commit 后任务不前进",
+      "pass": true,
+      "actual": {
+        "stage": "implement"
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "写 .knit/.runtime/checks/x.json → protected_runtime_modified",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "reason": "protected_runtime_modified:.knit/.runtime/checks/x.json"
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "写 .knit/.runtime/checks/x.json 后任务不前进",
+      "pass": true,
+      "actual": {
+        "stage": "implement"
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "写 node_modules/ → 正常接收",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-29038bf41a00",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        }
+      }
+    },
+    {
+      "scenario": 2,
+      "check": "ignoredChanges 有记录",
+      "pass": true,
+      "actual": [
+        {
+          "path": "node_modules/",
+          "change": "added"
+        }
+      ]
+    },
+    {
+      "scenario": 3,
+      "check": "用户写入且 Agent 未列 → 接收成功",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-b219794ebde7",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        }
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "user.txt 进 externalChanges，不进 scope",
+      "pass": true,
+      "actual": {
+        "external": [
+          "user.txt"
+        ],
+        "scope": [
+          "README.md"
+        ]
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "产物提交只含 README.md，user.txt 仍未跟踪",
+      "pass": true,
+      "actual": {
+        "closed": {
+          "protocolVersion": 1,
+          "requestId": "task-close-1794333721339-78a5mt",
+          "outcome": "completed",
+          "data": {
+            "taskId": "k-fb6b860f756f",
+            "status": "closed",
+            "outcome": "completed",
+            "stage": "deliver",
+            "pendingWithdrawn": false,
+            "verification": "self",
+            "implementRunId": "run-3643fe8930e3",
+            "checkRunId": null,
+            "forced": false,
+            "unverified": []
+          }
+        },
+        "delivered": {
+          "protocolVersion": 1,
+          "requestId": "deliver-1794333721582",
+          "outcome": "completed",
+          "data": {
+            "operationId": "op-9d1842b02b1a",
+            "taskId": "k-fb6b860f756f",
+            "mode": "deliver",
+            "state": "completed",
+            "reason": null,
+            "branch": "refs/heads/main",
+            "workCommit": "1f033fca468b89849a533f64d8f8b306a09fcafc",
+            "metadataCommit": "5a151eb3317534662731a41d81635f9422a59657",
+            "archiveCommit": "de4d623388b97bd4e76d54205417f5d1285e1e55",
+            "archivePath": ".knit/tasks/archive/2026-11/11-10-external",
+            "defaultBranch": {
+              "ref": null,
+              "source": "unknown",
+              "exists": false
+            },
+            "authorization": {
+              "kind": "explicit_call",
+              "ref": null,
+              "path": null,
+              "section": null,
+              "digest": null,
+              "verified": false
+            },
+            "caller": "cli-unverified",
+            "worktree": null,
+            "needsAttention": false,
+            "messages": {
+              "artifact": {
+                "source": "agent",
+                "subject": "probe k-fb6b860f756f"
+              },
+              "metadata": {
+                "source": "template",
+                "subject": "chore(task): external (k-fb6b860f756f)"
+              },
+              "archive": {
+                "source": "template",
+                "subject": "chore(task): archive 11-10-external (k-fb6b860f756f)"
+              }
+            },
+            "noArtifactCommit": false,
+            "noArtifactReason": null,
+            "noArtifactNotice": null,
+            "hooks": {
+              "mode": "skip",
+              "dir": "/tmp/knit-audit-regress-FD4AN9/s03a/.git/hooks",
+              "baseline": "none",
+              "changes": []
+            }
+          }
+        },
+        "files": [
+          "README.md"
+        ]
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "Agent 列出但非工具写入 → needs_attention unattributed_paths",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "acceptance": {
+          "operationId": "accept-df1f839490f2",
+          "state": "needs_attention",
+          "reason": "unattributed_paths:gen.txt"
+        },
+        "reason": null
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "来源不明时任务不前进、scope 为空",
+      "pass": true,
+      "actual": {
+        "stage": "implement",
+        "scope": []
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "include 非来源不明路径 → 拒绝（path_not_unattributed），scope 不变",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "run-accept",
+        "outcome": "error",
+        "data": {
+          "error": "不是该 run 来源不明的路径: README.md（来源不明：gen.txt）"
+        },
+        "reasonCode": "invalid_request"
+      }
+    },
+    {
+      "scenario": 3,
+      "check": "--include 确认后并入 scope，任务前进",
+      "pass": true,
+      "actual": {
+        "accepted": {
+          "protocolVersion": 1,
+          "requestId": "run-accept",
+          "outcome": "completed",
+          "data": {
+            "runId": "run-4ae4b65b2562",
+            "accepted": true,
+            "duplicate": false,
+            "reason": "implementation_accepted",
+            "operationId": "accept-df1f839490f2",
+            "phase": "deliver",
+            "verdict": null
+          }
+        },
+        "scope": [
+          "README.md",
+          "gen.txt"
+        ],
+        "stage": "deliver"
+      }
+    },
+    {
+      "scenario": 4,
+      "check": "第一轮失败（changed_paths_mismatch），文件留在工作区",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "reason": "changed_paths_mismatch:README.md,src.txt"
+      }
+    },
+    {
+      "scenario": 4,
+      "check": "第二轮声明继承 → 接收成功",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-01ac03533579",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        }
+      }
+    },
+    {
+      "scenario": 4,
+      "check": "README.md 记为继承路径，scope 含三个路径",
+      "pass": true,
+      "actual": {
+        "inherited": [
+          "README.md"
+        ],
+        "scope": [
+          "README.md",
+          "more.txt",
+          "src.txt"
+        ]
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "[read, exec] 检查阶段写文件 → write_without_capability",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "reason": "write_without_capability:README.md"
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "被拒的检查不产生 pass 凭据，任务停在 check",
+      "pass": true,
+      "actual": {
+        "acceptance": {
+          "operationId": "accept-ed77b386e67d",
+          "state": "completed",
+          "reason": "run_failed"
+        },
+        "stage": "check"
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "允许写的检查阶段修复后 pass → 接收为 check_pass",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-cc7d29712b1a",
+          "state": "completed",
+          "reason": "check_pass"
+        }
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "状态视图标注检查者修复",
+      "pass": true,
+      "actual": {
+        "checkerChangedPaths": [
+          "README.md"
+        ],
+        "label": "independent（检查者修复 1 个路径，修复部分为自检）"
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "independent 完成被 check_self_modified 拒绝",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794333738950-svmb23",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: check_self_modified"
+        },
+        "reasonCode": "invalid_request"
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "交付同样被 check_self_modified 拒绝",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "deliver-1794333739204",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: check_self_modified（检查 run-715a768a52f3 由检查者修复 1 个路径；再派一次未改动文件的 pass 检查）"
+        },
+        "reasonCode": "invalid_request"
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "无改动复查 pass 后可完成并交付",
+      "pass": true,
+      "actual": {
+        "recheck": {
+          "operationId": "accept-e3d4d86e6e48",
+          "state": "completed",
+          "reason": "check_pass"
+        },
+        "closed": {
+          "protocolVersion": 1,
+          "requestId": "task-close-1794333741393-tirr7v",
+          "outcome": "completed",
+          "data": {
+            "taskId": "k-ea5cff903fc0",
+            "status": "closed",
+            "outcome": "completed",
+            "stage": "deliver",
+            "pendingWithdrawn": false,
+            "verification": "independent",
+            "implementRunId": "run-4398e595934d",
+            "checkRunId": "run-321b74f5a925",
+            "forced": false,
+            "unverified": []
+          }
+        },
+        "delivered": {
+          "protocolVersion": 1,
+          "requestId": "deliver-1794333741654",
+          "outcome": "completed",
+          "data": {
+            "operationId": "op-87c3d514acd6",
+            "taskId": "k-ea5cff903fc0",
+            "mode": "deliver",
+            "state": "completed",
+            "reason": null,
+            "branch": "refs/heads/main",
+            "workCommit": "3f2cedc11b021ae95dad76dafcba034ef4fd9411",
+            "metadataCommit": "7670ec626e220092b2c9393c37fe47e27490b47c",
+            "archiveCommit": "df60697711c25a196fbaefb768c174b72740531c",
+            "archivePath": ".knit/tasks/archive/2026-11/11-10-writable-check",
+            "defaultBranch": {
+              "ref": null,
+              "source": "unknown",
+              "exists": false
+            },
+            "authorization": {
+              "kind": "explicit_call",
+              "ref": null,
+              "path": null,
+              "section": null,
+              "digest": null,
+              "verified": false
+            },
+            "caller": "cli-unverified",
+            "worktree": null,
+            "needsAttention": false,
+            "messages": {
+              "artifact": {
+                "source": "agent",
+                "subject": "probe k-ea5cff903fc0"
+              },
+              "metadata": {
+                "source": "template",
+                "subject": "chore(task): writable-check (k-ea5cff903fc0)"
+              },
+              "archive": {
+                "source": "template",
+                "subject": "chore(task): archive 11-10-writable-check (k-ea5cff903fc0)"
+              }
+            },
+            "noArtifactCommit": false,
+            "noArtifactReason": null,
+            "noArtifactNotice": null,
+            "hooks": {
+              "mode": "skip",
+              "dir": "/tmp/knit-audit-regress-FD4AN9/s05b/.git/hooks",
+              "baseline": "none",
+              "changes": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "scenario": 5,
+      "check": "提交如实标注 independent 与检查 run（资料提交「验证」行、产物提交尾注）",
+      "pass": true,
+      "actual": {
+        "body": "chore(task): writable-check (k-ea5cff903fc0)\n\n结果：completed\n验证：independent — 检查 run-321b74f5a925 通过\n产物提交：3f2cedc1\n资料：任务记录、完成凭据\n\nKnit-Task: k-ea5cff903fc0\nKnit-Operation: op-87c3d514acd6\nKnit-Stage: metadata\nKnit-Verification: independent",
+        "trailer": "independent"
+      }
+    },
+    {
+      "scenario": 6,
+      "check": "空报告的实施 run 被接收，scope 为空，并提示未产生成果",
+      "pass": true,
+      "actual": {
+        "acceptance": {
+          "operationId": "accept-8a463c333500",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        },
+        "notice": "本轮未产生成果：报告未列出改动路径，scope 未增加"
+      }
+    },
+    {
+      "scenario": 6,
+      "check": "close → empty_scope",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794333744865-ok6v7h",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: empty_scope（没有已登记的成果路径；确实没有产物时用 --no-artifacts --reason <原因>，产物未归属时先 run accept --include 或 task implement 登记）"
+        },
+        "reasonCode": "invalid_request"
+      }
+    },
+    {
+      "scenario": 6,
+      "check": "deliver 同一守卫 → empty_scope",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "deliver-1794333745089",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: empty_scope"
+        },
+        "reasonCode": "invalid_request"
+      }
+    },
+    {
+      "scenario": 6,
+      "check": "--no-artifacts --reason 后可完成，交付如实标注无产物提交",
+      "pass": true,
+      "actual": {
+        "closed": {
+          "protocolVersion": 1,
+          "requestId": "task-close-1794333745384-g2hjkr",
+          "outcome": "completed",
+          "data": {
+            "taskId": "k-4bc62d370639",
+            "status": "closed",
+            "outcome": "completed",
+            "stage": "deliver",
+            "pendingWithdrawn": false,
+            "verification": "self",
+            "implementRunId": "run-3b5a3f4ed4a4",
+            "checkRunId": null,
+            "forced": false,
+            "artifacts": "none",
+            "unverified": []
+          }
+        },
+        "delivered": {
+          "protocolVersion": 1,
+          "requestId": "deliver-1794333745621",
+          "outcome": "completed",
+          "data": {
+            "operationId": "op-efebddb3ff3b",
+            "taskId": "k-4bc62d370639",
+            "mode": "deliver",
+            "state": "completed",
+            "reason": null,
+            "branch": "refs/heads/main",
+            "workCommit": null,
+            "metadataCommit": "ce0eeffbf5349dd30e0647534b263c1d3fdeb98b",
+            "archiveCommit": "1ae209fcfbda0d491dc5d3ad8b23591ecc6ed6d0",
+            "archivePath": ".knit/tasks/archive/2026-11/11-10-empty",
+            "defaultBranch": {
+              "ref": null,
+              "source": "unknown",
+              "exists": false
+            },
+            "authorization": {
+              "kind": "explicit_call",
+              "ref": null,
+              "path": null,
+              "section": null,
+              "digest": null,
+              "verified": false
+            },
+            "caller": "cli-unverified",
+            "worktree": null,
+            "needsAttention": false,
+            "messages": {
+              "artifact": {
+                "source": "agent",
+                "subject": "probe k-4bc62d370639"
+              },
+              "metadata": {
+                "source": "template",
+                "subject": "chore(task): empty (k-4bc62d370639)"
+              },
+              "archive": {
+                "source": "template",
+                "subject": "chore(task): archive 11-10-empty (k-4bc62d370639)"
+              }
+            },
+            "noArtifactCommit": true,
+            "noArtifactReason": "只核对现状，无需改动",
+            "noArtifactNotice": "本次交付没有产物提交（完成时声明无产物：只核对现状，无需改动）",
+            "hooks": {
+              "mode": "skip",
+              "dir": "/tmp/knit-audit-regress-FD4AN9/s06/.git/hooks",
+              "baseline": "none",
+              "changes": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "scenario": 7,
+      "check": "worker 被杀后留下已死进程的残留锁",
+      "pass": true,
+      "actual": [
+        {
+          "scope": "project",
+          "verdict": "not_alive"
+        },
+        {
+          "scope": "session",
+          "verdict": "not_alive"
+        }
+      ]
+    },
+    {
+      "scenario": 7,
+      "check": "下一条命令（task new）不需手工 unlock 即成功",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794333748266-q0nd20",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-7b1b6fc69341",
+          "root": "/tmp/knit-audit-regress-FD4AN9/s07",
+          "relativePath": "tasks/11-10-after-kill/task.md",
+          "title": "after-kill",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      }
+    },
+    {
+      "scenario": 7,
+      "check": "resume 启动了新 run",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "resume-1794333748542",
+        "outcome": "completed",
+        "data": {
+          "oldRunId": "run-b51f54aee22e",
+          "accepted": true,
+          "resumed": true,
+          "request": {
+            "schemaVersion": 1,
+            "protocolVersion": 1,
+            "runId": "run-e8a2a5380d71",
+            "taskId": "k-dd2bb00900b8",
+            "phase": "implement",
+            "workflowMode": "config",
+            "worktree": {
+              "policy": "off",
+              "source": "resume"
+            },
+            "stageDefinition": {
+              "id": "implement",
+              "name": "实现",
+              "description": "按 task.md 完成产出并运行范围验证",
+              "prompt": ".knit/agents/implement.md",
+              "tools": [
+                "read",
+                "write",
+                "exec"
+              ],
+              "report": {
+                "changedPaths": "paths",
+                "unverified": "string[]"
+              },
+              "onVerdict": {},
+              "maxVisits": 2,
+              "decision": false
+            },
+            "presentation": "local",
+            "presentationSource": "explicit",
+            "presentationFallbackReason": null,
+            "purpose": "stage",
+            "initiator": {
+              "client": "cli",
+              "knitSessionId": null,
+              "nativeSessionId": null,
+              "cwd": "/tmp/knit-audit-regress-FD4AN9/s07"
+            },
+            "createdAt": "2026-11-10T18:02:28.668Z",
+            "expected": {
+              "branch": "refs/heads/main",
+              "executionDir": "/tmp/knit-audit-regress-FD4AN9/s07",
+              "inputsDigest": "ccd10e32745adaef1785aead95125b6564725a4d3e7ff7927b8ad7a95badfd3a",
+              "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+              "effectiveInputsDigest": "ad4dbf488dca8dff74d198c205868c2bfa8c5470be962368516187014085976a",
+              "planId": "ctx-77c2fab29f3e",
+              "scopeDigest": null,
+              "authorizedStandardOutputs": []
+            },
+            "model": {
+              "runtime": "pi",
+              "provider": "fake",
+              "model": "fake-model"
+            },
+            "toolPolicy": {
+              "mode": "write",
+              "allow": [
+                "read",
+                "grep",
+                "find",
+                "ls",
+                "write",
+                "edit",
+                "bash"
+              ],
+              "deny": [],
+              "capabilities": [
+                "read",
+                "write",
+                "exec"
+              ]
+            },
+            "recovery": {
+              "nativeSessionId": "f6f73cb2-e0cf-4ffb-aa14-547935f2fde4",
+              "resume": "prefer"
+            },
+            "acceptanceOperationId": "accept-de95b26d8c64",
+            "diagnostics": {
+              "enabled": false
+            }
+          },
+          "launch": {
+            "schemaVersion": 1,
+            "runId": "run-e8a2a5380d71",
+            "state": "confirmed",
+            "attempts": 1,
+            "requestedAt": "2026-11-10T18:02:28.668Z",
+            "updatedAt": "2026-11-10T18:02:28.993Z",
+            "handle": {
+              "pid": 1917998,
+              "bootId": "adfd9750-2804-4ae6-baf4-13201b47355b",
+              "procStartTicks": "30586813",
+              "hostname": "instance-20260508-1651",
+              "recordedAt": "2026-11-10T18:02:28.688Z"
+            },
+            "instance": {
+              "workerId": "w-68e2c25c6607",
+              "pid": 1917998,
+              "bootId": "adfd9750-2804-4ae6-baf4-13201b47355b",
+              "procStartTicks": "30586813",
+              "claimedAt": "2026-11-10T18:02:28.839Z"
+            },
+            "lastError": null
+          },
+          "reason": "resumed",
+          "started": true,
+          "confirmed": true,
+          "state": {
+            "schemaVersion": 1,
+            "runId": "run-e8a2a5380d71",
+            "taskId": "k-dd2bb00900b8",
+            "phase": "implement",
+            "workflowMode": "config",
+            "state": "running",
+            "worker": {
+              "workerId": "w-68e2c25c6607",
+              "pid": 1917998,
+              "bootId": "adfd9750-2804-4ae6-baf4-13201b47355b",
+              "procStartTicks": "30586813",
+              "hostname": "instance-20260508-1651"
+            },
+            "claimedAt": "2026-11-10T18:02:28.839Z",
+            "updatedAt": "2026-11-10T18:02:28.979Z",
+            "prepared": true,
+            "preparedAt": "2026-11-10T18:02:28.976Z",
+            "snapshot": {
+              "state": "ready",
+              "digest": "073e65eb77f25ac18552824b51201f486f4e48b828705702d57339713efeda48",
+              "entries": 12,
+              "reason": null
+            },
+            "reason": null
+          },
+          "status": {
+            "runId": "run-e8a2a5380d71",
+            "taskId": "k-dd2bb00900b8",
+            "phase": "implement",
+            "workflowMode": "config",
+            "presentation": "local",
+            "presentationSource": "explicit",
+            "presentationFallbackReason": null,
+            "branch": "refs/heads/main",
+            "initiator": {
+              "client": "cli",
+              "knitSessionId": null,
+              "nativeSessionId": null,
+              "cwd": "/tmp/knit-audit-regress-FD4AN9/s07"
+            },
+            "createdAt": "2026-11-10T18:02:28.668Z",
+            "updatedAt": "2026-11-10T18:02:29.303Z",
+            "launchState": "confirmed",
+            "attempts": 1,
+            "state": "completed",
+            "prepared": true,
+            "snapshot": {
+              "state": "ready",
+              "digest": "073e65eb77f25ac18552824b51201f486f4e48b828705702d57339713efeda48",
+              "entries": 12,
+              "reason": null
+            },
+            "inputsDigest": "ccd10e32745adaef1785aead95125b6564725a4d3e7ff7927b8ad7a95badfd3a",
+            "effectiveInputsDigest": "ad4dbf488dca8dff74d198c205868c2bfa8c5470be962368516187014085976a",
+            "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "reason": null,
+            "handle": {
+              "pid": 1917998,
+              "bootId": "adfd9750-2804-4ae6-baf4-13201b47355b",
+              "procStartTicks": "30586813",
+              "hostname": "instance-20260508-1651",
+              "recordedAt": "2026-11-10T18:02:28.688Z"
+            },
+            "workerVerdict": "not_alive",
+            "events": 16,
+            "lastEventAt": "2026-11-10T18:02:29.303Z",
+            "lastEvent": "acceptance",
+            "cancelRequestedAt": null,
+            "cancelReason": null,
+            "stageProcess": {
+              "schemaVersion": 1,
+              "runId": "run-e8a2a5380d71",
+              "taskId": "k-dd2bb00900b8",
+              "phase": "implement",
+              "state": "exited",
+              "workerPid": 1917998,
+              "piPid": 1918032,
+              "bootId": "adfd9750-2804-4ae6-baf4-13201b47355b",
+              "procStartTicks": null,
+              "hostname": "instance-20260508-1651",
+              "nativeSessionId": "f6f73cb2-e0cf-4ffb-aa14-547935f2fde4",
+              "knitSessionId": "s-01a4f5be6ba1",
+              "startedAt": "2026-11-10T18:02:28.994Z",
+              "recordedAt": "2026-11-10T18:02:29.230Z"
+            },
+            "stageProcessVerdict": "not_alive",
+            "result": {
+              "schemaVersion": 1,
+              "runId": "run-e8a2a5380d71",
+              "taskId": "k-dd2bb00900b8",
+              "phase": "implement",
+              "state": "completed",
+              "report": {
+                "summary": "恢复完成",
+                "changedPaths": [
+                  "README.md"
+                ]
+              },
+              "reportSummary": "恢复完成",
+              "nativeEntries": {
+                "startEntryId": "6c7ff2dd-aebf-4000-a221-24a9653242cc",
+                "leafEntryId": "739b83d7-d461-4c94-a8bc-dbdc14d9a4be"
+              },
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 20
+              },
+              "session": {
+                "knitSessionId": "s-01a4f5be6ba1",
+                "nativeSessionId": "f6f73cb2-e0cf-4ffb-aa14-547935f2fde4",
+                "sessionFile": "/tmp/knit-audit-regress-FD4AN9/s07/.knit/.runtime/pi-sessions/2026-11-10T18-02-27-411Z_f6f73cb2-e0cf-4ffb-aa14-547935f2fde4.jsonl",
+                "role": "implement",
+                "status": "available",
+                "resumeAction": "resume",
+                "resumeReason": null,
+                "nativeReadable": true
+              },
+              "actualChangedPaths": [
+                "README.md"
+              ],
+              "actualEntries": [
+                {
+                  "path": "README.md",
+                  "digest": "678eb1f48a474f8c6fa4dae053861015df7f401efa95a2bcba5ac03a56af1529",
+                  "absent": false,
+                  "factsKind": "file",
+                  "mode": "100644"
+                }
+              ],
+              "acceptanceOperationId": "accept-de95b26d8c64",
+              "recordedAt": "2026-11-10T18:02:29.203Z",
+              "failureReason": null,
+              "branch": "refs/heads/main",
+              "workflowMode": "config",
+              "baseline": {
+                "head": "1d14755db6446b6af5f8dc7756a60900134ec930",
+                "symbolicRef": "refs/heads/main",
+                "indexDigest": "687da61515a07fb67f1a0c59befbf16ef1a75dfbc6d0881ce641037cbc7cff56",
+                "worktreeDigest": "2b4bbf4141356ddd7423277330e86a0f20bd31c19f298017879b762523131480",
+                "capturedAt": "2026-11-10T18:02:29.021Z"
+              },
+              "boundary": {
+                "head": "1d14755db6446b6af5f8dc7756a60900134ec930",
+                "symbolicRef": "refs/heads/main",
+                "headMoved": false,
+                "commits": [],
+                "indexDigest": "687da61515a07fb67f1a0c59befbf16ef1a75dfbc6d0881ce641037cbc7cff56",
+                "indexChanged": false,
+                "protectedPaths": []
+              },
+              "ignoredChanges": [],
+              "attribution": {
+                "source": "native_session",
+                "toolPaths": [
+                  "README.md"
+                ],
+                "claimedPaths": [
+                  "README.md"
+                ],
+                "attributedPaths": [
+                  "README.md"
+                ],
+                "unattributedPaths": [],
+                "inheritedPaths": []
+              },
+              "externalChanges": [],
+              "reportRetries": 0
+            },
+            "acceptance": {
+              "operationId": "accept-de95b26d8c64",
+              "state": "completed",
+              "reason": "implementation_accepted"
+            }
+          }
+        }
+      }
+    },
+    {
+      "scenario": 7,
+      "check": "新 run 真实执行并被接收",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-de95b26d8c64",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        },
+        "stage": "deliver"
+      }
+    },
+    {
+      "scenario": 7,
+      "check": "残留锁已自动回收且有回收记录",
+      "pass": true,
+      "actual": {
+        "entries": 0,
+        "reclaimed": [
+          "session",
+          "project"
+        ]
+      }
+    },
+    {
+      "scenario": 8,
+      "check": "auto 先选中 Rex",
+      "pass": true,
+      "actual": {
+        "presentation": "rex",
+        "source": "auto"
+      }
+    },
+    {
+      "scenario": 8,
+      "check": "worker 未报到 → 同一 run 回退 local 并完成接收",
+      "pass": true,
+      "actual": {
+        "state": "completed",
+        "presentation": "local",
+        "fallback": "rex_worker_not_started",
+        "reason": null
+      }
+    },
+    {
+      "scenario": 8,
+      "check": "保留 Rex 启动失败诊断",
+      "pass": true,
+      "actual": {
+        "schemaVersion": 1,
+        "runId": "run-151bfb976e46",
+        "taskId": "k-ac840c01cbcd",
+        "phase": "implement",
+        "kind": "rex_start_failed",
+        "failure": "agent_exited",
+        "detail": "agent_exited: Rex 块内进程在 worker 报到前退出\n浮层：block=block-1 layer=layer-1 label=knit run-151bfb976e46\n块进程：已退出（last_exit={\"code\":1}）\nworker 状态：从未报到",
+        "stderrTail": "pi: fatal: fake rex block failed before worker report",
+        "truncated": false,
+        "recordedAt": "2026-11-10T18:02:37.324Z"
+      }
+    },
+    {
+      "scenario": 9,
+      "check": "clone 后只有 Git 内资料，没有本机运行态",
+      "pass": true,
+      "actual": null
+    },
+    {
+      "scenario": 9,
+      "check": "task list 指出绑定缺失",
+      "pass": true,
+      "actual": [
+        {
+          "kind": "binding_missing",
+          "taskId": "k-374db441de08",
+          "title": "rebind",
+          "stage": "implement",
+          "status": "open",
+          "relativePath": "tasks/11-10-rebind"
+        }
+      ]
+    },
+    {
+      "scenario": 9,
+      "check": "rebind 前不能派发阶段",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "run-implement",
+        "outcome": "error",
+        "data": {
+          "error": "任务缺少绑定: k-374db441de08"
+        },
+        "reasonCode": "needs_review"
+      }
+    },
+    {
+      "scenario": 9,
+      "check": "task rebind 成功",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-rebind-1794333759459-p5fs74",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-374db441de08",
+          "rebound": true,
+          "branch": "refs/heads/main",
+          "originalStage": "implement",
+          "stage": "implement",
+          "originalStatus": "open",
+          "status": "open",
+          "reason": "verification=self 无独立检查：回到首个工作阶段 implement，用实施记录重建完成资格",
+          "confirmedInputsDigest": "561f4a7209fd43a083fb778842a50e722739aa39927930c6d1d6b59898606693"
+        }
+      }
+    },
+    {
+      "scenario": 9,
+      "check": "rebind 后可实施、完成并交付",
+      "pass": true,
+      "actual": {
+        "acceptance": {
+          "operationId": "accept-a56848681499",
+          "state": "completed",
+          "reason": "implementation_accepted"
+        },
+        "reason": null,
+        "closed": {
+          "protocolVersion": 1,
+          "requestId": "task-close-1794333761636-4xw69c",
+          "outcome": "completed",
+          "data": {
+            "taskId": "k-374db441de08",
+            "status": "closed",
+            "outcome": "completed",
+            "stage": "deliver",
+            "pendingWithdrawn": false,
+            "verification": "self",
+            "implementRunId": "run-c011b82e9f65",
+            "checkRunId": null,
+            "forced": false,
+            "unverified": []
+          }
+        },
+        "delivered": {
+          "protocolVersion": 1,
+          "requestId": "deliver-1794333761882",
+          "outcome": "completed",
+          "data": {
+            "operationId": "op-cdca1f598aba",
+            "taskId": "k-374db441de08",
+            "mode": "deliver",
+            "state": "completed",
+            "reason": null,
+            "branch": "refs/heads/main",
+            "workCommit": "fa7b08cce3e9192c57179c0dffb381eb8155dc19",
+            "metadataCommit": "d7ec3e8321c6c7b5769270abc26d6bffc9901e47",
+            "archiveCommit": "6fbab0b471c8bd255ef77a8fa18bc6cf378770ef",
+            "archivePath": ".knit/tasks/archive/2026-11/11-10-rebind",
+            "defaultBranch": {
+              "ref": "refs/heads/main",
+              "source": "origin_head",
+              "exists": true
+            },
+            "authorization": {
+              "kind": "explicit_call",
+              "ref": null,
+              "path": null,
+              "section": null,
+              "digest": null,
+              "verified": false
+            },
+            "caller": "cli-unverified",
+            "worktree": null,
+            "needsAttention": false,
+            "messages": {
+              "artifact": {
+                "source": "agent",
+                "subject": "probe k-374db441de08"
+              },
+              "metadata": {
+                "source": "template",
+                "subject": "chore(task): rebind (k-374db441de08)"
+              },
+              "archive": {
+                "source": "template",
+                "subject": "chore(task): archive 11-10-rebind (k-374db441de08)"
+              }
+            },
+            "noArtifactCommit": false,
+            "noArtifactReason": null,
+            "noArtifactNotice": null,
+            "hooks": {
+              "mode": "skip",
+              "dir": "/tmp/knit-audit-regress-FD4AN9/s09-clone/.git/hooks",
+              "baseline": "none",
+              "changes": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "检查凭据带本机签名，密钥在项目外",
+      "pass": true,
+      "actual": {
+        "acceptance": {
+          "operationId": "accept-89b206f0a896",
+          "state": "completed",
+          "reason": "check_pass"
+        },
+        "exists": true
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "篡改检查凭据 → 交付以 credential_tampered 拒绝，无提交",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "deliver-1794333766973",
+        "outcome": "error",
+        "data": {
+          "error": "credential_tampered: check.json 完整性校验失败（内容被改动，或本机密钥缺失／已更换），不作有效凭据：/tmp/knit-audit-regress-FD4AN9/s10a/.knit/.runtime/checks/run-c82c3ba31e57.json"
+        },
+        "reasonCode": "needs_review"
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "篡改后 task close 同样拒绝",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794333767280-838boj",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: credential_tampered"
+        },
+        "reasonCode": "needs_review"
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "篡改完成凭据 → 交付以 credential_tampered 拒绝，无提交",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "deliver-1794333770388",
+        "outcome": "error",
+        "data": {
+          "error": "完成凭据不可用: credential_tampered"
+        },
+        "reasonCode": "needs_review"
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "阶段进程带 KNIT_STAGE_RUN_ID",
+      "pass": true,
+      "actual": "run-0482046b006e"
+    },
+    {
+      "scenario": 10,
+      "check": "worker 环境中调用 deliver → stage_context_forbidden，未产生提交",
+      "pass": true,
+      "actual": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"deliver-1794333772147\",\n  \"outcome\": \"error\",\n  \"data\": {\n    \"error\": \"stage_context_forbidden: 阶段运行（run-0482046b006e）内不能执行 deliver；收尾由主会话在阶段结束后处理\"\n  },\n  \"reasonCode\": \"needs_review\"\n}\n"
+    },
+    {
+      "scenario": 10,
+      "check": "交付预检列出新增 hooks（skip 模式）",
+      "pass": true,
+      "actual": {
+        "mode": "skip",
+        "dir": "/tmp/knit-audit-regress-FD4AN9/s10c/.git/hooks",
+        "baseline": "none",
+        "changes": [
+          {
+            "name": "post-index-change",
+            "change": "added"
+          },
+          {
+            "name": "pre-commit",
+            "change": "added"
+          },
+          {
+            "name": "reference-transaction",
+            "change": "added"
+          }
+        ]
+      }
+    },
+    {
+      "scenario": 10,
+      "check": "交付成功且植入的 hook 一次也没执行",
+      "pass": true,
+      "actual": {
+        "delivered": {
+          "protocolVersion": 1,
+          "requestId": "deliver-1794333776433",
+          "outcome": "completed",
+          "data": {
+            "operationId": "op-0e31e6b63c69",
+            "taskId": "k-be3abfe89df6",
+            "mode": "deliver",
+            "state": "completed",
+            "reason": null,
+            "branch": "refs/heads/main",
+            "workCommit": "4f63d125d34d391aa563eae401310482ed0bc298",
+            "metadataCommit": "f7a1d6b0150b1df07699ea2053c1ae24bde0e7b7",
+            "archiveCommit": "653f5fd75ff36f8c71adad26988e9263cd8c3d99",
+            "archivePath": ".knit/tasks/archive/2026-11/11-10-hook",
+            "defaultBranch": {
+              "ref": null,
+              "source": "unknown",
+              "exists": false
+            },
+            "authorization": {
+              "kind": "explicit_call",
+              "ref": null,
+              "path": null,
+              "section": null,
+              "digest": null,
+              "verified": false
+            },
+            "caller": "cli-unverified",
+            "worktree": null,
+            "needsAttention": false,
+            "messages": {
+              "artifact": {
+                "source": "agent",
+                "subject": "probe k-be3abfe89df6"
+              },
+              "metadata": {
+                "source": "template",
+                "subject": "chore(task): hook (k-be3abfe89df6)"
+              },
+              "archive": {
+                "source": "template",
+                "subject": "chore(task): archive 11-10-hook (k-be3abfe89df6)"
+              }
+            },
+            "noArtifactCommit": false,
+            "noArtifactReason": null,
+            "noArtifactNotice": null,
+            "hooks": {
+              "mode": "skip",
+              "dir": "/tmp/knit-audit-regress-FD4AN9/s10c/.git/hooks",
+              "baseline": "none",
+              "changes": [
+                {
+                  "name": "post-index-change",
+                  "change": "added"
+                },
+                {
+                  "name": "pre-commit",
+                  "change": "added"
+                },
+                {
+                  "name": "reference-transaction",
+                  "change": "added"
+                }
+              ]
+            }
+          }
+        },
+        "marker": null
+      }
+    },
+    {
+      "scenario": 11,
+      "check": "run 期间可以 task new",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794333778752-11snj3",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-b834a5c8c3b0",
+          "root": "/tmp/knit-audit-regress-FD4AN9/s11",
+          "relativePath": "tasks/11-10-during-run/task.md",
+          "title": "during-run",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      }
+    },
+    {
+      "scenario": 11,
+      "check": "活动 run 中未声明 --run 的 task update → task_busy",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794333779002-ai0nwz",
+        "outcome": "blocked",
+        "data": {
+          "error": "task_busy: run run-706354ec02b2（未声明 --run；确认要在运行中改输入时加 --run run-706354ec02b2，收尾将判 stale_input；只存草案用 --pending）"
+        },
+        "reasonCode": "task_busy"
+      }
+    },
+    {
+      "scenario": 11,
+      "check": "用户编辑输入区 → 结果完成、接收判 stale_input（不是 protected_path_modified）",
+      "pass": true,
+      "actual": {
+        "state": "failed",
+        "result": "completed",
+        "reason": null,
+        "acceptance": {
+          "operationId": "accept-f98561bcf563",
+          "state": "needs_attention",
+          "reason": "stale_input"
+        }
+      }
+    },
+    {
+      "scenario": 11,
+      "check": "结果与工作区保留",
+      "pass": true,
+      "actual": null
+    },
+    {
+      "scenario": 12,
+      "check": "workflow 校验通过",
+      "pass": true,
+      "actual": {
+        "protocolVersion": 1,
+        "requestId": "workflow-validate",
+        "outcome": "completed",
+        "data": {
+          "path": ".knit/workflow.yaml",
+          "exists": true,
+          "ok": true,
+          "mode": "config",
+          "workflow": {
+            "version": 1,
+            "anchors": [
+              "start",
+              "deliver"
+            ],
+            "stages": [
+              {
+                "id": "build",
+                "name": "build",
+                "description": null,
+                "prompt": null,
+                "tools": [],
+                "report": {},
+                "onVerdict": {},
+                "maxVisits": 2
+              },
+              {
+                "id": "verify",
+                "name": "verify",
+                "description": null,
+                "prompt": null,
+                "tools": null,
+                "report": {},
+                "onVerdict": {},
+                "maxVisits": 2
+              },
+              {
+                "id": "polish",
+                "name": "polish",
+                "description": null,
+                "prompt": null,
+                "tools": null,
+                "report": {},
+                "onVerdict": {},
+                "maxVisits": 2
+              }
+            ],
+            "defaultMaxVisits": 2
+          },
+          "validation": {
+            "ok": true,
+            "issues": [],
+            "reason": null
+          },
+          "summary": {
+            "chain": "准备 → build → verify → polish → 收尾",
+            "stages": [
+              {
+                "id": "build",
+                "name": "build",
+                "next": "verify"
+              },
+              {
+                "id": "verify",
+                "name": "verify",
+                "next": "polish"
+              },
+              {
+                "id": "polish",
+                "name": "polish",
+                "next": "收尾"
+              }
+            ],
+            "fallbackReason": null
+          },
+          "issues": [],
+          "reason": null
+        }
+      }
+    },
+    {
+      "scenario": 12,
+      "check": "tools: [] → 空能力，Pi 启动参数含 --no-tools（并离线、禁用扩展／MCP／技能）",
+      "pass": true,
+      "actual": {
+        "tools": [],
+        "capabilities": [],
+        "argv": [
+          "--mode",
+          "rpc",
+          "--no-context-files",
+          "--no-prompt-templates",
+          "--no-themes",
+          "--no-approve",
+          "--offline",
+          "--no-mcp",
+          "--no-skills",
+          "--no-extensions",
+          "--session-dir",
+          "/tmp/knit-audit-regress-FD4AN9/s12/.knit/.runtime/pi-sessions",
+          "--no-tools",
+          "--provider",
+          "fake",
+          "--model",
+          "fake-model",
+          "--append-system-prompt",
+          "流程：准备 → build → verify → polish → 收尾 ｜ 当前：build\n本步目标：执行 build\n完成条件：完成后 → verify\n\n你是 Knit 的独立阶段执行器，不是主 Agent。\n\n本次阶段：build（build）。\n\n只执行本阶段；不要修改 .knit/ 下规范、配置、流程与提示词（改动判 protected_path_modified），不要 git commit／push／rebase，不要委派其他 Agent。\n\n任务资料（.knit/tasks/**）优先经 knit_task／knit_material 或 knit task record／knit task material save 写入；直接编辑不判越界、不计入 changedPaths，但无法归因；输入区变化收尾判 stale_input，结果不计为当前规格的成果。\n\n阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。\n\n改动来源由核心按原生会话里的 write／edit 调用归属：工具写过的文件必须列进 changedPaths；bash 等方式产出的成果照实列出，记为来源不明、交主会话确认；用户同时写的文件与之前轮次的成果不要列出，未列出且非工具写入的记为外部改动、不并入成果；要继续失败 run 留下的改动时把这些路径列出即声明继承。\n\n必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。\n\n任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。\n\n## .knit/agents/runtimes/pi.md\n\n# Pi runtime 补充\n\n本项目的阶段会话使用本机 Pi CLI（stdin-stdout RPC）：\n\n- 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或 `all` = 全部放开，`[]` = 全部禁用（`--no-tools`），非空列表 = 白名单；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。\n- 用 read／write／edit／bash 读取实际任务资料、代码和验证入口；不得只凭描述猜测文件内容或测试结果。\n- 任务资料（`.knit/tasks/**`）不计入成果也不判越界，优先经接口写入：阶段声明 `task` 能力时用 `knit_task`／`knit_material`，默认能力下用 bash 调 `knit task record`／`knit task material save`；直接编辑无法归因。输入区变化收尾判 `stale_input`；`.knit/` 下规范、配置、流程与提示词是硬保护路径，需要变更时记录问题并交回主会话。\n- 阶段内禁止 Git 提交：核心冻结阶段前 HEAD，收尾时 HEAD 移动即 `head_moved_during_stage` 失败；`.git/hooks`、`.git/config`、`.git/info` 与 `.knit/.runtime` 受管资料有变化即 `protected_runtime_modified` 失败；ignored 目录变化只写进结果 `ignoredChanges`。\n- 模型选择按项目配置 `phases.<stage>.model`（配置键名沿用 phases，值为阶段 id）；未配置时用启动时主 Agent 当前模型。\n- 原生会话记录由 Pi CLI 保存在 `.knit/.runtime/native-sessions/pi/`，跨 run 复用；恢复优先加载旧记录。\n- 取消经受控 CLI 的 clear_queue/abort，按稳定终态核实。\n- 停止条件：需求不明、规范冲突、需要用户取舍、发现保护路径或未授权副作用时停止写入并如实报告；检查阶段用 blocked／changes_requested 交回，其他阶段在报告中说明阻塞；blocked 由核心接收，不自行推进阶段。\n- 报告按阶段字段输出（implement：summary／changedPaths／unverified；check：summary／verdict／coverage／changedPaths／selfVerified／findings／unverified）；`changedPaths` 列出本 run 实际改动（`write`／`edit` 写过的必须列出，bash 产出照实列出、由主会话确认来源，声明继承的失败残留一并列出），不列外部改动与之前轮次的成果；未执行的验证写入 `unverified`。\n\n无正式任务时不启动 Knit worker；需要委派时使用 Pi 宿主提供的通用子 Agent／只读工具。宿主不提供或不可用时由主会话直接执行，不暗建 Knit 任务。\n\n\n## .knit/standards/index.md\n\n# 规范索引\n\n按路径、简述与适用范围列出本项目规范。Knit 不猜测通用规则；已有规范正文保留原权威位置，此处只建索引引用。\n\n<!-- 示例：\n- [代码风格](./code-style.md) —— 命名、格式与注释约定；适用于 src/ 下全部代码\n-->\n\n待补充：随真实讨论、实施与检查从项目候选 `.knit/standards/candidates.md` 或直接采纳结果持续提炼（见 Knit 规范演进流程）。\n",
+          "--session-id",
+          "ba0e9ea9-c508-4e73-aa38-fadbbf3fd303",
+          "--name",
+          "Knit worker session"
+        ],
+        "state": "completed",
+        "started": 0
+      }
+    },
+    {
+      "scenario": 12,
+      "check": "tools: all → 全部放开（不传 --tools／--no-tools）",
+      "pass": true,
+      "actual": {
+        "tools": null,
+        "capabilities": null,
+        "argv": [
+          "--mode",
+          "rpc",
+          "--no-context-files",
+          "--no-prompt-templates",
+          "--no-themes",
+          "--no-approve",
+          "--session-dir",
+          "/tmp/knit-audit-regress-FD4AN9/s12/.knit/.runtime/pi-sessions",
+          "--provider",
+          "fake",
+          "--model",
+          "fake-model",
+          "--append-system-prompt",
+          "流程：准备 → build → verify → polish → 收尾 ｜ 当前：verify\n本步目标：执行 verify\n完成条件：完成后 → polish\n\n你是 Knit 的独立阶段执行器，不是主 Agent。\n\n本次阶段：verify（verify）。\n\n只执行本阶段；不要修改 .knit/ 下规范、配置、流程与提示词（改动判 protected_path_modified），不要 git commit／push／rebase，不要委派其他 Agent。\n\n任务资料（.knit/tasks/**）优先经 knit_task／knit_material 或 knit task record／knit task material save 写入；直接编辑不判越界、不计入 changedPaths，但无法归因；输入区变化收尾判 stale_input，结果不计为当前规格的成果。\n\n阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。\n\n改动来源由核心按原生会话里的 write／edit 调用归属：工具写过的文件必须列进 changedPaths；bash 等方式产出的成果照实列出，记为来源不明、交主会话确认；用户同时写的文件与之前轮次的成果不要列出，未列出且非工具写入的记为外部改动、不并入成果；要继续失败 run 留下的改动时把这些路径列出即声明继承。\n\n必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。\n\n任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。\n\n## .knit/agents/runtimes/pi.md\n\n# Pi runtime 补充\n\n本项目的阶段会话使用本机 Pi CLI（stdin-stdout RPC）：\n\n- 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或 `all` = 全部放开，`[]` = 全部禁用（`--no-tools`），非空列表 = 白名单；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。\n- 用 read／write／edit／bash 读取实际任务资料、代码和验证入口；不得只凭描述猜测文件内容或测试结果。\n- 任务资料（`.knit/tasks/**`）不计入成果也不判越界，优先经接口写入：阶段声明 `task` 能力时用 `knit_task`／`knit_material`，默认能力下用 bash 调 `knit task record`／`knit task material save`；直接编辑无法归因。输入区变化收尾判 `stale_input`；`.knit/` 下规范、配置、流程与提示词是硬保护路径，需要变更时记录问题并交回主会话。\n- 阶段内禁止 Git 提交：核心冻结阶段前 HEAD，收尾时 HEAD 移动即 `head_moved_during_stage` 失败；`.git/hooks`、`.git/config`、`.git/info` 与 `.knit/.runtime` 受管资料有变化即 `protected_runtime_modified` 失败；ignored 目录变化只写进结果 `ignoredChanges`。\n- 模型选择按项目配置 `phases.<stage>.model`（配置键名沿用 phases，值为阶段 id）；未配置时用启动时主 Agent 当前模型。\n- 原生会话记录由 Pi CLI 保存在 `.knit/.runtime/native-sessions/pi/`，跨 run 复用；恢复优先加载旧记录。\n- 取消经受控 CLI 的 clear_queue/abort，按稳定终态核实。\n- 停止条件：需求不明、规范冲突、需要用户取舍、发现保护路径或未授权副作用时停止写入并如实报告；检查阶段用 blocked／changes_requested 交回，其他阶段在报告中说明阻塞；blocked 由核心接收，不自行推进阶段。\n- 报告按阶段字段输出（implement：summary／changedPaths／unverified；check：summary／verdict／coverage／changedPaths／selfVerified／findings／unverified）；`changedPaths` 列出本 run 实际改动（`write`／`edit` 写过的必须列出，bash 产出照实列出、由主会话确认来源，声明继承的失败残留一并列出），不列外部改动与之前轮次的成果；未执行的验证写入 `unverified`。\n\n无正式任务时不启动 Knit worker；需要委派时使用 Pi 宿主提供的通用子 Agent／只读工具。宿主不提供或不可用时由主会话直接执行，不暗建 Knit 任务。\n\n\n## .knit/standards/index.md\n\n# 规范索引\n\n按路径、简述与适用范围列出本项目规范。Knit 不猜测通用规则；已有规范正文保留原权威位置，此处只建索引引用。\n\n<!-- 示例：\n- [代码风格](./code-style.md) —— 命名、格式与注释约定；适用于 src/ 下全部代码\n-->\n\n待补充：随真实讨论、实施与检查从项目候选 `.knit/standards/candidates.md` 或直接采纳结果持续提炼（见 Knit 规范演进流程）。\n",
+          "--session-id",
+          "36b65513-5165-4405-9958-0be2da3d6801",
+          "--name",
+          "Knit worker session"
+        ],
+        "state": "completed",
+        "started": 0
+      }
+    },
+    {
+      "scenario": 12,
+      "check": "不写 tools → 全部放开（不传 --tools／--no-tools）",
+      "pass": true,
+      "actual": {
+        "tools": null,
+        "capabilities": null,
+        "argv": [
+          "--mode",
+          "rpc",
+          "--no-context-files",
+          "--no-prompt-templates",
+          "--no-themes",
+          "--no-approve",
+          "--session-dir",
+          "/tmp/knit-audit-regress-FD4AN9/s12/.knit/.runtime/pi-sessions",
+          "--provider",
+          "fake",
+          "--model",
+          "fake-model",
+          "--append-system-prompt",
+          "流程：准备 → build → verify → polish → 收尾 ｜ 当前：polish\n本步目标：执行 polish\n完成条件：完成后 → 收尾\n\n你是 Knit 的独立阶段执行器，不是主 Agent。\n\n本次阶段：polish（polish）。\n\n只执行本阶段；不要修改 .knit/ 下规范、配置、流程与提示词（改动判 protected_path_modified），不要 git commit／push／rebase，不要委派其他 Agent。\n\n任务资料（.knit/tasks/**）优先经 knit_task／knit_material 或 knit task record／knit task material save 写入；直接编辑不判越界、不计入 changedPaths，但无法归因；输入区变化收尾判 stale_input，结果不计为当前规格的成果。\n\n阶段边界由核心核对：阶段内出现提交（HEAD 移动）即判 head_moved_during_stage 失败、不接收；改动 .git/hooks、.git/config、.git/info 或 .knit/.runtime 受管资料即判 protected_runtime_modified 失败；ignored 目录的变化会如实写进结果。\n\n改动来源由核心按原生会话里的 write／edit 调用归属：工具写过的文件必须列进 changedPaths；bash 等方式产出的成果照实列出，记为来源不明、交主会话确认；用户同时写的文件与之前轮次的成果不要列出，未列出且非工具写入的记为外部改动、不并入成果；要继续失败 run 留下的改动时把这些路径列出即声明继承。\n\n必须用工具读取实际任务资料、代码与验证入口；不得只凭描述猜测。\n\n任务阶段、修复次数和检查结论由 Knit 核心决定，你的文字不会直接修改它们。\n\n## .knit/agents/runtimes/pi.md\n\n# Pi runtime 补充\n\n本项目的阶段会话使用本机 Pi CLI（stdin-stdout RPC）：\n\n- 阶段执行不加载项目扩展（`--no-extensions`），只使用受控资源；工具范围由该阶段 `tools` 能力白名单决定：不写或 `all` = 全部放开，`[]` = 全部禁用（`--no-tools`），非空列表 = 白名单；`read` 只读，`write` 改文件，`exec` 可间接改文件，`task` 任务工具，`external`／`network` 为显式放开。\n- 用 read／write／edit／bash 读取实际任务资料、代码和验证入口；不得只凭描述猜测文件内容或测试结果。\n- 任务资料（`.knit/tasks/**`）不计入成果也不判越界，优先经接口写入：阶段声明 `task` 能力时用 `knit_task`／`knit_material`，默认能力下用 bash 调 `knit task record`／`knit task material save`；直接编辑无法归因。输入区变化收尾判 `stale_input`；`.knit/` 下规范、配置、流程与提示词是硬保护路径，需要变更时记录问题并交回主会话。\n- 阶段内禁止 Git 提交：核心冻结阶段前 HEAD，收尾时 HEAD 移动即 `head_moved_during_stage` 失败；`.git/hooks`、`.git/config`、`.git/info` 与 `.knit/.runtime` 受管资料有变化即 `protected_runtime_modified` 失败；ignored 目录变化只写进结果 `ignoredChanges`。\n- 模型选择按项目配置 `phases.<stage>.model`（配置键名沿用 phases，值为阶段 id）；未配置时用启动时主 Agent 当前模型。\n- 原生会话记录由 Pi CLI 保存在 `.knit/.runtime/native-sessions/pi/`，跨 run 复用；恢复优先加载旧记录。\n- 取消经受控 CLI 的 clear_queue/abort，按稳定终态核实。\n- 停止条件：需求不明、规范冲突、需要用户取舍、发现保护路径或未授权副作用时停止写入并如实报告；检查阶段用 blocked／changes_requested 交回，其他阶段在报告中说明阻塞；blocked 由核心接收，不自行推进阶段。\n- 报告按阶段字段输出（implement：summary／changedPaths／unverified；check：summary／verdict／coverage／changedPaths／selfVerified／findings／unverified）；`changedPaths` 列出本 run 实际改动（`write`／`edit` 写过的必须列出，bash 产出照实列出、由主会话确认来源，声明继承的失败残留一并列出），不列外部改动与之前轮次的成果；未执行的验证写入 `unverified`。\n\n无正式任务时不启动 Knit worker；需要委派时使用 Pi 宿主提供的通用子 Agent／只读工具。宿主不提供或不可用时由主会话直接执行，不暗建 Knit 任务。\n\n\n## .knit/standards/index.md\n\n# 规范索引\n\n按路径、简述与适用范围列出本项目规范。Knit 不猜测通用规则；已有规范正文保留原权威位置，此处只建索引引用。\n\n<!-- 示例：\n- [代码风格](./code-style.md) —— 命名、格式与注释约定；适用于 src/ 下全部代码\n-->\n\n待补充：随真实讨论、实施与检查从项目候选 `.knit/standards/candidates.md` 或直接采纳结果持续提炼（见 Knit 规范演进流程）。\n",
+          "--session-id",
+          "fe7ded79-7c1e-44e0-9f93-8bc4e4bb746e",
+          "--name",
+          "Knit worker session"
+        ],
+        "state": "completed",
+        "started": 0
+      }
+    }
+  ]
+}

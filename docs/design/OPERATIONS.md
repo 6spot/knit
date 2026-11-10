@@ -112,7 +112,7 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 1. 读取本 run 原生会话（起点为阶段开始前的最末条目），收集 `write`／`edit` 成功调用的 `path` 参数，按执行目录解析为项目相对路径；会话不可读、起点不在文件中时 `attribution.source=unavailable`，全部差异按来源不明处理。worktree 执行目录 `source=isolated`，差异全部视为本 run 写入。
 2. 报告 `changedPaths` 中：有差异且工具写入 → `attributedPaths`；有差异但非工具写入 → `unattributedPaths`；无差异但属任务残留 → 指纹未变且原 run 工具写入为 `inheritedPaths`，否则 `unattributedPaths`；既无差异也非残留 → `failed: changed_paths_mismatch`。
 3. 未列出的差异中：工具写入 → `failed: changed_paths_mismatch`；非工具写入 → `externalChanges`；会话不可读时 → `unattributedPaths`。
-4. 接收（`run-acceptance.ts`）：有未确认的 `unattributedPaths` 时 `needs_attention: unattributed_paths:<paths>`，run state 收敛为 `failed`（`acceptance_` 前缀，不占用任务）；`run accept <runId> --include <path>... --exclude <path>... [--reason] [--by]` 在任务＋state 短锁内写 `runs/<run>/attribution.json` 后重新接收。并入集合为已归属 ∪ 继承 ∪ 确认并入；发布时指纹只核对已归属与继承路径，确认并入的按当前指纹进入 scope，外部改动与被排除路径不核指纹。接收检查点记录 `residueConsumed`，收敛时从 `tasks/<id>/residue.json` 移除。
+4. 接收（`run-acceptance.ts`）：有未确认的 `unattributedPaths` 时 `needs_attention: unattributed_paths:<paths>`，run state 收敛为 `failed`（`acceptance_` 前缀，不占用任务）；`run accept <runId> --include <path>... --exclude <path>... [--reason] [--by]` 在任务＋state 短锁内写 `runs/<run>/attribution.json` 后重新接收；`--include`／`--exclude` 只接受该 run 结果里的来源不明路径，其它路径以 `path_not_unattributed` 拒绝，不写确认记录。并入集合为已归属 ∪ 继承 ∪ 确认并入；发布时指纹只核对已归属与继承路径，确认并入的按当前指纹进入 scope，外部改动与被排除路径不核指纹。接收检查点记录 `residueConsumed`，收敛时从 `tasks/<id>/residue.json` 移除。
 5. 失败／取消结果接收时把 `actualChangedPaths` 与 `actualEntries` 记为残留（`toolWritten` 取自结果的 `attribution`）；结果缺失、确认已死后由 `run resume`／`prepare` 收敛的旧 run，以快照比较当前工作区记来源不明残留。阶段内换分支（`branch_mismatch_after_run`）不记残留。
 6. 交付预检（`deliver --plan` 与交付前计划）列出本任务各 run 的 `externalChanges`、被确认排除的路径与未处理残留，作为提醒；产物提交仍只含 scope 路径。
 
