@@ -123,4 +123,10 @@ title: 桥接异步化与安装版本诊断
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-07-bridge-async
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-0ba605488214 -->
+- 任务资料提交: c5607ca4fa88f6a082b5d7856972e7d700ac12b0
+- 归档目标: .knit/tasks/archive/2026-11/11-07-bridge-async
+
 <!-- knit:progress:end -->
