@@ -124,4 +124,10 @@ title: 阶段访问计数只在开始后生效：准备期改需求不消耗修�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-07-visits-count-after-start
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a0d0ec712c3d -->
+- 任务资料提交: 195adfc47b02b87a33e5b8b485ef56bcf21666c7
+- 归档目标: .knit/tasks/archive/2026-11/11-07-visits-count-after-start
+
 <!-- knit:progress:end -->
