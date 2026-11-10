@@ -20,7 +20,7 @@ import {
   type VerificationMode,
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
-import { onParentAssigned, onParentCompletion, parentChainContains, isKnownStage, transition as stageTransition, type Decision, type TaskFacts, type TaskTransition, type TaskTransitionResult } from "../domain/task.js";
+import { onParentAssigned, onParentCompletion, parentChainContains, isKnownStage, rebindStageOf, transition as stageTransition, type Decision, type TaskFacts, type TaskTransition, type TaskTransitionResult } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { workflowOf } from "./workflow.js";
 import {
@@ -159,6 +159,17 @@ export interface TaskListResult {
   archived: TaskSummary[];
   /** list 级诊断：归档解析失败、重复来源、Git 跟踪状态不可判定。 */
   problems: TaskListProblem[];
+}
+
+/** 本机缺少可用绑定（无绑定行或确认摘要为空）、需要 task rebind 的非 start 任务（任务 k-434714cbbb68）。 */
+export interface TaskBindingMissingEntry {
+  /** 与任务级 nextAction 同一原因码，供桥接与脚本按字符串识别。 */
+  kind: "binding_missing";
+  taskId: string;
+  title: string;
+  stage: string;
+  status: string;
+  relativePath: string;
 }
 
 export interface TaskNewInput {
@@ -316,6 +327,25 @@ export interface TaskAdoptResult {
   stage: string;
 }
 
+export interface TaskRebindInput {
+  dir: string;
+  taskId: string;
+}
+
+export interface TaskRebindResult {
+  taskId: string;
+  /** false 表示本机已有绑定，本次未改动绑定或 task.md。 */
+  rebound: boolean;
+  branch: string | null;
+  originalStage: string;
+  stage: string;
+  originalStatus: string;
+  status: string;
+  /** 降级或保持的原因；写回记录区。 */
+  reason: string;
+  confirmedInputsDigest: string;
+}
+
 export interface TaskRecordInput {
   dir: string;
   taskId: string;
@@ -385,6 +415,10 @@ export interface TaskImplementResult {
   validations: number;
   inputsDigest: string;
   scopeDigest: string;
+  /** 本机无绑定，本次一并按 task.md 建立绑定与阶段落点。 */
+  bindingRebuilt?: boolean;
+  /** 记录实施后 task.md 的阶段；自动重建时可能已降级。 */
+  stage?: string;
 }
 
 export interface TaskCloseInput {
@@ -1505,6 +1539,32 @@ export class TaskService {
   }
 
   /**
+   * 本机缺少可用绑定、且 task.md 已不在 start 的任务（任务 k-434714cbbb68）：
+   * 无绑定行或确认摘要为空都算未取得本机资格，供 task list／桥接标记 binding_missing 并指向 task rebind。
+   * 取消／替代任务不重建执行资格，不列入；未归档 completed 仍可重建后重新收尾。
+   */
+  async missingBindings(input: { dir: string }): Promise<TaskBindingMissingEntry[]> {
+    const result = this.list({ dir: input.dir });
+    const bindings = new Map((await this.store.bindings.list()).map((binding) => [binding.taskId, binding]));
+    return result.active
+      .filter((task) => task.stage !== "start")
+      .filter((task) => task.status === "open" || task.outcome === "completed")
+      .filter((task) => {
+        const binding = bindings.get(task.taskId);
+        // 没有绑定行，或绑定存在但确认摘要为空（adopt 等入口补建）：都不可交付。
+        return binding === undefined || binding.confirmedInputsDigest === null;
+      })
+      .map((task) => ({
+        kind: "binding_missing" as const,
+        taskId: task.taskId,
+        title: task.title,
+        stage: task.stage,
+        status: task.status,
+        relativePath: task.relativePath,
+      }));
+  }
+
+  /**
    * task adopt：接管当前可见分支，不切分支、不产生提交授权。
    * 已绑定其它分支时拒绝，避免静默改变执行归属。
    */
@@ -1625,6 +1685,184 @@ export class TaskService {
   }
 
   /**
+   * task rebind：clone／换机后按 task.md 重建本机绑定（任务 k-434714cbbb68）。
+   * 业务意图（目标、验收、stage 名义）来自 task.md；scope、确认摘要与凭据是本机事实，
+   * 因此重建时以当前输入摘要作为确认摘要，并按 verification 回到能够取得证据的阶段。
+   * 不创建 run，不写检查／完成凭据；降级不进入阶段，不消耗 stageVisits 预算。
+   */
+  async rebind(input: TaskRebindInput): Promise<TaskRebindResult> {
+    const root = normalizeRoot(input.dir);
+    const lock = await this.lockTaskState(root, input.taskId, "task.rebind");
+    try {
+      const located = this.locate(root, input.taskId);
+      if (located.archived) throw new TaskGuardError("task_archived", `任务已归档: ${input.taskId}`);
+      const file = join(located.dir, TASK_FILE);
+      const before = readWithVersion(file);
+      if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
+      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      const existing = await this.store.bindings.get(input.taskId);
+      if (existing !== null && existing.confirmedInputsDigest !== null) {
+        return {
+          taskId: input.taskId,
+          rebound: false,
+          branch: existing.branch,
+          originalStage: document.frontmatter.stage,
+          stage: document.frontmatter.stage,
+          originalStatus: document.frontmatter.status,
+          status: document.frontmatter.status,
+          reason: "本机已有绑定，无需重建",
+          confirmedInputsDigest: existing.confirmedInputsDigest,
+        };
+      }
+      // adopt 等入口可能已补建绑定行但未保存确认摘要；rebind 一并补足，不留下
+      // “有绑定却无法 close”的死路（审计 S6）。未应用草案不能被静默丢弃。
+      if (existing !== null && existing.pendingDraft !== null) {
+        throw new TaskGuardError("pending_draft_exists", "存在未应用输入草案；先应用或撤回再重建绑定");
+      }
+      const established = await this.establishLocalBinding({
+        root,
+        taskId: input.taskId,
+        dir: located.dir,
+        file,
+        before,
+        document,
+        entry: "task rebind",
+        existing,
+      });
+      return {
+        taskId: input.taskId,
+        rebound: true,
+        branch: established.binding.branch,
+        originalStage: established.originalStage,
+        stage: established.document.frontmatter.stage,
+        originalStatus: established.originalStatus,
+        status: established.document.frontmatter.status,
+        reason: established.reason,
+        confirmedInputsDigest: established.binding.confirmedInputsDigest ?? "",
+      };
+    } finally {
+      this.locks.release(lock);
+    }
+  }
+
+  /**
+   * 在已持有的任务锁内按 task.md 建立本机绑定（rebind 与无绑定的 task implement 共用）。
+   * 写回业务状态与记录区；确认摘要取写入后的当前输入，不伪造 run 或凭据。
+   */
+  private async establishLocalBinding(input: {
+    root: string;
+    taskId: string;
+    dir: string;
+    file: string;
+    before: { data: Buffer; sha256: string };
+    document: TaskDocument;
+    /** 记录区入口名：task rebind 或 task implement。 */
+    entry: string;
+    /** 已存在但确认摘要为空的绑定（如 adopt 补建）；保留访问计数与修复周期。 */
+    existing?: TaskBinding | null;
+  }): Promise<{
+    binding: TaskBinding;
+    document: TaskDocument;
+    raw: Buffer;
+    originalStage: string;
+    originalStatus: string;
+    reason: string;
+  }> {
+    const root = input.root;
+    const originalStage = input.document.frontmatter.stage;
+    const originalStatus = input.document.frontmatter.status;
+    // 取消／替代只归档资料，不重建执行资格；未归档 completed 按 verification 重开。
+    const closedCompleted = originalStatus === "closed" && input.document.frontmatter.outcome === "completed";
+    if (originalStatus === "closed" && !closedCompleted) {
+      throw new TaskGuardError("task_closed", "任务已取消或替代；只归档资料，不重建执行资格");
+    }
+    // 分支：task.md 声明的分支或已登记的 worktree 执行分支必须就是当前检出的本地分支；都未声明时取当前分支。
+    const current = this.currentBranch(root);
+    const declared = input.document.frontmatter.branch;
+    const worktreeBranch = input.existing?.worktree?.branch ?? null;
+    if (declared !== null && declared !== current && worktreeBranch !== current) {
+      throw new TaskGuardError(
+        "branch_mismatch",
+        `任务声明分支 ${declared} 与当前检出 ${current} 不一致；切回该分支后再 rebind，或按需要调整任务绑定`,
+      );
+    }
+    const branch = declared ?? current;
+    const decision = rebindStageOf({
+      workflow: workflowOf(root),
+      stage: originalStage,
+      verification: verificationModeOf(input.document.frontmatter),
+      hasImplementationEvidence: this.hasImplementationEvidence(root, input.taskId),
+    });
+    const nextStatus = closedCompleted ? "open" : originalStatus;
+    const nextOutcome = closedCompleted ? null : input.document.frontmatter.outcome;
+    const recordLines = [
+      "### 跨机重建本机绑定",
+      "",
+      `- 时间: ${this.now().toISOString()}`,
+      `- 入口: ${input.entry}`,
+      `- 原阶段: ${originalStage}`,
+      `- 现阶段: ${decision.stage}${decision.lowered ? "（降级）" : "（保持）"}`,
+      ...(closedCompleted ? [`- 原状态: closed/${input.document.frontmatter.outcome}；重开后为 open`] : []),
+      `- 原因: ${decision.reason}`,
+      "- 阶段访问计数: 不消耗（rebind 不进入阶段）",
+      `- 确认输入摘要: ${inputsDigestOf(input.before.data.toString("utf8")).slice(0, 12)}`,
+    ];
+    const record = recordLines.join("\n");
+    assertNoCredentials(record, "任务重绑定记录");
+    const updated = withRegions(input.document, {
+      frontmatter: {
+        ...input.document.frontmatter,
+        status: nextStatus,
+        stage: decision.stage,
+        outcome: nextOutcome,
+      },
+      progressBody: `${input.document.progressBody.trimEnd()}\n\n${record}\n`,
+    });
+    const rendered = renderTaskDocument(updated);
+    // 冻结的是写入后的输入区；status／stage 等执行字段不参与摘要。
+    const confirmedInputsDigest = inputsDigestOf(rendered);
+    const confirmedStandardsDigest = formalStandardsDigest(root);
+    atomicWrite({ path: input.file, data: Buffer.from(rendered, "utf8"), expectedSha256: input.before.sha256, mode: 0o644 });
+    const binding: TaskBinding = {
+      taskId: input.taskId,
+      repoRoot: root,
+      relativePath: `${TASKS_DIR}/${basename(input.dir)}/${TASK_FILE}`,
+      branch,
+      lastRunIds: input.existing?.lastRunIds ?? [],
+      lastCheckRunId: null,
+      repairCycleId: input.existing?.repairCycleId ?? null,
+      repairRounds: input.existing?.repairRounds ?? null,
+      stopReason: input.existing?.stopReason ?? null,
+      stageVisits: input.existing?.stageVisits ?? {},
+      lastImplement: null,
+      confirmedInputsDigest,
+      confirmedStandardsDigest,
+      pendingDraft: null,
+    };
+    if (input.existing?.worktree !== undefined) binding.worktree = input.existing.worktree;
+    await this.store.bindings.save(binding);
+    // 旧完成凭据属于旧本机资格，重建后不沿用；检查／完成凭据仍需重新取得。
+    new RunStore(root).removeCompletion(input.taskId);
+    return { binding, document: updated, raw: Buffer.from(rendered, "utf8"), originalStage, originalStatus, reason: decision.reason };
+  }
+
+  /** 本机是否已有实施记录或非空 scope：independent rebind 据此回到检查阶段。 */
+  private hasImplementationEvidence(root: string, taskId: string): boolean {
+    const runs = new RunStore(root);
+    try {
+      if (runs.readImplementation(taskId) !== null) return true;
+    } catch {
+      // 损坏或旧格式记录不算证据；完成凭据由 close 另行核对完整性。
+    }
+    try {
+      const scope = runs.readScope(taskId);
+      return scope !== null && scope.entries.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 设置完成验证要求：只在讨论阶段，作为任务输入的一部分。
    * 已进入实施/检查后先走 change 更新回讨论，避免静默改写已冻结要求。
    */
@@ -1680,7 +1918,7 @@ export class TaskService {
   private currentBranch(root: string): string {
     const result = gitSync(["symbolic-ref", "--quiet", "HEAD"], root);
     if (result.code !== 0) {
-      throw new TaskGuardError("detached_head", "当前不是本地分支，无法 adopt current");
+      throw new TaskGuardError("detached_head", "当前不是本地分支，无法确定绑定分支");
     }
     return result.stdout.trim();
   }
@@ -2149,8 +2387,17 @@ export class TaskService {
         const detail = blockers.map((blocker) => `${blocker.taskId}(${blocker.problem})`).join(", ");
         throw new TaskGuardError("dependency_unmet", `前置依赖未满足，不能进入实施: ${detail}`);
       }
+      // 本机绑定是确认摘要与可交付资格的载体：clone／换机后先重建，不能静默把 stage 推进到实施
+      // 却没有本机资格（审计 S6，任务 k-434714cbbb68）。
+      const binding = await this.store.bindings.get(input.taskId);
+      if (binding === null) {
+        throw new TaskGuardError(
+          "binding_missing",
+          `任务在本机缺少绑定（binding_missing；确认摘要、scope 与凭据是本机事实）；先 knit task rebind ${input.taskId} 重建，再 task ready`,
+        );
+      }
       const transition = guardRejected(
-        stageTransition(workflowOf(root), stageFactsOf(document, await this.store.bindings.get(input.taskId)), { kind: "ready" }),
+        stageTransition(workflowOf(root), stageFactsOf(document, binding), { kind: "ready" }),
         "task ready",
       );
       const updated = withRegions(document, {
@@ -2161,16 +2408,13 @@ export class TaskService {
       const confirmedInputsDigest = inputsDigestOf(renderTaskDocument(updated));
       const confirmedStandardsDigest = formalStandardsDigest(root);
       atomicWrite({ path: file, data: Buffer.from(renderTaskDocument(updated), "utf8"), expectedSha256: before.sha256, mode: 0o644 });
-      const binding = await this.store.bindings.get(input.taskId);
-      if (binding !== null) {
-        await this.store.bindings.save({
-          ...binding,
-          confirmedInputsDigest,
-          confirmedStandardsDigest,
-          stageVisits: transition.visits,
-          stopReason: transition.stopReason,
-        });
-      }
+      await this.store.bindings.save({
+        ...binding,
+        confirmedInputsDigest,
+        confirmedStandardsDigest,
+        stageVisits: transition.visits,
+        stopReason: transition.stopReason,
+      });
       new RunStore(root).removeCompletion(input.taskId);
       new RunStore(root).removeImplementation(input.taskId);
       return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest };
@@ -2201,11 +2445,30 @@ export class TaskService {
       const file = join(located.dir, TASK_FILE);
       const before = readWithVersion(file);
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
-      const document = parseTaskDocument(before.data.toString("utf8"), file);
+      let document = parseTaskDocument(before.data.toString("utf8"), file);
       if (document.frontmatter.status !== "open") throw new TaskGuardError("task_not_open", "已结束任务不能记录实施事实");
       await this.assertNoActiveRun(root, input.taskId, "task implement");
-      const binding = await this.store.bindings.get(input.taskId);
-      if (binding !== null && binding.pendingDraft !== null) {
+      let binding = await this.store.bindings.get(input.taskId);
+      let recordRaw = before.data;
+      let bindingRebuilt = false;
+      if (binding === null) {
+        // clone／换机后没有本机资格：一并按 task.md 重建绑定与阶段落点，
+        // 使 self 任务在登记实施后可以 close（任务 k-434714cbbb68）。
+        const established = await this.establishLocalBinding({
+          root,
+          taskId: input.taskId,
+          dir: located.dir,
+          file,
+          before,
+          document,
+          entry: "task implement",
+        });
+        binding = established.binding;
+        document = established.document;
+        recordRaw = established.raw;
+        bindingRebuilt = true;
+      }
+      if (binding.pendingDraft !== null) {
         throw new TaskGuardError("pending_draft_exists", "存在未应用输入草案，先应用或撤回再记录实施");
       }
       const entries: ScopeEntry[] = paths.map((path) => {
@@ -2213,11 +2476,12 @@ export class TaskService {
         return currentEntry(root, path, { factsKind: true });
       });
       const digest = scopeDigest(entries);
+      const inputsDigest = inputsDigestOf(recordRaw.toString("utf8"));
       new RunStore(root).writeImplementation(input.taskId, {
         schemaVersion: 1,
         taskId: input.taskId,
         executor,
-        inputsDigest: inputsDigestOf(before.data.toString("utf8")),
+        inputsDigest,
         entries,
         scopeDigest: digest,
         validations,
@@ -2230,8 +2494,9 @@ export class TaskService {
         executor,
         paths,
         validations: validations.length,
-        inputsDigest: inputsDigestOf(before.data.toString("utf8")),
+        inputsDigest,
         scopeDigest: digest,
+        ...(bindingRebuilt ? { bindingRebuilt: true, stage: document.frontmatter.stage } : {}),
       };
     } finally {
       this.locks.release(lock);

@@ -171,7 +171,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 `knit status <task>` 与 `knit context --task <id>` 返回任务级确定性 `nextAction`（`kind`／`summary`／`commands`／`runId`），只读已落盘事实，同一现场总给同一条；给出的命令仍由核心按授权／阶段／锁／版本重新核对。按优先级取第一条：
 
-1. `binding_missing`：本机没有绑定（clone／换机后常见），参见跨机任务（`task rebind`，任务 k-434714cbbb68），当前给 `task adopt`；
+1. `binding_missing`：本机没有可用绑定（无绑定行或确认摘要为空；clone／换机后常见）→ `knit task rebind <taskId>`：按 task.md 重建确认摘要与证据落点（self／none 回首个工作阶段，independent 回检查阶段），不伪造 run 或凭据；旧检查／完成凭据需按当前成果重新取得；
 2. 未收敛的 run（最近一条）：`run_not_started`（只准备未启动 → `run start`）、`run_active`（worker 存活或无法核实 → 等待或 `run cancel`）、`run_pending_acceptance`（结果已发布未接收 → `run accept`）、`run_stage_alive`（worker 已退、阶段 Pi 仍在 → `run cancel --terminate` 后 `run resume`）、`run_worker_exited`（无结果 → `run resume`）；终态但接收操作缺失同样是 `run_pending_acceptance`；
 3. `pending_draft`：应用或撤回待应用草案；
 4. `lock_residue`：无活动 run 时仍在的执行目录锁（owner 已不在或无法核实）→ `knit locks` 核实后 `unlock <id> --expect-token <token>`（非 not_alive 加 `--force`）；可自动回收时一并说明；

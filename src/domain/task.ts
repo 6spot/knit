@@ -249,6 +249,64 @@ export function staleDeliverTransition(workflow: WorkflowDefinition, task: TaskF
   return enterResult(workflow, lastVisited ?? firstStageOf(workflow), visits, stopReasonOf(task));
 }
 
+/**
+ * 跨机重建绑定时的阶段落点（任务 k-434714cbbb68）。
+ * task.md 的 stage 只是名义业务位置；本机缺少 scope、确认摘要与凭据时，
+ * 必须回到能重新取得证据的阶段。本函数只推导目标，不进入阶段、不累计 visits。
+ */
+export interface RebindStageDecision {
+  stage: TaskStage;
+  /** 目标阶段与 task.md 名义阶段不同。 */
+  lowered: boolean;
+  /** 写回记录区的降级原因。 */
+  reason: string;
+}
+
+export function rebindStageOf(input: {
+  workflow: WorkflowDefinition;
+  stage: TaskStage;
+  verification: VerificationMode;
+  /** 本机已有实施记录或非空 scope：independent 可直接回到检查阶段。 */
+  hasImplementationEvidence: boolean;
+}): RebindStageDecision {
+  const { workflow, stage, verification } = input;
+  if (stage === ANCHOR_START) {
+    return { stage, lowered: false, reason: "位于讨论阶段 start，不降级" };
+  }
+  // 降级流程没有配置阶段，也没有检查阶段：保持 task.md 的名义位置，由调用方按可用证据推进。
+  if (workflow.stages.length === 0) {
+    return { stage, lowered: false, reason: "生效流程没有配置阶段，保持 task.md 的名义阶段" };
+  }
+  if (verification !== "independent") {
+    const first = firstStageOf(workflow);
+    return {
+      stage: first,
+      lowered: first !== stage,
+      reason: `verification=${verification} 无独立检查：回到首个工作阶段 ${first}，用实施记录重建完成资格`,
+    };
+  }
+  const checkStage = checkStageOf(workflow) ?? lastStageOf(workflow);
+  const index = stageIndex(workflow, stage);
+  const checkIndex = stageIndex(workflow, checkStage);
+  const atOrPastCheck = stage === ANCHOR_DELIVER || (index >= 0 && checkIndex >= 0 && index >= checkIndex);
+  if (input.hasImplementationEvidence || atOrPastCheck) {
+    return {
+      stage: checkStage,
+      lowered: checkStage !== stage,
+      reason: `verification=independent：回到检查阶段 ${checkStage}，重新取得有效检查凭据`,
+    };
+  }
+  if (index >= 0) {
+    return { stage, lowered: false, reason: `verification=independent：实施尚未完成，保持 ${stage}` };
+  }
+  const first = firstStageOf(workflow);
+  return {
+    stage: first,
+    lowered: true,
+    reason: `声明阶段 ${stage} 不在生效流程中；回到首个工作阶段 ${first}`,
+  };
+}
+
 function enterResult(
   workflow: WorkflowDefinition,
   stage: TaskStage,

@@ -54,7 +54,7 @@ AGENTS.md                         # 保留原规则，添加 Knit 受管入口
     ...                           # 规范正文
   tasks/
     MM-DD-<slug>/
-      task.md                     # 任务入口与业务状态唯一权威
+      task.md                     # 任务入口与业务意图权威；可交付资格是本机事实
       plan.md                     # 可选：复杂任务实施计划（按需创建）
       design.md                   # 可选：重要技术取舍与方案依据（按需创建）
       research/                   # 可选：调查材料（按需创建）
@@ -150,11 +150,11 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 ### 3.4 任务规划资料
 
-任务资料以 `task.md` 为固定入口与唯一业务状态权威；`id`、`status`、`stage`、`branch`、`outcome` 与绑定只保存在 task.md frontmatter 和元数据仓储，不因文件拆分建立第二套状态表。复杂任务按需增加规划资料，简单任务始终只用 task.md。
+任务资料以 `task.md` 为固定入口与业务意图权威（目标、验收与 stage 名义）；`id`、`status`、`stage`、`branch`、`outcome` 只保存在 task.md frontmatter，scope、确认摘要、检查／完成凭据与运行引用保存在本机元数据仓储或 `.knit/.runtime`，不提交 Git，也不因文件拆分建立第二套业务状态表；clone／换机后用 `task rebind` 按 task.md 重建本机资格（§3.7）。复杂任务按需增加规划资料，简单任务始终只用 task.md。
 
 | 文件 | 职责 | 创建时机 | 更新方式 |
 | --- | --- | --- | --- |
-| `task.md` | 输入区（目标与边界、完成条件、输入引用）与记录区（当前位置、关键经过、结果与验证、运行引用）；业务状态唯一权威 | 创建任务时 | 输入区经 clarify/change 或创建；记录区经 task record 与收尾写回 |
+| `task.md` | 输入区（目标与边界、完成条件、输入引用）与记录区（当前位置、关键经过、结果与验证、运行引用）；业务意图与 stage 名义权威；可交付资格是本机事实 | 创建任务时 | 输入区经 clarify/change 或创建；记录区经 task record 与收尾写回 |
 | `plan.md` | 实施计划：步骤产出、真实依赖、受影响结构／接口、验证方式与风险处理；含未完成步骤标记 | 讨论确认任务复杂（多模块、迁移、协议、跨会话）时由主 Agent 创建；简单任务不创建 | 讨论中随方案确认更新；实施中勾选步骤、追加证据为进度更新；步骤产出改变需求时走 clarify/change |
 | `design.md` | 重要技术取舍与方案依据：备选对比、取舍理由、与工程结构的对应 | 存在影响后续维护或跨会话理解的取舍时 | 随方案确认更新；不承担进度记录 |
 | `research/<主题>.md` | 调查材料：代码事实、外部约定、实验记录 | 讨论中调查产物需要跨会话保留时 | 追加式；task.md 输入引用只链接入口摘要 |
@@ -195,9 +195,11 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 
 换 Session 继续时核实当前分支可见任务、绑定与旧 run；状态未知时保留占用。绑定缺失时从本项目任务与回执核对重建；指向其他目录或身份不明时阻塞。跨目录关联见 [Worktree 持久关联与继续执行](../research/WORKTREE.md#66-持久关联与继续执行)。
 
+本机绑定缺失而 task.md 仍在（clone／换机）时，用 `task rebind <taskId>` 按 task.md 重建：确认摘要取当前输入，分支取 task.md 声明且必须与当前检出一致；stage 不是 start 时降到最近需要证据的阶段——self／none 回到首个工作阶段，independent 有实施记录或名义阶段已到检查之后回到检查阶段；降级不进入阶段、不消耗 stageVisits，原 stage 与原因写入记录区。已有绑定但确认摘要为空（如 adopt 补建）时同样补足；存在未应用草案则先应用或撤回。rebind 不创建 run、不写检查或完成凭据；未归档 completed 重开为 open，cancelled／superseded 只保留归档资料。`status`、`task list` 与上下文计划对无绑定或确认摘要为空的非 start 任务标记 `binding_missing` 并指向该命令；`task ready` 无绑定时报错，`task implement` 无绑定时一并重建。
+
 ### 3.8 阶段权威与推导
 
-frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
+frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当前生效流程中的阶段 id。`task ready` 保存讨论确认后从 `start` 进入配置的第一个阶段；本机无绑定时 `task ready` 报 `binding_missing`，先用 `task rebind` 重建，不静默推进 stage。阶段报告被接收后按 `onVerdict` 或顺序流转，最后一个阶段完成进入 `deliver`。`independent` 任务在实施后保留正式检查阶段，`self`／`none` 可直接进入收尾；声明回退的阶段受 `maxVisits` 限制，超限停止并报告 `repair_round_limit`。每次获准实施即刻使旧检查失去交付资格，失败不借旧报告收尾。
 
 业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效且检查者未改动文件的正式检查（最新检查带 `checkerChangedPaths` 时报 `check_self_modified`，§5.1）；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。`self`／`independent` 的成果范围为空（scope 与主会话实施记录都没有路径，如实施报告 `changedPaths: []` 被接收）时完成以 `empty_scope` 拒绝，避免“本来没有产物”“产物已被外部提交”“产物留在工作区未归属”三种情况静默完成；确实没有产物时用 `task close --outcome completed --no-artifacts --reason <原因>`，凭据记 `artifacts: none` 与 `noArtifactsReason`，成果非空时声明无产物报 `artifacts_present`。`none` 模式、主会话 `task implement` 已登记路径、强制完成与父任务（存在子任务）总体验收不受此守卫约束；`deliver` 预检同一守卫。交付没有产物提交（`workCommit` 为空）时结果带 `noArtifactCommit: true` 与完成凭据中的原因，人读输出与桥接通知写明“本次交付没有产物提交”；空报告的实施 run 被接收时 `run status` 提示“本轮未产生成果”（任务 k-86d01bf85274，审计 F4）。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
 
@@ -333,14 +335,15 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task next | 按稳定执行顺序列出活跃任务与不能启动的原因；只读，不派发运行 |
 | task search <query...> [--scope task/archive/run/git] [--limit n] | 按用户查询意愿只读检索任务、归档、run 与 Git，返回 path:line／run／commit 来源；默认 20 条、上限 100；无匹配返回空数组 |
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
-| task list [--archive] [--month YYYY-MM] | 默认按进行中／待归档／已取消分段列出未归档任务，行内给优先级、稳定 ID、阶段显示名与标题，末尾汇总条数；--archive 按月列出归档（--month 过滤月份）；JSON 带 scope，默认不返回归档数组 |
+| task list [--archive] [--month YYYY-MM] | 默认按进行中／待归档／已取消分段列出未归档任务，行内给优先级、稳定 ID、阶段显示名与标题，末尾汇总条数；无绑定的非 start 任务另列 `bindingMissing` 与 `knit task rebind` 入口；--archive 按月列出归档（--month 过滤月份）；JSON 带 scope，默认不返回归档数组 |
 | task rename / use / clear | 按授权管理身份、位置与当前原生路径选择 |
-| task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required`；「待澄清」存在 `[blocking]` 项时拒绝为 `clarify_blocking` |
+| task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required`；「待澄清」存在 `[blocking]` 项时拒绝为 `clarify_blocking`；本机无绑定时报 `binding_missing`，先 `task rebind` |
 | task update [id] --kind clarify/change [--run <run-id>] [--pending] | 明确变更类型，可用 --file 或 stdin；目标有活动 run 时须 `--run`（缺省读 `KNIT_RUN`），否则 `task_busy`；`--pending` 只存草案、不需要 `--run` |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
 | task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
+| task rebind <id> | clone／换机后按 task.md 重建本机绑定与证据落点；降级不消耗 stageVisits，不创建 run，不写检查／完成凭据 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝；`set-tools` 接受 `all`（全部放开）、`[]`（全部禁用）或能力清单，`--clear` 删除字段 |
 | run prepare/start --stage <id> --task <id> [--rex/--local] [--worktree on\|off] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主；--worktree 只覆盖本次派发的自动创建策略 |
 | run schedule [--once] [--until-idle] [--max <n>] [--authorization-ref <ref>] | Worktree 模式下按就绪集、影响路径与并发上限派发；`--once` 只派一批，默认循环接收并推进到 deliver 前；未开启 worktree.default 时只说明、不派发。长循环不暴露为桥接工具 |

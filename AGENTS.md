@@ -5,7 +5,7 @@
 本仓库使用 Knit 管理后续正式开发任务。先读本文件、[文档索引](docs/README.md)和 [.knit/workflow.yaml](.knit/workflow.yaml)，再用 `npx --no-install knit task list` 查看活跃任务（归档用 `npx --no-install knit task list --archive`）；需要阶段上下文时使用桥接的 `knit_task`、`knit_context` 和 `knit_run`。
 
 - 是否建任务由用户决定，既有明确授权或持续授权可以沿用。研究、代码修改、复杂度、委派和保存报告本身都不要求建任务。未建任务时直接使用宿主工具和子 Agent，不为委派暗建任务。
-- 正式任务保存在 `.knit/tasks/`，各任务的 `task.md` 是需求入口与业务状态唯一权威；通过 Knit 工具或 CLI 管理身份、输入、阶段和状态。复杂任务按需在任务目录补充 `plan.md`、`design.md` 或 `research/`，不建立另一份全局任务状态表。
+- 正式任务保存在 `.knit/tasks/`，各任务的 `task.md` 是需求入口与业务意图（目标、验收、stage 名义）的权威；可交付资格（scope、确认摘要与检查／完成凭据）是本机事实，不提交 Git，clone／换机后用 `knit task rebind <taskId>` 重建。通过 Knit 工具或 CLI 管理身份、输入、阶段和状态。复杂任务按需在任务目录补充 `plan.md`、`design.md` 或 `research/`，不建立另一份全局任务状态表。
 - 用户指定任务时按指定任务推进；接续已有任务前先检查其状态、输入和运行记录。同一任务一次一个执行者，接管 `in_progress` 工作前确认原执行者已停止。不要仅凭旧目录、总结或 todo 完成认定实现成功。
 - 验证按任务目标、影响范围和风险选择 `none`、`self` 或 `independent`；用户明确要求优先。独立检查使用独立上下文，如实记录执行过的检查和结果。
 - 遇阻塞将根因、证据、待用户决定事项及可用的伪代码／暂定接口记入对应任务；必需缺口保持 blocked。其它已获授权且不依赖该缺口的工作可继续，有新事实再复验。
@@ -62,7 +62,7 @@
 - 规范沉淀：明确长期规则可直接采纳并说明依据，冲突先提出并取得用户决定；不依附任务；未明确内容存项目候选（`.knit/standards/candidates.md`）；一次性要求只留本次范围；正常回复末尾简短说明内容、适用范围与位置。
 - 历史查询：需求澄清取证时可直接用 `npx --no-install knit task search`（桥接 `knit_task` action=search）检索任务历史、归档与提交并引用来源；普通对话仅在用户明确表达查历史、上次决定／处理／修改或追溯问题的意愿时检索，未表达不主动检索；相关记录不等于证明因果。
 - 交付：主会话接收实施／检查结果、核对实际成果与完成条件并汇总报告；交付前起草一次产物提交文案并向用户展示，不虚构验证；不另启动交付辅助 worker；已有明确授权不重复确认；提交、推送、发布另行授权；按操作记录核实工具与 Git 实际效果；规范候选未审阅不构成交付前置。
-- 任务规划资料：task.md 为任务入口与业务状态唯一权威；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md
+- 任务规划资料：task.md 为任务入口与业务意图权威；可交付资格是本机事实，换机后先 `task rebind` 重建；复杂任务按需在任务目录内创建 plan.md／design.md／research/，简单任务只用 task.md
 - 任务资料写入：优先经 `knit_task`／`knit_material`（或同名 CLI）改任务资料，接口做版本核对、输入摘要与阶段守卫；直接编辑不判越界但无法归因。活动 run 中 `task update` 须声明 `--run <id>`（否则 `task_busy`），输入变化由收尾按摘要判 `stale_input`，结果与工作区保留；`.knit/` 下规范、配置、流程与提示词在阶段内是硬保护。
 - 规范索引：`.knit/standards/index.md`
 - 阶段提示词：`.knit/agents/`（由 workflow.yaml 的 `prompt` 引用；runtime 补充在 runtimes/）

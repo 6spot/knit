@@ -92,7 +92,7 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 
 | 数据 | 写入方 | 权威用途 |
 | --- | --- | --- |
-| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/stage/outcome/branch，记录短锁保护；业务状态唯一权威，不因文件拆分建立第二套状态表 |
+| task.md 输入、frontmatter 与记录 | TaskService | 业务目标及 status/stage/outcome/branch，记录短锁保护；业务意图与 stage 名义权威，可交付资格是本机事实，不因文件拆分建立第二套业务状态表 |
 | plan.md／design.md／research/ | 任务规划资料（045 实现，经核心统一接口） | 实施计划、方案依据与调查材料；随任务目录生命周期，要求性内容变化走 task update |
 | installation/init 清单 | InitializationService | 本机安装、文件所有权、模板与准备状态 |
 | Session 元数据 | SessionService | 身份、阶段、关系和原生引用；选择仅作已核实快照 |

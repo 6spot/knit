@@ -585,6 +585,12 @@ export default function (pi: any) {
       }
       const blocked = groups[0].rows.filter((entry: any) => Array.isArray(entry.blocked) && entry.blocked.length > 0).length;
       lines.push(`进行中 ${groups[0].rows.length} · 待归档 ${groups[1].rows.length} · 已取消 ${groups[2].rows.length} · 阻塞 ${blocked} · 归档 ${data.archivedCount ?? 0}（task list --archive）`);
+      if (Array.isArray(data.bindingMissing) && data.bindingMissing.length > 0) {
+        lines.push(`本机缺少绑定 ${data.bindingMissing.length}（binding_missing；clone／换机后按 task.md 重建）：`);
+        for (const entry of data.bindingMissing) {
+          lines.push(`  - ${taskLabel(entry)} · ${stageNameOf(entry.stage)}（先 task rebind ${entry.taskId}）`);
+        }
+      }
       return lines.join("\n");
     }
     // task list --archive：{ scope: "archive", archived: [...], archivedCount }。
@@ -791,7 +797,7 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_task",
     label: "Knit task",
-    description: "任务身份、输入更新（目标有活动 run 时 update 需 runId 否则 task_busy，运行中改输入收尾判 stale_input；pending=true 只存草案）、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭与当前会话选择；list 默认只列未归档任务，archive=true 查归档；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
+    description: "任务身份、输入更新（目标有活动 run 时 update 需 runId 否则 task_busy，运行中改输入收尾判 stale_input；pending=true 只存草案）、验证要求、优先级／依赖／业务顺序、稳定执行顺序、历史检索、记录、关闭、clone／换机后的 rebind 与当前会话选择；list 默认只列未归档任务，archive=true 查归档；是否建任务由用户决定，普通问答与只读调查不需要建任务。",
     parameters: schema("task"),
     async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       // 历史检索不需要 taskId，也不写任务状态。
@@ -807,6 +813,8 @@ export default function (pi: any) {
       }
       // task next 不读 taskId；只有真正的任务操作才校验它。
       if (params.action !== "next" && params.taskId && safeId(params.taskId, "k-") === null) return failText(`非法 taskId: ${params.taskId}`);
+      // rebind 是跨机恢复入口，必须明确目标任务；不借用会话当前选择。
+      if (params.action === "rebind" && !params.taskId) return failText("task rebind 需要 taskId");
       if (params.action === "use" || params.action === "clear") {
         const session = sessionOf(ctx);
         if (session === null) return failText("无法登记当前主会话；先确认项目已 init 且桥接加载");

@@ -227,6 +227,8 @@ function rexDiagnosticsOf(root: string, runId: string): RunDiagnosticsFile | nul
 export interface TaskNextActionFacts {
   taskId: string;
   status: string;
+  /** 业务结论；closed/completed 但缺绑定时仍可经 rebind 重开并重建完成资格。 */
+  outcome?: string | null;
   stage: string;
   verification: VerificationMode;
   archived: boolean;
@@ -251,16 +253,22 @@ function runLabel(run: RunStatusView): string {
  */
 export function taskNextAction(facts: TaskNextActionFacts): TaskNextAction | null {
   const id = facts.taskId;
-  if (facts.status !== "open" || facts.archived) return null;
-  // 无绑定：本机没有确认摘要、scope 与凭据（常见于 clone 后），跨机重建由 k-434714cbbb68 提供。
-  if (facts.binding === null) {
+  if (facts.archived) return null;
+  // 无可用绑定：没有绑定行，或非 start 任务的确认摘要仍为空（如 adopt 补建）。
+  // 本机没有确认摘要、scope 与凭据时先按 task.md 重建本机资格。
+  // 未归档 completed 也可重建后重新收尾；cancelled／superseded 不重建。
+  const bindingMissing = facts.binding === null || (facts.stage !== "start" && facts.binding.confirmedInputsDigest === null);
+  if (bindingMissing) {
+    if (facts.status !== "open" && facts.outcome !== "completed") return null;
     return {
       kind: "binding_missing",
-      summary: `任务在本机没有绑定（确认摘要、scope 与凭据是本机事实）；常见于 clone／换机后，参见跨机任务（task rebind）`,
-      commands: [`knit task adopt ${id} --branch current`],
+      summary: `任务在本机没有可用绑定（确认摘要、scope 与凭据是本机事实）；常见于 clone／换机后，先按 task.md 重建绑定与证据落点`,
+      commands: [`knit task rebind ${id}`],
       runId: null,
     };
   }
+  if (facts.status !== "open") return null;
+  if (facts.binding === null) return null;
   const binding = facts.binding;
   // 未收敛的 run：按最近一条给出口；未知存活不冒充死亡。
   const pendingRuns = facts.runs.filter((run) => !TERMINAL_RUN_STATES.has(run.state));
@@ -536,6 +544,7 @@ export class StatusService {
       nextAction: taskNextAction({
         taskId,
         status: document.frontmatter.status,
+        outcome: document.frontmatter.outcome,
         stage: document.frontmatter.stage,
         verification: verificationModeOf(document.frontmatter),
         archived: located.archived,

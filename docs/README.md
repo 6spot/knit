@@ -1,6 +1,6 @@
 # 文档索引
 
-开发入口是 [AGENTS.md](../AGENTS.md)。后续正式任务使用 [.knit/workflow.yaml](../.knit/workflow.yaml) 和 `.knit/tasks/`，通过 `npx --no-install knit task list` 查看活跃任务（归档用 `npx --no-install knit task list --archive`）；各任务的 `task.md` 是需求与业务状态唯一权威。是否建任务由用户决定，未建任务时可直接执行。
+开发入口是 [AGENTS.md](../AGENTS.md)。后续正式任务使用 [.knit/workflow.yaml](../.knit/workflow.yaml) 和 `.knit/tasks/`，通过 `npx --no-install knit task list` 查看活跃任务（归档用 `npx --no-install knit task list --archive`）；各任务的 `task.md` 是需求与业务意图（目标、验收、stage 名义）的权威，可交付资格是本机事实，换机后用 `knit task rebind` 重建。是否建任务由用户决定，未建任务时可直接执行。
 
 ## 现行设计与规则
 

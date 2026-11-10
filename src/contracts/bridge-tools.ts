@@ -23,6 +23,7 @@ export const TaskToolSchema = obj(
       lit("implement"),
       lit("close"),
       lit("adopt"),
+      lit("rebind"),
       lit("verification"),
       lit("use"),
       lit("clear"),

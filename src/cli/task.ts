@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { RunActivityService } from "../application/run-activity.js";
-import { TaskService, type TaskListResult, type TaskSummary, type TaskUpdateResult } from "../application/task-service.js";
+import { TaskService, type TaskBindingMissingEntry, type TaskListResult, type TaskSummary, type TaskUpdateResult } from "../application/task-service.js";
 import type { TaskListProblem } from "../application/task-history.js";
 import { workflowOf } from "../application/workflow.js";
 import { workflowStageDisplayName } from "../domain/workflow.js";
@@ -31,6 +31,8 @@ interface TaskListActiveView {
   scope: "active";
   active: TaskSummary[];
   archivedCount: number;
+  /** 本机缺少绑定、task.md 已非 start 的任务；源任务列表不包含绑定，需另查本机元数据。 */
+  bindingMissing: TaskBindingMissingEntry[];
   problems: TaskListProblem[];
 }
 
@@ -84,6 +86,13 @@ function renderActiveList(view: TaskListActiveView, dir: string): void {
     for (const row of group.rows) console.log(line(row));
   }
   console.log(`进行中 ${groups[0]?.rows.length ?? 0} · 待归档 ${groups[1]?.rows.length ?? 0} · 已取消 ${groups[2]?.rows.length ?? 0} · 阻塞 ${groups[0]?.blocked ?? 0} · 归档 ${view.archivedCount}（knit task list --archive）`);
+  if (view.bindingMissing.length > 0) {
+    console.log(`本机缺少绑定 ${view.bindingMissing.length}（binding_missing；clone／换机后按 task.md 重建）：`);
+    for (const entry of view.bindingMissing) {
+      console.log(`  ${entry.taskId}  ${entry.status}  ${entry.stage}  ${entry.title}`);
+    }
+    console.log(`  ${view.bindingMissing.map((entry) => `knit task rebind ${entry.taskId}`).join("；")}`);
+  }
   if (view.problems.length > 0) {
     console.log(`列表问题（${view.problems.length}）：`);
     for (const problem of view.problems) console.log(`  ${problem.path}  ${problem.message}`);
@@ -386,6 +395,25 @@ export function registerTaskCommands(program: Command): void {
     });
 
   task
+    .command("rebind <taskId>")
+    .description("clone／换机后按 task.md 重建本机绑定与证据落点（降级不消耗 stageVisits）")
+    .option("--dir <dir>", "项目目录", ".")
+    .action(async (taskId, options) => {
+      const requestId = `task-rebind-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withService(
+        requestId,
+        options.dir,
+        (service) => service.rebind({ dir: options.dir, taskId }),
+        (result) => {
+          console.log(`任务 ${result.taskId}: ${result.rebound ? "本机绑定已重建" : "本机已有绑定"} ${result.branch ?? "（无分支）"}`);
+          console.log(`阶段: ${result.originalStage} → ${result.stage}；${result.reason}`);
+          if (result.originalStatus !== result.status) console.log(`状态: ${result.originalStatus} → ${result.status}`);
+          console.log(`确认输入摘要: ${result.confirmedInputsDigest.slice(0, 12)}`);
+        },
+      );
+    });
+
+  task
     .command("rename <taskId> <newSlug>")
     .description("按稳定 ID 改目录名；等价移动不影响检查资格")
     .option("--dir <dir>", "项目目录", ".")
@@ -415,7 +443,7 @@ export function registerTaskCommands(program: Command): void {
       await withService(
         requestId,
         options.dir,
-        (service): Promise<TaskListActiveView | TaskListArchiveView> => {
+        async (service): Promise<TaskListActiveView | TaskListArchiveView> => {
           const result: TaskListResult = service.list({ dir: options.dir });
           // 月份过滤同时约束问题明细：其它月份的诊断不混进本次视图。
           const problems = month === undefined ? result.problems : result.problems.filter((problem) => problem.path.includes(`/archive/${month}/`));
@@ -424,7 +452,9 @@ export function registerTaskCommands(program: Command): void {
             const payload: TaskListArchiveView = { root: result.root, scope: "archive", archived, archivedCount: result.archived.length, problems };
             return Promise.resolve(month === undefined ? payload : { ...payload, month });
           }
-          return Promise.resolve({ root: result.root, scope: "active", active: result.active, archivedCount: result.archived.length, problems });
+          // 本机绑定不在 task.md 中：单独只读核对，供 clone／换机后标记 binding_missing。
+          const bindingMissing = await service.missingBindings({ dir: options.dir });
+          return Promise.resolve({ root: result.root, scope: "active", active: result.active, archivedCount: result.archived.length, bindingMissing, problems });
         },
         (view) => {
           if (view.scope === "archive") renderArchiveList(view);
@@ -517,11 +547,12 @@ export function registerTaskCommands(program: Command): void {
           }),
         (result) => {
           console.log(`实施事实已记录: ${result.taskId}（${result.executor}）· 路径 ${result.paths.length} · 验证 ${result.validations}`);
+          if (result.bindingRebuilt === true) console.log(`本机绑定已重建；当前阶段 ${result.stage ?? "?"}（先按当前需求核对再完成）`);
         },
       );
     });
 
-  const material = task.command("material").description("任务规划资料：plan/design/research（task.md 仍是业务状态唯一权威）");
+  const material = task.command("material").description("任务规划资料：plan/design/research（task.md 仍是业务意图与 stage 名义权威）");
 
   material
     .command("list <taskId>")

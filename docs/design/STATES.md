@@ -170,7 +170,7 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 | 本 run 无差异、指纹未变、原 run 由 `write`／`edit` 写入 | 沿用并入 scope（结果 `attribution.inheritedPaths`） |
 | 本 run 无差异、指纹已变或原 run 来源不明 | 来源不明，等主会话确认 |
 
-并入或被排除的残留在接收检查点收敛时从 `residue.json` 移除；未处理的残留在交付预检中提醒。由此不再出现“不列残留判 `zero_diff`、列出判 `report_changed_paths_missing`”的死路。跨机缺完成凭据时不猜通过：未归档完成任务先按 verification 重建完成资格（self 需可核对的实施，independent 需有效检查；none 需用户明确选择）；取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
+并入或被排除的残留在接收检查点收敛时从 `residue.json` 移除；未处理的残留在交付预检中提醒。由此不再出现“不列残留判 `zero_diff`、列出判 `report_changed_paths_missing`”的死路。跨机缺完成凭据时不猜通过：task.md 保留业务意图与 stage 名义，scope、确认摘要与凭据是本机事实；未归档完成任务先 `task rebind <taskId>` 重建本机资格（self／none 回到首个工作阶段，independent 回到检查阶段，降级不消耗 stageVisits；原 stage 与原因写入记录区，不伪造 run 或凭据），再按 verification 取证——self 需可核对的实施，independent 需有效检查；none 需用户明确选择。取消／替代仅归档资料不套此门槛，Git 已归档历史不自动重开。
 
 ## 9. 规范候选与沉淀
 
