@@ -1,8 +1,8 @@
 ---
 id: k-3cdf35cd9d45
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: null
@@ -96,5 +96,32 @@ title: 阶段访问计数只在开始后生效：准备期改需求不消耗修�
 ### 跨机交接（2026-11-07）
 
 交接到另一台机器执行：新机器没有本机 binding，stage=implement 时 `task ready` 会报 `phase_mismatch`（审计 S6）。因此把 frontmatter 改回 start，在新机器上重新 ready；输入未改。
+
+### 实施与接收（2026-11-10）
+
+- run-dacba35099cb（implement，magpie group/deepseek）completed 并自动接收（implementation_accepted），7 个路径。派发时 Rex 呈现启动失败（`rex_launcher_error`：`session.describe_block` 返回 `session_not_found`，主会话所在 Rex session 已不存在），按 `execution.host: auto` 回退 local 执行，未影响结果。
+- 实现：`TaskFacts.started`（`binding.lastRunIds` 非空）；`inputsUpdated(kind=change)` 未开始时回 start 并清空 `stageVisits`，已开始保留；`pendingResolved` 复用同一函数。STATES 第 3 节、DESIGN §3.8／§4／§5.3 同步。
+
+### 主会话核验
+
+- 读完 `src/domain/task.ts`、`src/application/task-service.ts` 与文档 diff；核对 `lastRunIds` 只在 `run-acceptance.ts` 两处接收路径追加，失败／取消不追加；`binding?.lastRunIds?.length ?? 0` 兼容旧绑定缺字段。
+- 全量 `npm test`（清除 Rex 呈现环境）：701/701 通过。新增 5 个测试覆盖：领域层未开始／已开始、准备期多次 change 不触发 `repair_round_limit`、已开始累计到上限、失败 run 不算开始、旧绑定缺 `lastRunIds`。
+- 未验证：取消 run 路径没有单独的集成测试（与失败 run 共用“仅接收时追加”的判定）；未在 k-f0d9a8952aff 现场重放。
+
+### 待确认
+
+- “开始 = 至少一次被接收的 run”仍是 `[assumed]`（Agent 建议，待确认），按总计划 §6 授权照推荐项实施；用户若改口径，只需调整 `stageFactsOf` 的 `started` 取值。
+
+### 交付记录
+
+<!-- knit:delivery:op-a0d0ec712c3d -->
+- 操作: op-a0d0ec712c3d
+- 时间: 2026-11-10T10:54:15.723Z
+- 分支: refs/heads/main
+- 授权来源: user:b527d46a
+- 调用: bridge
+- 工作提交: 4c9b73e73810e6d9320070fe81866f1367883283
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-07-visits-count-after-start
 
 <!-- knit:progress:end -->
