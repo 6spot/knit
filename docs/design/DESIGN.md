@@ -382,7 +382,7 @@ M1 的 --dev 仅增加本次及其 worker 的结构化 stderr，桥接分离诊�
 
 阶段提示词由 `.knit/workflow.yaml` 的 `prompt` 指定；缺省或文件缺失时使用核心默认 agent 指令，不阻断执行。`tools` 不写或写标量 `all` 表示全部放开，写 `[]` 表示全部禁用（Pi 启动参数为 `--no-tools`，保持离线并禁用扩展／MCP／技能），写了非空列表就是能力白名单（列表里混入 `all` 报 `invalid_tools`）：`read` 只读，`write` 改文件，`exec` 执行命令，`task` 使用任务工具，`external` 放开项目扩展／MCP／技能，`network` 放开网络。外部能力是显式 opt-in，声明后工具不存在要报错，不静默降级。
 
-检查阶段默认不改文件（默认流程 `tools: [read, exec]`），发现和证据交回主会话或实施阶段；项目把检查阶段配置为允许 `write` 时，才可在既定需求内直接修复明确缺陷。worker 的职责限于受委派阶段；任务创建、递归委派、提交、合并、推送与环境清理由主 Agent 和确定性工具协调。这些职责与工具策略不是操作系统沙箱；首版不宣称能阻止任意 shell 的所有越权副作用。阶段边界由 worker 冻结并核对（实现见 `src/application/stage-baseline.ts`）：启动阶段 Agent 前记录 HEAD 提交、符号引用、index 摘要（`git ls-files -s`）、工作区签名、敏感区指纹与忽略区目录级摘要，写入 run 状态 `baseline` 并随结果发布；收尾时 HEAD 与基线不同即 `failed: head_moved_during_stage`，结果 `boundary.commits` 带 `git rev-list <基线>..HEAD`，不接收、不并入 scope，由用户自行处理提交后重派，首版不提供“接纳阶段内提交”的出口。index 变化只写进 `boundary.indexChanged`，单纯暂存不判失败。实际差异按“基线提交＋基线时脏文件指纹”计算，阶段内提交过的路径也出现在 `actualChangedPaths` 中供诊断。敏感区为 `.git/hooks/**`、`.git/config`、`.git/info/**` 与 `.knit/.runtime/` 下的 `checks/`、`completions/`、`implementations/`、其它 run 目录的不可变资料、`installation.json`、`init-manifest.json`，阶段前后有变化即 `failed: protected_runtime_modified:<paths>`；本 run 自有目录、会话目录、列表缓存，以及其它活动 run 自身的写入除外。忽略区（`git status --ignored` 目录级条目，每条取自身与直接子项的 stat 摘要）的变化写进结果 `ignoredChanges`，`run status` 与桥接通知显示，不判失败；深层文件原地改写不保证可见。核对只做检测与拒绝接收，不拦截 shell 调用本身。
+检查阶段默认不改文件（默认流程 `tools: [read, exec]`），发现和证据交回主会话或实施阶段；项目把检查阶段配置为允许 `write` 时，才可在既定需求内直接修复明确缺陷。worker 的职责限于受委派阶段；任务创建、递归委派、提交、合并、推送与环境清理由主 Agent 和确定性工具协调。这些职责与工具策略不是操作系统沙箱；首版不宣称能阻止任意 shell 的所有越权副作用。阶段边界由 worker 冻结并核对（实现见 `src/application/stage-baseline.ts`）：启动阶段 Agent 前记录 HEAD 提交、符号引用、index 摘要（`git ls-files -s`）、工作区签名、敏感区指纹与忽略区目录级摘要，写入 run 状态 `baseline` 并随结果发布；收尾时 HEAD 与基线不同即 `failed: head_moved_during_stage`，结果 `boundary.commits` 带 `git rev-list <基线>..HEAD`，不接收、不并入 scope，由用户自行处理提交后重派，首版不提供“接纳阶段内提交”的出口。index 变化只写进 `boundary.indexChanged`，单纯暂存不判失败。实际差异按“基线提交＋基线时脏文件指纹”计算，阶段内提交过的路径也出现在 `actualChangedPaths` 中供诊断。敏感区为 `.git/hooks/**`、`.git/config`、`.git/info/**` 与 `.knit/.runtime/` 下的 `checks/`、`completions/`、`implementations/`、其它 run 目录的不可变资料、`installation.json`、`init-manifest.json`，阶段前后有变化即 `failed: protected_runtime_modified:<paths>`；本 run 自有目录、会话目录、列表缓存，以及其它活动 run 自身的写入除外。忽略区（`git status --ignored` 目录级条目，每条取自身与直接子项的 stat 摘要）的变化写进结果 `ignoredChanges`，`run status` 与桥接通知显示，不判失败；深层文件原地改写不保证可见。核对只做检测与拒绝接收，不拦截 shell 调用本身。在此之上（任务 k-28296c22647a）：凭据与 run 结果带本机 HMAC，阶段内伪造或抢先写入的未签名结果、检查点与凭据不被采信；阶段进程带 `KNIT_STAGE_RUN_ID`，收尾类命令在阶段内以 `stage_context_forbidden` 拒绝；交付提交缺省不执行仓库 hooks（§10.1、§10.2）。
 
 检查上下文包含目标、完成条件、适用规范、变更范围、实际文件和验证入口。实施报告作为待核对证据传入，检查以实际内容为依据。
 
@@ -464,9 +464,9 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | `launch.json` | 核心 | planned/starting/confirmed/failed 启动意图、句柄与实例证据 |
 | `instructions.json` | worker | 已落实的注入清单：来源 ID、作用域、指纹、注入途径、版本和原生产物位置 |
 | `state.json` | worker | 实例身份、运行状态、Knit／原生 Session 引用和已知子进程定位 |
-| `result.json` | worker | 不可变终态、结构化报告、原生引用与本 run 增量用量，不证明 Git 收尾 |
+| `result.json` | worker | 不可变终态、结构化报告、原生引用与本 run 增量用量，不证明 Git 收尾；带本机 HMAC，未签名或签名不符的结果接收停在 `needs_attention` |
 | `diagnostics.json` | worker | runtime 启动失败时的一次性 stderr 尾部与失败码；只作辅助证据，不作权威回执、不参与状态机 |
-| `acceptance.json` | RunAcceptanceService | 接收检查点：来源目标、binding before／after、scope 与 check 凭据、输入／规范摘要 |
+| `acceptance.json` | RunAcceptanceService | 接收检查点：来源目标、binding before／after、scope 与 check 凭据、输入／规范摘要；带本机 HMAC，签名无效不按记录收敛 |
 | `snapshot/` | 核心 | preparing/ready/failed 恢复对照及覆盖说明 |
 | `events.jsonl` | worker | 只作脱敏进度观察，半行／重复不作为完成证据 |
 | `cancel.json` | 核心 | 取消意图：目标 run、operation 与 owner token，按需建立 |
@@ -496,7 +496,7 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 
 首版保留 Session 索引、绑定与运行资料，归档不自动删除。`storage` 统计体积并在超阈值时提示，`doctor` 检查引用、占用和孤儿 run；不自动 gc。原生 Session、快照与 request 按私有权限保存，恢复链和版本约定见 [运行细则](OPERATIONS.md)。
 
-请求只保存必要环境变量的名称与凭据引用，不序列化环境值、token 或 API key。凭据经受信运行时通道提供。Knit 写入任务、规范或配置前，以及限定路径提交前，扫描待写内容与本次实际差异中的常见 token／私钥模式；命中时暂停并只报告类型和位置。外部工具不受 Knit 事前写入控制，提交前仍执行扫描；扫描不构成无泄露证明。
+请求只保存必要环境变量的名称与凭据引用，不序列化环境值、token 或 API key。凭据经受信运行时通道提供。Knit 写入任务、规范或配置前，以及限定路径提交前，扫描待写内容与本次实际差异中的常见 token／私钥模式；命中时暂停并只报告类型和位置。交付前的扫描范围是产物与资料提交将暂存的全部路径：scope、主会话实施记录、采纳的规范目标与任务目录，目录按 `git status` 展开到其下实际改动的文件（任务 k-28296c22647a）。外部工具不受 Knit 事前写入控制，提交前仍执行扫描；扫描不构成无泄露证明。
 
 ### 5.7 REX 执行适配
 
@@ -667,6 +667,19 @@ Session 查询可按任务、客户端、主／子类型和父子关系定位，
 
 deliver 是唯一正常交付处理器，由主会话协调确定性工具，不启动交付辅助 worker。所有会提交的 deliver/archive 必须显式 --branch <完整本地ref>，与实际及绑定分支一致；桥接 Agent 声明 authorizationRef，终端代调可 --authorization-ref，operation 记录来源引用／版本，不把分支参数当人类授权证明。直接 CLI 只记录调用声明，Agent 代调仍需已有授权。
 
+授权引用按调用路径核对（任务 k-28296c22647a）：
+
+| 路径 | `user:` 引用 | 回执 `caller` |
+| --- | --- | --- |
+| 桥接 `knit_deliver` | 必须写成 `user:<本会话用户消息条目 ID>` 或 `user:sha256:<消息正文 SHA-256 前 12–64 位>`；桥接对非 plan 动作一律把本会话原生记录文件经 `--session-file` 交给核心（不论引用写法），核心对项目策略来源以外的全部引用（`user:`／`native:`／`message:`／自由文本）在其中找 `role: user` 的消息条目，找不到（自由文本、`native:`／`message:` 写法、助手消息 ID、不存在的摘要）即 `authorization_unverified`，在创建操作前拒绝；匹配时 `authorization.verified=true`，`section` 记条目 ID、`digest` 记正文摘要。取不到会话文件时桥接只放行项目策略来源，用户类引用直接拒绝 | `bridge` |
+| 直接 CLI | 保持现状：`user:` 任意文本只记录声明（`verified: false`） | `cli-unverified`（交付记录写“调用: cli-unverified”） |
+
+项目策略来源（`workflow:<文件>#<章节>`、`AGENTS.md`）在两条路径上都按文件、章节与摘要核实，不受会话佐证影响。核心只核对消息存在，不判断消息语义是否构成授权，语义仍由主 Agent 确认。
+
+阶段调用边界：worker 为阶段 Pi 及其子进程注入 `KNIT_STAGE_RUN_ID=<run-id>`（local 与 Rex 呈现相同）。核心检测到该变量时拒绝 `deliver`、`archive`、`worktree merge --apply`、`worktree cleanup`、`task close`、`unlock`、`gc --apply`、`run accept`，原因 `stage_context_forbidden`（CLI reasonCode `needs_review`），不写文件、不取锁；`deliver --plan` 等只读命令不受限。它与既有 `KNIT_RUN` 同值但分开：`KNIT_RUN` 只是 `task update` 缺省声明的 run，用户可以在自己的终端里设置它以声明活动 run，若复用它做拒绝标记会误伤主会话；`KNIT_STAGE_RUN_ID` 只由 worker 注入，含义是“当前进程在阶段内部”。环境标记拦的是阶段 Agent 的直接调用，不是沙箱：刻意清除变量绕过时，阶段内提交仍由基线核对判 `head_moved_during_stage`，伪造凭据由下文完整性校验拒绝。
+
+凭据完整性：检查凭据 `checks/<run-id>.json`、完成凭据 `completions/<task-id>.json`、实施记录 `implementations/<task-id>.json`，以及 run 自有目录中的 `result.json` 与接收检查点 `acceptance.json`，写入时顶层附 `integrity: { alg: "hmac-sha256", mac }`。MAC 输入为版本前缀、凭据种类、文件名（run／任务 ID）与去掉 `integrity` 后的键排序 JSON，挪用到别的文件或种类也不成立。密钥为本机 `~/.knit/keys/<project-hash>`（32 字节随机，文件 0600、目录 0700，`project-hash` 为规范化项目根的 SHA-256 前 32 位；主目录取账号主目录，不随 `HOME` 漂移），首次写凭据时创建；`KNIT_KEYS_ROOT` 只用于隔离测试，阶段进程环境剔除它，不传密钥路径。读取时先核 MAC 再按原 schema 校验：不符或本机密钥缺失／已更换即 `credential_tampered`，缺签名的旧凭据即 `credential_unsigned`（需重建：重新检查、重新 `task implement` 或重新 `task close`，不做一次性信任迁移）；两者都不当作有效凭据，交付、完成与检查资格按该原因拒绝（CLI reasonCode `needs_review`），接收停在 `needs_attention`，状态展示忽略失效凭据。目标是防阶段 Agent 无意或越权伪造 ignored 明文凭据，不防同一用户账号下的恶意本地进程，也不做远程签名或多用户权限。换机或删除密钥后旧凭据全部失效，按重建处理。
+
 认可的项目策略写在项目规则文件（如 AGENTS.md 的交付约定或显式授权来源），模板不默认授予主分支提交许可。候选默认分支依次来自 delivery.defaultBranch、本地 origin/HEAD 或 unknown，不按 main/master 名猜、不联网探测。检测用于展示和审计，不授予权限；unknown 不阻明确授权。主 Agent 核对来源语义，核心验证引用／版本和目标，已有授权覆盖不重复询问，adopt 不附提交许可。详见 [授权细则](OPERATIONS.md#51-提交目标与授权来源)。
 
 deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际执行程序中断则按操作记录核实工具和 Git 效果后恢复，不承诺关闭界面后自动跑完整个交付。不额外建设后台操作调度器。
@@ -687,6 +700,8 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 4. Hook 失败或其他进程改变内容时保存现状，核对检查有效性后继续。
 
 自动提交使用明确路径集合。暂存整理保留用户现场；stash、reset、amend、rebase 或历史改写需要对应的明确操作意图。
+
+Knit 发起的交付类操作（`deliver`／`archive` 的产物／资料／归档提交、`worktree merge --apply` 的合入与失败后的 `merge --abort`、`worktree cleanup --apply`）按 `delivery.hooks` 处理仓库 hooks：缺省 `skip`，每次操作在系统临时目录建一个私有空目录，操作全程（异步调用链范围）内本进程发起的全部 Git 命令前置 `-c core.hooksPath=<空目录>`，结束即删除。隔离覆盖的不只是 `commit`／`merge`：`add`、`reset`、`merge --abort`、刷新 index 的 `status`／`diff` 会触发 `post-index-change`，`branch -D`、`worktree remove` 会触发 `reference-transaction`，这些同样不执行；阶段 Agent 写入 `.git/hooks` 的脚本因此不会在用户授权交付时执行。需要 lint／format hook 的项目在配置中显式改为 `run`，此时仓库 hooks（含 `core.hooksPath`）照常执行，下文 hook 越界核验仍生效。交付前（`deliver --plan` 与交付结果的 `hooks` 字段）列出实际生效 hooks 目录中自上次交付以来新增或修改的 hook（忽略 `*.sample`）：每次交付完成后把该目录快照（名称、权限与内容摘要）写入 `.knit/.runtime/delivery-hooks.json` 并附本机 HMAC，没有基线或签名无效时把现有 hook 全部列为新增。列出只提醒、不阻塞。
 
 产物提交说明由主会话起草，经 `deliver --message-file` 传入；核心只校验、拼装并持久化，不调用模型。文案为 UTF-8 纯文本：首行 1–72 个字符，空行分隔正文，正文非空且不超过 4000 个字符，整个文件不超过 8 KB；首行不得以旧机器前缀 `knit: ` 开头、不得只含任务／操作 ID，正文行不得以保留键 `Knit-` 开头。非法或空文案在创建操作、`git add` 与修改 Task 之前拒绝。未提供文案时使用事实型模板正文并记录 `message_source: template`；模板“验证”行写验证方式与依据，所引用检查带 `checkerChangedPaths` 时写成“independent（检查者修复 N 个路径，修复部分为自检）”，不输出不带标注的“independent 通过”；交付结果与 `--plan` 都显示来源。三类提交末尾统一附 `Knit-Task`／`Knit-Operation`／`Knit-Stage`／`Knit-Verification` trailer；恢复与合入按 trailer 识别，无 trailer 时回退旧 `knit: <stage>` 单行格式。文案按阶段持久化，重试复用已保存文本，新文件被忽略并记录 `message_ignored_on_retry`；已提交说明不做 amend。
 
@@ -774,6 +789,7 @@ Session 列表从第 9.5 节统一索引查询主／子会话、客户端、任�
 | `execution.host` | `auto`；REX 环境与能力探测通过时用 `rex`，否则 `local`；值为 `local` 始终本地，`rex` 强制且失败报 `rex_unavailable`；调用级 `--rex`／`--local` 优先 |
 | `delivery.mode` | `local` 或 `merge`；缺省 `local`。`merge` 仅对已绑定 worktree 的任务：先按既有 merge 守卫合入，再在主检出完成交付；无 worktree 时记为 `noop`。调用仍显式 --branch 并核实授权 |
 | `delivery.defaultBranch` | 可选完整 refs/heads/...，无默认；用于默认分支候选展示，不切分支／授权限；格式非法报告配置错误 |
+| `delivery.hooks` | `skip` 或 `run`；缺省 `skip`。Knit 发起的交付／合入提交是否执行仓库 hooks；`skip` 用 `-c core.hooksPath=<空目录>` 隔离，需要 lint／format hook 时显式改 `run`（§10.2） |
 | `worktree.default` | `off` 或 `on`；缺省 `off`。`on` 时派发首个配置阶段前自动确保 worktree；任务级 `run prepare --worktree on\|off` 覆盖本次派发 |
 | `worktree.cleanup` | `manual` 或 `after-merge`；缺省 `manual`。`after-merge` 在授权合入成功、交付完成且工作区干净时清理；失败保留现场 |
 | `worktree.copy` | 数组，缺省空；每项 `path`（相对主项目根）与可选 `target`（相对 worktree 根，缺省同相对路径）。`worktree prepare` 按白名单复制并核对来源／目标基线 |

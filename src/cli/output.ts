@@ -28,7 +28,11 @@ export function reasonForError(error: unknown): ReasonCode {
       guard === "standards_review_required" ||
       guard === "standards_apply_required" ||
       guard === "authorization_changed" ||
-      guard === "policy_changed"
+      guard === "policy_changed" ||
+      guard === "stage_context_forbidden" ||
+      guard === "credential_tampered" ||
+      guard === "credential_unsigned" ||
+      guard === "authorization_unverified"
     ) {
       return "needs_review";
     }
@@ -94,6 +98,8 @@ export function reasonForError(error: unknown): ReasonCode {
   }
   const code = (error as { code?: string })?.code;
   switch (code) {
+    case "credential_integrity":
+      return "needs_review";
     case "version_conflict":
       // 草案／基线不匹配语义上是 stale_input；文件版本冲突是旧基线 incompatible_version。
       return (error as { details?: { guardReason?: string } }).details?.guardReason === "stale_input" ? "stale_input" : "incompatible_version";

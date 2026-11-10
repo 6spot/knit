@@ -451,6 +451,14 @@ export function registerRunCommands(program: Command): void {
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (runId, options) => {
+      try {
+        // 阶段进程内不能接收任何 run（含自己）：接收会推进任务阶段与写检查凭据。
+        const { assertNotInStageContext } = await import("../application/stage-context.js");
+        assertNotInStageContext("run accept");
+      } catch (error) {
+        fail("run-accept", error);
+        return;
+      }
       const root = cliMainRoot(options.dir);
       const store = openStore(root);
       try {

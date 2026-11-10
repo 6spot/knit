@@ -234,6 +234,14 @@ export default function (pi: any) {
     };
   }
 
+  /** 用户类授权引用：与核心 resolveAuthorization 同口径，项目策略来源（workflow:／含 #／.knit/ 开头／.md 结尾）以外均是。 */
+  function userTypeAuthorizationRef(ref: string): boolean {
+    const value = ref.trim();
+    if (value === "") return false;
+    if (value.startsWith("user:") || value.startsWith("native:") || value.startsWith("message:")) return true;
+    return !(value.startsWith("workflow:") || value.includes("#") || value.startsWith(".knit/") || value.endsWith(".md"));
+  }
+
   function failText(message: string) {
     return { isError: true, content: [{ type: "text", text: message }], details: null };
   }
@@ -1149,9 +1157,9 @@ export default function (pi: any) {
   pi.registerTool({
     name: "knit_deliver",
     label: "Knit deliver",
-    description: "按完整分支与授权来源交付、预检或归档；支持多个已完成任务逐项收尾。Agent 交付必须声明 authorizationRef。",
+    description: "按完整分支与授权来源交付、预检或归档；支持多个已完成任务逐项收尾。Agent 交付必须声明 authorizationRef；用户授权写 user:<本会话用户消息条目 ID> 或 user:sha256:<消息正文摘要前 12+ 位>，核心按本会话原生记录核对。",
     parameters: schema("deliver"),
-    async execute(_toolCallId: string, params: any) {
+    async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
       const ids: string[] = Array.isArray(params.taskIds) && params.taskIds.length > 0
         ? params.taskIds
         : params.taskId ? [params.taskId] : [];
@@ -1162,6 +1170,17 @@ export default function (pi: any) {
       const args = [command, ...ids, "--branch", params.branch, "--caller", "agent", "--dir", root];
       if (params.action === "plan") args.push("--plan");
       if (params.authorizationRef) args.push("--authorization-ref", params.authorizationRef);
+      // 桥接路径的非 plan 动作一律把本会话原生记录交给核心：凡非项目策略来源的引用（user:／native:／message:／自由文本）
+      // 都按真实用户消息核对（条目 ID 或正文摘要），回执记 caller: bridge。
+      // 取不到会话文件时只接受项目策略来源（workflow:／文件#章节／.md），用户类引用直接拒绝，不降级为 cli-unverified。
+      if (params.action !== "plan") {
+        const sessionFile = typeof ctx?.sessionManager?.getSessionFile === "function" ? ctx.sessionManager.getSessionFile() : undefined;
+        if (typeof sessionFile === "string" && sessionFile !== "") {
+          args.push("--session-file", sessionFile);
+        } else if (typeof params.authorizationRef === "string" && userTypeAuthorizationRef(params.authorizationRef)) {
+          return failText("authorization_unverified: 当前会话没有原生记录文件，无法核对用户类授权引用（user:／native:／message:／自由文本）");
+        }
+      }
       if (params.retry === true) args.push("--retry");
       if (params.messageFile !== undefined) {
         if (params.action === "archive") return failText("archive 不接受提交文案；文案只用于产物提交");

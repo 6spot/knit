@@ -98,7 +98,10 @@ export function capabilitySwitches(
   };
 }
 
-/** 与本会话环境隔离，避免继承主会话的 PI_SESSION_ID／PI_MODEL 等。 */
+/**
+ * 与本会话环境隔离，避免继承主会话的 PI_SESSION_ID／PI_MODEL 等。
+ * 同时剔除本机凭据密钥路径覆盖（KNIT_KEYS_ROOT）：阶段进程不获得密钥位置。
+ */
 export function isolatedEnv(
   extra: Record<string, string> = {},
   options: { offline?: boolean } = {},
@@ -111,6 +114,7 @@ export function isolatedEnv(
     "PI_MODEL",
     "PI_REASONING_LEVEL",
     "PI_OFFLINE",
+    "KNIT_KEYS_ROOT",
   ]) {
     delete env[key];
   }

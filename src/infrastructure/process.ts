@@ -3,6 +3,7 @@
  * 进程身份含机器／启动标识、PID starttime 与本次实例信息；旧 PID 不足以判断存活。
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { hostname } from "node:os";
@@ -55,6 +56,28 @@ const GIT_ENV: Record<string, string> = {
   GIT_ATTR_NOSYSTEM: "1",
   LC_ALL: "C",
 };
+
+/**
+ * 交付类操作的 hooks 隔离范围（DESIGN §10.2，delivery.hooks=skip）：范围内本进程发起的全部 Git 调用
+ * （gitSync／gitBufferSync／ArgvGitPort）前置 `-c core.hooksPath=<空目录>`，
+ * add／reset／merge --abort／status 刷新 index 等触发的 post-index-change、reference-transaction 等 hook 一律不执行。
+ * 范围随异步调用链传递，不影响同进程内其它并发操作。
+ */
+const hooksScope = new AsyncLocalStorage<string>();
+
+export function withGitHooksPath<T>(hooksPath: string, action: () => T): T {
+  return hooksScope.run(hooksPath, action);
+}
+
+/** 当前异步调用链的隔离 hooks 目录；不在隔离范围内为 null。 */
+export function scopedGitHooksPath(): string | null {
+  return hooksScope.getStore() ?? null;
+}
+
+function scopedGitArgs(args: string[]): string[] {
+  const hooksPath = hooksScope.getStore();
+  return hooksPath === undefined ? args : ["-c", `core.hooksPath=${hooksPath}`, ...args];
+}
 
 export class NodeProcessPort implements ProcessPort {
   private readonly exits = new WeakMap<ManagedProcess, Promise<{ exitCode: number | null; signal: string | null }>>();
@@ -139,7 +162,7 @@ export class ArgvGitPort implements GitPort {
 
   run(args: string[], options: { cwd: string }): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
-      const child = spawn(this.gitExecutable, args, {
+      const child = spawn(this.gitExecutable, scopedGitArgs(args), {
         cwd: options.cwd,
         env: { ...process.env, ...GIT_ENV },
         stdio: ["ignore", "pipe", "pipe"],
@@ -165,7 +188,7 @@ export class ArgvGitPort implements GitPort {
 
 /** 同步 Git 调用：短命令（status/rev-parse）用；产出大输出的用 ArgvGitPort。 */
 export function gitSync(args: string[], cwd: string): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync("git", args, {
+  const result = spawnSync("git", scopedGitArgs(args), {
     cwd,
     env: { ...process.env, ...GIT_ENV },
     encoding: "utf8",
@@ -176,7 +199,7 @@ export function gitSync(args: string[], cwd: string): { code: number; stdout: st
 
 /** 读取 Git 原始对象或二进制输出；不能经过 UTF-8 字符串中转。 */
 export function gitBufferSync(args: string[], cwd: string, input?: Buffer): { code: number; stdout: Buffer; stderr: string } {
-  const result = spawnSync("git", args, {
+  const result = spawnSync("git", scopedGitArgs(args), {
     cwd,
     env: { ...process.env, ...GIT_ENV },
     input,

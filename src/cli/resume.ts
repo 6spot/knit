@@ -9,6 +9,7 @@ import { LockManager } from "../infrastructure/locks.js";
 import { DeliveryRecordSchema, type DeliveryRecord } from "../contracts/delivery.js";
 import { checkSchema } from "../contracts/schema.js";
 import { GuardError } from "../application/guard-error.js";
+import { assertNotInStageContext } from "../application/stage-context.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
@@ -66,6 +67,8 @@ export function registerResumeCommands(program: Command): void {
             return;
           }
           if (operation.kind === "run_acceptance") {
+            // 与 `run accept` 同口径：阶段进程内不能接收 run。
+            assertNotInStageContext("run accept");
             const runs = new RunStore(start.mainRoot);
             const run = runs.listRunIds().find((candidate) => runs.readRequest(candidate)?.acceptanceOperationId === operationId);
             if (run === undefined) throw new GuardError("unknown_run", `找不到操作 ${operationId} 对应的 run`);

@@ -33,12 +33,14 @@ import { gitSync } from "../infrastructure/process.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { ContextPlanner } from "./context-planner.js";
 import { runSettled } from "./run-activity.js";
-import { GuardError } from "./guard-error.js";
+import { GuardError, readIntact } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
+import { assertNotInStageContext } from "./stage-context.js";
+import { inspectSealed, sealedJson } from "../infrastructure/credential-seal.js";
 import { validateCheckEvidence } from "./check-validation.js";
 import { hasChildTasks, locateTaskDocument, markTaskListArchiveChanged } from "./task-service.js";
 import { parseTaskDocument, renderTaskDocument, withRegions } from "./task-document.js";
-import { parseConfig, defaultConfig, worktreeSettingsOf, type ProjectConfig } from "./config.js";
+import { deliveryHooksOf, parseConfig, defaultConfig, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { scanCredentials } from "../contracts/credentials.js";
 import { WorktreeMergeService } from "./worktree-merge.js";
 import { WorktreeCleanupService } from "./worktree-cleanup.js";
@@ -54,6 +56,10 @@ import {
   defaultBranchCandidate,
   dirtyPaths,
   gitOrThrow,
+  hookChanges,
+  hookIsolatedGit,
+  hooksDirOf,
+  hooksSnapshot,
   isAncestor,
   indexTreeFor,
   isFullBranch,
@@ -70,10 +76,13 @@ import {
   truncateMessageSubject,
   type DeliveryStage,
   type GitRunner,
+  type HookChange,
   type MessageDraft,
 } from "./delivery.js";
 
 const SEAL_MARKER = ".knit-sealed";
+/** 交付 hooks 基线：上次交付完成时 hooks 目录的快照（带本机 HMAC）；用于列出此后新增或修改的 hook。 */
+const HOOKS_BASELINE = join(".knit", ".runtime", "delivery-hooks.json");
 const TASK_FILE = "task.md";
 const RUNTIME_PREFIX = ".knit/.runtime";
 
@@ -97,6 +106,21 @@ export interface DeliveryInput {
   merge?: boolean;
   /** 显式授权交付后清理 worktree；缺省按 worktree.cleanup 配置。 */
   cleanup?: boolean;
+  /**
+   * 桥接传入的本会话原生记录：`user:` 授权引用须在其中匹配真实存在的用户消息（按条目 ID 或 sha256 摘要），
+   * 否则 authorization_unverified。缺省为直接 CLI 调用，回执标 `caller: cli-unverified`。
+   */
+  sessionFile?: string | null;
+}
+
+/** 交付提交的 hooks 处理与自上次交付以来的 hook 变化（只列出，不阻塞）。 */
+export interface DeliveryHooksReport {
+  mode: "skip" | "run";
+  /** 实际生效的 hooks 目录（含 core.hooksPath）；读取失败为 null。 */
+  dir: string | null;
+  /** 基线：recorded＝有上次交付快照；none＝尚无；invalid＝签名无效（按无基线列出全部 hook）。 */
+  baseline: "recorded" | "none" | "invalid";
+  changes: HookChange[];
 }
 
 export interface DeliveryPlanMessage {
@@ -126,6 +150,8 @@ export interface DeliveryPlanItem {
 
 export interface DeliveryPlan {
   branch: string;
+  /** 交付提交的 hooks 策略与自上次交付以来新增或修改的 hook。 */
+  hooks: DeliveryHooksReport;
   tasks: DeliveryPlanItem[];
   conflicts: Array<{ path: string; taskIds: string[] }>;
   readOnly: true;
@@ -159,6 +185,8 @@ interface Prepared {
   /** 本次调用已校验的主会话文案；已有持久化文案时忽略新文件。 */
   messageDraft: MessageDraft | null;
   messageIgnored: boolean;
+  /** Knit 发起 commit 用的 Git 执行器：delivery.hooks=skip 时带 `-c core.hooksPath=<空目录>`。 */
+  commitGit: GitRunner;
 }
 
 interface MessageInput {
@@ -192,6 +220,20 @@ export class DeliveryService {
   /** 只读预检：分类、跨任务同路径冲突和已暂存业务路径；不创建操作、不写 Git。 */
   async plan(inputs: DeliveryInput[]): Promise<DeliveryPlan> {
     if (inputs.length === 0) throw new GuardError("task_required", "至少需要一个任务 ID");
+    const root = normalizeRoot(inputs[0]?.dir ?? "");
+    const config = this.readConfig(root);
+    // hooks 报告在隔离范围外取：范围内 --git-path hooks 会解析到私有空目录。
+    const hooks = this.hooksReport(root, config);
+    // CLI deliver 先跑预检；其中 diff 等读取会刷新 index 触发 post-index-change，同样按 delivery.hooks 隔离。
+    const isolation = hookIsolatedGit(deliveryHooksOf(config));
+    try {
+      return { ...(await isolation.scope(() => this.planInScope(inputs))), hooks };
+    } finally {
+      isolation.dispose();
+    }
+  }
+
+  private async planInScope(inputs: DeliveryInput[]): Promise<Omit<DeliveryPlan, "hooks">> {
     const branch = inputs[0]?.branch ?? "";
     for (const input of inputs) {
       if (input.branch !== branch) throw new GuardError("branch_mismatch", "批量收尾的任务必须使用同一分支");
@@ -242,8 +284,61 @@ export class DeliveryService {
   }
 
   private async run(input: DeliveryInput & { mode: "deliver" | "archive" }): Promise<DeliveryResult> {
-    const result = await this.runOperation(input);
-    return this.withArtifactNotice(normalizeRoot(input.dir), result);
+    assertNotInStageContext(input.mode);
+    const root = normalizeRoot(input.dir);
+    // hook 变化在交付前取：本次提交前列出自上次交付以来新增或修改的 hook。
+    const config = this.readConfig(root);
+    const hooks = this.hooksReport(root, config);
+    // delivery.hooks=skip（缺省）：整个操作（合入、add／commit／reset、封存归档与交付后清理）在隔离范围内运行，
+    // 本进程发起的全部 Git 调用都带 core.hooksPath=<私有空目录>，post-index-change 等 hook 同样不执行。
+    const isolation = hookIsolatedGit(deliveryHooksOf(config));
+    let result: DeliveryResult;
+    try {
+      result = await isolation.scope(() => this.runOperation(input));
+    } finally {
+      isolation.dispose();
+    }
+    if (result.state === "completed") this.recordHooksBaseline(root);
+    return { ...this.withArtifactNotice(root, result), hooks };
+  }
+
+  /** 交付 hooks 报告：策略、生效目录与自上次交付基线以来新增／修改的 hook。 */
+  private hooksReport(root: string, config: ProjectConfig): DeliveryHooksReport {
+    const dir = hooksDirOf(root, this.git);
+    const current = hooksSnapshot(dir);
+    const baseline = this.readHooksBaseline(root);
+    return {
+      mode: deliveryHooksOf(config),
+      dir,
+      baseline: baseline.state,
+      changes: hookChanges(baseline.hooks, current),
+    };
+  }
+
+  private readHooksBaseline(root: string): { state: "recorded" | "none" | "invalid"; hooks: Record<string, string> | null } {
+    const path = join(root, HOOKS_BASELINE);
+    const version = readWithVersion(path);
+    if (version === null) return { state: "none", hooks: null };
+    try {
+      const inspected = inspectSealed(root, "delivery-hooks", "baseline", JSON.parse(version.data.toString("utf8")));
+      const hooks = (inspected.payload as { hooks?: unknown } | null)?.hooks;
+      if (inspected.verdict !== "valid" || hooks === null || typeof hooks !== "object") return { state: "invalid", hooks: null };
+      return { state: "recorded", hooks: hooks as Record<string, string> };
+    } catch {
+      return { state: "invalid", hooks: null };
+    }
+  }
+
+  /** 交付完成后记录 hooks 基线；写入失败不否定已完成的交付。 */
+  private recordHooksBaseline(root: string): void {
+    try {
+      const dir = hooksDirOf(root, this.git);
+      const payload = { schemaVersion: 1, hooksDir: dir, hooks: hooksSnapshot(dir), recordedAt: this.now().toISOString() };
+      const path = join(root, HOOKS_BASELINE);
+      atomicWrite({ path, data: sealedJson(root, "delivery-hooks", "baseline", payload), expectedSha256: readWithVersion(path)?.sha256 ?? null, mode: 0o600 });
+    } catch {
+      // 基线缺失只会让下次多列出 hook，不影响交付事实。
+    }
   }
 
   /**
@@ -253,7 +348,7 @@ export class DeliveryService {
   private withArtifactNotice(root: string, result: DeliveryResult): DeliveryResult {
     const noArtifactCommit = result.mode === "deliver" && result.state === "completed" && result.workCommit === null;
     if (!noArtifactCommit) return { ...result, noArtifactCommit: false, noArtifactReason: null, noArtifactNotice: null };
-    const completion = new RunStore(root).readCompletion(result.taskId);
+    const completion = new RunStore(root).readCompletionIfIntact(result.taskId);
     const declared = completion?.artifacts === "none";
     const reason = (declared ? completion?.noArtifactsReason : null) ??
       (completion?.forced === true ? completion.forcedReason : null) ??
@@ -308,8 +403,14 @@ export class DeliveryService {
         const messageInput = this.messageInputFor(input, latest);
         const operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft, followUp ?? undefined));
         recheckAuthorization(root, operation.authorization, caller);
-        const prepared = await this.prepare(root, input, operation, caller, messageInput);
-        result = await this.execute(prepared, operation);
+        // Knit 发起的提交按 delivery.hooks 隔离用户 hooks：skip（缺省）用私有空目录作 core.hooksPath。
+        const isolation = hookIsolatedGit(deliveryHooksOf(config), this.git);
+        try {
+          const prepared = await this.prepare(root, input, operation, caller, messageInput, isolation.git);
+          result = await this.execute(prepared, operation);
+        } finally {
+          isolation.dispose();
+        }
       }
     } finally {
       this.locks.release(lock);
@@ -562,7 +663,13 @@ export class DeliveryService {
       }
     }
     const config = this.readConfig(root);
-    const authorization = resolveAuthorization(root, input.authorizationRef ?? null, caller);
+    const sessionFile = (input.sessionFile ?? "").trim();
+    const authorization = resolveAuthorization(
+      root,
+      input.authorizationRef ?? null,
+      caller,
+      sessionFile === "" ? null : { sessionFile },
+    );
     const defaultBranch = defaultBranchCandidate(root, config, this.git);
     const now = this.now().toISOString();
     const steps: DeliveryStep[] = (input.mode === "deliver"
@@ -590,6 +697,7 @@ export class DeliveryService {
       caller,
       authorizationRef: input.authorizationRef ?? null,
       authorization,
+      invocation: sessionFile === "" ? "cli-unverified" as const : "bridge" as const,
       defaultBranch,
       policyVersion: policyVersion(root, config),
       taskPath: relative(root, join(located.dir, TASK_FILE)).split("\\").join("/"),
@@ -660,7 +768,7 @@ export class DeliveryService {
     const runs = new RunStore(root);
     const scope = loadScope(runs, taskId, this.now().toISOString());
     // 主会话实施没有 run scope：记录里的路径同样属于业务产物范围。
-    const implementation = runs.readImplementation(taskId);
+    const implementation = readIntact(() => runs.readImplementation(taskId));
     const review = await this.reviewForTask(taskId);
     const taskDirRelative = relative(root, taskDir).split("\\").join("/");
     const artifactPaths = [...new Set([
@@ -689,6 +797,7 @@ export class DeliveryService {
     operation: DeliveryOperation,
     caller: "cli" | "agent",
     messageInput: MessageInput,
+    commitGit: GitRunner = this.git,
   ): Promise<Prepared> {
     if (operation.branch !== input.branch) {
       throw new GuardError("branch_mismatch", `继续操作的分支 ${operation.branch} 与本次 --branch 不一致`);
@@ -724,10 +833,15 @@ export class DeliveryService {
     // 限定提交前扫描待写内容与本次实际差异（DESIGN.md §15.1）：未跟踪新文件整体扫描，
     // 已跟踪文件只扫相对 HEAD 的新增行；命中即暂停交付，先于检查资格重核报告（任务032）。
     // 只扫差异避免既有夹具（如扫描器自身的测试样本）反复阻塞后续交付。
+    // 扫描范围是产物与资料提交将暂存的全部路径（任务 k-28296c22647a）：scope、主会话实施记录、
+    // 采纳的规范目标与任务目录，目录按 git status 展开到实际改动的文件，不只是 scope 条目本身。
     if (!located.archived && (operation.mode === "deliver" || (operation.mode === "archive" && operation.kind === "delivery.deliver"))) {
       const scanPaths = new Set<string>([relative(root, taskDir).split("\\").join("/")]);
       const preScope = loadScope(new RunStore(root), input.taskId, this.now().toISOString());
       for (const entry of preScope.entries) scanPaths.add(entry.path);
+      const preClassified = await this.classifyPaths(root, input.taskId, taskDir);
+      for (const path of [...preClassified.artifacts, ...preClassified.metadata]) scanPaths.add(path);
+      for (const path of dirtyPaths(root, [...scanPaths], this.git)) scanPaths.add(path);
       const scanFailures: string[] = [];
       for (const path of scanPaths) {
         const full = join(root, path);
@@ -765,7 +879,7 @@ export class DeliveryService {
           }
           check = await this.validCheck(root, input.taskId, binding, branch);
         } else if (completed.completion.checkRunId !== null) {
-          check = new RunStore(root).readCheck(completed.completion.checkRunId);
+          check = readIntact(() => new RunStore(root).readCheck(completed.completion.checkRunId!));
           if (check === null) throw new GuardError("check_missing", "完成凭据引用的检查凭据缺失");
         }
       } else {
@@ -780,7 +894,7 @@ export class DeliveryService {
           const decision = await completionService.assess({ root, taskId: input.taskId, document, raw, binding, parentTask: hasChildTasks(root, input.taskId) });
           if (decision.allowed === false) throw new GuardError(decision.reason, `任务不能完成: ${decision.reason}`);
           if (decision.checkRunId !== null) {
-            check = new RunStore(root).readCheck(decision.checkRunId);
+            check = readIntact(() => new RunStore(root).readCheck(decision.checkRunId!));
             if (check === null) throw new GuardError("check_missing", "当前检查凭据缺失");
           }
         }
@@ -811,6 +925,7 @@ export class DeliveryService {
       policyVersion: operation.policyVersion,
       messageDraft: messageInput.draft,
       messageIgnored: messageInput.ignored,
+      commitGit,
     };
   }
 
@@ -1131,7 +1246,7 @@ export class DeliveryService {
    */
   private verificationLine(prepared: Prepared, op: DeliveryOperation): string {
     const verification = prepared.document.frontmatter.verification ?? "independent";
-    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    const completion = new RunStore(prepared.root).readCompletionIfIntact(op.taskId);
     const checkerPaths = prepared.check !== null
       ? checkerChangedPathsOf(prepared.check)
       : (completion?.checkerChangedPaths ?? []);
@@ -1141,7 +1256,7 @@ export class DeliveryService {
   /** 验证依据：独立检查 run、主会话实施记录或强制完成原因；缺失写「未记录」。 */
   private verificationBasis(prepared: Prepared, op: DeliveryOperation): string {
     if (prepared.check !== null) return `检查 ${prepared.check.runId} 通过`;
-    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    const completion = new RunStore(prepared.root).readCompletionIfIntact(op.taskId);
     if (completion?.forced === true) {
       return completion.forcedReason === null || completion.forcedReason === undefined || completion.forcedReason === ""
         ? "用户强制完成"
@@ -1184,7 +1299,7 @@ export class DeliveryService {
   private metadataMessage(prepared: Prepared, op: DeliveryOperation): DeliveryMessage {
     const verification = prepared.document.frontmatter.verification ?? "independent";
     const outcome = op.mode === "deliver" ? "completed" : (prepared.document.frontmatter.outcome ?? "cancelled");
-    const completion = new RunStore(prepared.root).readCompletion(op.taskId);
+    const completion = new RunStore(prepared.root).readCompletionIfIntact(op.taskId);
     const body = [
       `结果：${outcome}`,
       `验证：${this.verificationLine(prepared, op)}`,
@@ -1328,17 +1443,17 @@ export class DeliveryService {
     }
     const addable = this.addable(root, selected);
     const stageable = this.stageable(root, addable);
-    if (stageable.length > 0) gitOrThrow(root, ["add", "-A", "--", ...stageable], "暂存交付路径", this.git);
+    if (stageable.length > 0) gitOrThrow(root, ["add", "-A", "--", ...stageable], "暂存交付路径", prepared.commitGit);
     const expectedTree = indexTreeFor(stagedSnapshot(root, this.git), selected);
     await checkpoint?.(stepKind, {
       before: beforeHead,
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const forced = new RunStore(root).readCompletion(op.taskId)?.forced === true;
+    const forced = new RunStore(root).readCompletionIfIntact(op.taskId)?.forced === true;
     // 旧 work_commit 仍用旧单行格式；新阶段使用已持久化的完整文案。
     const messageText = message ?? `knit: ${stage} ${op.taskId} (${op.operationId}${forced ? ", forced" : ""})`;
-    const commit = runCommit(root, ["commit", "-m", messageText, "--only", "--", ...addable], this.git);
+    const commit = runCommit(root, ["commit", "-m", messageText, "--only", "--", ...addable], prepared.commitGit);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取提交后 HEAD", this.git);
     if (commit.code !== 0) {
       if (afterHead !== beforeHead && this.isOperationCommit(commitMessage(root, afterHead, this.git), stage, op.operationId)) {
@@ -1464,9 +1579,9 @@ export class DeliveryService {
     const expected = dirtyPaths(root, selected, this.git).filter((path) => path !== marker).sort();
     const addable = this.addable(root, selected);
     const stageable = this.stageable(root, addable);
-    if (stageable.length > 0) gitOrThrow(root, ["add", "-A", "--", ...stageable], "暂存归档路径", this.git);
+    if (stageable.length > 0) gitOrThrow(root, ["add", "-A", "--", ...stageable], "暂存归档路径", prepared.commitGit);
     // 封存标记不是业务资料，不进入归档提交；保持在 index 外。
-    runCommit(root, ["reset", "-q", "--", marker], this.git);
+    runCommit(root, ["reset", "-q", "--", marker], prepared.commitGit);
     const expectedTree = indexTreeFor(stagedSnapshot(root, this.git), selected);
     if (!existsSync(targetDir)) return { commit: "", evidence: { reason: "archive_target_missing" }, attention: "archive_target_missing" };
     await checkpoint?.("archive_commit", {
@@ -1474,7 +1589,7 @@ export class DeliveryService {
       expectedPaths: expected.join("\n"),
       expectedTree: JSON.stringify(expectedTree),
     });
-    const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], this.git);
+    const commit = runCommit(root, ["commit", "-m", message, "--only", "--", ...addable], prepared.commitGit);
     const afterHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取归档提交后 HEAD", this.git);
     if (commit.code !== 0) {
       if (afterHead !== beforeHead && isStageCommit(commitMessage(root, afterHead, this.git), "archive", op.operationId)) {
@@ -1556,6 +1671,7 @@ export class DeliveryService {
       `- 时间: ${this.now().toISOString()}`,
       `- 分支: ${op.branch}`,
       `- 授权来源: ${op.authorizationRef ?? "直接 CLI 显式调用"}`,
+      `- 调用: ${op.invocation ?? "cli-unverified"}`,
       `- 工作提交: ${op.workCommit ?? "无"}`,
       resultLine,
       `- 归档目标: ${op.archivePath ?? "待移动"}`,
@@ -1721,6 +1837,7 @@ export class DeliveryService {
       archivePath: op.archivePath,
       defaultBranch: op.defaultBranch,
       authorization: op.authorization,
+      caller: op.invocation ?? "cli-unverified",
       worktree: op.worktree ?? null,
       needsAttention: !complete || op.state === "needs_attention",
       messages: {

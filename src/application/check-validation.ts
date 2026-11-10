@@ -8,7 +8,7 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { ContextPlanner } from "./context-planner.js";
-import { GuardError } from "./guard-error.js";
+import { GuardError, readIntact } from "./guard-error.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
 
 export async function validateCheckEvidence(input: {
@@ -27,7 +27,7 @@ export async function validateCheckEvidence(input: {
   const executionDir = normalizeRoot(input.executionDir ?? rawRoot);
   if (binding.lastCheckRunId === null) throw new GuardError("check_missing", "没有可交付的检查");
   const runs = new RunStore(root);
-  const check = runs.readCheck(binding.lastCheckRunId);
+  const check = readIntact(() => runs.readCheck(binding.lastCheckRunId!));
   if (check === null) throw new GuardError("check_missing", `检查凭据缺失: ${binding.lastCheckRunId}`);
   if (check.verdict !== "pass") throw new GuardError("check_not_passed", `最新检查结论不是 pass: ${check.verdict}`);
   // worktree 任务的检查产生在执行分支；合入后任务正文改绑目标分支，凭据仍指向产生它的

@@ -45,6 +45,13 @@ import { ImplementationFileSchema, type ImplementationFile } from "../contracts/
 import { atomicWrite, readWithVersion } from "./atomic.js";
 import { InfrastructureError } from "./errors.js";
 import { normalizeRoot } from "./paths.js";
+import {
+  CredentialIntegrityError,
+  credentialFailureMessage,
+  inspectSealed,
+  sealedJson,
+  type SealKind,
+} from "./credential-seal.js";
 
 const RUNS_DIR = join(".knit", ".runtime", "runs");
 
@@ -82,6 +89,29 @@ function parseJson<T>(path: string, schema: JsonSchema, label: string): T | null
     throw new InfrastructureError("io_error", `${label} 结构不符：${path}`);
   }
   return raw as T;
+}
+
+/**
+ * 读取带完整性签名的凭据：先核对 HMAC（缺签名＝旧格式需重建，不符＝篡改），
+ * 再按原 schema 校验剥离签名后的正文。签名失败抛 CredentialIntegrityError，不当作有效凭据。
+ */
+function parseSealed<T>(root: string, kind: SealKind, name: string, path: string, schema: JsonSchema, label: string): T | null {
+  const version = readWithVersion(path);
+  if (version === null) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(version.data.toString("utf8"));
+  } catch {
+    throw new CredentialIntegrityError("credential_tampered", credentialFailureMessage("credential_tampered", label, path), path);
+  }
+  const inspected = inspectSealed(root, kind, name, raw);
+  if (inspected.verdict !== "valid") {
+    throw new CredentialIntegrityError(inspected.verdict, credentialFailureMessage(inspected.verdict, label, path), path);
+  }
+  if (!checkSchema(schema, inspected.payload)) {
+    throw new InfrastructureError("io_error", `${label} 结构不符：${path}`);
+  }
+  return inspected.payload as T;
 }
 
 /** 宽松取出声明版本：只用于区分“未知较新版本”与结构损坏，不解释其他字段。 */
@@ -286,15 +316,48 @@ export class RunStore {
   }
 
   readResult(runId: string): RunResultFile | null {
-    return parseJson<RunResultFile>(join(this.runDir(runId), "result.json"), RunResultFileSchema, "result.json");
+    const path = join(this.runDir(runId), "result.json");
+    const version = readWithVersion(path);
+    if (version === null) return null;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(version.data.toString("utf8"));
+    } catch {
+      throw new InfrastructureError("io_error", `result.json 不是合法 JSON：${path}`);
+    }
+    // 展示与收敛读取不要求签名（旧 run 结果没有）；接收前由 verifyResult 核对。
+    const payload = raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([key]) => key !== "integrity"))
+      : raw;
+    if (!checkSchema(RunResultFileSchema, payload)) {
+      throw new InfrastructureError("io_error", `result.json 结构不符：${path}`);
+    }
+    return payload as RunResultFile;
   }
 
-  /** 不可变结果：已存在时拒绝覆盖，终态不重写。 */
+  /**
+   * 接收前核对 run 结果的本机 HMAC：结果位于 run 自有目录，阶段 Agent 可抢先写入伪造结果（worker 随后
+   * result_write_failed），未签名或签名不符的结果不接收。返回结论，不抛完整性异常。
+   */
+  verifyResult(runId: string): "valid" | "missing" | "credential_tampered" | "credential_unsigned" {
+    const path = join(this.runDir(runId), "result.json");
+    const version = readWithVersion(path);
+    if (version === null) return "missing";
+    let raw: unknown;
+    try {
+      raw = JSON.parse(version.data.toString("utf8"));
+    } catch {
+      return "credential_tampered";
+    }
+    return inspectSealed(this.root, "result", runId, raw).verdict;
+  }
+
+  /** 不可变结果：已存在时拒绝覆盖，终态不重写；写入时附本机 HMAC。 */
   writeResult(runId: string, result: RunResultFile): void {
     if (!checkSchema(RunResultFileSchema, result)) throw new InfrastructureError("io_error", "result 结构不符");
     const path = join(this.runDir(runId), "result.json");
     if (existsSync(path)) throw new InfrastructureError("version_conflict", `run 结果已存在: ${runId}`);
-    atomicWrite({ path, data: Buffer.from(JSON.stringify(result, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
+    atomicWrite({ path, data: sealedJson(this.root, "result", runId, result), expectedSha256: null, mode: 0o600 });
   }
 
   scopePath(taskId: string): string {
@@ -359,8 +422,9 @@ export class RunStore {
     return join(this.root, ".knit", ".runtime", "completions", `${taskId}.json`);
   }
 
+  /** 完成凭据带本机 HMAC；篡改或旧格式缺签名时抛 CredentialIntegrityError。 */
   readCompletion(taskId: string): CompletionFile | null {
-    return parseJson<CompletionFile>(this.completionPath(taskId), CompletionFileSchema, "completion.json");
+    return parseSealed<CompletionFile>(this.root, "completion", taskId, this.completionPath(taskId), CompletionFileSchema, "completion.json");
   }
 
   /** 完成凭据可被重新完成覆盖；旧凭据不得用于当前输入／成果。 */
@@ -370,7 +434,7 @@ export class RunStore {
     privateDir(join(this.root, ".knit", ".runtime", "completions"));
     atomicWrite({
       path,
-      data: Buffer.from(JSON.stringify(completion, null, 2) + "\n"),
+      data: sealedJson(this.root, "completion", taskId, completion),
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });
@@ -385,8 +449,16 @@ export class RunStore {
     return join(this.root, ".knit", ".runtime", "implementations", `${taskId}.json`);
   }
 
+  /** 实施记录带本机 HMAC；篡改或旧格式缺签名时抛 CredentialIntegrityError。 */
   readImplementation(taskId: string): ImplementationFile | null {
-    return parseJson<ImplementationFile>(this.implementationPath(taskId), ImplementationFileSchema, "implementation.json");
+    return parseSealed<ImplementationFile>(
+      this.root,
+      "implementation",
+      taskId,
+      this.implementationPath(taskId),
+      ImplementationFileSchema,
+      "implementation.json",
+    );
   }
 
   /** 主会话实施事实可重写；任务重新讨论或输入变化后旧记录不再有效。 */
@@ -398,7 +470,7 @@ export class RunStore {
     privateDir(join(this.root, ".knit", ".runtime", "implementations"));
     atomicWrite({
       path,
-      data: Buffer.from(JSON.stringify(record, null, 2) + "\n"),
+      data: sealedJson(this.root, "implementation", taskId, record),
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });
@@ -416,8 +488,19 @@ export class RunStore {
     return join(this.runDir(runId), "acceptance.json");
   }
 
+  /**
+   * 接收检查点带本机 HMAC：它位于 run 自有目录（不在阶段敏感区扫描内），且恢复时会把其中的检查写成凭据，
+   * 阶段内预写的检查点不能借接收“洗白”。篡改或缺签名时抛 CredentialIntegrityError。
+   */
   readAcceptanceJournal(runId: string): AcceptanceJournal | null {
-    return parseJson<AcceptanceJournal>(this.acceptanceJournalPath(runId), AcceptanceJournalSchema, "acceptance.json");
+    return parseSealed<AcceptanceJournal>(
+      this.root,
+      "acceptance",
+      runId,
+      this.acceptanceJournalPath(runId),
+      AcceptanceJournalSchema,
+      "acceptance.json",
+    );
   }
 
   writeAcceptanceJournal(runId: string, journal: AcceptanceJournal): void {
@@ -427,7 +510,7 @@ export class RunStore {
     const path = this.acceptanceJournalPath(runId);
     atomicWrite({
       path,
-      data: Buffer.from(JSON.stringify(journal, null, 2) + "\n"),
+      data: sealedJson(this.root, "acceptance", runId, journal),
       expectedSha256: readWithVersion(path)?.sha256 ?? null,
       mode: 0o600,
     });
@@ -437,8 +520,29 @@ export class RunStore {
     rmSync(this.acceptanceJournalPath(runId), { force: true });
   }
 
+  /** 检查凭据带本机 HMAC（文件名 runId 参与签名）；篡改或旧格式缺签名时抛 CredentialIntegrityError。 */
   readCheck(runId: string): CheckFile | null {
-    return parseJson<CheckFile>(this.checkPath(runId), CheckFileSchema, "check.json");
+    return parseSealed<CheckFile>(this.root, "check", runId, this.checkPath(runId), CheckFileSchema, "check.json");
+  }
+
+  /** 展示用读取：完整性失败时返回 null（不当作有效凭据），其它错误照常抛出。 */
+  readCheckIfIntact(runId: string): CheckFile | null {
+    try {
+      return this.readCheck(runId);
+    } catch (error) {
+      if (error instanceof CredentialIntegrityError) return null;
+      throw error;
+    }
+  }
+
+  /** 展示用读取：完整性失败时返回 null（不当作有效凭据），其它错误照常抛出。 */
+  readCompletionIfIntact(taskId: string): CompletionFile | null {
+    try {
+      return this.readCompletion(taskId);
+    } catch (error) {
+      if (error instanceof CredentialIntegrityError) return null;
+      throw error;
+    }
   }
 
   /** 检查凭据不可变：同一 run 只发布一次。 */
@@ -447,7 +551,7 @@ export class RunStore {
     const path = this.checkPath(runId);
     if (existsSync(path)) throw new InfrastructureError("version_conflict", `检查凭据已存在: ${runId}`);
     privateDir(join(this.root, ".knit", ".runtime", "checks"));
-    atomicWrite({ path, data: Buffer.from(JSON.stringify(check, null, 2) + "\n"), expectedSha256: null, mode: 0o600 });
+    atomicWrite({ path, data: sealedJson(this.root, "check", runId, check), expectedSha256: null, mode: 0o600 });
   }
 
   /**

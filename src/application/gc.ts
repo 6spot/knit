@@ -11,6 +11,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { withReadOnlyDatabase } from "../infrastructure/sqlite-readonly.js";
+import { assertNotInStageContext } from "./stage-context.js";
 
 const RUNTIME = join(".knit", ".runtime");
 const NATIVE_SESSIONS_DIR = join(RUNTIME, "pi-sessions");
@@ -801,6 +802,7 @@ export class GcService {
   }
 
   async apply(input: { dir: string; locksRoot?: string }): Promise<GcApplyResult> {
+    assertNotInStageContext("gc --apply");
     const root = normalizeRoot(input.dir);
     const locks = this.locks ?? new LockManager(input.locksRoot === undefined ? {} : { root: input.locksRoot });
     const acquired = await locks.acquire({

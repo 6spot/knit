@@ -8,6 +8,7 @@ import type { DeliveryResult } from "../contracts/delivery.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import { GuardError } from "../application/guard-error.js";
+import { assertNotInStageContext } from "../application/stage-context.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
 
@@ -34,7 +35,12 @@ function render(result: DeliveryResult): void {
     ? "unknown"
     : `${result.defaultBranch.ref}（${result.defaultBranch.source}${result.defaultBranch.exists ? "" : "，不存在"}）`;
   console.log(`默认分支候选: ${candidate}（仅观察，不授权）`);
-  console.log(`授权来源: ${result.authorization.kind}${result.authorization.ref === null ? "" : ` ${result.authorization.ref}`}`);
+  console.log(`授权来源: ${result.authorization.kind}${result.authorization.ref === null ? "" : ` ${result.authorization.ref}`}${result.authorization.verified ? "（已核对）" : ""}`);
+  console.log(`调用: ${result.caller}`);
+  if (result.hooks !== undefined) {
+    console.log(`交付 hooks: ${result.hooks.mode === "skip" ? "skip（不执行仓库 hooks）" : "run（执行仓库 hooks）"}`);
+    for (const line of hookChangeLines(result.hooks)) console.log(line);
+  }
   if (result.worktree?.merge !== undefined) {
     console.log(`Worktree 合入: ${result.worktree.merge.status}${result.worktree.merge.reason === null ? "" : `（${result.worktree.merge.reason}）`}`);
   }
@@ -46,6 +52,8 @@ function render(result: DeliveryResult): void {
 
 function renderPlan(plan: DeliveryPlan): void {
   console.log(`只读收尾计划（分支 ${plan.branch}）`);
+  console.log(`交付 hooks: ${plan.hooks.mode}`);
+  for (const line of hookChangeLines(plan.hooks)) console.log(line);
   for (const task of plan.tasks) {
     console.log(`\n${task.taskId}: ${task.status}${task.reason === null ? "" : `（${task.reason}）`}`);
     console.log(`  业务产物: ${task.artifacts.length === 0 ? "无" : task.artifacts.join(", ")}`);
@@ -60,6 +68,14 @@ function renderPlan(plan: DeliveryPlan): void {
     console.log("\n跨任务同路径冲突：");
     for (const conflict of plan.conflicts) console.log(`  ${conflict.path}: ${conflict.taskIds.join(", ")}`);
   }
+}
+
+/** 自上次交付以来新增或修改的 hook；仅提醒，skip 模式下它们不会在交付提交中执行。 */
+function hookChangeLines(hooks: { mode: string; baseline: string; changes: Array<{ name: string; change: string }> }): string[] {
+  if (hooks.changes.length === 0) return [];
+  const since = hooks.baseline === "recorded" ? "自上次交付以来" : "尚无交付基线，当前";
+  const list = hooks.changes.map((item) => `${item.name}（${item.change === "added" ? "新增" : "修改"}）`).join(", ");
+  return [`提醒: ${since}的 hook: ${list}${hooks.mode === "skip" ? "；交付提交不执行" : "；交付提交会执行，请先核对"}`];
 }
 
 /** 不在 scope、不进产物提交的路径提醒：外部改动（含确认排除）与未处理失败残留。 */
@@ -81,6 +97,7 @@ interface DeliveryOptions {
   messageFile?: string[];
   merge?: boolean;
   cleanup?: boolean;
+  sessionFile?: string;
 }
 
 const TASK_ID_PATTERN = /^k-[0-9a-f]{12}$/;
@@ -144,6 +161,7 @@ export function registerDeliveryCommands(program: Command): void {
     messageFile: messageFiles.get(taskId) ?? null,
     merge: options.merge === true,
     cleanup: options.cleanup === true,
+    sessionFile: options.sessionFile ?? null,
   });
 
   const fail = (requestId: string, error: unknown): void => {
@@ -160,6 +178,7 @@ export function registerDeliveryCommands(program: Command): void {
     .requiredOption("--branch <ref>", "完整本地目标 refs/heads/...")
     .option("--authorization-ref <ref>", "授权来源引用（workflow:... 或 user:...）")
     .option("--caller <caller>", "cli 或 agent", "cli")
+    .option("--session-file <path>", "桥接传入本会话原生记录；user: 引用须匹配其中真实用户消息（条目 ID 或 sha256:<摘要>）")
     .option("--dir <dir>", "项目目录", ".")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--retry", "显式重试 needs_attention：先核验已完成效果")
@@ -175,6 +194,8 @@ export function registerDeliveryCommands(program: Command): void {
     .action(async (taskIds: string[], options: DeliveryOptions) => {
       const requestId = `deliver-${Date.now()}`;
       try {
+        // 只读 --plan 在阶段内仍可用；真实交付在任何写入前拒绝（stage_context_forbidden）。
+        if (options.plan !== true) assertNotInStageContext("deliver");
         const messageFiles = messageFileMap(taskIds, options.messageFile ?? []);
         const inputs = taskIds.map((taskId) => inputOf(taskId, options, messageFiles));
         const plan = await withService(options, (service) => service.plan(inputs));
@@ -253,6 +274,7 @@ export function registerDeliveryCommands(program: Command): void {
     .requiredOption("--branch <ref>", "完整本地目标 refs/heads/...")
     .option("--authorization-ref <ref>", "授权来源引用（workflow:... 或 user:...）")
     .option("--caller <caller>", "cli 或 agent", "cli")
+    .option("--session-file <path>", "桥接传入本会话原生记录；user: 引用须匹配其中真实用户消息")
     .option("--dir <dir>", "项目目录", ".")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--retry", "显式重试 needs_attention：先核验已完成效果")

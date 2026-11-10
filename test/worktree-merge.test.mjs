@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
@@ -470,6 +470,39 @@ test("4) 真实冲突与未跟踪草稿阻挡：merge 失败后 abort，HEAD 恢
     assert.equal(readFileSync(join(f.root, "draft-block.txt"), "utf8"), "untracked draft\n", "未跟踪草稿保留");
     assert.equal(existsSync(blockedDraft.worktree.path), true);
     assert.equal(existsSync(taskDirIn(f.root, blockedDraft.taskDir)), false);
+  } finally {
+    s.store.close();
+    rmSync(f.base, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  }
+});
+
+test("4b) 冲突后 merge --abort 在 delivery.hooks=skip（缺省）下不触发 post-index-change／reference-transaction（k-28296c22647a）", async () => {
+  const f = fixture("abort-hooks");
+  const s = services(f.root, f.locksRoot);
+  try {
+    const conflicting = await setupWorktree(f.root, s, "abort-task", { file: "abort.txt", content: "feature\n" });
+    writeFileSync(join(f.root, "abort.txt"), "main\n");
+    git(f.root, ["add", "abort.txt"]);
+    git(f.root, ["commit", "-q", "-m", "main conflict"]);
+    // 主检出的仓库 hooks：标记写在 .git 内，不进入工作区状态。
+    const marker = join(f.root, ".git", "abort-hook-ran");
+    for (const name of ["post-index-change", "reference-transaction", "post-merge"]) {
+      const hook = join(f.root, ".git", "hooks", name);
+      writeFileSync(hook, `#!/bin/sh\necho ${name} >> '${marker}'\n`);
+      chmodSync(hook, 0o755);
+    }
+    git(f.root, ["read-tree", "HEAD"]);
+    assert.equal(existsSync(marker), true, "对照：直接 git read-tree 触发 post-index-change");
+    rmSync(marker, { force: true });
+    const headBefore = git(f.root, ["rev-parse", "HEAD"]);
+
+    const conflict = await mergeService(s).merge({
+      dir: f.root, taskId: conflicting.task.taskId, into: MAIN, apply: true, authorizationRef: AUTHORIZATION,
+    });
+    assert.equal(conflict.status, "conflict", conflict.reason ?? "");
+    assert.equal(git(f.root, ["rev-parse", "HEAD"]), headBefore, "abort 后 HEAD 恢复");
+    assert.equal(gitCode(f.root, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]), 1, "abort 已执行");
+    assert.equal(existsSync(marker), false, existsSync(marker) ? readFileSync(marker, "utf8") : "");
   } finally {
     s.store.close();
     rmSync(f.base, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });

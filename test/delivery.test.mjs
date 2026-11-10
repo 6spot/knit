@@ -37,7 +37,8 @@ function project(name) {
     client: { default: "pi" },
     agent: { runtime: "pi", resume: "prefer" },
     execution: { host: "local" },
-    delivery: { mode: "local" },
+    // 本文件的 hook 用例验证 run 模式（仓库 hooks 参与交付提交）下的核验；skip 缺省行为见 credential-integrity.test.mjs。
+    delivery: { mode: "local", hooks: "run" },
     workflow: { maxRepairRounds: 2 },
     limits: { heartbeatIntervalMs: 5000, heartbeatStaleMs: 30000, cancelGraceMs: 5000, snapshotsMaxBytes: 67108864, storageWarnBytes: 536870912 },
   }, null, 2) + "\n");

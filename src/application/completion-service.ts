@@ -23,6 +23,8 @@ import { validateCheckEvidence } from "./check-validation.js";
 import { currentEntry, type ScopeEntry } from "./scope.js";
 import type { TaskDocument } from "./task-document.js";
 import { loadScope, scopeEntriesCurrent } from "./scope.js";
+import { readIntact } from "./guard-error.js";
+import { isCredentialIntegrityError } from "../infrastructure/credential-seal.js";
 
 export interface CompletionAssessInput {
   root: string;
@@ -53,7 +55,7 @@ export class CompletionService {
   scopeEmpty(root: string, taskId: string): boolean {
     const runs = new RunStore(normalizeRoot(root));
     const scope = loadScope(runs, taskId, this.now().toISOString());
-    return scope.entries.length === 0 && (runs.readImplementation(taskId)?.entries.length ?? 0) === 0;
+    return scope.entries.length === 0 && (readIntact(() => runs.readImplementation(taskId))?.entries.length ?? 0) === 0;
   }
 
   /** 按当前任务事实评估完成资格；不写文件。 */
@@ -84,14 +86,24 @@ export class CompletionService {
           });
           checkQualification = "valid";
           checkerChangedPaths = checkerChangedPathsOf(check);
-        } catch {
+        } catch (error) {
+          // 检查凭据完整性失败不是“过期”：按 credential_tampered／credential_unsigned 拒绝，不当作有效凭据。
+          const reason = integrityReasonOf(error);
+          if (reason !== null) return { allowed: false, reason };
           checkQualification = "stale";
         }
       }
     }
 
     const lastImplement: ImplementEvidence | null = input.binding.lastImplement ?? null;
-    const implementation = runs.readImplementation(input.taskId);
+    let implementation;
+    try {
+      implementation = runs.readImplementation(input.taskId);
+    } catch (error) {
+      const reason = integrityReasonOf(error);
+      if (reason !== null) return { allowed: false, reason };
+      throw error;
+    }
     return completionDecision({
       status: input.document.frontmatter.status,
       stage: input.document.frontmatter.stage,
@@ -136,7 +148,7 @@ export class CompletionService {
     // 完成守卫已拒绝带检查者修复的 independent 检查；这里照实记录所引用检查的修复路径，供“验证”行标注。
     const checkerChangedPaths = input.decision.checkRunId === null
       ? []
-      : checkerChangedPathsOf(runs.readCheck(input.decision.checkRunId));
+      : checkerChangedPathsOf(readIntact(() => runs.readCheck(input.decision.checkRunId!)));
     const completion: CompletionFile = {
       schemaVersion: 1,
       taskId: input.taskId,
@@ -176,7 +188,15 @@ export class CompletionService {
     binding: TaskBinding;
   }): Promise<{ valid: true; completion: CompletionFile } | { valid: false; reason: string }> {
     const root = normalizeRoot(input.root);
-    const completion = this.read(root, input.taskId);
+    let completion: CompletionFile | null;
+    try {
+      completion = this.read(root, input.taskId);
+    } catch (error) {
+      // 篡改或旧格式缺签名的完成凭据不是有效凭据：按原因拒绝，旧凭据需重新 task close 重建。
+      const reason = integrityReasonOf(error);
+      if (reason !== null) return { valid: false, reason };
+      throw error;
+    }
     if (completion === null) return { valid: false, reason: "completion_missing" };
     if (completion.taskId !== input.taskId) return { valid: false, reason: "completion_task_mismatch" };
     const runs = new RunStore(root);
@@ -194,7 +214,14 @@ export class CompletionService {
     }
     if (completion.verification === "independent") {
       if (completion.checkRunId === null) return { valid: false, reason: "completion_check_missing" };
-      const check = runs.readCheck(completion.checkRunId);
+      let check;
+      try {
+        check = runs.readCheck(completion.checkRunId);
+      } catch (error) {
+        const reason = integrityReasonOf(error);
+        if (reason !== null) return { valid: false, reason };
+        throw error;
+      }
       if (check === null || check.verdict !== "pass") return { valid: false, reason: "completion_check_missing" };
       try {
         await validateCheckEvidence({
@@ -206,12 +233,20 @@ export class CompletionService {
           now: this.now,
           randomHex: this.randomHex,
         });
-      } catch {
-        return { valid: false, reason: "completion_check_stale" };
+      } catch (error) {
+        const reason = integrityReasonOf(error);
+        return { valid: false, reason: reason ?? "completion_check_stale" };
       }
     }
     if (completion.verification === "self" && completion.implementedBy === "record") {
-      const implementation = runs.readImplementation(input.taskId);
+      let implementation;
+      try {
+        implementation = runs.readImplementation(input.taskId);
+      } catch (error) {
+        const reason = integrityReasonOf(error);
+        if (reason !== null) return { valid: false, reason };
+        throw error;
+      }
       if (implementation === null) return { valid: false, reason: "completion_implementation_missing" };
       if (implementation.inputsDigest !== inputsDigestOf(input.raw.toString("utf8"))) {
         return { valid: false, reason: "completion_inputs_changed" };
@@ -226,4 +261,11 @@ export class CompletionService {
     }
     return { valid: true, completion };
   }
+}
+
+/** 凭据完整性失败原因：签名校验（infrastructure）或已转为 GuardError 的同名原因；其它错误返回 null。 */
+function integrityReasonOf(error: unknown): "credential_tampered" | "credential_unsigned" | null {
+  if (isCredentialIntegrityError(error)) return error.guardReason;
+  const guard = (error as { details?: { guardReason?: unknown } } | null)?.details?.guardReason;
+  return guard === "credential_tampered" || guard === "credential_unsigned" ? guard : null;
 }

@@ -7,6 +7,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { defaultConfig, parseConfig } from "../application/config.js";
 import { locksForProject, reclaimsForProject } from "../application/diagnostics.js";
 import { GuardError } from "../application/guard-error.js";
+import { assertNotInStageContext } from "../application/stage-context.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 
 function jsonMode(): boolean {
@@ -101,6 +102,7 @@ export function registerLockCommands(program: Command): void {
     .action((lockId, options) => {
       const requestId = `unlock-${Date.now()}`;
       try {
+        assertNotInStageContext("unlock");
         const locks = manager(options.locks);
         const fromList = options.fromList === true;
         if (options.expectToken === undefined && !fromList) {

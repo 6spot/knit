@@ -11,6 +11,13 @@ export type DeliveryMode = Static<typeof DeliveryModeSchema>;
 export const DeliveryCallerSchema = union([lit("cli"), lit("agent")]);
 export type DeliveryCaller = Static<typeof DeliveryCallerSchema>;
 
+/**
+ * 调用路径：bridge＝桥接带本会话原生记录调用（`user:` 引用已按真实用户消息核对）；
+ * cli-unverified＝直接 CLI 调用，授权声明未经会话核对（DESIGN §10.1）。旧记录缺省按 cli-unverified。
+ */
+export const DeliveryInvocationSchema = union([lit("bridge"), lit("cli-unverified")]);
+export type DeliveryInvocation = Static<typeof DeliveryInvocationSchema>;
+
 export const AuthorizationSourceSchema = obj(
   {
     kind: union([
@@ -22,7 +29,10 @@ export const AuthorizationSourceSchema = obj(
     path: union([str(), nul()]),
     section: union([str(), nul()]),
     digest: union([str(), nul()]),
-    /** 核心只能核实来源文件／版本，不能核实人类语义；user_reference 恒 false。 */
+    /**
+     * 核心只能核实来源文件／版本或消息存在，不能核实人类语义。
+     * user_reference 仅在桥接路径按本会话真实用户消息核对通过时为 true（path／section／digest 记会话文件、条目 ID 与正文摘要）。
+     */
     verified: bool(),
   },
 );
@@ -107,6 +117,8 @@ export const DeliveryRecordSchema = obj(
     caller: DeliveryCallerSchema,
     authorizationRef: union([str(), nul()]),
     authorization: AuthorizationSourceSchema,
+    /** 调用路径；旧记录缺省按 cli-unverified。 */
+    invocation: opt(DeliveryInvocationSchema),
     defaultBranch: DefaultBranchSchema,
     policyVersion: str({ minLength: 1 }),
     taskPath: str({ minLength: 1 }),
@@ -146,6 +158,15 @@ export interface DeliveryResult {
   archivePath: string | null;
   defaultBranch: DefaultBranch;
   authorization: AuthorizationSource;
+  /** 回执中的调用路径：直接 CLI 为 cli-unverified，桥接为 bridge。 */
+  caller: DeliveryInvocation;
+  /** 交付提交的 hooks 策略与自上次交付以来新增或修改的 hook；旧结果缺省。 */
+  hooks?: {
+    mode: "skip" | "run";
+    dir: string | null;
+    baseline: "recorded" | "none" | "invalid";
+    changes: Array<{ name: string; change: "added" | "modified" }>;
+  };
   needsAttention: boolean;
   /** worktree 合入／清理跟进；无 worktree 或旧操作记录为 null。 */
   worktree?: DeliveryWorktreeFollowUp | null;

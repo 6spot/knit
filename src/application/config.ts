@@ -24,6 +24,10 @@ export type WorktreeCleanup = Static<typeof WorktreeCleanupSchema>;
 export const DeliveryModeSchema = union([lit("local"), lit("merge")]);
 export type DeliveryModeValue = Static<typeof DeliveryModeSchema>;
 
+/** Knit 发起的提交是否执行用户 hooks：skip（缺省）用空 hooks 目录隔离；run 保留仓库 hooks。 */
+export const DeliveryHooksSchema = union([lit("skip"), lit("run")]);
+export type DeliveryHooks = Static<typeof DeliveryHooksSchema>;
+
 export const ProjectConfigSchema = obj(
   {
     schemaVersion: int({ minimum: 1 }),
@@ -35,6 +39,8 @@ export const ProjectConfigSchema = obj(
         mode: DeliveryModeSchema,
         /** 可选完整本地 refs/heads/...；只作默认分支候选，不授权、不切分支。 */
         defaultBranch: opt(str({ pattern: "^refs/heads/.+" })),
+        /** 交付提交是否执行用户 hooks；缺省 skip（core.hooksPath 指向空目录）。 */
+        hooks: opt(DeliveryHooksSchema),
       },
       { open: true },
     ),
@@ -123,6 +129,11 @@ export function worktreeSettingsOf(config: ProjectConfig): {
     cleanup: config.worktree?.cleanup ?? "manual",
     deliveryMode: config.delivery.mode,
   };
+}
+
+/** 交付提交的 hooks 策略；旧配置缺字段按 skip。 */
+export function deliveryHooksOf(config: ProjectConfig): DeliveryHooks {
+  return config.delivery.hooks ?? "skip";
 }
 
 /** 调度配置缺省值：1／1；旧配置缺字段按此解释。 */

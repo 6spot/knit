@@ -44,6 +44,7 @@ import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { sha256Bytes } from "../infrastructure/fingerprint.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { RunStore } from "../infrastructure/run-store.js";
+import { isCredentialIntegrityError } from "../infrastructure/credential-seal.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
 import { consumeResidue, recordResidue, residueFromResult } from "./residue.js";
@@ -116,7 +117,7 @@ export class RunAcceptanceService {
     }
     if (operation?.state === "completed") {
       if (result?.state === "completed") this.reconcileState(runs, request);
-      const journalStage = runs.readAcceptanceJournal(request.runId)?.target.stage;
+      const journalStage = intactJournal(runs, request.runId)?.target.stage;
       runs.removeAcceptanceJournal(request.runId);
       return {
         runId: request.runId,
@@ -162,7 +163,7 @@ export class RunAcceptanceService {
           duplicate: true,
           reason: currentOperation.reason ?? null,
           operationId,
-          phase: acceptedPhase(root, request, runs.readAcceptanceJournal(request.runId)?.target.stage),
+          phase: acceptedPhase(root, request, intactJournal(runs, request.runId)?.target.stage),
           verdict: result?.report ? reportString(result.report, "verdict") : null,
         };
       }
@@ -172,6 +173,11 @@ export class RunAcceptanceService {
       }
       if (result.acceptanceOperationId !== operationId) {
         throw new InfrastructureError("version_conflict", "result 的 acceptanceOperationId 与 request 不一致");
+      }
+      // 结果完整性：结果在 run 自有目录，阶段内抢先写入的伪造结果没有本机签名，不接收。
+      const integrity = runs.verifyResult(request.runId);
+      if (integrity === "credential_tampered" || integrity === "credential_unsigned") {
+        return await this.attention(operationId, request, integrity, result);
       }
       // 主会话确认在锁内落盘：与接收互斥，确认与本次接收看到同一份事实；非完成结果在此拒绝。
       if (decision !== null) this.recordDecision(runs, request, decision);
@@ -261,7 +267,7 @@ export class RunAcceptanceService {
       if (scope.digest !== request.expected.scopeDigest) {
         // 接收检查点可能已写入并入后的 scope，但 binding 等后续步骤失败；
         // 恢复时允许当前 scope 与同一操作的 scopeAfter 吻合，不把半写入误判为外部漂移。
-        const journal = runs.readAcceptanceJournal(request.runId);
+        const journal = intactJournal(runs, request.runId);
         const scopeAlreadyApplied =
           journal !== null &&
           journal.operationId === operationId &&
@@ -306,7 +312,14 @@ export class RunAcceptanceService {
     report: StageReport,
   ): Promise<AcceptanceResult> {
     // 已有检查点时先重核输入与规范，再按记录收敛；不重新执行阶段。
-    const existingJournal = runs.readAcceptanceJournal(request.runId);
+    // 检查点带本机 HMAC：阶段内预写或篡改的检查点不按记录收敛（否则会把伪造检查写成凭据）。
+    let existingJournal: AcceptanceJournal | null;
+    try {
+      existingJournal = runs.readAcceptanceJournal(request.runId);
+    } catch (error) {
+      if (isCredentialIntegrityError(error)) return this.attention(operationId, request, error.guardReason, result);
+      throw error;
+    }
     if (existingJournal !== null) {
       if (existingJournal.operationId !== operationId || existingJournal.taskId !== request.taskId) {
         return this.attention(operationId, request, "acceptance_journal_mismatch", result);
@@ -640,7 +653,14 @@ export class RunAcceptanceService {
         return this.attention(journal.operationId, request, "stale_scope", result);
       }
 
-      const existingCheck = runs.readCheck(request.runId);
+      let existingCheck: CheckFile | null;
+      try {
+        existingCheck = runs.readCheck(request.runId);
+      } catch (error) {
+        // 同名检查凭据已存在但签名无效：不覆盖、不采信，交主会话核对。
+        if (isCredentialIntegrityError(error)) return this.attention(journal.operationId, request, error.guardReason, result);
+        throw error;
+      }
       if (journal.check !== null && existingCheck !== null && !isDeepStrictEqual(existingCheck, journal.check)) {
         return this.attention(journal.operationId, request, "check_conflict", result);
       }
@@ -813,6 +833,16 @@ export class RunAcceptanceService {
     } catch {
       return defaultConfig().workflow.maxRepairRounds;
     }
+  }
+}
+
+/** 只取完整性有效的接收检查点；篡改或缺签名按不存在处理（调用方另行判定）。 */
+function intactJournal(runs: RunStore, runId: string): AcceptanceJournal | null {
+  try {
+    return runs.readAcceptanceJournal(runId);
+  } catch (error) {
+    if (isCredentialIntegrityError(error)) return null;
+    throw error;
   }
 }
 

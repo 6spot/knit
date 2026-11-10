@@ -13,7 +13,9 @@ export type InfrastructureErrorCode =
   | "git_unavailable"
   | "io_error"
   | "stage_not_in_workflow"
-  | "tool_capability_unavailable";
+  | "tool_capability_unavailable"
+  /** 凭据完整性校验失败（credential_tampered／credential_unsigned，见 credential-seal.ts）。 */
+  | "credential_integrity";
 
 export class InfrastructureError extends Error {
   constructor(

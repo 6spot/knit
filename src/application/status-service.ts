@@ -454,7 +454,7 @@ export class StatusService {
     const executionDir = await this.executionDirOf(root, runId);
     const task = this.taskDocumentOf(root, projection.taskId);
     const workflow = loadWorkflow(root).workflow;
-    const check = new RunStore(root).readCheck(runId);
+    const check = new RunStore(root).readCheckIfIntact(runId);
     const checkerPaths = checkerChangedPathsOf(check);
     const noOutputNotice = noOutputNoticeOf(projection);
     return {
@@ -488,9 +488,10 @@ export class StatusService {
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
     const runStore = new RunStore(root);
-    const completion = runStore.readCompletion(taskId);
+    // 展示只采信完整性有效的凭据；篡改或旧格式凭据在交付／完成时按原因拒绝。
+    const completion = runStore.readCompletionIfIntact(taskId);
     // 只在 independent 时检查者修复影响完成资格；其它模式照实显示但不作标注。
-    const lastCheckChangedPaths = binding?.lastCheckRunId ? checkerChangedPathsOf(runStore.readCheck(binding.lastCheckRunId)) : [];
+    const lastCheckChangedPaths = binding?.lastCheckRunId ? checkerChangedPathsOf(runStore.readCheckIfIntact(binding.lastCheckRunId)) : [];
     const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
     for (const { name } of listTaskDirectories(root)) {
       const file = join(root, ".knit", "tasks", name, "task.md");

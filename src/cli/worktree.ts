@@ -13,6 +13,7 @@ import { RunStore } from "../infrastructure/run-store.js";
 import { gitSync } from "../infrastructure/process.js";
 import { executionRouteOf, resolveProjectStart, verifyWorktreeRegistration } from "../application/worktree-routing.js";
 import { GuardError } from "../application/guard-error.js";
+import { assertNotInStageContext } from "../application/stage-context.js";
 import { isFullBranch } from "../application/delivery.js";
 import { cliMainRoot } from "./root.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
@@ -342,6 +343,7 @@ export function registerWorktreeCommands(program: Command): void {
       const start = resolveProjectStart(options.dir);
       const authorizationRef = typeof options.authorizationRef === "string" ? options.authorizationRef : null;
       try {
+        assertNotInStageContext("worktree cleanup");
         if (apply && (authorizationRef ?? "").trim() === "") {
           throw new GuardError("authorization_required", "worktree cleanup --apply 需要非空 --authorization-ref");
         }
@@ -417,6 +419,7 @@ export function registerWorktreeCommands(program: Command): void {
       const start = resolveProjectStart(options.dir);
       const authorizationRef = typeof options.authorizationRef === "string" ? options.authorizationRef.trim() : null;
       try {
+        if (apply) assertNotInStageContext("worktree merge --apply");
         if (start.linkedWorktree) {
           throw new GuardError(
             "main_checkout_required",

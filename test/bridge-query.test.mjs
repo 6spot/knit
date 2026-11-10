@@ -771,3 +771,44 @@ test("knit_run action=resume：生成新 run 后真启动，wait 观察到终态
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("knit_deliver 桥接：非 plan 动作一律传会话记录，native:／message:／自由文本引用报 authorization_unverified（k-28296c22647a）", async () => {
+  const dir = project("deliver-auth");
+  try {
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", [
+      { type: "message", id: "u1a2b3c4", parentId: null, message: { role: "user", content: "可以提交" } },
+    ]);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "桥接授权", "--slug", "bridge-auth", "--dir", dir], { encoding: "utf8" }));
+    const taskId = created.data.taskId;
+    const taskFile = join(dir, ".knit", created.data.relativePath);
+    writeFileSync(taskFile, readFileSync(taskFile, "utf8").replace(/^stage: .*$/m, "stage: deliver"));
+    const tool = host.tools.get("knit_deliver");
+    const deliver = (authorizationRef) => tool.execute("d", { action: "deliver", taskId, branch: "refs/heads/main", authorizationRef }, null, null, host.ctx);
+
+    // 会话中没有这些用户消息：不论写法都按会话核对并拒绝，不再以 verified=false 接受。
+    for (const ref of ["native:x", "message:x", "用户说可以交付", "user:自由文本"]) {
+      const denied = await deliver(ref);
+      assert.equal(denied.isError, true, ref);
+      assert.match(denied.content[0].text, /authorization_unverified/, `${ref}: ${denied.content[0].text}`);
+    }
+    // 对照：真实用户消息通过授权核对（之后按交付资格等其它原因停下，与授权无关）。
+    const genuine = await deliver("user:u1a2b3c4");
+    assert.doesNotMatch(genuine.content[0].text, /authorization_unverified/, genuine.content[0].text);
+
+    // 取不到会话文件：用户类引用在桥接层直接拒绝；项目策略来源仍交核心。
+    host.setSessionFile(null);
+    for (const ref of ["native:x", "自由文本", "user:u1a2b3c4"]) {
+      const denied = await deliver(ref);
+      assert.equal(denied.isError, true, ref);
+      assert.match(denied.content[0].text, /^authorization_unverified: 当前会话没有原生记录文件/, ref);
+    }
+    const policy = await deliver("workflow:AGENTS.md");
+    assert.doesNotMatch(policy.content[0].text, /authorization_unverified/, policy.content[0].text);
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

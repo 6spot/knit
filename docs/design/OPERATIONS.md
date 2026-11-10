@@ -118,6 +118,31 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 失败结果保留现场：阶段内提交不回滚、不 reset，敏感区改动不还原；基线摘要写入 run `state.json` 的 `baseline` 与结果 `baseline`，边界事实写结果 `boundary`。用户处理提交或敏感区改动后重新派发。首版不提供“接纳阶段内提交为成果”的出口，也不对整个 ignored 目录做内容指纹（成本过高），深层文件原地改写不保证出现在 `ignoredChanges`。
 
+### 2.2 凭据完整性与阶段调用边界
+
+实现（任务 k-28296c22647a，审计 S8、中等问题 4／5）：`src/infrastructure/credential-seal.ts`、`src/application/stage-context.ts`，由 `run-store.ts`、交付与各收尾命令入口调用。上表的敏感区核对把阶段内改写受管资料判为失败；下列规则处理阶段外读取时的采信与阶段内的直接调用。
+
+| 对象 | 写入 | 读取失败处理 |
+| --- | --- | --- |
+| `checks/<run-id>.json`、`completions/<task-id>.json`、`implementations/<task-id>.json` | 顶层 `integrity: { alg: "hmac-sha256", mac }`；MAC 覆盖版本前缀、种类、文件名与去掉 `integrity` 的键排序 JSON | `credential_tampered`（MAC 不符、签名结构非法、本机密钥缺失或已更换）／`credential_unsigned`（旧格式缺签名，需重建）；交付、`task close`、检查资格以该原因拒绝，`status` 展示忽略该凭据 |
+| run 自有 `result.json`、`acceptance.json` | 同上（worker／接收服务写入） | 接收以 `needs_attention`（原因 `credential_tampered` 或 `credential_unsigned`）停下，不按伪造结果或检查点推进任务、不写检查凭据；`run status` 等展示读取不要求签名 |
+| `.knit/.runtime/delivery-hooks.json` | 交付完成后写 hooks 目录快照 | 签名无效按无基线，现有 hook 全部列为新增 |
+
+密钥：`~/.knit/keys/<project-hash>`（账号主目录；`project-hash` 为规范化主检出根的 SHA-256 前 32 位），32 字节随机、文件 0600、目录 0700，首次写凭据时以 `O_EXCL` 创建，并发创建者读取先到者；读取不创建。`KNIT_KEYS_ROOT` 仅供隔离测试覆盖密钥根（`npm test` 指向本次运行新建的临时目录，结束即删除），阶段进程环境（`isolatedEnv` 与 Rex 启动参数）剔除它。换机、删除或重建密钥后旧凭据全部按 `credential_tampered` 失效；升级前的无签名凭据按 `credential_unsigned` 处理。重建方式：independent 重新派检查，主会话实施重新 `task implement`，已关闭任务按完成失效重新 `task close`。不做一次性信任迁移。这是防阶段 Agent 伪造的本机完整性，不防同一账号下读得到密钥的恶意进程。
+
+阶段调用边界：worker 启动阶段 Pi（local 的 `isolatedEnv`、Rex 的 `/usr/bin/env` 参数）时同时注入 `KNIT_RUN` 与 `KNIT_STAGE_RUN_ID`，两者同值为本 run ID，子进程继承。核心在下列入口检测到非空 `KNIT_STAGE_RUN_ID` 即报 `stage_context_forbidden`（CLI reasonCode `needs_review`，退出码 1），在写文件与取锁之前：
+
+| 命令 | 检测位置 |
+| --- | --- |
+| `deliver`（非 `--plan`）、`archive` | CLI 入口与 `DeliveryService` |
+| `worktree merge --apply`、`worktree cleanup` | CLI 入口与对应服务 |
+| `task close` | `TaskService.close` |
+| `unlock` | CLI 入口 |
+| `gc --apply` | `GcService.apply` |
+| `run accept` | CLI 入口（含 `resume <op>` 的接收分支）；worker 内部接收不经该入口 |
+
+不复用 `KNIT_RUN` 的原因：`KNIT_RUN` 是 `task update` 缺省声明的 run（OPERATIONS §2），用户可在自己的终端设置它声明活动 run；用它做拒绝标记会让主会话在同一终端无法交付。`KNIT_STAGE_RUN_ID` 只由 worker 注入，语义单一。worker 自身的结果接收在 worker 进程内进行，worker 进程本身不带该变量（只传给阶段 Pi），不受影响。环境标记不是沙箱：刻意清除变量的 shell 仍可调用 CLI，此时交付提交导致的 HEAD 移动由基线判 `head_moved_during_stage`，伪造凭据由上表完整性校验拒绝。
+
 ## 3. 实施快照与显式恢复
 
 每次正式 implement 的可信 worker 程序取得执行占用后，在 `.knit/.runtime/runs/<run-id>/snapshot/` 建立 preparing 对照，ready 后才调用阶段模型／写代码，失败保留 failed。占用由该执行者一直持有，不从 CLI 交接。保存仓库／分支、HEAD、index、脏路径、类型／模式、工作和暂存内容、未忽略的未跟踪内容及指纹；新增路径起点为不存在。前后核对源码、有效输入、HEAD 与 index，变化即重核。Task 记录在短锁内捕捉版本，后来的合法纯记录不会使快照准备反复失败。
@@ -198,9 +223,11 @@ status 始终显示总耗时、最近模型／工具活动距今时间与心跳�
 
 桥接 Agent 声明 authorizationRef；终端代调可 --authorization-ref <ref>。来源是原生用户指令引用，或项目规则文件（如 AGENTS.md）中 Git 交付约定的路径／版本。策略生成或 Agent 自行编辑不等于用户认可；主 Agent 须确认原授权和当前约束。直接 CLI 无引用时只记录显式调用声明，不伪记身份或消息已验证；Agent 经 CLI 仍需已有授权。
 
+实现（任务 k-28296c22647a）：桥接 `knit_deliver` 的 `user:` 引用必须是 `user:<条目 ID>` 或 `user:sha256:<正文 SHA-256 前 12–64 位>`，桥接把 `ctx.sessionManager.getSessionFile()` 经 `deliver --session-file` 交给核心；核心逐行读取该 JSONL，只认 `type: message` 且 `message.role: user` 的条目（正文为字符串或 text 块以换行拼接），按条目 ID 精确匹配或按正文摘要前缀匹配。找不到即 `authorization_unverified`（创建操作前拒绝，不动 Task／index）；找到时 `authorization` 记 `verified: true`、规范化引用 `user:<条目 ID>`、会话文件路径、条目 ID 与正文摘要。会话文件取不到时桥接拒绝用户类引用（`user:`／`native:`／`message:`／自由文本，与核心同口径）；`workflow:` 等项目策略来源不受影响。桥接对非 plan 动作不论引用写法都传 `--session-file`，因此桥接传入的 `native:x`、`message:x` 或裸自由文本同样按用户消息核对、未命中即 `authorization_unverified`，不会以 `verified: false` 被接受并误标 `cli-unverified`。直接 CLI（不带 `--session-file`）保持原口径，操作记 `invocation: cli-unverified`，交付结果与人读输出带 `caller: cli-unverified`，最终记录写“调用: cli-unverified”；桥接带会话佐证时为 `bridge`。核心只核对用户消息存在，授权语义仍由主 Agent 判断。
+
 默认分支候选检测顺序：显式 delivery.defaultBranch 完整本地 ref；否则读取本地 refs/remotes/origin/HEAD 并映射为本地 ref；再否则 unknown。显式配置格式非法则报告配置错误，不忽略回落。无 origin 的本地仓库不猜 main/master，不联网补 HEAD。缓存可能过时，检测仅用于展示／审计，不授予权限，也不让 unknown 阻塞已明确授权的当前目标。
 
-operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
+operation 保存实际与确认分支、默认分支候选及来源、调用者、authorizationRef、来源摘要／定位，以及已认可的策略版本。实现（任务019）：首次创建操作即固定 archivePath；工作／归档提交后核对父节点、实际路径集合、提交树模式／blob 与无关 index／worktree；hook 拒绝、改 index、扩范围或改选中内容均保留已产生的提交并 needs_attention（这些核验在 `delivery.hooks: run` 时生效；缺省 `skip` 下交付、合入与清理操作全程的 Git 命令（含 add／reset／merge --abort／branch -D）以 `-c core.hooksPath=<私有空目录>` 执行，仓库 hooks（含 post-index-change、reference-transaction）不运行，`deliver --plan` 与交付结果的 `hooks.changes` 列出自上次交付以来新增或修改的 hook，见 DESIGN §10.2）。move 已完成但检查点丢失时按目标 Task ID 与封存摘要恢复，目标冲突不覆盖；显式 retry 重核已生效提交。核心验证引用存在、版本及分支一致性；授权文本是否充分仍由主 Agent 判断，不新建授信／审批平台。来源变化先重核，已有授权覆盖则不重复询问，adopt 不附带提交许可。
 
 实现（任务 k-c5f416d61c3d）：父子关系只写子任务 frontmatter `parent`；`task new --parent` 在创建用的 state 锁内、`task parent`／`--detach` 在任务＋state 锁内按稳定 ID 核对目标存在、未归档、未结束与成环；归档任务关系冻结，不再挂接或解除，归档父任务不接收新子任务；结构变化不使输入摘要或检查资格失效。父任务完成在任务锁内扫描直接子任务：仍有 `open` 子任务返回 `children_incomplete`，缺 `--reason` 返回 `parent_acceptance_missing`，验收说明写入完成凭据。`task list` 默认只列未归档任务并按进行中／待归档／已取消分段，行内只给优先级、稳定 ID、阶段显示名与标题；父子结束进度与逐项阻塞由 `knit status <taskId>`／`task next` 给出，归档条目用 `task list --archive` 按月查看。
 实现（任务055–057）：`task close --outcome completed` 在任务锁内按 `verification` 核对当前输入、成果和完成凭据；业务完成不要求 Git 提交、回执或归档，完成凭据写 `.knit/.runtime/completions/<task-id>.json`。`deliver <id...>` 支持批量逐项处理，先以 `--plan` 只读预检业务产物／任务资料分类、已暂存业务路径及任务资料、跨任务同路径冲突；有冲突时不执行。任务资料的用户暂存内容也在服务取得占用后、创建操作与修改Task前重核；拒绝时保留index、HEAD及Task。重试仅接受当前HEAD和预期路径／blob匹配的未完成操作暂存检查点；资料部分暂存始终停止，不能借retry覆盖新改动。每个任务先提交业务产物（`Knit-Stage: artifact`），再写最终记录并单独提交任务资料（`Knit-Stage: metadata`），随后封存、移动和归档提交；多个任务不合并为整仓提交。任一项失败保留已生效提交和后续任务现场，按操作 ID 与显式 retry 继续，不重复提交。

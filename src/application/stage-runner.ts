@@ -67,6 +67,12 @@ import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import type { ToolCapability } from "../contracts/workflow.js";
 import { currentEntry } from "./scope.js";
 import { RexLauncher, type RexExecution, type RexLauncherOptions } from "./rex-launcher.js";
+import { STAGE_RUN_ENV } from "./stage-context.js";
+
+/** 阶段进程环境标记：KNIT_RUN（task update 缺省声明）与 KNIT_STAGE_RUN_ID（收尾类命令拒绝）同值。 */
+function stageEnv(runId: string): Record<string, string> {
+  return { KNIT_RUN: runId, [STAGE_RUN_ENV]: runId };
+}
 
 export interface StageRunnerOptions {
   root: string;
@@ -411,7 +417,8 @@ export class StageRunner {
           sessionDir,
           appendSystemPrompt: systemPrompt,
           // KNIT_RUN：阶段内经 knit_task 改本任务输入时自动声明本 run（显式 --run 优先）。
-          env: isolatedEnv({ KNIT_RUN: this.request.runId }, { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
+          // KNIT_STAGE_RUN_ID：阶段进程标记，核心据此拒绝收尾类命令（stage_context_forbidden）。
+          env: isolatedEnv(stageEnv(this.request.runId), { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
         },
         session.decision,
       ),
@@ -479,7 +486,7 @@ export class StageRunner {
             cwd: this.executionDir,
             sessionDir,
             appendSystemPrompt: systemPrompt,
-            env: isolatedEnv({ KNIT_RUN: this.request.runId }, { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
+            env: isolatedEnv(stageEnv(this.request.runId), { offline: capabilitySwitches(runtimeTools.capabilities).offline }),
           },
           fallbackDecision,
         ),

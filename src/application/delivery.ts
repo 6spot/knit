@@ -2,10 +2,11 @@
  * 交付／归档的确定性基础（DESIGN.md 第10节、OPERATIONS.md 第4.1节）。
  * 只使用真实 Git 与文件系统事实；不 stash、不 reset、不改写历史。
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { sha256Text } from "../infrastructure/fingerprint.js";
-import { gitSync } from "../infrastructure/process.js";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { sha256Bytes, sha256Text } from "../infrastructure/fingerprint.js";
+import { gitSync, withGitHooksPath } from "../infrastructure/process.js";
 import { GuardError } from "./guard-error.js";
 import { porcelainStatusPaths } from "./git-status.js";
 import type { AuthorizationSource, DefaultBranch } from "../contracts/delivery.js";
@@ -74,17 +75,109 @@ function workflowSection(text: string, wanted: string | null): { heading: string
 }
 
 /**
+ * 桥接传入的 `user:` 授权佐证：本会话原生记录文件。核心按条目 ID（`user:<entryId>`）
+ * 或内容摘要（`user:sha256:<至少 12 位 hex>`）在文件中找真实存在的用户消息；找不到即拒绝。
+ * 项目策略来源（workflow:／文件#章节）不受影响，仍按文件与摘要核实。
+ */
+export interface AuthorizationEvidence {
+  sessionFile: string;
+}
+
+/** 原生会话用户消息的正文：字符串或 text 块拼接（与桥接同口径）。 */
+export function userMessageText(message: unknown): string | null {
+  if (message === null || typeof message !== "object") return null;
+  const typed = message as { role?: unknown; content?: unknown };
+  if (typed.role !== "user") return null;
+  if (typeof typed.content === "string") return typed.content;
+  if (!Array.isArray(typed.content)) return null;
+  return typed.content
+    .filter((part): part is { type: "text"; text: string } =>
+      part !== null && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+/** `user:` 引用解析：条目 ID 或内容摘要前缀；其它写法（自由文本）返回 null。 */
+export function parseUserReference(ref: string): { entryId: string } | { digestPrefix: string } | null {
+  if (!ref.startsWith("user:")) return null;
+  const value = ref.slice("user:".length).trim();
+  const digest = /^sha256:([0-9a-f]{12,64})$/.exec(value);
+  if (digest !== null) return { digestPrefix: digest[1]! };
+  if (/^[A-Za-z0-9_-]{4,64}$/.test(value)) return { entryId: value };
+  return null;
+}
+
+/** 在原生会话 JSONL 中按 `user:` 引用找用户消息；返回条目 ID 与正文摘要。 */
+export function findUserMessage(sessionFile: string, ref: string): { entryId: string; digest: string } | null {
+  const parsed = parseUserReference(ref);
+  if (parsed === null) return null;
+  let content: string;
+  try {
+    content = readFileSync(sessionFile, "utf8");
+  } catch {
+    return null;
+  }
+  for (const line of content.split("\n")) {
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record === null || typeof record !== "object") continue;
+    const typed = record as { type?: unknown; id?: unknown; message?: unknown };
+    if (typed.type !== "message" || typeof typed.id !== "string") continue;
+    const text = userMessageText(typed.message);
+    if (text === null) continue;
+    const digest = sha256Text(text);
+    if ("entryId" in parsed ? typed.id === parsed.entryId : digest.startsWith(parsed.digestPrefix)) {
+      return { entryId: typed.id, digest };
+    }
+  }
+  return null;
+}
+
+/**
  * 授权来源定位。项目策略来源核实文件、章节与摘要；user_reference 只保存调用声明，
  * 不冒充已验证的人类授权（语义判断仍归主 Agent）。
+ * 桥接路径传入本会话原生记录时，`user:` 引用必须匹配其中真实存在的用户消息，
+ * 否则 authorization_unverified；匹配时 verified=true，记录条目 ID 与正文摘要。
  * 缺省来源为 AGENTS.md：主会话规则与交付约定在受管入口中维护；
  * 调用方可显式给出任意项目相对文件与章节。
  */
-export function resolveAuthorization(root: string, ref: string | null, caller: "cli" | "agent"): AuthorizationSource {
+export function resolveAuthorization(
+  root: string,
+  ref: string | null,
+  caller: "cli" | "agent",
+  evidence: AuthorizationEvidence | null = null,
+): AuthorizationSource {
   if (ref === null || ref.trim() === "") {
     if (caller === "agent") throw new GuardError("authorization_required", "Agent 代调交付必须声明 authorizationRef");
     return { kind: "explicit_call", ref: null, path: null, section: null, digest: null, verified: false };
   }
   const value = ref.trim();
+  const userLike = value.startsWith("user:") || value.startsWith("native:") || value.startsWith("message:") ||
+    !(value.startsWith("workflow:") || value.includes("#") || value.startsWith(".knit/") || value.endsWith(".md"));
+  if (evidence !== null && userLike) {
+    // 桥接路径：用户类引用必须是 `user:<条目ID>` 或 `user:sha256:<摘要>`，并在本会话中找到真实用户消息。
+    const found = findUserMessage(evidence.sessionFile, value);
+    if (found === null) {
+      throw new GuardError(
+        "authorization_unverified",
+        `authorization_unverified: ${value} 在本会话中没有对应的用户消息（按条目 ID 或 sha256 摘要核对）`,
+      );
+    }
+    const sessionPath = isAbsolute(evidence.sessionFile) ? relative(root, evidence.sessionFile) : evidence.sessionFile;
+    return {
+      kind: "user_reference",
+      ref: `user:${found.entryId}`,
+      path: sessionPath.startsWith("..") ? resolve(evidence.sessionFile) : sessionPath,
+      section: found.entryId,
+      digest: found.digest,
+      verified: true,
+    };
+  }
   if (value.startsWith("user:") || value.startsWith("native:") || value.startsWith("message:")) {
     return { kind: "user_reference", ref: value, path: null, section: null, digest: null, verified: false };
   }
@@ -367,6 +460,79 @@ export function commitSubject(message: string): string {
 
 export function commitExists(root: string, oid: string, git: GitRunner = gitSync): boolean {
   return runGit(root, ["cat-file", "-e", `${oid}^{commit}`], git).code === 0;
+}
+
+/** 实际生效的 hooks 目录（含 core.hooksPath 与 worktree 共用 Git 目录）；读取失败返回 null。 */
+export function hooksDirOf(root: string, git: GitRunner = gitSync): string | null {
+  const result = runGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], git);
+  if (result.code !== 0 || result.stdout.trim() === "") return null;
+  return result.stdout.trim();
+}
+
+/** hooks 目录快照：名称 → `权限:sha256`（符号链接记目标）；忽略 Git 自带 *.sample。 */
+export function hooksSnapshot(dir: string | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (dir === null) return out;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of names.sort()) {
+    if (name.endsWith(".sample")) continue;
+    const path = join(dir, name);
+    try {
+      const stats = lstatSync(path);
+      if (stats.isDirectory()) continue;
+      out[name] = stats.isSymbolicLink()
+        ? `link:${readlinkSync(path)}`
+        : `${(stats.mode & 0o7777).toString(8)}:${sha256Bytes(readFileSync(path))}`;
+    } catch {
+      out[name] = "unreadable";
+    }
+  }
+  return out;
+}
+
+export interface HookChange {
+  name: string;
+  change: "added" | "modified";
+}
+
+/** 自基线以来新增或修改的 hook；没有基线时现有 hook 全部记为 added。 */
+export function hookChanges(baseline: Record<string, string> | null, current: Record<string, string>): HookChange[] {
+  const out: HookChange[] = [];
+  for (const [name, fact] of Object.entries(current)) {
+    const before = baseline?.[name];
+    if (before === undefined) out.push({ name, change: "added" });
+    else if (before !== fact) out.push({ name, change: "modified" });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * 交付类操作的 hooks 隔离：skip 时为本次操作建一个私有空目录（系统临时目录下 0700，不在项目内）。
+ * - `git`：把 `-c core.hooksPath=<空目录>` 前置到调用方注入的 Git 执行器，用于 add／commit／reset／merge；
+ * - `scope`：在范围内运行整个操作，本进程经 gitSync／gitBufferSync／ArgvGitPort 发起的全部 Git 调用
+ *   （含 merge --abort、worktree remove、branch -D 与刷新 index 的 status）同样前置，
+ *   post-index-change、reference-transaction 等非提交类 hook 也不执行。
+ * run 时原样转交。调用方在 finally 中 dispose。
+ */
+export function hookIsolatedGit(mode: "skip" | "run", git: GitRunner = gitSync): {
+  git: GitRunner;
+  dispose: () => void;
+  hooksPath: string | null;
+  scope: <T>(action: () => T) => T;
+} {
+  if (mode === "run") return { git, dispose: () => {}, hooksPath: null, scope: (action) => action() };
+  const empty = mkdtempSync(join(tmpdir(), "knit-no-hooks-"));
+  return {
+    git: (args, cwd) => git(["-c", `core.hooksPath=${empty}`, ...args], cwd),
+    dispose: () => rmSync(empty, { recursive: true, force: true }),
+    hooksPath: empty,
+    scope: (action) => withGitHooksPath(empty, action),
+  };
 }
 
 export function isAncestor(root: string, ancestor: string, descendant: string, git: GitRunner = gitSync): boolean {

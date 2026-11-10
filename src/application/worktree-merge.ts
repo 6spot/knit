@@ -31,7 +31,9 @@ import { gitSync, machineBootId, procStartTicks, sameProcessStart } from "../inf
 import { LockManager, orderKeys, type LockKey } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
-import { resolveAuthorization } from "./delivery.js";
+import { hookIsolatedGit, resolveAuthorization } from "./delivery.js";
+import { assertNotInStageContext } from "./stage-context.js";
+import { defaultConfig, deliveryHooksOf, parseConfig } from "./config.js";
 import {
   branchExists,
   commitExists,
@@ -842,6 +844,19 @@ export class WorktreeMergeService {
 
   /** 只读预检或授权合入；预览不创建目录、不写 binding／任务正文、不运行 git merge。 */
   async merge(input: WorktreeMergeInput): Promise<WorktreeMergeResult> {
+    if (input.apply !== true) return await this.mergeInScope(input);
+    // delivery.hooks=skip（缺省）：apply 全程（预检刷新 index 的 diff、合入、merge --abort、资料转交）
+    // 本进程发起的全部 Git 调用都带 core.hooksPath=<私有空目录>，post-index-change 等 hook 不执行。
+    const start = resolveProjectStart(input.dir);
+    const isolation = hookIsolatedGit(mergeHooksMode(normalizeRoot(start.mainRoot)), gitSync);
+    try {
+      return await isolation.scope(() => this.mergeInScope(input));
+    } finally {
+      isolation.dispose();
+    }
+  }
+
+  private async mergeInScope(input: WorktreeMergeInput): Promise<WorktreeMergeResult> {
     const start = resolveProjectStart(input.dir);
     if (start.linkedWorktree) {
       throw new GuardError(
@@ -851,6 +866,7 @@ export class WorktreeMergeService {
     }
     const mainRoot = normalizeRoot(start.mainRoot);
     const apply = input.apply === true;
+    if (apply) assertNotInStageContext("worktree merge --apply");
     const into = typeof input.into === "string" ? input.into.trim() : "";
     if (!isFullBranch(into)) {
       throw new GuardError("branch_invalid", "branch_invalid: --into 必须是完整本地 refs/heads/...");
@@ -1136,7 +1152,15 @@ export class WorktreeMergeService {
       const beforeHead = before.stdout.trim();
       const message = mergeMessage(plan.taskId, opId);
       writeJournalLine(paths, "merge", "planned", { sourceBranch, into, beforeHead, message });
-      const result = gitSync(["merge", "--no-ff", "-m", message, sourceBranch], mainRoot);
+      // Knit 发起的合入提交与交付提交同口径隔离用户 hooks（delivery.hooks，缺省 skip）；
+      // execute 已在隔离范围内（merge() 对 apply 全程建立），这里的显式前置保留为合入命令本身的证据。
+      const isolation = hookIsolatedGit(mergeHooksMode(mainRoot), gitSync);
+      let result;
+      try {
+        result = isolation.git(["merge", "--no-ff", "-m", message, sourceBranch], mainRoot);
+      } finally {
+        isolation.dispose();
+      }
       const after = gitSync(["rev-parse", "HEAD"], mainRoot);
       const afterHead = after.code === 0 ? after.stdout.trim() : null;
       const commitCreated = afterHead !== null && afterHead !== beforeHead
@@ -1213,6 +1237,7 @@ export class WorktreeMergeService {
         const hadMergeHead = mergeHead.code === 0;
         let abortReason: string | null = null;
         if (hadMergeHead) {
+          // 在隔离范围内：gitSync 自动前置 core.hooksPath，abort 重写 index 不触发 post-index-change。
           const abort = gitSync(["merge", "--abort"], mainRoot);
           if (abort.code !== 0) abortReason = abort.stderr.trim() || abort.stdout.trim() || "git merge --abort 未完成";
         }
@@ -1816,4 +1841,13 @@ export function mergeNoopResult(
   reason: string | null = "任务没有 worktree",
 ): WorktreeMergeResult {
   return emptyResult({ mainRoot, taskId, apply, authorizationRef, status, reason });
+}
+
+/** 合入提交的 hooks 策略：读主检出配置；配置不可读按缺省 skip。 */
+function mergeHooksMode(mainRoot: string): "skip" | "run" {
+  try {
+    return deliveryHooksOf(parseConfig(readFileSync(join(mainRoot, ".knit", "config.json"), "utf8")));
+  } catch {
+    return deliveryHooksOf(defaultConfig());
+  }
 }

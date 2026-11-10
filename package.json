@@ -17,7 +17,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/build-bridge-schema.mjs",
-    "test": "npm run -s typecheck && npm run -s build && env -u REX_SESSION -u REX_BLOCK -u REX_SERVER -u REX_BIN_DIR -u TERM_PROGRAM -u TERM_PROGRAM_VERSION node --test \"test/*.test.mjs\"",
+    "test": "npm run -s typecheck && npm run -s build && keys=\"$(mktemp -d \"${TMPDIR:-/tmp}/knit-test-keys-XXXXXX\")\" && trap 'rm -rf \"$keys\"' EXIT && env -u REX_SESSION -u REX_BLOCK -u REX_SERVER -u REX_BIN_DIR -u TERM_PROGRAM -u TERM_PROGRAM_VERSION -u KNIT_STAGE_RUN_ID KNIT_KEYS_ROOT=\"$keys\" node --test \"test/*.test.mjs\"",
     "pack:check": "npm run -s build && node scripts/pack-check.mjs",
     "pack:install": "node scripts/pack-install.mjs",
     "prepack": "npm run build"

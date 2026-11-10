@@ -11,7 +11,7 @@
 | `start`（准备／讨论锚点） | 主会话先取证再提问（代码、测试、配置、文档、规范与任务历史，含归档），按缺口维度逐项扫描；每问给出决定、原因、推荐与代价，一轮最多 3 个，假设落盘 `[assumed]`；确认任务选择与授权，`blocking` 清零后做 ready 检查；不可配置、无提示词 | 需要用户取舍、授权不明、有待应用草案或活动 run、`blocking` 未清零时停在讨论并说明缺口 | 使用普通回复，不产生 worker `StageReportSchema` 报告 | 主会话工具；不代写阶段成果，不自动提交或发布 |
 | 配置阶段（默认 `implement`） | 按 task.md 目标与完成条件产出代码、测试、配置、文档或研究报告，运行范围验证；提示词由该阶段 `prompt` 指定 | 需求／规范冲突、需要用户决定、保护路径或无法确认的副作用时记录后停止产出，在报告中说明阻塞并交回主会话；没有可核对产出时报告缺少成果 | 固定 `summary`／`validation`／`blockers`，加上该阶段声明的额外字段（默认实施字段为 `changedPaths`／`unverified`） | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；可写项目文件与运行验证；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不委派其他 Agent |
 | 配置阶段（默认 `check`） | 独立核对完成条件、冻结输入、实际成果与上一阶段报告；运行声明验证；默认 `[read, exec]` 不改文件，发现缺陷交回；项目允许 `write` 时才在既定需求内、问题与修复方向明确时直接修复并验证 | 需求解释、取舍、验收变化或扩大范围时不改代码，以 `blocked` 交回主会话；仍有未解决缺陷时以 `changes_requested` 交回 | 固定字段加 `verdict`（pass／changes_requested／blocked）；有修改时 `changedPaths` 必填且与实际 diff 一致，另含 `coverage`／`selfVerified`／`findings`／`unverified` | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；能力不含 `write` 却有归属本 run 的改动（含 bash 写入）判 `write_without_capability:<paths>` 失败、不接收；允许写时写权限仅覆盖任务范围内、问题与修复方向明确的缺陷，凭据记 `checkerChangedPaths`，修复部分只算自检，`independent` 须再派一次未改动文件的 pass 检查才能完成（否则 `check_self_modified`）；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不推进阶段，不委派 |
-| `deliver`（收尾锚点） | 主会话接收实施／检查结果、核对完成条件、在授权交付前起草一次产物提交文案并展示、协调 `deliver`／`archive`；不虚构验证结论；不可配置、无提示词 | 完成资格无效、有待应用草案、活动 run、检查 stale 或提交／推送／发布未授权时停在收尾并说明缺口 | 使用普通回复；交付事实来自核心操作结果 | 主会话与确定性工具；不启动交付辅助 worker；不把子进程完成当作授权 |
+| `deliver`（收尾锚点） | 主会话接收实施／检查结果、核对完成条件、在授权交付前起草一次产物提交文案并展示、协调 `deliver`／`archive`；不虚构验证结论；不可配置、无提示词 | 完成资格无效、有待应用草案、活动 run、检查 stale、凭据完整性失败（`credential_tampered`／`credential_unsigned`）或提交／推送／发布未授权时停在收尾并说明缺口 | 使用普通回复；交付事实来自核心操作结果（含 `caller`、`authorization.verified` 与 `hooks`） | 主会话与确定性工具；不启动交付辅助 worker；不把子进程完成当作授权；桥接用户授权写 `user:<本会话用户消息条目 ID>` 或 `user:sha256:<摘要>`，核心按会话原生记录核对（伪造或 `native:`／`message:`／自由文本写法报 `authorization_unverified`） |
 | 非正式检查（`run check --scope`） | 对显式范围做独立只读核对，返回结论 | 范围无法确认或需要正式交付资格时停止，改走正式任务 | `summary`、`verdict`、`coverage`、`findings`、`unverified` | 只读；不建 Task／binding，不推进 stage，不赋交付资格 |
 | Pi runtime 补充 | 说明阶段会话的 CLI、资源、能力白名单、恢复与工具事实 | 资源不可用、恢复来源不明、发现保护路径或未授权副作用时报告，不借新会话重置状态 | 按所属阶段字段输出 | 阶段不加载项目扩展；`tools` 不写或 `all` 全部放开，`[]` 全部禁用（`--no-tools`），`external`／`network` 才放开扩展、MCP、技能与网络 |
 
@@ -65,7 +65,8 @@
 | 会话 | 每个阶段按阶段 id 创建或恢复独立 Session；阶段不同即不同原生对象。内部 Session 记录的 `role` 字段与 CLI `--role` 是历史命名，值即阶段 id，新调用优先使用 `--stage` |
 | 提示词 | `prompt` 缺省或文件缺失时用核心默认 agent 指令，不阻断执行，也不使整份流程降级 |
 | 流程降级 | 配置非法时生效流程为 `start → deliver`，不套提示词；`workflowMode`、`workflow show`、顶部提示与 `doctor` 显示原因 |
-| 交付与 Git | 阶段不执行 commit／push／rebase；交付由主会话在授权后协调确定性工具，子进程完成不等于授权 |
+| 交付与 Git | 阶段不执行 commit／push／rebase；交付由主会话在授权后协调确定性工具，子进程完成不等于授权。阶段进程带 `KNIT_STAGE_RUN_ID`（与 `KNIT_RUN` 同值），在阶段内调用 `deliver`、`archive`、`worktree merge --apply`、`worktree cleanup`、`task close`、`unlock`、`gc --apply`、`run accept` 一律以 `stage_context_forbidden` 拒绝；阶段写入的 `.git/hooks` 即使未被发现，交付提交缺省（`delivery.hooks: skip`）也不执行（OPERATIONS §2.2） |
+| 凭据 | 检查／完成凭据、实施记录、run 结果与接收检查点由核心写入并附本机 HMAC（密钥在用户目录，不传给阶段）；阶段内手写或改写这些文件得不到有效签名，读取时以 `credential_tampered`／`credential_unsigned` 拒绝，不当作有效凭据 |
 | 委派 | 阶段执行器不是主 Agent，不递归派发其他阶段 |
 | 扩展与资源 | Pi 阶段默认 `--no-extensions`、`--no-mcp`、`--no-skills`、`--offline`，只加载受控阶段提示词、规范与任务资料；`external`／`network` 才显式放开 |
 | 报告与状态 | 报告是待核对证据；阶段、修复次数、scope 和完成由核心维护 |

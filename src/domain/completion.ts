@@ -21,7 +21,11 @@ export type CompletionGuardReason =
   /** self／independent 没有任何成果路径（scope 与主会话实施记录皆空）；须显式 --no-artifacts --reason。 */
   | "empty_scope"
   /** 声明 --no-artifacts 但 scope／实施记录已有成果路径；声明与事实矛盾。 */
-  | "artifacts_present";
+  | "artifacts_present"
+  /** 检查凭据或实施记录完整性校验失败（本机 HMAC 不符或密钥缺失）；不作有效凭据。 */
+  | "credential_tampered"
+  /** 旧格式凭据缺签名：需重建（重新检查或重新 task implement），不作有效凭据。 */
+  | "credential_unsigned";
 
 export interface ImplementEvidence {
   runId: string;

@@ -37,6 +37,7 @@ import { LockManager, orderKeys } from "../infrastructure/locks.js";
 import { mainRootOf } from "./worktree-routing.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
+import { assertNotInStageContext } from "./stage-context.js";
 import { formalStandardsDigest } from "./standards.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
@@ -2244,6 +2245,8 @@ export class TaskService {
    * 迟到旧结果不得重开（STATES.md 第3、11节）。
    */
   async close(input: TaskCloseInput): Promise<TaskCloseResult> {
+    // 阶段进程内不能结束任务（含取消／替代）：业务关闭由主会话在阶段结束后处理。
+    assertNotInStageContext("task close");
     const root = normalizeRoot(input.dir);
     const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
     const evidenceRoot = normalizeRoot(input.evidenceRoot ?? input.dir);

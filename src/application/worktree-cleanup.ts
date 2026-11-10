@@ -33,8 +33,8 @@ import { gitSync, machineBootId, procStartTicks, sameProcessStart } from "../inf
 import { LockManager, orderKeys, type LockKey } from "../infrastructure/locks.js";
 import { normalizeRoot } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
-import { parseConfig, type ProjectConfig } from "./config.js";
-import { resolveAuthorization } from "./delivery.js";
+import { deliveryHooksOf, parseConfig, type ProjectConfig } from "./config.js";
+import { hookIsolatedGit, resolveAuthorization } from "./delivery.js";
 import type { AuthorizationSource } from "../contracts/delivery.js";
 import { porcelainStatusPaths } from "./git-status.js";
 import { GuardError } from "./guard-error.js";
@@ -42,6 +42,7 @@ import { parseTaskDocument } from "./task-document.js";
 import { locateTaskDocument } from "./task-service.js";
 import { type WorktreeLayout } from "./worktree-manager.js";
 import { resolveProjectStart } from "./worktree-routing.js";
+import { assertNotInStageContext } from "./stage-context.js";
 import type { MetadataStore } from "../ports/infrastructure.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type { SessionRecord } from "../contracts/session.js";
@@ -975,6 +976,20 @@ export class WorktreeCleanupService {
 
   /** 只读预检或授权执行清理；预览不创建目录、不写 binding／Session、不运行删除。 */
   async cleanup(input: WorktreeCleanupInput): Promise<WorktreeCleanupResult> {
+    assertNotInStageContext("worktree cleanup");
+    if (input.apply !== true) return await this.cleanupInScope(input);
+    // delivery.hooks=skip（缺省）：apply 全程（worktree remove、branch -D 与预检读取）本进程发起的 Git 调用
+    // 都带 core.hooksPath=<私有空目录>，reference-transaction、post-index-change 等 hook 不执行。
+    const config = readConfigOf(normalizeRoot(resolveProjectStart(input.dir).mainRoot), this.config);
+    const isolation = hookIsolatedGit(config === null ? "skip" : deliveryHooksOf(config));
+    try {
+      return await isolation.scope(() => this.cleanupInScope(input));
+    } finally {
+      isolation.dispose();
+    }
+  }
+
+  private async cleanupInScope(input: WorktreeCleanupInput): Promise<WorktreeCleanupResult> {
     const start = resolveProjectStart(input.dir);
     if (start.linkedWorktree) {
       throw new GuardError(
