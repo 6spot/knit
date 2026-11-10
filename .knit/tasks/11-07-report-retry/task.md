@@ -1,8 +1,8 @@
 ---
 id: k-b9df107db53a
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-2c0d10318898
@@ -67,5 +67,36 @@ title: 阶段报告补报轮次
 ## 结果与验证
 
 ## 运行引用
+
+### 实施与接收（2026-11-10）
+
+- run-584fab9d64a1（implement，magpie group/deepseek）：worker 在 07:42:38 后无心跳、无 result.json 退出；同一时刻（07:42:39）本机 Rex server 进程重启，时间吻合，推断 worker 随宿主进程树被终止（未另行取证，不作因果结论）。工作区留下 20 个文件的未收尾改动。
+- 主会话接续原会话 01a1b5fe 的授权，`knit run resume run-584fab9d64a1`：旧 run 收敛为 failed（worker_exited_before_result），残留锁（project／session）自动回收，新 run run-417ebb01f510 续用原生会话 082516aa 真实启动并完成。验证了本计划 S1／S2 的修复在真实现场可用。
+- run-417ebb01f510 未再改文件，只补完验证与报告，报告列出的 20 个路径因非本 run 工具写入挂起为 `unattributed_paths`。主会话逐文件读 diff 后 `run accept --include` 全部并入（operation accept-09b607da8ab3）。
+
+### 未覆盖细节的决定
+
+- task.md 列的可补报原因是 4 类；实现按“只涉及报告本身”扩到解析／结构类（`report_not_json`、`report_schema_invalid`、`report_field_*`、`report_changed_paths_missing`），与 plan.md 实施要点一致，不放宽路径一致性。
+- `check_scope_incomplete` 原先只在接收侧判定；为能补报，worker 侧用同一函数 `uncoveredScopePaths` 先判，接收侧保留同一规则作兜底。
+- 补报期间工作区有新改动记 `report_retry_worktree_changed:<paths>`；HEAD／敏感区变化优先按原边界原因失败。
+
+### 主会话核验
+
+- 读完 20 个路径的 diff：补报只在阶段工作成功结束、边界／保护路径／能力核对之后触发；取消、占用丢失、进程退出、补报机制不可用都不走补报成功路径；`reportRetries`／`reportRetryUsage`／`reportIssue` 写入结果，CLI `status`／`run status` 显示。
+- 全量 `npm test`（清除 Rex 呈现环境）：696/696 通过，耗时约 8.5 分钟。
+- 完成条件三项均有自动化测试：首轮缺路径补报后接收；补报期间写文件失败；`reportRetries=0` 维持现状。另有畸形 JSON、首轮有效不追加、coverage 补报三项。
+- 未验证：真实 Rex TUI 与真实模型下的补报轮端到端（按总计划延期，不在授权范围内）。
+
+### 交付记录
+
+<!-- knit:delivery:op-78ae72340a17 -->
+- 操作: op-78ae72340a17
+- 时间: 2026-11-10T10:16:10.912Z
+- 分支: refs/heads/main
+- 授权来源: user:b527d46a
+- 调用: bridge
+- 工作提交: 1123a0e16e4235d50609acc244d8b1aa3c73bc97
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-07-report-retry
 
 <!-- knit:progress:end -->
