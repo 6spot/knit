@@ -665,9 +665,12 @@ export class StatusService {
   }
 
   private async taskRuns(root: string, taskId: string, locksRoot?: string): Promise<RunStatusView[]> {
-    const runs = new RunStore(root).listRunIds();
+    const runStore = new RunStore(root);
     const result: RunStatusView[] = [];
-    for (const runId of runs) {
+    // 先按 run 自身的 taskId 廉价过滤，再构建完整状态视图：项目 run 多时
+    // 逐个构建会让 task status／每轮上下文随 run 总数线性变慢（k-0524fc52e81b）。
+    for (const runId of runStore.listRunIds()) {
+      if (this.runTaskIdOf(runStore, runId) !== taskId) continue;
       try {
         const view = await this.runStatus(root, runId, locksRoot);
         if (view.taskId === taskId) result.push(view);
@@ -676,6 +679,22 @@ export class StatusService {
       }
     }
     return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  /** run 归属任务：state／request 任一可读即可判定；损坏记录按不归属处理，不阻塞查询。 */
+  private runTaskIdOf(runStore: RunStore, runId: string): string | null {
+    try {
+      const state = runStore.readState(runId);
+      if (state !== null && typeof state.taskId === "string") return state.taskId;
+    } catch {
+      // 损坏的 state 回退 request。
+    }
+    try {
+      const request = runStore.readRequest(runId);
+      return request !== null && typeof request.taskId === "string" ? request.taskId : null;
+    } catch {
+      return null;
+    }
   }
 
   /** 只读推导 run 的执行目录：优先使用请求冻结的 expected.executionDir（worker 同口径），

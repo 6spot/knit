@@ -94,7 +94,7 @@
 | check 直接修复 | `pi/agents/trellis-check.md` L19-26、L35-37：看 diff、对任务产物、范围内直接修、跑验证 | 部分采用：默认检查阶段 `[read, exec]` 不改文件；项目允许 `write` 时才“范围内直接修”。差异：Knit 检查从独立上下文开始，必须报告 `changedPaths`／`selfVerified`，修复部分只算自检、`independent` 须再派无改动的 pass 检查，需求或验收变化用 blocked 交回 | `.knit/agents/check.md` |
 | 自动修复边界 | Trellis `workflow.md` L543-553：检查自动修复发现 | 采用“问题与修复方向明确”的有限修复；不采用无条件 auto-fix，冲突或需求变化停止 | check.md、`maxVisits` |
 | 任务状态不可读 | Trellis `workflow.md` L187-191：活动任务记录不可读时不要创建或激活另一任务 | 采用停止与不伪造状态的原则；Knit 由核心报告 missing／blocked，阶段不自行切换任务 | 停止条件 |
-| 每轮状态注入 | `packages/cli/src/templates/pi/extensions/trellis/index.ts.txt` L1124-1151、L2066-2085：从 workflow 状态块解析并注入 | 采用每轮注入；差异：Knit 桥接调用核心 `session resolve`／`status`，不解析 workflow 文本 | `.pi/extensions/knit.ts` |
+| 每轮状态注入 | `packages/cli/src/templates/pi/extensions/trellis/index.ts.txt` L1124-1151、L2066-2085：从 workflow 状态块解析并注入 | 采用每轮注入；差异：Knit 桥接调用核心 `session context`（一次返回选择、状态、资料与 nextAction），不解析 workflow 文本 | `.pi/extensions/knit.ts` |
 | 必需提交与收尾 | Trellis `workflow.md` L600-640；`common/commands/finish-work.md` L1-20：提交是 required step | 不采用自动提交；Knit 把业务完成与提交／归档分开，交付由主会话按授权协调 | AGENTS 受管块 |
 
 ## 7. GSD 来源映射

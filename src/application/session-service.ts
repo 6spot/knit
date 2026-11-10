@@ -555,14 +555,22 @@ export class SessionService {
       persisted: true,
       pendingReason: null,
     };
-    await this.store.sessions.save({
-      ...record,
-      sessionFile,
-      selection: updated,
-      taskId,
-      branch: data.branch,
-      recordedAt: this.now().toISOString(),
-    });
+    // 每轮上下文会反复读同一选择：快照未变时不写库，查询保持只读且不占用 WAL 写锁。
+    const unchanged =
+      snapshotMatches === true &&
+      record.taskId === taskId &&
+      record.sessionFile === sessionFile &&
+      record.branch === data.branch;
+    if (!unchanged) {
+      await this.store.sessions.save({
+        ...record,
+        sessionFile,
+        selection: updated,
+        taskId,
+        branch: data.branch,
+        recordedAt: this.now().toISOString(),
+      });
+    }
     return {
       knitSessionId,
       taskId,

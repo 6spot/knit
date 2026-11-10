@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { symlinkSync } from "node:fs";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,6 +19,10 @@ import { renderTaskDocument } from "../dist/application/task-document.js";
 
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const BRIDGE_TEMPLATE = join(import.meta.dirname, "..", "assets", "templates", "pi", "extensions", "knit.ts");
+
+// 既有用例走新鲜路径：默认 300ms 预算在 CI／负载下会因 CLI 启动耗时触发缓存回退。
+// 默认值不变；超时回退由「每轮上下文只调一次 CLI」用例单独验证（k-0524fc52e81b）。
+process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "10000";
 
 function shortId(id) {
   const dash = id.indexOf("-");
@@ -110,8 +114,8 @@ async function loadBridge(dir) {
   // 模板只依赖 node 内建模块；编译产物写入 .pi/extensions，项目根推导保持同构。
   const module = await import(pathToFileURL(join(buildDir, "bridge-stub.js")).href);
   const host = makeHostStub();
-  module.default(host.pi);
-  return { host, bridgePath: bridgeTs };
+  const api = await module.default(host.pi);
+  return { host, bridgePath: bridgeTs, api };
 }
 
 test("桥接命令展示结构化查询结果：task list、status、按任务查询可见；失败与空列表有准确提示（任务042）", async () => {
@@ -809,6 +813,300 @@ test("knit_deliver 桥接：非 plan 动作一律传会话记录，native:／mes
     assert.doesNotMatch(policy.content[0].text, /authorization_unverified/, policy.content[0].text);
     await host.handlers.get("session_shutdown")();
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * 安装一个记录调用的 CLI 包装（k-0524fc52e81b）：桥接仍调用 installation.json 的入口，
+ * 包装逐次追加 argv 后转交真实 CLI；tests 用调用日志核对每轮只产生一个 CLI 进程。
+ */
+function installCliSpy(dir) {
+  const base = join(dir, ".knit", ".runtime", "spy");
+  mkdirSync(join(base, "cli"), { recursive: true });
+  mkdirSync(join(base, "contracts"), { recursive: true });
+  copyFileSync(join(import.meta.dirname, "..", "dist", "contracts", "bridge-tools.json"), join(base, "contracts", "bridge-tools.json"));
+  const installPath = join(dir, ".knit", ".runtime", "installation.json");
+  const installation = JSON.parse(readFileSync(installPath, "utf8"));
+  const spyPath = join(base, "cli", "knit.mjs");
+  writeFileSync(spyPath, [
+    'import { appendFileSync } from "node:fs";',
+    'import { spawnSync } from "node:child_process";',
+    "const log = process.env.KNIT_SPY_LOG;",
+    "if (log) appendFileSync(log, JSON.stringify(process.argv.slice(2)) + \"\\n\");",
+    // 测试钩子：让 run list 查询失败（无输出、非零退出），其余命令照常转发。
+    "if (process.env.KNIT_SPY_FAIL_RUN_LIST === \"1\" && process.argv[3] === \"run\" && process.argv[4] === \"list\") process.exit(1);",
+    "const delay = Number(process.env.KNIT_SPY_DELAY_MS ?? 0);",
+    "if (Number.isFinite(delay) && delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));",
+    "const child = spawnSync(process.execPath, [process.env.KNIT_SPY_REAL, ...process.argv.slice(2)], { stdio: \"inherit\", env: process.env });",
+    "process.exit(child.status ?? 1);",
+    "",
+  ].join("\n"));
+  writeFileSync(installPath, JSON.stringify({ ...installation, cliEntry: spyPath }, null, 2) + "\n");
+  return { log: join(dir, "spy-calls.log"), real: installation.cliEntry, spyPath };
+}
+
+function readSpyCalls(path) {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8").trim().split("\n").filter((line) => line !== "").map((line) => JSON.parse(line));
+}
+
+test("每轮上下文只调一次 session context；超时用上一轮缓存并标注可能过期（k-0524fc52e81b）", async () => {
+  const dir = project("context-once");
+  const savedLog = process.env.KNIT_SPY_LOG;
+  const savedReal = process.env.KNIT_SPY_REAL;
+  const savedDelay = process.env.KNIT_SPY_DELAY_MS;
+  const savedTimeout = process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS;
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_DELAY_MS = "0";
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "10000";
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    // session_start 的 attach／verify／restore／预热与首个观察器扫描都经同一包装；等它们结束再计数。
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    rmSync(spy.log, { force: true });
+
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const calls = readSpyCalls(spy.log);
+    assert.equal(calls.length, 1, `每轮只应产生一个 CLI 调用: ${JSON.stringify(calls)}`);
+    assert.deepEqual(calls[0].slice(0, 3), ["--json", "session", "context"], "上下文只走 session context");
+    assert.equal(calls[0].at(-2), "--dir");
+    assert.match(host.systemPromptOptions.sections.knit, /当前无选定任务/);
+
+    // 预算内拿不到结果：不阻塞等待，改用上一轮缓存并标注可能过期。
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "1";
+    process.env.KNIT_SPY_DELAY_MS = "2000";
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const cached = host.systemPromptOptions.sections.knit;
+    assert.match(cached, /当前无选定任务/, "超时仍给出上一轮上下文");
+    assert.match(cached, /上下文可能过期/, "超时标注可能过期");
+    assert.match(cached, /本次查询超过 1ms/, "写明超时预算");
+    assert.equal(readSpyCalls(spy.log).at(-1).slice(0, 3).join(" "), "--json session context");
+    process.env.KNIT_SPY_DELAY_MS = "0";
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    if (savedLog === undefined) delete process.env.KNIT_SPY_LOG;
+    else process.env.KNIT_SPY_LOG = savedLog;
+    if (savedReal === undefined) delete process.env.KNIT_SPY_REAL;
+    else process.env.KNIT_SPY_REAL = savedReal;
+    if (savedDelay === undefined) delete process.env.KNIT_SPY_DELAY_MS;
+    else process.env.KNIT_SPY_DELAY_MS = savedDelay;
+    if (savedTimeout === undefined) delete process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS;
+    else process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = savedTimeout;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("knit_run wait=true 期间中止：及时返回当前状态，不取消 run（k-0524fc52e81b）", async () => {
+  const dir = project("wait-abort");
+  const savedBin = process.env.KNIT_PI_BIN;
+  const savedAction = process.env.KNIT_FAKE_ACTION;
+  try {
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "等待中止", "--slug", "wait-abort", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const taskId = created.data.taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    // 旧 run：worker 与阶段 Pi 均已退出且无结果 → resume 生成新 run（与既有 resume 用例同现场）。
+    const old = prepareBridgeRun(dir, taskId, "implement");
+    const dead = spawnSync(process.execPath, ["-e", ""]).pid;
+    const now = new Date().toISOString();
+    const runs = new RunStore(dir);
+    const bootId = machineBootId();
+    runs.writeLaunch(old.runId, { ...runs.readLaunch(old.runId), state: "confirmed", attempts: 1, handle: { pid: dead, bootId, procStartTicks: "1", hostname: "h", recordedAt: now } });
+    runs.writeState(old.runId, {
+      schemaVersion: 1, runId: old.runId, taskId, phase: "implement", state: "running",
+      worker: { workerId: "w-dead", pid: dead, bootId, procStartTicks: "1", hostname: "h" },
+      claimedAt: now, updatedAt: now, prepared: true, preparedAt: now, snapshot: null, reason: null,
+    });
+    runs.writeStageProcess(old.runId, {
+      schemaVersion: 1, runId: old.runId, taskId, phase: "implement", state: "exited", workerPid: dead, piPid: null,
+      bootId, procStartTicks: null, hostname: "h", nativeSessionId: "stub-stage", knitSessionId: "ks-stub", startedAt: now, recordedAt: now,
+    });
+    process.env.KNIT_PI_BIN = join(import.meta.dirname, "fixtures", "fake-pi.mjs");
+    const actionPath = join(dir, "fake-action.json");
+    writeFileSync(actionPath, JSON.stringify({ waitFile: ".never-signal", waitTimeoutMs: 120_000, report: { summary: "不应在等待中完成", changedPaths: [] } }));
+    process.env.KNIT_FAKE_ACTION = actionPath;
+
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 2500);
+    const startedAt = Date.now();
+    const result = await host.tools.get("knit_run").execute("w1", { action: "resume", runId: old.runId, wait: true }, controller.signal, null, host.ctx);
+    const elapsed = Date.now() - startedAt;
+    clearTimeout(abortTimer);
+    assert.equal(result.isError, false, result.content?.[0]?.text ?? "");
+    assert.ok(elapsed < 20_000, `中止后应及时返回，实际 ${elapsed}ms`);
+    assert.match(result.content[0].text, /等待已中止（run 未取消）/);
+    assert.equal(result.details.waitAborted, true);
+    const runId = result.details.request.runId;
+    assert.ok(["claimed", "preparing", "running"].includes(result.details.status.state), `当前状态: ${result.details.status.state}`);
+    const status = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", "--run", runId, "--dir", dir], { encoding: "utf8" }));
+    assert.notEqual(status.data.state, "cancelled", "中止等待不取消 run");
+    assert.equal(status.data.cancelRequestedAt, null);
+    // 收尾：放出等待信号，让假 Pi 正常结束，避免残留 worker。
+    writeFileSync(join(dir, ".never-signal"), "done\n");
+    for (let index = 0; index < 50; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const current = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", "--run", runId, "--dir", dir], { encoding: "utf8" }));
+      if (["completed", "cancelled", "failed"].includes(current.data.state)) break;
+    }
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    if (savedBin === undefined) delete process.env.KNIT_PI_BIN;
+    else process.env.KNIT_PI_BIN = savedBin;
+    if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
+    else process.env.KNIT_FAKE_ACTION = savedAction;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("观察器：无活动 run 退避到 30 秒，有活动 run 回到 5 秒；节拍来自实际调度（k-0524fc52e81b）", async () => {
+  const dir = project("observer-cadence");
+  try {
+    const { host, api } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const waitDelay = async (expected) => {
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const timer = api.state.timer;
+        if (timer !== null && timer?._idleTimeout === expected) return true;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      return false;
+    };
+    assert.equal(await waitDelay(30_000), true, `无活动 run 应退避到 30s，实际 ${api.state.timer?._idleTimeout}`);
+    assert.equal(api.state.lastScanActive, false);
+
+    const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "观察节拍", "--slug", "observer-cadence", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const taskId = created.data.taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    const request = prepareBridgeRun(dir, taskId, "implement");
+    const now = new Date().toISOString();
+    new RunStore(dir).writeState(request.runId, {
+      schemaVersion: 1,
+      runId: request.runId,
+      taskId,
+      phase: "implement",
+      state: "running",
+      worker: { workerId: "stub-worker", pid: process.pid, bootId: "stub-boot", procStartTicks: null, hostname: "stub-host" },
+      claimedAt: now,
+      updatedAt: now,
+      prepared: true,
+      preparedAt: now,
+      snapshot: null,
+      reason: null,
+    });
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(api.state.lastScanActive, true, "有活动 run 时按 5s 节拍");
+    assert.equal(await waitDelay(5_000), true, `有活动 run 应回到 5s，实际 ${api.state.timer?._idleTimeout}`);
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("观察器：run list 查询失败不推进扫描时间，恢复后从原时间点继续查（k-0524fc52e81b）", async () => {
+  const dir = project("observer-scan-failure");
+  const saved = {};
+  for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_FAIL_RUN_LIST"]) saved[name] = process.env[name];
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_DELAY_MS = "0";
+    delete process.env.KNIT_SPY_FAIL_RUN_LIST;
+    const { host, api } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const sinceOfLastScan = () => {
+      const call = readSpyCalls(spy.log).filter((args) => args[1] === "run" && args[2] === "list").at(-1);
+      return Date.parse(call[call.indexOf("--since") + 1]);
+    };
+
+    // 扫描串行排队：等会话启动时观察器自己排的那次也结束，再读扫描时间。
+    const settle = async () => {
+      await host.handlers.get("agent_settled")({}, host.ctx);
+      await api.state.scanChain;
+    };
+
+    // 一次成功扫描把扫描时间推进到该次开始时刻。
+    await settle();
+    const scannedAt = api.state.lastScanAt;
+    assert.equal(typeof scannedAt, "number");
+
+    // 查询失败：扫描时间保持不变，节拍沿用上一次的判断。
+    process.env.KNIT_SPY_FAIL_RUN_LIST = "1";
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const activeBefore = api.state.lastScanActive;
+    await settle();
+    assert.equal(sinceOfLastScan(), scannedAt, "失败的这次查询从上次成功扫描的时间点查");
+    assert.equal(api.state.lastScanAt, scannedAt, "查询失败不推进扫描时间");
+    assert.equal(api.state.lastScanActive, activeBefore);
+
+    // 恢复后的第一次查询仍从原时间点开始，失败期间出结果的 run 不会漏掉；成功后才推进。
+    delete process.env.KNIT_SPY_FAIL_RUN_LIST;
+    await settle();
+    assert.equal(sinceOfLastScan(), scannedAt, "恢复后的查询仍用失败前的时间点");
+    assert.ok(api.state.lastScanAt > scannedAt, "查询成功后推进扫描时间");
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("桥接诊断：cli_version 记录安装 CLI 与仓库版本／dist 摘要，会话启动提示改用本地 dist（k-0524fc52e81b）", async () => {
+  const dir = project("bridge-version-diag");
+  const savedDev = process.env.KNIT_DEV;
+  const savedWrite = process.stderr.write;
+  const chunks = [];
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "knit", version: "9.9.9" }) + "\n");
+    process.env.KNIT_DEV = "1";
+    process.stderr.write = (chunk, ...rest) => {
+      void rest;
+      chunks.push(String(chunk));
+      return true;
+    };
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    const events = chunks
+      .filter((line) => line.trim().startsWith("{"))
+      .map((line) => JSON.parse(line))
+      .filter((event) => event.type === "knit.bridge.diag");
+    const version = events.find((event) => event.event === "cli_version");
+    assert.ok(version, `缺少 cli_version 诊断: ${chunks.join("")}`);
+    assert.equal(version.installedVersion, "0.1.0");
+    assert.equal(version.repoVersion, "9.9.9");
+    assert.match(String(version.reason), /版本不一致/);
+    assert.match(String(version.reason), /本地 dist/);
+    assert.equal(
+      host.notifications.some((notice) => notice.level === "warning" && /版本不一致/.test(notice.text) && /本地 dist/.test(notice.text)),
+      true,
+      "会话启动提示改用本地 dist",
+    );
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    process.stderr.write = savedWrite;
+    if (savedDev === undefined) delete process.env.KNIT_DEV;
+    else process.env.KNIT_DEV = savedDev;
     rmSync(dir, { recursive: true, force: true });
   }
 });

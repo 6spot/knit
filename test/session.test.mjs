@@ -635,3 +635,58 @@ test("CLI task ready：无参拒绝；--session 使用已落盘选择并区分 p
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("CLI session context：一次返回选择、任务状态、规划资料与 nextAction（k-0524fc52e81b）", async () => {
+  const dir = gitProject("session-context");
+  installTemplates(dir);
+  const { store, session, tasks, agentDir } = makeServices(dir);
+  const run = (args) => spawnSync(process.execPath, [CLI, "--json", ...args, "--dir", dir], { encoding: "utf8" });
+  try {
+    const task = await tasks.newTask({ dir, title: "上下文投影", slug: "session-context" });
+    const attached = await session.attach({ dir, kind: "main", role: "implement" });
+    const none = JSON.parse(run(["session", "context", attached.record.knitSessionId]).stdout);
+    assert.equal(none.outcome, "completed");
+    assert.equal(none.data.taskId, null);
+    assert.equal(none.data.task, null);
+    assert.deepEqual(none.data.materials, []);
+    assert.equal(none.data.nextAction, null);
+    assert.equal(none.data.effective, false);
+
+    // 落盘的原生选择 + 规划资料 + ready：一次调用同时给出状态与下一步。
+    const nativeId = "ctx-native";
+    writeNativeSession(agentDir, dir, nativeId, [
+      { type: "message", id: "e1", parentId: null },
+      selectionEntry("e2", "e1", { taskId: task.taskId, branch: "refs/heads/main", operationId: "sel-ctx" }),
+    ]);
+    const persisted = await session.attach({ dir, nativeSessionId: nativeId, kind: "main", role: "implement" });
+    const contextId = persisted.record.knitSessionId;
+    const saved = spawnSync(process.execPath, [CLI, "--json", "task", "material", "save", task.taskId, "plan.md", "--dir", dir], { encoding: "utf8", input: "# 计划\n" });
+    assert.equal(saved.status, 0, saved.stderr);
+    const ready = run(["task", "ready", task.taskId]);
+    assert.equal(ready.status, 0, ready.stderr);
+
+    const result = JSON.parse(run(["session", "context", contextId]).stdout);
+    assert.equal(result.outcome, "completed");
+    assert.equal(result.data.taskId, task.taskId);
+    assert.equal(result.data.effective, true);
+    assert.equal(result.data.task.taskId, task.taskId);
+    assert.equal(result.data.task.title, "上下文投影");
+    assert.equal(result.data.task.status, "open");
+    assert.equal(result.data.task.stage, "implement");
+    assert.equal(result.data.task.stageName, "实现");
+    assert.equal(result.data.task.relativePath, `.knit/${task.relativePath}`);
+    assert.deepEqual(result.data.materials.map((entry) => entry.path), ["plan.md"]);
+    assert.equal(result.data.nextAction.kind, "stage");
+    assert.equal(typeof result.data.nextAction.summary, "string");
+
+    const human = spawnSync(process.execPath, [CLI, "session", "context", contextId, "--dir", dir], { encoding: "utf8" });
+    assert.equal(human.status, 0, human.stderr);
+    assert.match(human.stdout, /当前任务：上下文投影/);
+    assert.match(human.stdout, /阶段：实现（implement）/);
+    assert.match(human.stdout, /规划资料: plan\.md/);
+    assert.match(human.stdout, /下一步（stage）/);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

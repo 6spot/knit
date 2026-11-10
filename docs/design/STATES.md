@@ -109,7 +109,7 @@ Pi 的 agent_end 可能位于自动重试之间，不能独作终态；以公开
 
 崩溃后核心在 reconcile 操作中记录核实结论，不能伪造 completed 报告。正常结果按固定 acceptanceOperationId 幂等接收。结果已有而业务写回未完成时显示“执行已结束、状态待同步”，先恢复接收，不重复实施。实现（任务018）：接收先原子写 `runs/<run>/acceptance.json`（来源 target、binding before/after、scope、check、输入／规范摘要），再写 Task／scope／check／binding，最后完成 operation 并移除检查点；重入按当前事实与来源／目标对比，漂移转 needs_attention，不覆盖后来 Task、草案或输入；同一操作的 scopeAfter 已落盘而 binding 未写时按检查点收敛，不误判为外部 scope 漂移。 Task 关闭与该任务启动／接收在同一任务短临界区核对 status、stage 与版本；迟到旧结果保留为执行事实，不能重开 cancelled/superseded、覆盖其 outcome 或继续自动修复。
 
-status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。实现（任务015）：status 用只读元数据库投影耗时、最后事件与工作树租约心跳；`--events` 只观察事件到终态，不接收结果；桥接每 5 秒按发起方原生 Session 查询未结束 run，并按会话内通知条目去重。
+status 展示总耗时、最近模型／工具活动距今多久以及心跳情况。心跳和诊断事件不算业务活动；有输出不等于有进展，无输出不等于卡死。首版不做语义空转检测、自动取消或总时长停止。实现（任务015）：status 用只读元数据库投影耗时、最后事件与工作树租约心跳；`--events` 只观察事件到终态，不接收结果；桥接按发起方原生 Session 用一次 `knit run list --active --with-status` 查询仍需处理的 run（有未到终态 run 时每 5 秒、没有时退避到 30 秒），并按会话内通知条目去重。
 
 ## 6. 对象级取消
 

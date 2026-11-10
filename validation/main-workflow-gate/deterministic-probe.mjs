@@ -107,7 +107,7 @@ async function loadBridge(dir) {
   if (compiled.status !== 0) throw new Error(`桥接编译失败: ${compiled.stderr || compiled.stdout}`);
   const module = await import(pathToFileURL(join(buildDir, "bridge-stub.js")).href);
   const host = makeHostStub();
-  module.default(host.pi);
+  await module.default(host.pi);
   return host;
 }
 

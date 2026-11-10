@@ -4,9 +4,10 @@
  */
 import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { sha256Bytes } from "../contracts/digest.js";
 import { parseConfig, defaultConfig, schedulerSettingsOf, worktreeSettingsOf, type ProjectConfig } from "./config.js";
 import { loadWorkflow } from "./workflow.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
@@ -103,6 +104,63 @@ function packageVersion(): string {
   } catch {
     return "unknown";
   }
+}
+
+/** 文件字节摘要；不可读返回 null（只用于版本一致性提示，不阻塞诊断）。 */
+function fileDigest(path: string): string | null {
+  try {
+    return sha256Bytes(readFileSync(path));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 安装 CLI 与实际仓库的一致性：版本（installation.json／入口包 package.json）与本地 dist 摘要。
+ * 在 Knit 自身仓库开发时，桥接指向仓库外的安装是最常见的“用错版本”现场。
+ */
+function installationVersionCheck(root: string, cliEntry: string | null, installation: Record<string, unknown> | null): DiagnosticCheck {
+  if (cliEntry === null) return { name: "installation-version", status: "fail", detail: "缺少 CLI 入口，无法核对版本" };
+  const entryPackage = readJson(join(dirname(cliEntry), "..", "package.json"));
+  const entryVersion =
+    typeof entryPackage?.version === "string"
+      ? entryPackage.version
+      : typeof installation?.packageVersion === "string"
+        ? installation.packageVersion
+        : null;
+  const repoPackage = readJson(join(root, "package.json"));
+  const repoVersion = typeof repoPackage?.version === "string" ? repoPackage.version : null;
+  const repoName = typeof repoPackage?.name === "string" ? repoPackage.name : null;
+  const localDist = join(root, "dist", "cli", "knit.js");
+  const localDigest = existsSync(localDist) ? fileDigest(localDist) : null;
+  const entryDigest = existsSync(cliEntry) ? fileDigest(cliEntry) : null;
+  const insideRoot = cliEntry === root || cliEntry.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+  const knitRepo = repoVersion !== null && (repoName === "knit" || existsSync(join(root, "src", "cli", "knit.ts")));
+  const parts: string[] = [`安装 CLI ${entryVersion ?? "未知版本"}（${cliEntry}）`];
+  let status: DiagnosticCheck["status"] = "ok";
+  // 只有当前仓库是 Knit 自身时才有“期望版本”：普通项目自己的 package.json 与 Knit 版本无关。
+  if (knitRepo) {
+    parts.push(`仓库 ${repoVersion}`);
+    if (entryVersion !== null && entryVersion !== repoVersion) {
+      status = "warn";
+      parts.push("版本不一致：重新构建并用本地 dist 重新 init（node dist/cli/knit.js init --force）");
+    }
+    if (localDigest !== null) {
+      parts.push(`dist 摘要 ${localDigest.slice(0, 12)}`);
+      if (entryDigest !== null && entryDigest !== localDigest) {
+        status = "warn";
+        parts.push(`入口摘要 ${entryDigest.slice(0, 12)} 与本地 dist 不一致：开发时改用本地 dist`);
+      }
+    } else {
+      status = "warn";
+      parts.push("缺少本地 dist 构建：先 npm run build，再用 node dist/cli/knit.js init --force");
+    }
+    if (!insideRoot) {
+      status = "warn";
+      parts.push("当前是 Knit 自身仓库，桥接指向仓库外的安装；开发时用本地 dist（node dist/cli/knit.js init --force）");
+    }
+  }
+  return { name: "installation-version", status, detail: parts.join("；") };
 }
 
 function configOf(root: string): { config: ProjectConfig | null; problem: string | null } {
@@ -243,6 +301,7 @@ export function doctor(input: { dir: string; piBin?: string; locksRoot?: string 
   const installation = readJson(join(root, RUNTIME, "installation.json"));
   const cliEntry = typeof installation?.cliEntry === "string" ? installation.cliEntry : null;
   add("installation", cliEntry !== null && existsSync(cliEntry) ? "ok" : "fail", cliEntry === null ? "缺少 CLI 安装映射" : existsSync(cliEntry) ? cliEntry : `CLI 入口不存在: ${cliEntry}`);
+  checks.push(installationVersionCheck(root, cliEntry, installation));
   const bridge = join(root, ".pi", "extensions", "knit.ts");
   add("bridge", existsSync(bridge) ? "ok" : "warn", existsSync(bridge) ? bridge : "未发现 .pi/extensions/knit.ts");
   if (cliEntry !== null) {

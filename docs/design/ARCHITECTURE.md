@@ -75,7 +75,7 @@ Pi 协议形状只出现在 Pi 适配目录。AgentRuntime 取消通过受控 CL
 
 ## 5. 进程与运行时序
 
-1. 项目桥接从当前 Pi 调用取得原生 Session、有效分支和实际模型，转给同一 CLI 命令处理器。用户直接 CLI 可没有主 Session；缺少的任务或模型必须显式补足。实现（任务015）：桥接登记主会话与有效选择，工具 schema 由构建期派生 JSON 提供；观察器按 run 发起方原生 ID 只读查询并按会话条目去重投递，不接收结果。
+1. 项目桥接从当前 Pi 调用取得原生 Session、有效分支和实际模型，转给同一 CLI 命令处理器。用户直接 CLI 可没有主 Session；缺少的任务或模型必须显式补足。实现（任务015）：桥接登记主会话与有效选择，工具 schema 由构建期派生 JSON 提供；观察器按 run 发起方原生 ID 用一次 `run list --active --with-status` 只读查询并按会话条目去重投递，不接收结果；桥接 CLI 调用全部异步，不阻塞宿主主线程。
 2. CLI 核心做只读预检、选定模型身份，并按调用级 `--rex`／`--local` > `execution.host`（缺省 `auto`）解析呈现；`auto` 仅在派发前探测 REX，失败回退 local 并记录原因。随后发布不可变 request 与启动意图，request 记录任务／分支、呈现来源／回退原因、预期需求摘要和输入计划引用，不提前宣称已冻结输入。
 3. 本机启动独立 worker 并确认实例；worker 原子认领 run，通过同一核心服务以自己的身份取得执行占用，重新核实前置条件，发布 inputs。`presentation: rex` 时由 StageRunner 在 worktree 内启动 RexLauncher，在浮层中运行阶段 Pi；start 与 resume 只读 request 中已落盘的呈现，不在启动后换宿主。正式实施在快照 ready 后才允许调用模型／写代码。占用从取得到释放均由同一执行者持有，不做 CLI 到 worker 的长锁交接。实现（任务012）：RunCoordinator 发布 request/launch，worker 以 `mkdir claim` 认领并自行取锁；implement 快照 ready 后停于 prepared，阶段执行由 013 在同一 run 内继续。实现（任务016）：快照同时保存工作区与独立 index blob；`snapshot show` 只读对照，restore 默认预览、需显式当前指纹，按路径恢复并留下 `.runtime/restores/` 记录，Task 输入改走 task update。
 4. worker 只装配所选 runtime；REX 分支在浮层内使用同一 Pi runtime、工具策略与原生会话协议。默认优先按原客户端加载阶段原生记录并核对实际 ID／历史，旧记录缺失、损坏、不兼容或加载失败时自动新建 Session，从任务文件和当前现场续做。保留旧引用和原因，新会话可用后才更新阶段引用，新建失败不递归重试；不换客户端、不重置阶段／修复次数／累计 scope。两条路径均核实旧工具结束、落实本次模型／指令、等待稳定终态；记录变化不改本次冻结输入。

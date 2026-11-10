@@ -3,12 +3,11 @@ import { Command } from "commander";
 import { join } from "node:path";
 import { SqliteMetadataStore } from "../infrastructure/sqlite-metadata-store.js";
 import { SessionService, type SessionAttachInput } from "../application/session-service.js";
-import { ContextPlanner } from "../application/context-planner.js";
+import { buildSessionContext } from "../application/session-context.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
 import type { SessionKind, SessionRole, SessionSourceKind } from "../contracts/session.js";
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
-import { loadWorkflow } from "../application/workflow.js";
 import { StatusService } from "../application/status-service.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
@@ -198,6 +197,35 @@ export function registerSessionCommands(program: Command): void {
     });
 
   session
+    .command("context <knitSessionId>")
+    .description("一次返回当前选择、任务状态、规划资料与下一步（每轮注入用，只读）")
+    .option("--dir <dir>", "项目目录（默认当前目录）", ".")
+    .action(async (knitSessionId, options) => {
+      const requestId = `session-context-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await withStore(
+        requestId,
+        options.dir,
+        async (store) => buildSessionContext({ store, dir: options.dir, knitSessionId }),
+        (view) => {
+          console.log(
+            `${view.knitSessionId}: ${view.taskId ?? "无选择"}${view.effective ? "" : "（未生效）"}` +
+              `${view.reason === null ? "" : ` — ${view.reason}`}`,
+          );
+          console.log(`来源: ${view.source}；条目: ${view.entryRef ?? "无"}`);
+          if (view.task === null) return;
+          console.log(`当前任务：${view.task.title}（${view.task.taskId}）`);
+          console.log(`阶段：${view.task.stageName}（${view.task.stage}）；状态: ${view.task.status}${view.task.outcome ? `；结果: ${view.task.outcome}` : ""}`);
+          if (view.task.activeRuns.length > 0) console.log(`活动运行: ${view.task.activeRuns.map((run) => `${run.runId}(${run.state})`).join(", ")}`);
+          console.log(`规划资料: ${view.materials.length === 0 ? "无" : view.materials.map((entry) => entry.path).join(", ")}`);
+          if (view.nextAction !== null) {
+            console.log(`下一步（${view.nextAction.kind}）: ${view.nextAction.summary}`);
+            for (const command of view.nextAction.commands) console.log(`  ${command}`);
+          }
+        },
+      );
+    });
+
+  session
     .command("history <knitSessionId>")
     .description("只读历史摘要：条目类型与引用，不复制聊天正文")
     .option("--limit <n>", "最多返回末尾 N 条")
@@ -254,6 +282,8 @@ export function registerSessionCommands(program: Command): void {
         requestId,
         options.dir,
         async (store) => {
+          const { ContextPlanner } = await import("../application/context-planner.js");
+          const { loadWorkflow } = await import("../application/workflow.js");
           const plan = await new ContextPlanner({ store }).plan({
             dir: options.dir,
             taskId: options.task,

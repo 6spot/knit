@@ -17,42 +17,55 @@ program
 const { installDiagnostics } = await import("./dev.js");
 installDiagnostics(program);
 
-const { registerInitCommand } = await import("./init.js");
-registerInitCommand(program);
-const { registerStartCommand } = await import("./start.js");
-registerStartCommand(program);
+/**
+ * 按顶层命令懒加载命令组：桥接每轮上下文只有 300ms 预算，
+ * 启动时加载全部命令组会白花约 80ms（k-0524fc52e81b）。
+ * 无参数、help、版本等需要完整清单的入口仍加载全部组。
+ */
+const COMMAND_GROUPS: Array<{ commands: string[]; register: () => Promise<void> }> = [
+  { commands: ["init"], register: async () => (await import("./init.js")).registerInitCommand(program) },
+  { commands: ["start"], register: async () => (await import("./start.js")).registerStartCommand(program) },
+  { commands: ["task"], register: async () => (await import("./task.js")).registerTaskCommands(program) },
+  { commands: ["session", "context"], register: async () => (await import("./session.js")).registerSessionCommands(program) },
+  { commands: ["standards"], register: async () => (await import("./standards.js")).registerStandardsCommands(program) },
+  { commands: ["run"], register: async () => (await import("./run.js")).registerRunCommands(program) },
+  { commands: ["workflow"], register: async () => (await import("./workflow.js")).registerWorkflowCommands(program) },
+  { commands: ["worktree"], register: async () => (await import("./worktree.js")).registerWorktreeCommands(program) },
+  { commands: ["deliver", "archive"], register: async () => (await import("./deliver.js")).registerDeliveryCommands(program) },
+  { commands: ["status", "doctor", "storage"], register: async () => (await import("./status.js")).registerStatusCommands(program) },
+  { commands: ["resume", "cancel"], register: async () => (await import("./resume.js")).registerResumeCommands(program) },
+  { commands: ["snapshot"], register: async () => (await import("./snapshot.js")).registerSnapshotCommands(program) },
+  { commands: ["locks", "unlock"], register: async () => (await import("./locks.js")).registerLockCommands(program) },
+  { commands: ["gc"], register: async () => (await import("./gc.js")).registerGcCommands(program) },
+];
 
-const { registerTaskCommands } = await import("./task.js");
-registerTaskCommands(program);
-const { registerSessionCommands } = await import("./session.js");
-registerSessionCommands(program);
-const { registerStandardsCommands } = await import("./standards.js");
-registerStandardsCommands(program);
-const { registerRunCommands } = await import("./run.js");
-registerRunCommands(program);
-const { registerWorkflowCommands } = await import("./workflow.js");
-registerWorkflowCommands(program);
-const { registerWorktreeCommands } = await import("./worktree.js");
-registerWorktreeCommands(program);
-const { registerDeliveryCommands } = await import("./deliver.js");
-registerDeliveryCommands(program);
-const { registerStatusCommands } = await import("./status.js");
-registerStatusCommands(program);
-const { registerResumeCommands } = await import("./resume.js");
-registerResumeCommands(program);
-const { registerSnapshotCommands } = await import("./snapshot.js");
-registerSnapshotCommands(program);
-const { registerLockCommands } = await import("./locks.js");
-registerLockCommands(program);
-const { registerGcCommands } = await import("./gc.js");
-registerGcCommands(program);
+/** 顶层命令（跳过全局选项与其值）；无位置参数返回 null。 */
+function topLevelCommand(argv: string[]): string | null {
+  for (const arg of argv) {
+    if (arg === "--") break;
+    if (arg.startsWith("-")) continue;
+    return arg;
+  }
+  return null;
+}
 
-// 无参数：直接输出帮助，不经 parseAsync（commander 15 对已注册子命令的裸调用以 missing command 退出）
-if (process.argv.length <= 2) {
+const command = topLevelCommand(process.argv.slice(2));
+const KNOWN_COMMANDS = new Set(COMMAND_GROUPS.flatMap((group) => group.commands));
+// 无位置参数（帮助／版本）与 `help` 需要完整命令清单；其余只加载命中的组。
+const groups = command === null || command === "help" ? COMMAND_GROUPS : COMMAND_GROUPS.filter((group) => group.commands.includes(command));
+for (const group of groups) await group.register();
+
+// 未命中的顶层命令不加载任何组，直接报错；不交给 commander 按多余参数处理。
+if (command !== null && command !== "help" && !KNOWN_COMMANDS.has(command)) {
+  console.error(`knit: 未知命令 "${command}"；未执行任何操作。`);
+  console.error(`error: unknown command '${command}'`);
+  process.exitCode = 1;
+} else if (process.argv.length <= 2) {
+  // 无参数：直接输出帮助，不经 parseAsync（commander 15 对已注册子命令的裸调用以 missing command 退出）
   program.outputHelp();
 } else {
   await program.parseAsync(process.argv);
-  const known = program.commands.map((command) => command.name());
+  const known = program.commands.map((item) => item.name());
   const [firstArg] = program.args;
   if (firstArg !== undefined && !known.includes(firstArg)) {
     console.error(`knit: 未知命令 "${firstArg}"；未执行任何操作。`);

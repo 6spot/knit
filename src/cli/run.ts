@@ -10,7 +10,9 @@ import { LockManager } from "../infrastructure/locks.js";
 import { resolvePhaseModel } from "../application/model-selection.js";
 import { GuardError } from "../application/guard-error.js";
 import { resolveProjectStart } from "../application/worktree-routing.js";
-import type { RunPhase, RunPresentation } from "../contracts/run.js";
+import { StatusService } from "../application/status-service.js";
+import type { MetadataStore } from "../ports/infrastructure.js";
+import type { RunPhase, RunPresentation, RunStateFile } from "../contracts/run.js";
 import { reportStringArrayField, reportVerdictLabel } from "../contracts/run.js";
 import { WORKFLOW_STAGE_ID_REGEX } from "../contracts/workflow.js";
 import { devEnabled } from "./dev.js";
@@ -554,6 +556,9 @@ export function registerRunCommands(program: Command): void {
   run
     .command("list")
     .description("列出本项目的 run 目录（只读）")
+    .option("--active", "只列仍需观察的 run（未到终态；或结果尚未处理完；--since 之后才出结果的）")
+    .option("--since <iso>", "活动过滤：结果已处理完的终态 run 只保留该时间点之后发布结果的（观察器传上次扫描时间）")
+    .option("--with-status", "每项返回完整状态视图（与 status --run 同口径）")
     .option("--dir <dir>", "项目目录", ".")
     .action(async (options) => {
       const root = cliMainRoot(options.dir);
@@ -562,8 +567,25 @@ export function registerRunCommands(program: Command): void {
       try {
         const runs = new RunStore(root);
         const coordinator = new RunCoordinator({ store });
+        const statusService = new StatusService({ store });
+        const since = options.since === undefined ? null : Date.parse(String(options.since));
+        if (options.since !== undefined && Number.isNaN(since)) {
+          throw new GuardError("invalid_request", `--since 需要 ISO 时间: ${options.since}`);
+        }
         const result = [];
-        for (const runId of runs.listRunIds()) result.push(await coordinator.status({ dir: root, runId }));
+        for (const runId of runs.listRunIds()) {
+          // 活动过滤先读 state／result 轻量判定，避免为终态 run 构建完整视图（k-0524fc52e81b）。
+          if (options.active === true && (await activeRunOf(store, runs, runId, since)) !== true) continue;
+          if (options.withStatus === true) {
+            try {
+              result.push(await statusService.runStatus(root, runId));
+            } catch {
+              // 不可读 run 不阻塞列表；doctor 报告存储状态。
+            }
+            continue;
+          }
+          result.push(await coordinator.status({ dir: root, runId }));
+        }
         if (jsonMode()) emit(jsonResponse("run-list", "completed", result));
         else for (const status of result) {
           const fallback = status.presentationFallbackReason ? ` fallback=${status.presentationFallbackReason}` : "";
@@ -575,4 +597,36 @@ export function registerRunCommands(program: Command): void {
         store.close();
       }
     });
+}
+
+/**
+ * 观察器仍需处理的 run：未到终态，或终态且结果尚未处理完（接收回执未 completed）。
+ * 结果已处理完的终态 run（完成、失败、取消）默认不再观察；观察器传 --since（上次扫描时间）时，
+ * 只保留该时间之后发布结果的，用于“首次观察时已收敛”的被动通知（DESIGN §9.3）。
+ * 只读 state／result 与接收回执，损坏记录按不活动处理，避免反复重试（k-0524fc52e81b）。
+ */
+async function activeRunOf(store: MetadataStore, runs: RunStore, runId: string, since: number | null): Promise<boolean> {
+  let state: RunStateFile | null = null;
+  try {
+    state = runs.readState(runId);
+  } catch {
+    return false;
+  }
+  if (state === null || typeof state.state !== "string" || !terminal(state.state)) return true;
+  let result = null;
+  try {
+    result = runs.readResult(runId);
+  } catch {
+    return false;
+  }
+  if (result === null) return false;
+  // 失败／取消与完成同口径：结果处理完（接收回执 completed）后只在 --since 之后出结果时再返回一次，
+  // 否则历史失败 run 会让每次观察都重建全部视图。
+  const request = runs.readRequest(runId);
+  if (request === null) return false;
+  const acceptance = await store.operations.get(request.acceptanceOperationId);
+  if (acceptance?.state !== "completed") return true;
+  if (since === null) return false;
+  const recordedAt = Date.parse(String(result.recordedAt ?? ""));
+  return Number.isFinite(recordedAt) && recordedAt >= since;
 }

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-store.js";
 import { BRIDGE_TOOL_SCHEMAS } from "../dist/contracts/bridge-tools.js";
+import { RunStore } from "../dist/infrastructure/run-store.js";
 
 const ROOT = join(import.meta.dirname, "..");
 const CLI = join(ROOT, "dist", "cli", "knit.js");
@@ -358,6 +359,14 @@ test("桥接 schema 由同源 pi-schema 定义派生，模板读取安装包内 
   assert.match(template, /followUp/);
 });
 
+test("受管桥接基线与模板一致：.pi/extensions/knit.ts 与安装包模板只保留 __BRIDGE_BASELINE__ 占位（k-0524fc52e81b）", () => {
+  const template = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
+  const baseline = readFileSync(join(ROOT, ".pi", "extensions", "knit.ts"), "utf8");
+  assert.equal(baseline, template, "仓库受管桥接与模板逐字节一致");
+  assert.equal((template.match(/__BRIDGE_BASELINE__/g) ?? []).length, 1, "占位只作为基线常量出现");
+  assert.doesNotMatch(template, /spawnSync/, "桥接不残留同步子进程调用");
+});
+
 test("locks/unlock：只读列举、token 校验与显式强解，不改项目业务状态", async () => {
   const root = mkdtempSync(join(tmpdir(), "knit-015-locks-"));
   try {
@@ -468,5 +477,141 @@ test("unlock <scope/hash>：位置参数反查 scope 与键，仍要求 token；
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("run list --active --with-status：只列仍需观察的 run，状态视图含任务标题与阶段名（k-0524fc52e81b）", async () => {
+  const dir = project("run-list-active");
+  try {
+    const task = newTask(dir);
+    assert.equal(jsonCli(dir, ["task", "ready", task.taskId]).parsed.outcome, "completed");
+    const action = fakeAction(dir, { report: { summary: "done", changedPaths: [], findings: [], unverified: [] } });
+    const run = jsonCli(dir, ["run", "implement", "--task", task.taskId, "--provider", "fake", "--model", "fake", "--wait"], {
+      KNIT_PI_BIN: FAKE_PI,
+      KNIT_FAKE_ACTION: action,
+    });
+    assert.equal(run.parsed.outcome, "completed", run.stderr);
+    const completedId = run.parsed.data.request.runId;
+    const accepted = jsonCli(dir, ["resume", "--run", completedId]);
+    assert.equal(accepted.parsed.data.accepted, true);
+
+    // 已接收的完成 run 不再是“仍需观察”：默认 --active 为空，普通 list 仍可见且 --with-status 带视图字段。
+    const idle = jsonCli(dir, ["run", "list", "--active"]);
+    assert.equal(idle.parsed.outcome, "completed", idle.stderr);
+    assert.deepEqual(idle.parsed.data, []);
+    // --since（观察器传上次扫描时间）：该时间之后出结果的已接收 run 仍返回一次，供被动通知。
+    const since = jsonCli(dir, ["run", "list", "--active", "--with-status", "--since", new Date(Date.now() - 3_600_000).toISOString()]);
+    assert.equal(since.parsed.data.length, 1);
+    assert.equal(since.parsed.data[0].runId, completedId);
+    const future = jsonCli(dir, ["run", "list", "--active", "--since", new Date(Date.now() + 3_600_000).toISOString()]);
+    assert.deepEqual(future.parsed.data, []);
+    const badSince = jsonCli(dir, ["run", "list", "--active", "--since", "not-a-time"]);
+    assert.equal(badSince.parsed.outcome, "error");
+    assert.match(badSince.parsed.data.error, /--since 需要 ISO 时间/);
+    const all = jsonCli(dir, ["run", "list", "--with-status"]);
+    assert.equal(all.parsed.data.length, 1);
+    assert.equal(all.parsed.data[0].runId, completedId);
+    assert.equal(all.parsed.data[0].taskTitle, task.title);
+    assert.equal(all.parsed.data[0].stageName, "实现");
+    assert.equal(all.parsed.data[0].result.state, "completed");
+
+    // 新 run 处于 running：--active 只返回它，且完整视图含 initiator／任务标识。
+    const prepared = jsonCli(dir, ["run", "prepare", "--task", task.taskId, "--stage", "check", "--client", "pi", "--native", "main-native", "--provider", "fake", "--model", "fake"]);
+    assert.equal(prepared.parsed.outcome, "completed", prepared.stderr);
+    const runningId = prepared.parsed.data.request.runId;
+    const now = new Date().toISOString();
+    new RunStore(dir).writeState(runningId, {
+      schemaVersion: 1,
+      runId: runningId,
+      taskId: task.taskId,
+      phase: "implement",
+      state: "running",
+      worker: { workerId: "w", pid: process.pid, bootId: "b", procStartTicks: null, hostname: "h" },
+      claimedAt: now,
+      updatedAt: now,
+      prepared: true,
+      preparedAt: now,
+      snapshot: null,
+      reason: null,
+    });
+    const active = jsonCli(dir, ["run", "list", "--active", "--with-status"]);
+    assert.equal(active.parsed.outcome, "completed", active.stderr);
+    assert.equal(active.parsed.data.length, 1);
+    assert.equal(active.parsed.data[0].runId, runningId);
+    assert.equal(active.parsed.data[0].state, "running");
+    assert.equal(active.parsed.data[0].taskId, task.taskId);
+    assert.equal(active.parsed.data[0].initiator.nativeSessionId, "main-native");
+    assert.equal(active.parsed.data[0].branch, "refs/heads/main");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("run list --active：结果已处理完的失败 run 与完成 run 同口径，只在 --since 之后出结果时返回一次（k-0524fc52e81b）", () => {
+  const dir = project("run-list-active-failed");
+  try {
+    const task = newTask(dir);
+    assert.equal(jsonCli(dir, ["task", "ready", task.taskId]).parsed.outcome, "completed");
+    // pi 侧启动即退出：run 以 failed 收尾，结果已发布且接收回执已处理完。
+    const run = jsonCli(dir, ["run", "implement", "--task", task.taskId, "--provider", "fake", "--model", "fake", "--wait"], {
+      KNIT_PI_BIN: FAKE_PI,
+      KNIT_FAKE_START_FAILURE: "exit",
+    });
+    const failedId = run.parsed.data.request.runId;
+    const all = jsonCli(dir, ["run", "list", "--with-status"]);
+    assert.equal(all.parsed.data.length, 1);
+    assert.equal(all.parsed.data[0].runId, failedId);
+    assert.equal(all.parsed.data[0].state, "failed");
+
+    // 历史失败 run 不再是“仍需观察”：否则每次观察都要重建它的状态视图。
+    const idle = jsonCli(dir, ["run", "list", "--active", "--with-status"]);
+    assert.equal(idle.parsed.outcome, "completed", idle.stderr);
+    assert.deepEqual(idle.parsed.data, []);
+    // 上次扫描之后才失败的 run 仍返回一次，供观察器发失败通知。
+    const since = jsonCli(dir, ["run", "list", "--active", "--with-status", "--since", new Date(Date.now() - 3_600_000).toISOString()]);
+    assert.equal(since.parsed.data.length, 1);
+    assert.equal(since.parsed.data[0].runId, failedId);
+    assert.equal(since.parsed.data[0].state, "failed");
+    const future = jsonCli(dir, ["run", "list", "--active", "--since", new Date(Date.now() + 3_600_000).toISOString()]);
+    assert.deepEqual(future.parsed.data, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor installation-version：版本与本地 dist 摘要一致为 ok，不一致 warn 并提示改用本地 dist（k-0524fc52e81b）", () => {
+  const dir = project("doctor-version");
+  try {
+    const installPath = join(dir, ".knit", ".runtime", "installation.json");
+    const installation = JSON.parse(readFileSync(installPath, "utf8"));
+    const versionCheck = () => {
+      const result = jsonCli(dir, ["doctor", "--pi-bin", process.execPath]);
+      assert.equal(result.parsed.outcome === "completed" || result.parsed.outcome === "needs_attention", true, result.stderr);
+      return result.parsed.data.checks.find((check) => check.name === "installation-version");
+    };
+    // 一致：仓库版本与安装入口相同，且不是 Knit 自身仓库、没有本地 dist 摘要可比。
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "demo", version: installation.packageVersion }) + "\n");
+    const ok = versionCheck();
+    assert.equal(ok.status, "ok", ok.detail);
+    assert.match(ok.detail, new RegExp(`安装 CLI ${installation.packageVersion}`));
+
+    // Knit 自身仓库有本地 dist 但摘要与安装入口不同：warn 并提示开发时改用本地 dist。
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "knit", version: installation.packageVersion }) + "\n");
+    mkdirSync(join(dir, "dist", "cli"), { recursive: true });
+    writeFileSync(join(dir, "dist", "cli", "knit.js"), "// local build\n");
+    const digestMismatch = versionCheck();
+    assert.equal(digestMismatch.status, "warn", digestMismatch.detail);
+    assert.match(digestMismatch.detail, /与本地 dist 不一致/);
+    assert.match(digestMismatch.detail, /本地 dist/);
+
+    // 版本不一致 + Knit 自身仓库指向仓库外安装：warn 与明确的处理入口。
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "knit", version: "9.9.9" }) + "\n");
+    const versionMismatch = versionCheck();
+    assert.equal(versionMismatch.status, "warn", versionMismatch.detail);
+    assert.match(versionMismatch.detail, /版本不一致/);
+    assert.match(versionMismatch.detail, /Knit 自身仓库/);
+    assert.match(versionMismatch.detail, /node dist\/cli\/knit\.js init --force/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
