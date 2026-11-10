@@ -101,4 +101,10 @@ STATES 第 141 行写了"跨机按 verification 重建完成资格"，但没有�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-07-cross-machine-rebind
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1f4ef0531512 -->
+- 任务资料提交: 277ca48b2c99408d6c766b643e3f57d82d5dce14
+- 归档目标: .knit/tasks/archive/2026-11/11-07-cross-machine-rebind
+
 <!-- knit:progress:end -->
