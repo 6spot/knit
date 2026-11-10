@@ -130,4 +130,10 @@ title: 凭据完整性、阶段调用边界与交付 hooks 隔离
 - 结果: 正常交付；检查 run-48775a191ffb 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-07-credential-integrity
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-ddfdb5ce395e -->
+- 任务资料提交: 2a5ece0ff59092ffbacbf3067151f403ead6dc4a
+- 归档目标: .knit/tasks/archive/2026-11/11-07-credential-integrity
+
 <!-- knit:progress:end -->
