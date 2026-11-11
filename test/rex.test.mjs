@@ -1,3 +1,4 @@
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -1073,6 +1074,7 @@ test("RunCoordinator：presentation=rex 写入不可变 request 并被 status �
   const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), hostProbe: async () => {} });
   try {
     const task = await tasks.newTask({ dir, title: "rex presentation", slug: "rex-presentation", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await tasks.ready({ dir, taskId: task.taskId });
     const prepared = await coordinator.prepare({
       dir,
@@ -1104,6 +1106,7 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
   const tasks = new TaskService({ store, locks, randomHex });
   try {
     const task = await tasks.newTask({ dir, title: "rex stage", slug: "rex-stage", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await tasks.ready({ dir, taskId: task.taskId });
     const planner = new ContextPlanner({ store });
     const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
@@ -1196,6 +1199,7 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
   const tasks = new TaskService({ store, locks, randomHex });
   try {
     const task = await tasks.newTask({ dir, title: "rex close", slug: "rex-close", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await tasks.ready({ dir, taskId: task.taskId });
     const planner = new ContextPlanner({ store });
     const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });

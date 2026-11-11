@@ -4,6 +4,7 @@
  * 覆盖门槛、就绪集、影响路径重叠、并发上限与调度锁、自动接收与阶段推进、
  * 收尾授权边界、SIGINT 只停派发，以及主检出任务的常规执行回归。
  */
+import { writeAcceptanceFixture, SCENARIO_PASS } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -75,6 +76,7 @@ const PASS_REPORT = {
   changedPaths: [],
   unverified: [],
   verdict: "pass",
+  scenarios: SCENARIO_PASS,
 };
 
 async function readyTask(s, dir, slug, options = {}) {
@@ -91,6 +93,7 @@ async function readyTask(s, dir, slug, options = {}) {
   if (options.plan !== undefined) {
     writeFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "plan.md"), options.plan);
   }
+  if (options.verification === "independent") writeAcceptanceFixture(dir, task.taskId);
   if (options.ready !== false) await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

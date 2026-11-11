@@ -10,6 +10,8 @@ import { randomUUID, randomBytes } from "node:crypto";
 import {
   DEFAULT_VERIFICATION,
   clarifyStateOf,
+  scenarioStateOf,
+  SCENARIO_FORMAT_EXAMPLE,
   inputsDigestOf,
   pendingDraftDigest,
   newTaskId,
@@ -94,7 +96,7 @@ export function renderInitialTaskBody(title: string): { inputsBody: string; prog
       "",
       "## 完成条件",
       "",
-      "<!-- 可验证结果与必需验收 -->",
+      "<!-- 可验证结果与必需验收。验收写成行为场景：「### Requirement: 名称」下放「#### Scenario: 名称」，步骤为顶格列表「- GIVEN 前置（可选）」「- WHEN 触发」「- THEN 期望结果」「- AND 补充（可选）」，每个场景至少一条 WHEN 和一条 THEN、可单独验证。verification 为 independent 的任务必须写场景；self／none 任务可用自由列表。 -->",
       "",
       "## 待澄清",
       "",
@@ -501,8 +503,12 @@ export class TaskGuardError extends GuardError {
  * `- [blocking] ` 项时拒绝（无区段、空区段或只有 assumed 放行）。目标占位是否已确认、
  * assumed 是否已确认属主 Agent 语义判断（DESIGN §4.2），不由核心机械拒绝；
  * 可选 design／research 缺失不阻挡。既有 stage 与 ready 入口不变，不新增规划状态机。
+ *
+ * 行为场景（任务 k-185ace3b9556）：「完成条件」里的 Requirement／Scenario 有结构错误时以
+ * `scenarios_invalid` 拒绝；`independent` 任务没有任何场景时以 `scenarios_required` 拒绝
+ * （self／none 可用自由列表）。只核对结构，不判断场景内容是否合理。返回场景数量供输出。
  */
-function assertReadyStructural(document: TaskDocument, taskDir: string): void {
+function assertReadyStructural(document: TaskDocument, taskDir: string): { scenarios: number } {
   const planPath = join(taskDir, PLAN_FILE);
   if (existsSync(planPath) && readFileSync(planPath, "utf8").trim() === "") {
     throw new TaskGuardError("ready_plan_incomplete", "plan.md 为空；复杂任务的实施计划未完成");
@@ -517,6 +523,24 @@ function assertReadyStructural(document: TaskDocument, taskDir: string): void {
       `「待澄清」仍有 ${clarify.blocking} 项 [blocking] 未决，需用户取舍：${items}${more}。先与用户确认并折入目标与完成条件，或删除已解决项`,
     );
   }
+  // 输入区包含记录区标记外的尾部正文，与阶段提示和接收使用的全文解析保持一致。
+  const scenarioState = scenarioStateOf(renderTaskDocument(document));
+  if (scenarioState.issues.length > 0) {
+    const shown = scenarioState.issues.slice(0, 3).map((issue) => issue.message).join("；");
+    const rest = scenarioState.issues.length - Math.min(scenarioState.issues.length, 3);
+    const more = rest > 0 ? `；另有 ${rest} 处` : "";
+    throw new TaskGuardError(
+      "scenarios_invalid",
+      `「完成条件」的行为场景有 ${scenarioState.issues.length} 处结构问题：${shown}${more}。按下面的格式改正后再 task ready：\n${SCENARIO_FORMAT_EXAMPLE}`,
+    );
+  }
+  if (verificationModeOf(document.frontmatter) === "independent" && scenarioState.scenarios.length === 0) {
+    throw new TaskGuardError(
+      "scenarios_required",
+      `verification 为 independent 的任务必须把「完成条件」写成行为场景，当前没有任何场景；验证不了的验收写进「目标与边界」作为延期项，或用 task verification 改为 self。格式：\n${SCENARIO_FORMAT_EXAMPLE}`,
+    );
+  }
+  return { scenarios: scenarioState.scenarios.length };
 }
 
 function guardRejected<R extends string>(result: Decision<R>, what: string): void;
@@ -2358,6 +2382,7 @@ export class TaskService {
 
   /**
    * task ready：保存讨论确认（冻结输入与正式规范摘要），discuss → implement。
+   * 冻结前核对「待澄清」与行为场景结构；返回场景数量。
    * 正式规范摘要单独保存：纯记录与候选变化不使它变化（STATES.md 第8、9节）。
    */
   async ready(input: { dir: string; taskId: string }): Promise<{
@@ -2365,6 +2390,8 @@ export class TaskService {
     stage: string;
     confirmedInputsDigest: string;
     confirmedStandardsDigest: string;
+    /** 「完成条件」里的行为场景数量；自由列表为 0。 */
+    scenarios: number;
   }> {
     if (typeof input.taskId !== "string" || input.taskId.trim() === "") {
       throw new TaskGuardError("invalid_request", "task ready 需要任务 ID");
@@ -2380,7 +2407,7 @@ export class TaskService {
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       // 实施前结构核对（DESIGN §4.2，任务049）：必需输入齐备；已承诺规划（plan.md 存在）的
       // 复杂任务须有实际计划内容。可选文件缺失不阻挡简单任务；语义判断属主 Agent。
-      assertReadyStructural(document, located.dir);
+      const structural = assertReadyStructural(document, located.dir);
       // 前置依赖铁律（DESIGN §3.11）：未满足依赖时不能进入实施，不依赖提示词提醒。
       const schedule = this.scheduleIndex(root);
       const entry = schedule.get(input.taskId) ?? scheduleEntryOf(document, false);
@@ -2419,7 +2446,7 @@ export class TaskService {
       });
       new RunStore(root).removeCompletion(input.taskId);
       new RunStore(root).removeImplementation(input.taskId);
-      return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest };
+      return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest, scenarios: structural.scenarios };
     } finally {
       this.locks.release(lock);
     }

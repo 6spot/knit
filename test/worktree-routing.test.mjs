@@ -4,6 +4,7 @@
  * 覆盖：worktree 内派发、主检出拒绝、未 prepare、现场异常、规则隔离、
  * status/list、跨目录取消与接收、会话 cwd 变化回退、锁与常规路径回归。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -62,6 +63,7 @@ function services(dir) {
 
 async function readyTask(dir, s, title = "路由任务") {
   const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

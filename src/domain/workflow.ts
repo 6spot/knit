@@ -118,6 +118,8 @@ export const DEFAULT_WORKFLOW_YAML = `# Knit 流程配置 .knit/workflow.yaml
 #                 network   放开网络（显式 opt-in；默认阶段离线）
 #   report      可选，额外报告字段：string／string[]／paths／bool／枚举数组（如 [pass, blocked]）。
 #               固定字段 summary／validation／blockers 不需要声明。
+#               声明 scenarios: string[] 的阶段负责评判验收：任务「完成条件」写了行为场景时，
+#               报告须逐场景给出「<编号> <pass／fail／not_verified>：<证据>」，结论 pass 要求全部为 pass。
 #   onVerdict   可选，报告值 → 跳转目标；目标必须是已声明阶段 id 或 deliver。
 #               键必须是某个 report 枚举字段声明的值；未命中走顺序下一阶段。
 #   maxVisits   可选，阶段访问上限（非负整数）；回退环上缺省用 config.workflow.maxRepairRounds。
@@ -155,6 +157,7 @@ stages:
       selfVerified: bool
       findings: string[]
       unverified: string[]
+      scenarios: string[]
     onVerdict:
       changes_requested: implement
       # blocked 保留在本阶段复查，不顺序前进。

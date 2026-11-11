@@ -2,6 +2,7 @@
  * 016 快照对照与逐路径恢复：真实 Git、真实文件、真实 index。
  * 不使用 mock fs，不调用模型；伪造快照损坏用于核实中断记录。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -77,6 +78,7 @@ async function snapshotFixture(prefix, setup) {
   const coordinator = new RunCoordinator({ store, locks, randomHex, lockRoot: join(dir, ".locks") });
   const restores = new RestoreService({ store, locks, randomHex });
   const task = await tasks.newTask({ dir, title: "restore task", slug: "restore-task", verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await tasks.ready({ dir, taskId: task.taskId });
   const prepared = await coordinator.prepare({
     dir,

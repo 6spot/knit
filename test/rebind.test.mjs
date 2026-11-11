@@ -2,6 +2,7 @@
  * 跨机 rebind（任务 k-434714cbbb68）：clone／换机后按 task.md 重建本机绑定，
  * 按 verification 回到需要证据的阶段；ready 不再无绑定时静默推进。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -132,6 +133,7 @@ test("clone 后 independent 任务 rebind 回到检查阶段，check run 可派�
   const dir = project("independent");
   const first = services(dir);
   const task = await first.service.newTask({ dir, title: "跨机独立检查", slug: "rebind-independent", verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await first.service.ready({ dir, taskId: task.taskId });
   const file = join(dir, ".knit", task.relativePath);
   writeFileSync(file, readFileSync(file, "utf8").replace(/^stage: implement$/m, "stage: deliver"));

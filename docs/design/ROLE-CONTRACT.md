@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | `start`（准备／讨论锚点） | 主会话先取证再提问（代码、测试、配置、文档、规范与任务历史，含归档），按缺口维度逐项扫描；每问给出决定、原因、推荐与代价，一轮最多 3 个，假设落盘 `[assumed]`；确认任务选择与授权，`blocking` 清零后做 ready 检查；不可配置、无提示词 | 需要用户取舍、授权不明、有待应用草案或活动 run、`blocking` 未清零时停在讨论并说明缺口 | 使用普通回复，不产生 worker `StageReportSchema` 报告 | 主会话工具；不代写阶段成果，不自动提交或发布 |
 | 配置阶段（默认 `implement`） | 按 task.md 目标与完成条件产出代码、测试、配置、文档或研究报告，运行范围验证；提示词由该阶段 `prompt` 指定 | 需求／规范冲突、需要用户决定、保护路径或无法确认的副作用时记录后停止产出，在报告中说明阻塞并交回主会话；没有可核对产出时报告缺少成果 | 固定 `summary`／`validation`／`blockers`，加上该阶段声明的额外字段（默认实施字段为 `changedPaths`／`unverified`） | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；可写项目文件与运行验证；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不委派其他 Agent |
-| 配置阶段（默认 `check`） | 独立核对完成条件、冻结输入、实际成果与上一阶段报告；运行声明验证；默认 `[read, exec]` 不改文件，发现缺陷交回；项目允许 `write` 时才在既定需求内、问题与修复方向明确时直接修复并验证 | 需求解释、取舍、验收变化或扩大范围时不改代码，以 `blocked` 交回主会话；仍有未解决缺陷时以 `changes_requested` 交回 | 固定字段加 `verdict`（pass／changes_requested／blocked）；有修改时 `changedPaths` 必填且与实际 diff 一致，另含 `coverage`／`selfVerified`／`findings`／`unverified` | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；能力不含 `write` 却有归属本 run 的改动（含 bash 写入）判 `write_without_capability:<paths>` 失败、不接收；允许写时写权限仅覆盖任务范围内、问题与修复方向明确的缺陷，凭据记 `checkerChangedPaths`，修复部分只算自检，`independent` 须再派一次未改动文件的 pass 检查才能完成（否则 `check_self_modified`）；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不推进阶段，不委派 |
+| 配置阶段（默认 `check`） | 独立核对完成条件、冻结输入、实际成果与上一阶段报告；运行声明验证；默认 `[read, exec]` 不改文件，发现缺陷交回；项目允许 `write` 时才在既定需求内、问题与修复方向明确时直接修复并验证 | 需求解释、取舍、验收变化或扩大范围时不改代码，以 `blocked` 交回主会话；仍有未解决缺陷时以 `changes_requested` 交回 | 固定字段加 `verdict`（pass／changes_requested／blocked）；有修改时 `changedPaths` 必填且与实际 diff 一致，另含 `coverage`／`scenarios`／`selfVerified`／`findings`／`unverified` | 由 `tools` 白名单决定，不写或 `all` 则全部放开，`[]` 则全部禁用；能力不含 `write` 却有归属本 run 的改动（含 bash 写入）判 `write_without_capability:<paths>` 失败、不接收；允许写时写权限仅覆盖任务范围内、问题与修复方向明确的缺陷，凭据记 `checkerChangedPaths`，修复部分只算自检，`independent` 须再派一次未改动文件的 pass 检查才能完成（否则 `check_self_modified`）；任务资料优先经接口写，不改 `.knit/` 下规范、配置、流程与提示词，不 commit／push／rebase，不推进阶段，不委派 |
 | `deliver`（收尾锚点） | 主会话接收实施／检查结果、核对完成条件、在授权交付前起草一次产物提交文案并展示、协调 `deliver`／`archive`；不虚构验证结论；不可配置、无提示词 | 完成资格无效、有待应用草案、活动 run、检查 stale、凭据完整性失败（`credential_tampered`／`credential_unsigned`）或提交／推送／发布未授权时停在收尾并说明缺口 | 使用普通回复；交付事实来自核心操作结果（含 `caller`、`authorization.verified` 与 `hooks`） | 主会话与确定性工具；不启动交付辅助 worker；不把子进程完成当作授权；桥接用户授权写 `user:<本会话用户消息条目 ID>` 或 `user:sha256:<摘要>`，核心按会话原生记录核对（伪造或 `native:`／`message:`／自由文本写法报 `authorization_unverified`） |
 | 非正式检查（`run check --scope`） | 对显式范围做独立只读核对，返回结论 | 范围无法确认或需要正式交付资格时停止，改走正式任务 | `summary`、`verdict`、`coverage`、`findings`、`unverified` | 只读；不建 Task／binding，不推进 stage，不赋交付资格 |
 | Pi runtime 补充 | 说明阶段会话的 CLI、资源、能力白名单、恢复与工具事实 | 资源不可用、恢复来源不明、发现保护路径或未授权副作用时报告，不借新会话重置状态 | 按所属阶段字段输出 | 阶段不加载项目扩展；`tools` 不写或 `all` 全部放开，`[]` 全部禁用（`--no-tools`），`external`／`network` 才放开扩展、MCP、技能与网络 |
@@ -20,6 +20,10 @@
 **主会话派发分层**：主会话在动手前按 W1–W4 判断是否派 Knit worker——W1 独立检查（任务要求 `independent`，或正确性无法自证）、W2 改动面（≥ 3 个文件或跨 ≥ 2 个模块／包）、W3 摸底成本（需读 ≥ 8 个文件或 ≥ 1500 行，或依赖大量搜索／长日志）、W4 用户指定；不满足则主会话直接做。判断顺序、矩阵与阈值边界见 [DESIGN.md 第 4.2 节](DESIGN.md#42-主会话工作流)；阈值是判断辅助，不以时长、步骤数、阶段数或是否需要恢复作判据。worker 仍只在任务内派发：`run prepare/start/implement/check` 都要求 `--task`，没有任务就没有 Knit worker；该派但无任务时先向用户提议建任务，不代建，复杂但不建任务时用宿主通用子 Agent。`independent` 不得用主会话自检或 `run check --scope` 代替，也不得用 `task implement` 绕开 W1。
 
 锚点 `start`／`deliver` 不产生 worker 报告。配置阶段可以有任意 id；默认模板使用 `implement`／`check`，只是示例，不是固定枚举。同一提示词文件可被多个阶段复用；阶段 id 是 Session 引用、访问计数与任务 `stage` 的稳定键。
+
+行为场景在 start 确认并由 ready 冻结：完成条件用 `### Requirement: 名称`／`#### Scenario: 名称` 与顶格 GIVEN／WHEN／THEN／AND（可加粗关键字），每场景至少 WHEN 与 THEN；independent 必须写场景，self／none 可用自由列表。结构错误拒绝 `scenarios_invalid`、independent 无场景拒绝 `scenarios_required`，消息附示例，任务仍在 start、输入不冻结；放行输出场景数。核心按文档位置生成 Rn.Sm，不评判 MUST／SHOULD／MAY。
+
+实施按场景实现并在 validation 按编号记录验证；检查从独立上下文对照冻结清单逐场景核对 WHEN 与 THEN。场景有歧义或冲突时停止并交回主会话，不自行取舍。写法是行为场景、内容是行为契约，“规范”仅指项目标准；详见 DESIGN §3.3。
 
 ## 2. `StageReportSchema` 对照
 
@@ -33,7 +37,9 @@
 | 阶段声明字段 | 按 `report` | `string`／`string[]`／`paths`／`bool`／非空枚举数组 | 按声明类型校验；未声明只校验固定字段 |
 | `changedPaths` | 当阶段声明 `paths` 时 | string[]，通常名为 `changedPaths` | 列出本 run 实际改动：`write`／`edit` 写过的不得省略，bash 等产出照实列出（来源不明、交主会话确认），不列外部改动与之前轮次成果，不得虚报未改文件；列出失败残留即声明继承（DESIGN §5.3） |
 
-报告补报：阶段工作已成功结束、仅报告本身不通过时（缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete`），worker 在同一原生会话追加一条只要求重发报告的纠正提示，最多 `limits.reportRetries` 次（默认 1，0 关闭）。提示列出实际改动 vs 报告路径、缺失的 coverage 与报告形状；补报轮只允许输出报告，不得改文件、调用工具或重跑验证。补报期间出现工作区新改动、HEAD 移动、敏感区改动、取消或占用丢失仍按原失败语义终止；补报次数不计入阶段访问、修复预算或 `maxAttempts`。最终仍失败时结果保留原失败原因，并以 `reportIssue` 给出实际 vs 报告对照；`reportRetries`／`reportRetryUsage` 记录补报次数与额外用量，原生范围与总用量覆盖全部轮次。
+默认检查阶段额外声明 `scenarios: string[]`。任务有场景时，每条 `<编号> <结论>：<证据>`（例 `R1.S1 pass：相关测试通过`），结论只能是 pass／fail／not_verified，证据非空，冒号全角半角均可。每个场景恰好一条，所有结论（含 blocked）都必须全覆盖；总 pass 要求全部场景 pass。条目非法、未知／重复编号或缺证据报 `report_field_value:scenarios`；漏条目（含字段缺失）报 `check_scenarios_incomplete:<编号列表>`；总 pass 与条目矛盾报 `check_scenarios_inconsistent:<编号列表>`。收尾与接收共用核对；阶段未声明或场景数为 0 时不核对，不对所有结论阶段隐式强制。coverage 只列路径，check_scope_incomplete 不变；task implement 与非正式 check --scope 不核对场景覆盖。
+
+报告补报：阶段工作已成功结束、仅报告本身不通过时（缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete`、`report_field_value:scenarios`、`check_scenarios_incomplete`、`check_scenarios_inconsistent`），worker 在同一原生会话追加一条只要求重发报告的纠正提示，最多 `limits.reportRetries` 次（默认 1，0 关闭）。提示列出实际改动 vs 报告路径、缺失的 coverage、问题场景的编号与名称、场景条目格式与报告形状；补报轮只允许输出报告，不得改文件、调用工具或重跑验证。补报期间出现工作区新改动、HEAD 移动、敏感区改动、取消或占用丢失仍按原失败语义终止；补报次数不计入阶段访问、修复预算或 `maxAttempts`。最终仍失败时结果保留原失败原因，并以 `reportIssue` 给出实际 vs 报告对照；`reportRetries`／`reportRetryUsage` 记录补报次数与额外用量，原生范围与总用量覆盖全部轮次。
 
 `onVerdict` 的键必须是某报告枚举字段声明的值，目标必须是已声明阶段 id 或 `deliver`；未命中走顺序下一阶段。回退目标必须是有限环，阶段访问超过 `maxVisits` 时停止并报告 `repair_round_limit`。
 
@@ -77,7 +83,7 @@
 
 - **完整装配**：核心阶段指令给出“独立阶段执行器、任务资料优先经接口写、不修改 `.knit/` 下规范与配置、不提交、不委派、按报告字段输出”；顶部提示行给出流程、当前阶段、本步目标与完成条件；`workflow.yaml` 给出阶段顺序、提示词、能力白名单、报告字段与回退；runtime 补充平台事实；规范与任务输入提供当前依据。评估阶段行为时应看这些部分的组合，而不是单文件长度。
 - **新项目**：`knit init` 从安装包 `assets/templates/` 生成 `.knit/workflow.yaml`（带完整注释）、阶段提示词、规范索引、AGENTS 受管块和桥接；受管块内容由 `agentsManagedBlock()` 统一生成。
-- **已有项目**：`.knit/workflow.yaml`、阶段提示词和规范属于 project 所有权，已存在即保留原文；模板升级不会静默替换。需要迁移时由主会话按模板差异显式同步并单独提交。上次清单记录、当前模板不再生成但项目里仍存在的文件作为“模板已移除文件”报告，默认只报不删。
+- **已有项目**：`.knit/workflow.yaml`、阶段提示词和规范属于 project 所有权，已存在即保留原文；模板升级不会静默替换。场景新规则不提供兼容或迁移分支；已有项目显式 `knit init --force` 按模板覆盖流程与提示词，旧 independent 任务再次 ready 前按新格式改写完成条件。本仓库受保护的 `.knit/agents/` 副本由主会话在任务关闭后按模板同步，阶段 worker 不修改它们。上次清单记录、当前模板不再生成但项目里仍存在的文件作为“模板已移除文件”报告，默认只报不删。
 - **受管内容**：桥接在旧基线匹配时更新，人工改动或未知来源报告冲突；AGENTS 受管块按块内容核对，人工差异报告，`--force` 才显式覆盖。
 
 ## 6. Trellis 来源映射（固定历史材料）

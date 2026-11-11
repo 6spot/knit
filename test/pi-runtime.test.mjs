@@ -161,6 +161,13 @@ test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout
   ].join(";");
   const connection = new PiRpcConnection(process.execPath, ["-e", script], { cwd: root, env: {} });
   try {
+    // 等子进程真正写出启动证据再测试关闭等待；并行全量测试时启动可能超过 100ms，
+    // 不能在它尚未执行脚本时杀掉并假定 stderr 已有内容。
+    const deadline = Date.now() + 5_000;
+    while (!connection.stderrDiagnostics.tail.includes("startup detail: model missing") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.match(connection.stderrDiagnostics.tail, /startup detail: model missing/, "子进程已就绪");
     // 进程存活、stderr 未关闭：有界等待超时返回 false，不无限阻塞。
     assert.equal(await connection.waitStderrClose(100), false);
     assert.equal(connection.stderrSettled, false);

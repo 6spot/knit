@@ -90,6 +90,10 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 
 已知 iCloud/File Provider、Dropbox 等同步根采用平台可取得的根路径与规范化实际路径尽力识别，不扫描个人文件或读取服务凭据；检测不完整，未命中不代表安全。Git 忽略不阻止云同步，不能同步／跨机并发使用活跃 runtime，SQLite WAL 和文件锁均不因此获得跨机互斥。建议使用非同步目录或验证已排除 runtime；doctor 不自动移动数据或修改云配置。此告警归 M2 最小诊断，M3A 完善展示；不新增云服务集成。
 
+实施前核对行为场景：主会话把完成条件写在固定 `## 完成条件`，用 `### Requirement: 名称`／`#### Scenario: 名称` 与顶格大写 GIVEN／WHEN／THEN／AND（关键字可加粗），每个 Scenario 至少 WHEN 和 THEN。`task ready` 有结构错误报 `scenarios_invalid`、independent 无场景报 `scenarios_required`，附前 3 条问题（有错误时）与格式示例，拒绝时不冻结输入或推进 start；self／none 可用自由列表。合格时输出数量，`clarify_blocking` 与依赖门不变。延期验收留在目标与边界；旧格式不迁移，已有项目通过显式 `knit init --force` 覆盖流程与提示词。
+
+阶段提示从本 run 冻结任务输入解析 Rn.Sm 编号、Requirement／Scenario 名与步骤。实施按场景产出并在 validation 按编号记录验证；检查对照 WHEN 与 THEN，只有声明 scenarios 且任务有场景时要求逐场景报告。歧义或冲突停止并交回，不自行改变行为契约。
+
 ### 2.1 阶段运行边界
 
 阶段 worker 不是操作系统沙箱，不拦截 shell 调用；它在阶段前后各取一次事实并比较（实现：`src/application/stage-baseline.ts`，由 `stage-runner.ts` 在启动阶段 Agent 前冻结、在报告校验前核对）。
@@ -115,6 +119,8 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 4. 接收（`run-acceptance.ts`）：有未确认的 `unattributedPaths` 时 `needs_attention: unattributed_paths:<paths>`，run state 收敛为 `failed`（`acceptance_` 前缀，不占用任务）；`run accept <runId> --include <path>... --exclude <path>... [--reason] [--by]` 在任务＋state 短锁内写 `runs/<run>/attribution.json` 后重新接收；`--include`／`--exclude` 只接受该 run 结果里的来源不明路径，其它路径以 `path_not_unattributed` 拒绝，不写确认记录。并入集合为已归属 ∪ 继承 ∪ 确认并入；发布时指纹只核对已归属与继承路径，确认并入的按当前指纹进入 scope，外部改动与被排除路径不核指纹。接收检查点记录 `residueConsumed`，收敛时从 `tasks/<id>/residue.json` 移除。
 5. 失败／取消结果接收时把 `actualChangedPaths` 与 `actualEntries` 记为残留（`toolWritten` 取自结果的 `attribution`）；结果缺失、确认已死后由 `run resume`／`prepare` 收敛的旧 run，以快照比较当前工作区记来源不明残留。阶段内换分支（`branch_mismatch_after_run`）不记残留。
 6. 交付预检（`deliver --plan` 与交付前计划）列出本任务各 run 的 `externalChanges`、被确认排除的路径与未处理残留，作为提醒；产物提交仍只含 scope 路径。
+
+逐场景报告核对：默认 check 声明 `scenarios: string[]`，每项如 `R1.S1 pass：相关测试通过`，结论只取 pass／fail／not_verified，证据非空，分隔用全角或半角冒号。所有结论都须覆盖全部场景，总 pass 要求全部 pass。worker 收尾与接收共用函数，条目非法（未知／重复编号或缺证据等）报 `report_field_value:scenarios`；漏项含字段缺失报 `check_scenarios_incomplete:<编号列表>`；pass 矛盾报 `check_scenarios_inconsistent:<编号列表>`。三者走下述补报机制，提示列问题编号、名称与格式；coverage 仍每项一个路径，缺路径仍报 check_scope_incomplete。未声明或无场景不核对；task implement 与非正式 check --scope 不核对场景覆盖。
 
 报告补报（任务 k-b9df107db53a）：报告校验失败只涉及报告本身时，worker 在发布 failed 前于同一原生会话追加纠正提示，要求只重发最终报告 JSON；local 与 Rex 共用同一报告校验与补报规则。补报最多 `limits.reportRetries` 次（默认 1，0 关闭），不新建 run、不增加阶段访问／修复预算／`maxAttempts`，也不改工具能力。补报轮开始前冻结工作区签名，结束后有新改动即 `failed: report_retry_worktree_changed:<paths>`；期间 HEAD 移动、敏感区改动、取消或占用丢失仍按原失败语义终止，不能用补报掩盖。每轮失败都在 `result.reportIssue` 记录失败原因、实际路径、报告路径、缺失 coverage 与人读对照；`reportRetries` 与 `reportRetryUsage` 记录补报次数和额外用量，`usage` 与原生 entry range 覆盖全部轮次。补报仍失败时保留原 `failureReason`，最终报告失败语义不变。
 

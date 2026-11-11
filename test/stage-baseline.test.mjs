@@ -4,6 +4,7 @@
  * 覆盖：阶段内提交 → head_moved_during_stage；写 .git/hooks 或 .knit/.runtime/checks → protected_runtime_modified；
  * 写 ignored 目录 → ignoredChanges 非空且正常接收；基线写入 run 状态；index 变化只记录。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -57,6 +58,7 @@ function services(dir) {
 
 async function readyTask(dir, s, title, verification = "independent") {
   const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

@@ -4,6 +4,7 @@
  * 覆盖：不同 worktree 并行、同执行目录互斥、同任务复用、路由改动拒绝、
  * 并行取消／失败隔离、status／locks 对执行目录锁可观察、主检出串行回归。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -60,6 +61,7 @@ function services(dir) {
 
 async function readyTask(dir, s, title) {
   const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

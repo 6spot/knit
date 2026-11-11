@@ -3,6 +3,7 @@
  * 使用真实 Git／文件／worker 子进程和最小 Pi RPC 假实现，不调用真实模型。
  */
 import { isProcessAlive, isRunSettled } from "./helpers/run-settled.mjs";
+import { writeAcceptanceFixture, SCENARIO_PASS, withScenarioReportFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -78,6 +79,7 @@ function allowCheckWrite(dir) {
 
 async function readyTask(dir, s, title = "阶段任务") {
   const task = await s.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }
@@ -99,7 +101,7 @@ function prepareInput(dir, taskId, phase = "implement", extra = {}) {
 
 function actionFile(dir, action) {
   const path = join(dir, ".fake-action.json");
-  writeFileSync(path, JSON.stringify(action));
+  writeFileSync(path, JSON.stringify(withScenarioReportFixture(action)));
   return path;
 }
 
@@ -138,7 +140,7 @@ function resultFixture(request, state, report, actualChangedPaths = []) {
     taskId: request.taskId,
     phase: request.phase,
     state,
-    report,
+    report: withScenarioReportFixture(report),
     reportSummary: report?.summary ?? null,
     nativeEntries: { startEntryId: null, leafEntryId: null },
     usage: { inputTokens: null, outputTokens: null },
@@ -835,6 +837,7 @@ test("阶段访问计数从第一次接收 run 开始：失败 run 不算开始�
     assert.equal(change.stage, "start");
     binding = await s.store.bindings.get(task.taskId);
     assert.deepEqual(binding.stageVisits, {});
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     binding = await s.store.bindings.get(task.taskId);
     assert.deepEqual(binding.stageVisits, { implement: 1 });
@@ -856,6 +859,7 @@ test("阶段访问计数从第一次接收 run 开始：失败 run 不算开始�
     await s.tasks.update({ dir, taskId: task.taskId, kind: "change", reason: "接收后改范围", content: "## 目标与边界\n\n再次调整\n" });
     binding = await s.store.bindings.get(task.taskId);
     assert.deepEqual(binding.stageVisits, { implement: 1, check: 1 }, "已开始 change 保留计数");
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     binding = await s.store.bindings.get(task.taskId);
     assert.deepEqual(binding.stageVisits, { implement: 2, check: 1 });
@@ -1468,6 +1472,7 @@ test("运行边界核对实际分支：prepare、启动、接收三处拒绝，d
   const s = services(dir);
   try {
     const task = await s.tasks.newTask({ dir, title: "分支边界", slug: "branch-boundary", branch: "refs/heads/main", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     const taskFile = join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md");
 
@@ -2319,7 +2324,7 @@ test("检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸
       "所有验证已完成。结论：",
       "",
       "```json",
-      JSON.stringify({ summary: "独立核对完成", verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] }, null, 2),
+      JSON.stringify({ summary: "独立核对完成", scenarios: SCENARIO_PASS, verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] }, null, 2),
       "```",
     ].join("\n");
     const check = await startRun(s, dir, task.taskId, "check", { text: fencedText });

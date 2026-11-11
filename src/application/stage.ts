@@ -5,13 +5,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContextPlan, ContextSection } from "../contracts/context-plan.js";
-import { inputsRegionOf, progressRegionOf } from "../contracts/task-inputs.js";
+import { inputsRegionOf, progressRegionOf, scenarioStateOf, type AcceptanceScenario } from "../contracts/task-inputs.js";
 import { researchDigestSummary } from "./task-materials.js";
 import { StageReportSchema, type ReportIssue, type StageReport } from "../contracts/run.js";
 import { isReportEnum, type ReportFieldType } from "../contracts/workflow.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { checkSchema, schemaErrors } from "../contracts/schema.js";
-import { isDecisionStage } from "../domain/report.js";
+import { isDecisionStage, scenarioEntryGuide, stageJudgesScenarios, type ScenarioRef } from "../domain/report.js";
 import type { WorkflowStage } from "../domain/workflow.js";
 
 export type SectionContents = Record<string, string>;
@@ -146,8 +146,29 @@ function reportSample(type: ReportFieldType): unknown {
   }
 }
 
-/** 按阶段声明生成报告形状示例；固定字段始终存在。 */
-export function reportTemplateOf(stage: WorkflowStage | null): string {
+/**
+ * 本 run 任务输入里的行为场景（任务 k-185ace3b9556）：取自冻结注入的 task-inputs 分节，
+ * 阶段提示、报告示例与收尾核对共用同一份清单。结构错误在 `task ready` 已拒绝，这里只取场景。
+ */
+export function scenariosOfPlan(plan: Pick<ContextPlan, "sections">, contents: SectionContents): AcceptanceScenario[] {
+  for (const section of plan.sections) {
+    if (section.kind !== "task-inputs") continue;
+    const text = contents[section.sourceId];
+    if (text !== undefined) return scenarioStateOf(text).scenarios;
+  }
+  return [];
+}
+
+/** 带编号的场景清单：每行编号、Requirement 名与 Scenario 名。 */
+function scenarioListText(scenarios: readonly ScenarioRef[]): string {
+  return scenarios.map((scenario) => `- ${scenario.id} ${scenario.requirement}／${scenario.name}`).join("\n");
+}
+
+/**
+ * 按阶段声明生成报告形状示例；固定字段始终存在。
+ * `scenarios` 只在阶段声明了它且任务有场景时出现，示例按编号逐条占位（占位原样照抄不合格式）。
+ */
+export function reportTemplateOf(stage: WorkflowStage | null, scenarios: readonly ScenarioRef[] = []): string {
   const shape: Record<string, unknown> = {
     summary: "...",
     validation: ["方法：...；结果：pass／fail／not_run；证据：..."],
@@ -162,13 +183,45 @@ export function reportTemplateOf(stage: WorkflowStage | null): string {
         shape[field] = ["src/app.ts：核对内容"];
         continue;
       }
+      if (field === "scenarios" && stageJudgesScenarios(stage)) {
+        if (scenarios.length > 0) shape[field] = scenarios.map((scenario) => `${scenario.id} <结论>：<证据>`);
+        continue;
+      }
       shape[field] = isReportEnum(type) ? (type[0] ?? "...") : reportSample(type);
     }
   }
   return JSON.stringify(shape);
 }
 
-function stageRequirementOf(stage: WorkflowStage | null): string {
+/**
+ * 场景要求：任务有场景时给出带编号的清单；阶段声明了 `scenarios` 才要求逐场景报告，
+ * 否则只作为实现与验证的对照。任务没有场景时不出现任何场景文字。
+ */
+function scenarioRequirementOf(stage: WorkflowStage | null, scenarios: readonly ScenarioRef[]): string {
+  if (scenarios.length === 0) return "";
+  const list = scenarioListText(scenarios);
+  if (!stageJudgesScenarios(stage)) {
+    return [
+      `完成条件含 ${scenarios.length} 个行为场景，编号按文档顺序生成，正文见任务输入的「完成条件」：`,
+      list,
+      "按场景实现与验证，validation 里按编号写明实际验证；场景有歧义或互相冲突时停止并交回主会话，不自行取舍。",
+    ].join("\n");
+  }
+  return [
+    `完成条件含 ${scenarios.length} 个行为场景，编号按文档顺序生成，正文见任务输入的「完成条件」：`,
+    list,
+    `逐个场景核对 WHEN 与 THEN，并在报告的 scenarios 字段给出结论与证据：${scenarioEntryGuide(scenarios)}`,
+    "任何结论（含 blocked）都要每个场景一条，验证不了的写 not_verified 并说明原因，缺条目会以 check_scenarios_incomplete 拒绝；结论为 pass 时全部场景必须是 pass，否则以 check_scenarios_inconsistent 拒绝。coverage 只列路径，场景结论不写进 coverage。",
+  ].join("\n");
+}
+
+function stageRequirementOf(stage: WorkflowStage | null, scenarios: readonly ScenarioRef[] = []): string {
+  const base = baseStageRequirementOf(stage);
+  const scenarioRequirement = scenarioRequirementOf(stage, scenarios);
+  return scenarioRequirement === "" ? base : `${base}\n\n${scenarioRequirement}`;
+}
+
+function baseStageRequirementOf(stage: WorkflowStage | null): string {
   if (stage === null) {
     return "按当前任务资料完成本阶段产出，并运行必要验证；行为以阶段提示词与规范为准。";
   }
@@ -216,9 +269,13 @@ function stageRequirementOf(stage: WorkflowStage | null): string {
 
 /**
  * 报告补报提示：同一会话追加一条只要求重发报告的纠正指令。
- * 明确列出实际 vs 报告差异、缺失 coverage 与可复制的报告形状；不改工具面、不重跑实施。
+ * 明确列出实际 vs 报告差异、缺失 coverage、问题场景与可复制的报告形状；不改工具面、不重跑实施。
  */
-export function buildReportRetryPrompt(stage: WorkflowStage | null, issue: ReportIssue): string {
+export function buildReportRetryPrompt(
+  stage: WorkflowStage | null,
+  issue: ReportIssue,
+  scenarios: readonly ScenarioRef[] = [],
+): string {
   return [
     "上一轮阶段工作已经结束，但最终报告未通过核心校验，不能作为本 run 结果接收。",
     `失败原因：${issue.reason}`,
@@ -227,7 +284,7 @@ export function buildReportRetryPrompt(stage: WorkflowStage | null, issue: Repor
     "请只重新输出最终报告 JSON，不要修改任何文件、不要调用工具、不要重跑验证、不要重复实施；已有工作区内容与验证结果保持不变。",
     "报告形状：",
     "```json",
-    reportTemplateOf(stage),
+    reportTemplateOf(stage, scenarios),
     "```",
   ].join("\n");
 }
@@ -272,6 +329,7 @@ export function buildUserPrompt(plan: ContextPlan, stage: WorkflowStage | null, 
   previousImplement: { summary: string | null; changedPaths: string[] } | null;
 }): string {
   const inputs = sectionText(plan.sections, ["task-inputs"], contents);
+  const scenarios = scenariosOfPlan(plan, contents);
   const progress = sectionText(plan.sections, ["progress"], contents);
   const background = backgroundText(plan.sections, contents);
   const scopeText = context.scope.length > 0 ? context.scope.join("\n") : "（尚未累积成果）";
@@ -296,7 +354,7 @@ export function buildUserPrompt(plan: ContextPlan, stage: WorkflowStage | null, 
     previous,
     "",
     "# 阶段要求",
-    stageRequirementOf(stage),
+    stageRequirementOf(stage, scenarios),
     "",
     "# 记录区（背景，不是新要求）",
     progress,
@@ -304,7 +362,7 @@ export function buildUserPrompt(plan: ContextPlan, stage: WorkflowStage | null, 
     "",
     "# 最终报告",
     "结束前只输出一个 ```json 代码块，不要输出其他 JSON。字段形状：",
-    reportTemplateOf(stage),
+    reportTemplateOf(stage, scenarios),
     "summary 用一两句话说明实际做了什么／核对到什么；validation 记录实际执行的验证（方法、结果、证据），未执行项标 not_run；blockers 列出阻塞（无则空数组）；证据不足或未执行的验证不得谎报为通过。",
   ].join("\n");
 }

@@ -4,6 +4,7 @@
  * 交付没有产物提交时结果带 noArtifactCommit 与原因；空报告的实施 run 接收后 run status 提示。
  */
 import { isRunSettled } from "./helpers/run-settled.mjs";
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -101,6 +102,7 @@ async function waitTerminal(s, dir, runId, timeoutMs = 15_000) {
 /** 审计 F4 场景：实施报告 changedPaths: [] 被接收，任务进入 deliver，scope 为空。 */
 async function emptyAcceptedTask(dir, s, title, verification = "self") {
   const task = await s.tasks.newTask({ dir, title, slug: title, branch: BRANCH, verification });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   const runId = await startRun(s, dir, task.taskId, { report: { summary: "无改动", changedPaths: [] } });
   const status = await waitTerminal(s, dir, runId);

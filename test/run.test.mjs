@@ -2,6 +2,7 @@
  * 012 快照准备、local 启动与 worker 认领测试。
  * 真实 Git 仓库、真实 worker 子进程、真实文件；不调用模型。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -70,6 +71,7 @@ function services(dir) {
 
 async function readyTask(dir, services, title = "run 任务") {
   const task = await services.tasks.newTask({ dir, title, slug: title.replace(/\s+/g, "-"), verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await services.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

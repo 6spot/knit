@@ -6,7 +6,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [DESIGN.md](design/DESIGN.md) | 产品规范、能力边界、任务与工作流；首版范围见第 15.1 节 |
+| [DESIGN.md](design/DESIGN.md) | 产品规范、能力边界、任务与工作流；行为场景格式与 ready 核对见第 3.3 节，首版范围见第 15.1 节 |
 | [ARCHITECTURE.md](design/ARCHITECTURE.md) | 模块职责、协议与目录结构 |
 | [STATES.md](design/STATES.md) | 状态枚举、不变量与转移 |
 | [TECHNOLOGY.md](design/TECHNOLOGY.md) | 依赖、技术选型与版本边界 |

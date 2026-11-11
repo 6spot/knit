@@ -18,7 +18,7 @@ import type { ContextPlan } from "../contracts/context-plan.js";
 import type { AcceptanceJournal, AcceptanceState } from "../contracts/acceptance.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import { parseTaskDocument, renderTaskDocument } from "./task-document.js";
-import { inputsDigestOf } from "../contracts/task-inputs.js";
+import { inputsDigestOf, scenarioStateOf } from "../contracts/task-inputs.js";
 import { locateTaskDocument } from "./task-service.js";
 import { entryDrifts, loadScope, mergeScope, scopeEntriesCurrent } from "./scope.js";
 import { currentBranch } from "./delivery.js";
@@ -26,6 +26,7 @@ import { executionRouteOf, mainRootOf } from "./worktree-routing.js";
 import { ContextPlanner } from "./context-planner.js";
 import { workflowOf, workflowStageOf } from "./workflow.js";
 import {
+  checkScenarioReport,
   isDecisionStage,
   reportBoolean,
   reportString,
@@ -347,9 +348,11 @@ export class RunAcceptanceService {
     const actualChangedPaths = [...new Set(result.actualChangedPaths.map(normalizePath))].sort();
     // 来源归属（DESIGN §5.3）：新结果按 worker 已核对的 claimedPaths 接收，旧结果仍按“报告＝实际差异”。
     const attribution = result.attribution?.claimedPaths !== undefined ? result.attribution : null;
+    // 当前输入已与本 run 冻结摘要核对一致；提示、收尾与接收解析同一任务输入。
+    const scenarios = scenarioStateOf(located.raw.toString("utf8")).scenarios;
     const validation = attribution === null
-      ? validateReportForStage(effectiveStage, report, actualChangedPaths)
-      : validateReportForStage(effectiveStage, report, [], { comparePaths: false });
+      ? validateReportForStage(effectiveStage, report, actualChangedPaths, { scenarios })
+      : validateReportForStage(effectiveStage, report, [], { comparePaths: false, scenarios });
     if (!validation.ok) {
       return this.attention(operationId, request, validation.reason ?? "report_invalid", result);
     }
@@ -394,6 +397,11 @@ export class RunAcceptanceService {
     );
 
     if (!decision) {
+      // 由字段声明决定哪个阶段评判行为场景，不隐式限于带枚举结论的检查阶段。
+      const scenarioCheck = checkScenarioReport(effectiveStage, report, scenarios);
+      if (!scenarioCheck.ok) {
+        return this.attention(operationId, request, scenarioCheck.reason ?? "report_field_value:scenarios", result);
+      }
       const next = transition(workflow, facts, { kind: "implementationAccepted" });
       if (isTransitionRefusal(next)) {
         if (next.stopReason !== undefined) {
@@ -464,6 +472,11 @@ export class RunAcceptanceService {
     const uncovered = uncoveredScopePaths(effectiveStage, report, scope.entries.map((entry) => entry.path));
     if (uncovered.length > 0) {
       return this.attention(operationId, request, `check_scope_incomplete:${uncovered.join(",")}`, result);
+    }
+    // 逐场景核对：与 worker 收尾共用 checkScenarioReport；场景取当前任务输入（上文已核对与本 run 冻结输入一致）。
+    const scenarioCheck = checkScenarioReport(effectiveStage, report, scenarios);
+    if (!scenarioCheck.ok) {
+      return this.attention(operationId, request, scenarioCheck.reason ?? "report_field_value:scenarios", result);
     }
     const next = transition(workflow, facts, { kind: "stageAccepted", verdict });
     if (isTransitionRefusal(next)) {

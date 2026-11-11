@@ -4,6 +4,7 @@
  * 使用真实 Git／文件／worker 子进程和最小 Pi RPC 假实现，不调用真实模型。
  */
 import { isRunSettled } from "./helpers/run-settled.mjs";
+import { writeAcceptanceFixture, withAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -27,7 +28,7 @@ import { attributedChangedPaths, captureStageBaseline, inspectStageBoundary } fr
 const CLI = join(import.meta.dirname, "..", "dist", "cli", "knit.js");
 const TEMPLATES = join(import.meta.dirname, "..", "assets", "templates", ".knit");
 const FAKE_PI = join(import.meta.dirname, "fixtures", "fake-pi.mjs");
-const INPUTS = "## 目标与边界\n\n运行中改写的目标\n";
+const INPUTS = withAcceptanceFixture("## 目标与边界\n\n运行中改写的目标\n");
 
 function git(dir, args) {
   return execFileSync("git", args, { cwd: dir, encoding: "utf8" });
@@ -57,6 +58,7 @@ function services(dir) {
 
 async function readyTask(dir, s, slug) {
   const task = await s.tasks.newTask({ dir, title: slug, slug, verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }

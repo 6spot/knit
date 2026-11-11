@@ -2,6 +2,7 @@
  * k-6f0616f3779d 崩溃锁自动回收、心跳与 unlock 可用性：真实 Git／worker 子进程与最小 Pi RPC 假实现。
  */
 import { isProcessAlive, isRunSettled } from "./helpers/run-settled.mjs";
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -126,6 +127,7 @@ test("SIGKILL worker 后：task new 与 resume 自动回收残留锁并成功，
   try {
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
     const task = await s.tasks.newTask({ dir, title: "回收任务", slug: "reclaim", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     const old = await startHangingRun(s, dir, task.taskId);
     // 阶段 Pi 登记在执行目录锁与 Session 锁 owner 中。
@@ -196,6 +198,7 @@ test("SIGKILL worker 但阶段 Pi 仍存活：不自动回收也不收敛旧 run
   try {
     process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE = "1";
     const task = await s.tasks.newTask({ dir, title: "Pi 存活", slug: "pi-alive", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     const old = await startHangingRun(s, dir, task.taskId);
     const launch = new RunStore(dir).readLaunch(old.runId);
@@ -265,6 +268,7 @@ test("SIGKILL worker 后：CLI knit run implement --wait 自动回收残留锁�
   try {
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
     const task = await s.tasks.newTask({ dir, title: "CLI 回收", slug: "cli-reclaim", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     const old = await startHangingRun(s, dir, task.taskId);
     const launch = new RunStore(dir).readLaunch(old.runId);
@@ -302,6 +306,7 @@ test("心跳在长阶段中前进；doctor 与 knit locks 区分心跳正常与�
   try {
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
     const task = await s.tasks.newTask({ dir, title: "心跳", slug: "heartbeat", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await s.tasks.ready({ dir, taskId: task.taskId });
     const run = await startHangingRun(s, dir, task.taskId);
     const first = s.locks.list();

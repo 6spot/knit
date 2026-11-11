@@ -668,6 +668,7 @@ export function registerTaskCommands(program: Command): void {
       await withService(requestId, options.dir, (service) => service.ready({ dir: options.dir, taskId: resolvedTaskId }), (result) => {
         console.log(`讨论已确认: ${result.taskId} → ${result.stage}`);
         console.log(`冻结输入摘要: ${result.confirmedInputsDigest.slice(0, 12)}`);
+        console.log(`行为场景: ${result.scenarios} 个`);
       });
     });
 

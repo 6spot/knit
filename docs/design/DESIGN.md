@@ -136,7 +136,7 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 | 板块 | 区域与用途 |
 | --- | --- |
 | 目标与边界 | 输入区：目的、范围、约束与必要设计 |
-| 完成条件 | 输入区：可验证结果与必需验收 |
+| 完成条件 | 输入区：可验证结果与必需验收；行为场景按 Requirement／Scenario 写法，independent 必须有场景 |
 | 待澄清 | 输入区：未决项列表；顶格 `- [blocking] ` 为需用户取舍且影响实施的决定，`- [assumed] ` 为 Agent 假定；解决后折入目标与完成条件并删除，存在 `blocking` 时 `task ready` 拒绝 |
 | 输入引用 | 输入区：适用规范、设计材料、代码范围与验证入口 |
 | 当前位置 | 记录区：当前 stage 的可读摘要、进展和下一步 |
@@ -147,6 +147,27 @@ Session 索引保存身份和关系，任务绑定保存执行位置，运行回
 记录区位于 `<!-- knit:progress:start -->` 与 `<!-- knit:progress:end -->` 之间，所有收尾追加的验证、Commit 与运行引用均写在此区。记录可变化，不参与业务输入摘要；记录中提出新要求或新阻塞时，仍须通过核心更新有效输入或检查状态，不能用记录代替。「待澄清」区段固定使用二级标题「## 待澄清」，行前缀区分大小写且必须顶格；无区段或空区段视为没有未决项，仅 `assumed` 不阻挡 ready；`blocking` 是 task.md 输入内的标记，不是独立任务状态。 需求摘要取确认的输入区及其适用引用版本；status／stage／branch、Session／run ID、记录、本机路径线索、自动解析的运行模型／用量和诊断不纳入。分支、成果内容、正式规则／提示词及必需验证的版本另作检查证据核对；用户明确把特定模型列为验收条件时，按该输入要求处理，而非因主会话后来换模型自动判旧检查 stale。
 
 创建时保存标题、目标、stage 和初始记录，实施前补足完成条件与输入引用。其他区外正文和明确引用的辅助资料视为输入；项目级规范候选保存在 `.knit/standards/candidates.md`，旧任务 `standards.md` 只读兼容，均不自动成为有效规则。详细工具输出保存在原生 Session。
+
+完成条件的写法叫**行为场景**，内容是**行为契约**；“规范”仍专指 `.knit/standards/` 的项目规则。写法示例：
+
+```markdown
+## 完成条件
+
+### Requirement: 待澄清阻挡冻结
+存在未决项时 task ready MUST 拒绝。
+
+#### Scenario: 有 blocking 项
+- GIVEN 待澄清含一条顶格 blocking 项
+- WHEN 执行 task ready
+- THEN 以 clarify_blocking 拒绝
+- AND 任务仍在 start
+```
+
+解析仅限输入区固定 `## 完成条件`，到下一个一级或二级标题为止，围栏代码块不解析。三级 `Requirement: ` 与四级 `Scenario: ` 使用半角冒号加空格、名称非空；Scenario 必须位于 Requirement 下。顶格列表步骤用大写 GIVEN／WHEN／THEN／AND，`- **WHEN** …` 与 `- WHEN …` 等价；每场景至少一条有正文的 WHEN 和 THEN，GIVEN／AND 可选。按文档位置编号 `Rn.Sm`（从 1 起），同时保存两级名称与步骤；普通文字和列表不解析、没有场景标题时场景数为 0。
+
+结构错误包括 Requirement 无 Scenario、Scenario 缺 WHEN 或 THEN、游离 Scenario、空名称、Requirement 重名或同 Requirement 内 Scenario 重名、三／四级标题以 requirement／scenario 开头但不符合固定前缀（大小写或全角冒号等）。核心只核对结构，不区分 MUST／SHOULD／MAY，不评价内容合理性。`task ready` 在冻结前有错误时报 `scenarios_invalid`（前 3 条问题与格式示例）；independent 且无场景时报 `scenarios_required`（附示例）；self／none 可用自由列表，但写了场景就必须结构合格。放行时输出场景数量；澄清门仍优先以 `clarify_blocking` 拒绝。当前环境验证不了的延期项留在目标与边界，不写为必须通过的场景。
+
+场景清单从本 run 的冻结任务输入分节解析，阶段提示注入编号与两级名称，独立检查核对同一输入版本。输入变化会使旧检查 stale，编号不承诺跨输入版本稳定；不新增持久状态、外部协议或目录约定。
 
 ### 3.4 任务规划资料
 
@@ -338,7 +359,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task verification <id> --mode <值> | 仅在讨论阶段调整完成验证要求，作为输入变化 |
 | task list [--archive] [--month YYYY-MM] | 默认按进行中／待归档／已取消分段列出未归档任务，行内给优先级、稳定 ID、阶段显示名与标题，末尾汇总条数；无绑定的非 start 任务另列 `bindingMissing` 与 `knit task rebind` 入口；--archive 按月列出归档（--month 过滤月份）；JSON 带 scope，默认不返回归档数组 |
 | task rename / use / clear | 按授权管理身份、位置与当前原生路径选择 |
-| task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required`；「待澄清」存在 `[blocking]` 项时拒绝为 `clarify_blocking`；本机无绑定时报 `binding_missing`，先 `task rebind` |
+| task ready [id] [--session <id>] | 保存讨论确认，不自动实施；省略 id 时用主会话已落盘的选择，否则拒绝为 `task_id_required`；「待澄清」存在 `[blocking]` 项时拒绝为 `clarify_blocking`；行为场景结构错误报 `scenarios_invalid`、independent 无场景报 `scenarios_required`，拒绝附格式示例、放行输出场景数；本机无绑定时报 `binding_missing`，先 `task rebind` |
 | task update [id] --kind clarify/change [--run <run-id>] [--pending] | 明确变更类型，可用 --file 或 stdin；目标有活动 run 时须 `--run`（缺省读 `KNIT_RUN`），否则 `task_busy`；`--pending` 只存草案、不需要 `--run` |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
@@ -487,9 +508,12 @@ Knit 在源码内以可替换模块划分职责，模块随系统构建、安装
 | --- | --- |
 | 固定字段 | `summary` 为文本，`validation`、`blockers` 为数组，可为空。每条验证记录方法、结果和证据，结果为 `pass`、`fail` 或 `not_run` |
 | 阶段声明字段 | 按 `workflow.yaml` 的 `report` 校验；`paths` 类型（通常为 `changedPaths`）必须与实际 Git 可见差异一致，`bool` 与枚举按声明核对 |
+| `scenarios` | 阶段声明 `scenarios: string[]` 且任务有场景时，每场景一条 `<编号> <pass／fail／not_verified>：<证据>`，证据非空，冒号全角半角均可；示例 `R1.S1 pass：test/task.test.mjs「blocking 拒绝」通过`。所有结论（含 blocked）须全覆盖，总 pass 要求全部 pass；`coverage` 仍只核对 scope 路径 |
 | `onVerdict` | 报告值命中时跳转声明目标；未命中的普通完成走顺序下一阶段 |
-| 报告补报 | 缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete` 且阶段工作已成功结束时，同一会话最多补报 `limits.reportRetries` 次（默认 1）；补报只重发报告，期间工作区新改动或边界越界仍失败；结果记 `reportRetries`／`reportRetryUsage`，最终失败带 `reportIssue` 实际 vs 报告对照 |
+| 报告补报 | 缺 JSON／截断／schema 不合、`changed_paths_mismatch`（不含外部改动）、缺少 `changedPaths`、声明字段类型或结论不符、`report_verdict_missing`、`check_scope_incomplete`、`report_field_value:scenarios`、`check_scenarios_incomplete`、`check_scenarios_inconsistent` 且阶段工作已成功结束时，同一会话最多补报 `limits.reportRetries` 次（默认 1）；补报只重发报告，期间工作区新改动或边界越界仍失败；结果记 `reportRetries`／`reportRetryUsage`，最终失败带 `reportIssue` 实际 vs 报告对照 |
 | 收尾 | 锚点 `deliver` 不产生 worker 报告；交付由主会话协调，commits、archivePath、pending 来自核心操作结果 |
+
+逐场景核对由 worker 收尾与主会话接收共用 `checkScenarioReport`：条目格式错误、未知／重复编号、缺证据报 `report_field_value:scenarios`；漏条目（含整个字段缺失）报 `check_scenarios_incomplete:<编号列表>`；总论 pass 但有 fail／not_verified 报 `check_scenarios_inconsistent:<编号列表>`。补报提示给问题场景编号、两级名称与条目格式。阶段未声明字段或场景数为 0 时不核对；默认流程与模板 check 都声明该字段。主会话直接实施 `task implement` 与非正式 `run check --scope` 不做场景覆盖核对。旧任务／旧流程不兼容迁移，已有项目显式 `knit init --force` 按模板覆盖流程与提示词，旧 independent 任务再次 ready 前改写完成条件。
 
 主会话的讨论确认与收尾事实写核心操作和任务记录，不伪造 worker run/result。正常执行结果由核心按 request 中固定 acceptanceOperationId 复核并接收。进程在接收中断时先恢复操作，不再执行一次模型阶段；worker 崩溃后的核实结论另记 run.reconcile，不能冒充正常报告。
 

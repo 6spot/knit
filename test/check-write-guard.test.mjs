@@ -3,6 +3,7 @@
  * 真实 Git／worker 子进程与最小 Pi RPC 假实现；假实现把 write／edit／bash 记入原生会话。
  */
 import { isRunSettled } from "./helpers/run-settled.mjs";
+import { writeAcceptanceFixture, SCENARIO_PASS } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -69,6 +70,7 @@ function services(dir) {
 
 async function readyTask(dir, s, title) {
   const task = await s.tasks.newTask({ dir, title, slug: title, branch: BRANCH, verification: "independent" });
+  writeAcceptanceFixture(dir, task.taskId);
   await s.tasks.ready({ dir, taskId: task.taskId });
   return task;
 }
@@ -123,7 +125,7 @@ async function implemented(dir, s, title) {
   return task;
 }
 
-const PASS = { summary: "核对通过", verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] };
+const PASS = { summary: "核对通过", scenarios: SCENARIO_PASS, verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] };
 
 test("单元：能力判定、失败原因、完成守卫与验证标注", () => {
   assert.equal(stageMayWrite({ allow: ["read", "bash"], capabilities: ["read", "exec"] }), false, "exec 不等于写能力");

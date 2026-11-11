@@ -19,6 +19,7 @@ import type {
   StageReport,
 } from "../contracts/run.js";
 import { newKnitSessionId, type SessionRecord } from "../contracts/session.js";
+import type { AcceptanceScenario } from "../contracts/task-inputs.js";
 import { PROTOCOL_VERSION } from "../contracts/protocol.js";
 import {
   PiAgentRuntime,
@@ -44,6 +45,7 @@ import {
   buildReportRetryPrompt,
   buildSystemPrompt,
   buildUserPrompt,
+  scenariosOfPlan,
   loadSectionContents,
   parseStageReport,
 } from "./stage.js";
@@ -64,6 +66,7 @@ import {
 import { legalStageList, loadWorkflow, workflowStageOf } from "./workflow.js";
 import {
   isDecisionStage,
+  checkScenarioReport,
   isRetryableReportFailure,
   reportField,
   uncoveredScopePaths,
@@ -291,6 +294,8 @@ export class StageRunner {
   private reportRetryUsage: RunUsage = { inputTokens: null, outputTokens: null };
   /** 本阶段当前 scope 路径；检查报告 coverage 核对照此判断缺项。 */
   private scopePaths: string[] = [];
+  /** 本 run 任务输入里的行为场景；提示、补报与 scenarios 字段核对共用。 */
+  private scenarios: AcceptanceScenario[] = [];
   private readonly locks: LockManager | null;
   private readonly lostOwnership: (() => string | null) | null;
   private readonly heartbeatIntervalMs: number;
@@ -359,6 +364,7 @@ export class StageRunner {
     const binding = await this.store.bindings.get(this.request.taskId);
     const previousImplement = await this.previousImplementResult(binding?.lastRunIds ?? []);
     const contents = loadSectionContents(this.executionDir, this.plan, binding?.pendingDraft?.content ?? null);
+    this.scenarios = scenariosOfPlan(this.plan, contents);
     const systemPrompt = buildSystemPrompt(this.plan, this.stage, contents);
     const userPrompt = buildUserPrompt(this.plan, this.stage, contents, {
       taskId: this.request.taskId,
@@ -1372,7 +1378,7 @@ export class StageRunner {
     const reportedPaths = reportedPathsOf(parsed.report, pathsField);
     const uncovered = uncoveredScopePaths(this.stage, parsed.report, this.scopePaths);
     // 固定字段、类型与结论先校验；paths 与实际差异的对照交给来源归属（DESIGN §5.3）。
-    const shape = validateReportForStage(this.stage, parsed.report, [], { comparePaths: false });
+    const shape = validateReportForStage(this.stage, parsed.report, [], { comparePaths: false, scenarios: this.scenarios });
     if (!shape.ok) {
       const reason = shape.reason ?? "report_invalid";
       if (isRetryableReportFailure(reason)) {
@@ -1446,10 +1452,17 @@ export class StageRunner {
         { source: attribution.source, toolPaths: attribution.toolPaths },
       );
     }
+    // 逐场景核对（阶段声明 scenarios 且任务有场景时生效）；与接收侧共用规则，避免两处判定分叉。
+    const scenarioCheck = checkScenarioReport(this.stage, parsed.report, this.scenarios);
     // 检查报告 coverage 必须逐路径覆盖当前 scope；与接收侧共用规则，避免两处判定分叉。
     if (uncovered.length > 0) {
       const reason = `check_scope_incomplete:${uncovered.join(",")}`;
-      return this.reportRetry(reason, parsed.report, actualPaths, reported, uncovered, `coverage 未覆盖 scope 路径：${uncovered.join(", ")}`);
+      // 补报次数有限：coverage 与场景同时有问题时一并指出，原因码仍按 coverage 报。
+      const extra = [`coverage 未覆盖 scope 路径：${uncovered.join(", ")}`, ...(scenarioCheck.detail === null ? [] : [scenarioCheck.detail])].join("\n");
+      return this.reportRetry(reason, parsed.report, actualPaths, reported, uncovered, extra);
+    }
+    if (!scenarioCheck.ok) {
+      return this.reportRetry(scenarioCheck.reason ?? "report_field_value:scenarios", parsed.report, actualPaths, reported, uncovered, scenarioCheck.detail);
     }
     this.runs.appendEvent(this.request.runId, {
       event: "attribution_checked",
@@ -1561,7 +1574,7 @@ export class StageRunner {
       });
       let turn: ReportRetryTurn;
       try {
-        turn = await input.resend(buildReportRetryPrompt(this.stage, retry.issue));
+        turn = await input.resend(buildReportRetryPrompt(this.stage, retry.issue, this.scenarios));
         this.reportRetriesUsed += 1;
       } catch (error) {
         // 补报机制本身不可用（如 Rex bridge 断开）时保留原报告失败语义，另留事件说明原因。
@@ -1848,7 +1861,7 @@ function reportedPathsOf(report: StageReport, field: string | null): string[] | 
   return [...new Set((value as string[]).map(normalizePath).filter((path) => !path.startsWith(".knit/tasks/")))];
 }
 
-/** 报告失败对照文案：实际 vs 报告，再补缺失 coverage 与解析／结构细节。 */
+/** 报告失败对照文案：实际 vs 报告，再补缺失 coverage、问题场景与解析／结构细节。 */
 function reportIssueDetail(input: {
   actualPaths: string[];
   reportedPaths: string[] | null;

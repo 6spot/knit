@@ -186,3 +186,11 @@ M1 开发诊断只做结构化 stderr、白名单及最小等价冒烟；私有�
 九份系统文档已按本机 CLI、单一候选仓储及 prefer 新会话续做统一核对。跨 run 原生文件与 run 证据分开，opening／available 与模型首轮启动分开，项目安装 ready 与 Pi 项目信任分开；草案应用／撤回、关闭与迟到结果、共享锁根、只读历史和完成结果连接均补齐对应规则。技术版本仍是产品设计选择，文件／SQLite 与 Node24 组合验收在该轮未被写成已通过（后续任务004已实际执行存储对比并选定 SQLite，见 17.13 与 TECHNOLOGY 第 8 节）。
 
 问题和修正记录、当前决定与尚待实现的验收见[整体审查资料](../../validation/design-audit/README.md)。本轮仅修订设计与做文档／旧证据完整性校验，未安装依赖、发模型请求或实现产品。
+
+## 17.18 OpenSpec 的行为场景写法
+
+固定来源：[Fission-AI/OpenSpec docs/concepts.md](https://github.com/Fission-AI/OpenSpec/blob/a959be77cf045ea3156dc5089c9e2f1d6ce9ce70/docs/concepts.md)，commit `a959be77cf045ea3156dc5089c9e2f1d6ce9ce70`（@fission-ai/openspec 1.17.0）。2026-11-11 的离线研究摘记为任务 k-185ace3b9556 的 `research/openspec-format.md`；本轮依据固定材料，未运行 OpenSpec CLI 或模型。
+
+采用 `### Requirement:`／`#### Scenario:` 与大写 GIVEN／WHEN／THEN／AND（含加粗关键字）的行为契约表达：一个可验证例子对应一个结论，避免自由列表混合多个触发条件导致独立检查漏验。Knit 放在已有 task.md 的 `## 完成条件`，按位置生成 Rn.Sm，ready 校验结构，声明 scenarios 的阶段在报告收尾／接收机械核对覆盖和总 pass 一致性。核心不解释 MUST／SHOULD／MAY 强度或判断内容合理性，语义仍由 Agent 与用户确认。
+
+不采用 specs／changes／proposal 目录、ADDED／MODIFIED／REMOVED 增量规格与 archive 合并模型，也不引入 OpenSpec 命令、schema、profile 或 npm 依赖：本期仅改善任务验收表达与覆盖，Knit 的任务输入更新、冻结、scope 和归档已有独立权威。长期行为规格与增量归并是否引入留待第二期决定，不由本次研究扩大产品范围。现行格式、原因码与升级边界见 DESIGN §3.3、§8.1 和 ROLE-CONTRACT §2、§5。

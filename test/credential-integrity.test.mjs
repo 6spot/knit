@@ -5,6 +5,7 @@
  * worker 环境调用 deliver 等收尾命令 → stage_context_forbidden；阶段写入的 pre-commit 在 skip 模式不执行；
  * 桥接路径伪造的 user: 引用被拒；凭据扫描覆盖暂存的全部路径。
  */
+import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -494,6 +495,7 @@ test("阶段伪造的 run 结果与接收检查点：缺签名不接收，任务
   const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), confirmTimeoutMs: 8000 });
   try {
     const task = await tasks.newTask({ dir, title: "伪造结果", slug: "forged-result", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
     await tasks.ready({ dir, taskId: task.taskId });
     const prepared = await coordinator.prepare({
       dir,

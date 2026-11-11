@@ -1,3 +1,4 @@
+import { writeAcceptanceFixture, withAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -386,6 +387,7 @@ test("task ready：start → implement 并冻结输入摘要；stage 不符拒�
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    writeAcceptanceFixture(dir, taskId);
     // 空 taskId 必须作为请求错误拒绝，不能带着 undefined 进入定位。
     await assert.rejects(() => service.ready({ dir, taskId: "" }), (error) => {
       assert.ok(error instanceof TaskGuardError);
@@ -503,6 +505,7 @@ test("task update：clarify 保持 stage 且不使摘要未变任务迁移；cha
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    writeAcceptanceFixture(dir, taskId);
     await service.ready({ dir, taskId });
     // change：回 open/start
     const change = await service.update({ dir, taskId, kind: "change", reason: "范围扩大", content: "## 目标与边界\n\n新目标\n" });
@@ -531,6 +534,7 @@ test("阶段访问计数：未开始 change 清空；已开始保留并累计到
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    writeAcceptanceFixture(dir, taskId);
     // 未开始：连续 4 轮 ready + change 都不涨计数，也不触发 repair_round_limit（默认 maxVisits=2）。
     for (let round = 1; round <= 4; round += 1) {
       const ready = await service.ready({ dir, taskId });
@@ -542,7 +546,7 @@ test("阶段访问计数：未开始 change 清空；已开始保留并累计到
         taskId,
         kind: "change",
         reason: "准备期改需求",
-        content: `## 目标与边界\n\n目标 v${round}\n`,
+        content: withAcceptanceFixture(`## 目标与边界\n\n目标 v${round}\n`),
       });
       assert.equal(change.stage, "start");
       binding = await store.bindings.get(taskId);
@@ -555,7 +559,7 @@ test("阶段访问计数：未开始 change 清空；已开始保留并累计到
     binding = await store.bindings.get(taskId);
     assert.deepEqual(binding.stageVisits, { implement: 1 });
     for (const expected of [2, 3]) {
-      const change = await service.update({ dir, taskId, kind: "change", reason: "已开始改范围", content: `## 目标与边界\n\n范围 v${expected}\n` });
+      const change = await service.update({ dir, taskId, kind: "change", reason: "已开始改范围", content: withAcceptanceFixture(`## 目标与边界\n\n范围 v${expected}\n`) });
       assert.equal(change.stage, "start");
       binding = await store.bindings.get(taskId);
       assert.deepEqual(binding.stageVisits, { implement: expected - 1 }, "已开始 change 保留计数");
@@ -564,7 +568,7 @@ test("阶段访问计数：未开始 change 清空；已开始保留并累计到
       assert.deepEqual(binding.stageVisits, { implement: expected });
     }
     // 第三次进入之后 change 仍保留计数；第四次 ready 超 maxVisits 被拒。
-    await service.update({ dir, taskId, kind: "change", reason: "再改范围", content: "## 目标与边界\n\n最终范围\n" });
+    await service.update({ dir, taskId, kind: "change", reason: "再改范围", content: withAcceptanceFixture("## 目标与边界\n\n最终范围\n") });
     await assert.rejects(
       () => service.ready({ dir, taskId }),
       (error) => error instanceof TaskGuardError && error.guardReason === "repair_round_limit",
@@ -729,6 +733,7 @@ test("task update：apply 按草案 kind 应用；change 草案回 start，clari
   const { store, service } = makeService(dir);
   try {
     const { taskId } = await service.newTask({ dir, title: "T", verification: "independent" });
+    writeAcceptanceFixture(dir, taskId);
     await service.ready({ dir, taskId });
     // 模拟运行中保存 change 草案
     const saved = await service.update({ dir, taskId, kind: "change", reason: "目标改变", content: "## 目标与边界\n\n改变后的目标\n", pending: true, updateOperationId: "op-9" });
@@ -807,6 +812,7 @@ test("任务规划资料：按需创建读取保存、越界与白名单拒绝�
     );
 
     // 归档后仍可读取。
+    writeAcceptanceFixture(dir, taskId);
     await service.ready({ dir, taskId });
     const movedName = readdirSync(join(dir, ".knit", "tasks")).find((name) => name.endsWith("-moved"));
     const doc = parseTaskDocument(readFileSync(taskFile(dir, `tasks/${movedName}/task.md`), "utf8"));
@@ -858,6 +864,7 @@ test("应用草案持久化转移：change 实际回 open/start，deliver 上 cl
   try {
     const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
+    writeAcceptanceFixture(dir, taskId);
     await service.ready({ dir, taskId });
     // 模拟实施完成推进到 deliver：直接改权威文件（本测试只关注 apply 转移持久化）。
     const doc = parseTaskDocument(readFileSync(file, "utf8"));
@@ -878,6 +885,7 @@ test("应用草案持久化转移：change 实际回 open/start，deliver 上 cl
     assert.equal((await store.bindings.get(taskId)).pendingDraft, null);
 
     // deliver 上摘要变化的 clarify：应用后实际回 open/check。
+    writeAcceptanceFixture(dir, taskId);
     await service.ready({ dir, taskId });
     const doc2 = parseTaskDocument(readFileSync(file, "utf8"));
     writeFileSync(file, renderTaskDocument({ ...doc2, frontmatter: { ...doc2.frontmatter, stage: "deliver" } }));
@@ -903,6 +911,7 @@ test("未归档 completed 可按规定重新打开：change 回 start、deliver 
     try {
       const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
       const file = taskFile(dir, relativePath);
+      writeAcceptanceFixture(dir, taskId);
       await service.ready({ dir, taskId });
       // 构造未归档 completed/deliver（模拟交付完成但尚未 archive）。
       const doc = parseTaskDocument(readFileSync(file, "utf8"));
@@ -1313,7 +1322,8 @@ test("实施前结构核对：占位未填与空 plan 阻止 ready；简单任�
   try {
     const { taskId, relativePath } = await service.newTask({ dir, title: "T", verification: "independent" });
     const file = taskFile(dir, relativePath);
-    // 1. 模板占位未填：核心不机械拒绝（语义判断属主 Agent）；ready 正常通过（简单任务，无 plan.md）。
+    // 1. independent 已写合格场景，其它占位仍由主 Agent 语义确认；无 plan.md 可 ready。
+    writeAcceptanceFixture(dir, taskId);
     const ready = await service.ready({ dir, taskId });
     assert.equal(ready.stage, "implement");
 

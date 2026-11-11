@@ -34,7 +34,7 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 | 事件／入口 | 守卫 | 转移与效果 |
 | --- | --- | --- |
 | TaskCreated：task new | 用户授权、身份唯一、有效 Git HEAD／分支（DESIGN14.1） | open/start，不自动实施 |
-| DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备；task.md「待澄清」无 `[blocking]` 项（有则 `clarify_blocking` 拒绝）；前置依赖全部完成 | start → 配置的第一个阶段；降级流程直接进入 deliver，保存确认输入引用 |
+| DiscussionConfirmed：task ready | 主 Agent 确认目标、条件与资料齐备；task.md「待澄清」无 `[blocking]` 项（有则 `clarify_blocking` 拒绝）；完成条件的行为场景结构合格（否则 `scenarios_invalid`），independent 至少一个场景（否则 `scenarios_required`）；前置依赖全部完成 | start → 配置的第一个阶段；降级流程直接进入 deliver，保存确认输入引用 |
 | InputsUpdated：task update --kind clarify | 未完整归档且非 cancelled/superseded；原目标、条件和范围不变，主 Agent 提供说明 | 当前阶段保持；摘要变化使检查 stale，原为 deliver 则 independent 回最近检查阶段、self／none 回最近工作阶段并清 completed |
 | InputsUpdated：task update --kind change | 未完整归档且非 cancelled/superseded；新增、删除或改变目标、条件、范围、业务约束 | 回 open/start，清 completed，旧检查失资格 |
 | PendingApplied：task update --apply-pending | 草案摘要与基线输入均匹配，旧执行已结束且结果事实收敛 | 按草案保存的 kind 应用 InputsUpdated，清本份草案，不发模型 |
@@ -51,6 +51,8 @@ open 时无 outcome；closed 必有 completed/cancelled/superseded。closed/comp
 阶段访问计数（`stageVisits`）从任务第一次被接收的 run 开始：首次 `task ready` 照常占一格；尚无已接收 run 时，`task update --kind change`（含应用 change 草案）回 start 并清空计数，准备期改需求不消耗进入预算。已有接收 run 时 change 保留计数，超 `maxVisits` 照常报 `repair_round_limit`。失败、取消或派发未接收的 run 不算开始；旧绑定缺 `lastRunIds` 按未开始处理。修复轮次仍按第 4 节在检查结论接收后累计。
 
 前置依赖（DESIGN §3.11）：`task ready` 与工作阶段的 `run prepare` 在推进／启动前核对 `dependsOn`，未满足时拒绝（`dependency_unmet`，列出未满足项），不改变 stage 与冻结输入；优先级、父子层级与用户明确指定都不绕过。依赖结构错误（缺失／自依赖／成环）在设置依赖时拒绝；已取消、替代或已归档但未完成的前置保留为具体阻塞原因，由用户显式调整。检查、交付、记录与只读查询不受此门禁影响。
+
+行为场景（DESIGN §3.3）：输入区 `## 完成条件` 下用 `### Requirement: 名称`／`#### Scenario: 名称` 与顶格 GIVEN／WHEN／THEN／AND，至少 WHEN 与 THEN，编号按位置为 Rn.Sm。ready 两条场景拒绝规则都在输入冻结前执行，任务仍在 start、确认摘要不写入，消息附格式示例；放行给场景数。self／none 可以没有场景，但已有场景必须结构合格。场景是行为契约，不是新状态或 `.knit/standards/` 规范。
 
 需求澄清（DESIGN §4.2）：「待澄清」区段与 `- [blocking] `／`- [assumed] ` 标记不是独立状态，仍是 task.md 输入。`task ready` 只机械核对顶格 `- [blocking] ` 行：存在时拒绝（`clarify_blocking`，消息含数量与前 3 条），无区段、空区段或只有 `[assumed]` 时放行；`assumed` 是否已确认属主 Agent 语义判断。解决后折入目标与完成条件并删除该行，摘要变化按 clarify 处理；不新增需求状态机，也不统计提问轮数。
 
@@ -148,6 +150,8 @@ run 以 runId 和 owner token 固定目标；新恢复使用新 run ID。重复�
 | changes_requested、blocked 或必需证据缺失 | blocked |
 | clarify/change、生效规则、成果、分支或 restore 影响选定目标 | stale，复查 |
 | 纯记录、运行引用、未生效候选、等价改名／归档移动 | 不变 |
+
+阶段声明 `scenarios: string[]` 且任务有场景时，收尾与接收核对每场景恰好一条 `<编号> <pass／fail／not_verified>：<证据>`（非空证据、冒号全角半角均可）。条目非法报 `report_field_value:scenarios`，漏场景报 `check_scenarios_incomplete:<编号列表>`，总论 pass 与非 pass 场景矛盾报 `check_scenarios_inconsistent:<编号列表>`；三者可同会话补报，不增加访问或修复次数。blocked 也必须全覆盖，无法验证写 not_verified；changes_requested 可含 fail，按原 onVerdict 回退。覆盖守卫按字段声明生效，不改 coverage／check_scope_incomplete；不适用于 task implement 与非正式 check --scope。
 
 检查证据不等于全部自然语言要求已完成。必需人工验收由主 Agent 按用户要求核对、写入任务记录并据实际确认继续，首版不提供独立人工门槛命令／字段；技术报告不能替用户确认。
 
