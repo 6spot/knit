@@ -91,4 +91,10 @@ title: 补修受管入口：安全转义含空格的 CLI 路径
 - 结果: 正常交付；检查 run-f330854fb246 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-12-managed-entry-shell-quote
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-2def36100f2a -->
+- 任务资料提交: 1bd5f27afdc0f39ff575ed79016201fac63b63af
+- 归档目标: .knit/tasks/archive/2026-11/11-12-managed-entry-shell-quote
+
 <!-- knit:progress:end -->
