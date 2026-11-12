@@ -1,7 +1,7 @@
 import { writeAcceptanceFixture } from "./helpers/scenarios.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   cpSync,
@@ -143,6 +143,30 @@ async function waitUntil(predicate, timeoutMs = 3_000) {
     await sleep(20);
   }
   throw new Error("等待条件超时");
+}
+
+/** 真实子进程代表 Rex 块内的阶段 Pi：用独立进程组，验证终止后确实退出。 */
+function spawnIdleProcess() {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  return { child, exited };
+}
+
+async function exitWithin(exited, timeoutMs = 3_000) {
+  return Promise.race([exited, sleep(timeoutMs).then(() => null)]);
+}
+
+function killIdleProcess(child) {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // 已退出。
+    }
+  }
 }
 
 test("Rex bridge：status/subscribe/steer/stop 往返与超限帧拒绝", async () => {
@@ -719,6 +743,74 @@ test("RexLauncher：取消与启动超时路径仍关闭一次", async () => {
   }
 });
 
+test("RexLauncher：建层期间收到 stop，层落地后仍关闭一次", async () => {
+  const dir = tempWorkspace("cancel-startup");
+  const { runId, runDirectory } = makeRun(dir);
+  const methods = REX_REQUIRED_METHODS.map((name) => ({ name }));
+  let releaseLayer;
+  const layerGate = new Promise((resolve) => {
+    releaseLayer = resolve;
+  });
+  let layerRequested;
+  const requested = new Promise((resolve) => {
+    layerRequested = resolve;
+  });
+  const closed = [];
+  const exec = async (args) => {
+    if (args.includes("list")) return { stdout: JSON.stringify({ methods }) };
+    const index = args.indexOf("call");
+    const method = args[index + 1];
+    if (method === "session.list_blocks") return { stdout: JSON.stringify({ blocks: [] }) };
+    if (method === "session.new_layer") {
+      layerRequested();
+      await layerGate;
+      return { stdout: JSON.stringify({ layer_id: "layer-1", block_ids: ["block-1"] }) };
+    }
+    if (method === "session.set_layer_state") return { stdout: "{}" };
+    if (method === "session.close_layer") {
+      closed.push(JSON.parse(args[index + 2]).layer_id);
+      return { stdout: "{}" };
+    }
+    if (method === "com.superlogical.terminal.process") return { stdout: JSON.stringify({ last_exit: 0 }) };
+    return { stdout: "{}" };
+  };
+  const api = new RexApi({ session: "rex-session", exec, watch: () => ({ stop() {} }) });
+  const launcher = new RexLauncher({
+    root: dir,
+    runId,
+    taskId: "k-0123456789ab",
+    phase: "implement",
+    sessionId: `session-${runId}`,
+    provider: "p",
+    modelId: "m",
+    tools: [],
+    systemPrompt: "s",
+    userPrompt: "u",
+    cwd: dir,
+    sessionDir: join(dir, "sessions"),
+    executablePath: "pi",
+    rex: api,
+    pollIntervalMs: 20,
+    cancelGraceMs: 100,
+    bridgeConnectTimeoutMs: 50,
+  });
+  try {
+    const pending = launcher.execute();
+    await requested;
+    // 浮层尚未落地时先终止：新层建好后必须再收口，不能因第一次 terminate 而漏掉。
+    await launcher.stop();
+    releaseLayer();
+    const execution = await pending;
+    assert.equal(execution.settled, false);
+    assert.equal(execution.aborted, true);
+    assert.deepEqual(closed, ["layer-1"]);
+    assert.equal(readRexAssociation(rexAssociationPath(runDirectory)).layerId, "layer-1");
+  } finally {
+    await launcher.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("RexLauncher：bridge 断开时进程兜底节流与退出读取", async () => {
   const dir = tempWorkspace("fallback");
   const { runId, runDirectory } = makeRun(dir);
@@ -1122,8 +1214,9 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
     });
     const missing = [];
     const closed = [];
+    let closeLayerCalls = 0;
     const launcherFactory = (options) => {
-      missing.push(options.sessionId);
+      missing.push(options);
       return {
         async execute() {
           const sessionFile = join(dir, ".knit", ".runtime", "pi-sessions", `fake_${options.sessionId}.jsonl`);
@@ -1159,9 +1252,11 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
         },
         async stop() {},
         async steer() {},
-        async terminate() {},
-        async closeLayer() {
+        async terminate() {
           closed.push(options.runId);
+        },
+        async closeLayer() {
+          closeLayerCalls += 1;
         },
         async dispose() {},
         status() {
@@ -1180,19 +1275,23 @@ test("StageRunner Rex 分支：注入 launcher 后仍走报告/差异/原生范�
     });
     const execution = await runner.execute();
     assert.equal(missing.length, 1);
+    // 直接覆盖 StageRunner 的实际取值：补报窗口保留 worker（false），终态由 terminate 收口。
+    assert.equal(missing[0].closeOnSettle, false);
+    assert.equal(missing[0].runId, prepared.request.runId);
     assert.equal(execution.result.state, "completed");
     assert.equal(execution.result.failureReason, null);
     assert.deepEqual(execution.result.actualChangedPaths, ["README.md"]);
     assert.equal(execution.result.session.nativeReadable, true);
     assert.equal(execution.result.nativeEntries.leafEntryId, "a1");
     assert.deepEqual(closed, [prepared.request.runId]);
+    assert.equal(closeLayerCalls, 0);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭失败不改变已完成终态", async () => {
+test("StageRunner Rex 分支：rex_worker_error／取消都终止阶段进程与浮层，收尾失败不改变已完成终态", async () => {
   const dir = project("stagerun-close");
   const store = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
   const locks = new LockManager({ root: join(dir, ".locks") });
@@ -1235,7 +1334,7 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
         rexLauncherFactory: () => launcher,
       });
 
-    // rex_worker_error：仍关闭一次，结果保持 failed。
+    // rex_worker_error：终态仍 terminate 一次，结果保持 failed。
     {
       const prepared = await prepare();
       let closed = 0;
@@ -1245,11 +1344,11 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
         },
         async stop() {},
         async steer() {},
-        async terminate() {},
-        async dispose() {},
-        async closeLayer() {
+        async terminate() {
           closed += 1;
         },
+        async dispose() {},
+        async closeLayer() {},
         status() {
           return null;
         },
@@ -1259,7 +1358,7 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
       assert.equal(closed, 1);
     }
 
-    // 取消：stop 后返回 aborted，终态仍关闭一次。
+    // 取消：stop 后返回 aborted，终态仍 terminate 一次（关层并终止阶段进程）。
     {
       const prepared = await prepare();
       let closed = 0;
@@ -1283,11 +1382,11 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
           stopped();
         },
         async steer() {},
-        async terminate() {},
-        async dispose() {},
-        async closeLayer() {
+        async terminate() {
           closed += 1;
         },
+        async dispose() {},
+        async closeLayer() {},
         status() {
           return null;
         },
@@ -1310,7 +1409,7 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
       rmSync(join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "cancel.json"), { force: true });
     }
 
-    // 已完成 run 的关闭失败只忽略，不改写结果。
+    // 已完成 run 的收尾失败只忽略，不改写结果。
     {
       const prepared = await prepare();
       let closed = 0;
@@ -1321,12 +1420,12 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
         },
         async stop() {},
         async steer() {},
-        async terminate() {},
-        async dispose() {},
-        async closeLayer() {
+        async terminate() {
           closed += 1;
-          throw new Error("close failed");
+          throw new Error("terminate failed");
         },
+        async dispose() {},
+        async closeLayer() {},
         status() {
           return null;
         },
@@ -1335,6 +1434,259 @@ test("StageRunner Rex 分支：rex_worker_error／取消都关闭浮层，关闭
       assert.equal(closed, 1);
     }
   } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("StageRunner Rex：实际 closeOnSettle=false，补报窗口结束后关闭浮层并结束阶段 Pi", async () => {
+  const dir = project("stagerun-settle");
+  const store = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
+  const locks = new LockManager({ root: join(dir, ".locks") });
+  const tasks = new TaskService({ store, locks, randomHex });
+  const worker = spawnIdleProcess();
+  try {
+    const task = await tasks.newTask({ dir, title: "rex settle", slug: "rex-settle", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
+    await tasks.ready({ dir, taskId: task.taskId });
+    const planner = new ContextPlanner({ store });
+    const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
+    const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), hostProbe: async () => {} });
+    const prepared = await coordinator.prepare({
+      dir,
+      taskId: task.taskId,
+      phase: "implement",
+      presentation: "rex",
+      initiator: { client: "cli", knitSessionId: null, nativeSessionId: null, cwd: dir },
+      model: { runtime: "pi", provider: "fake", model: "fake" },
+    });
+    const runId = prepared.request.runId;
+    const runDirectory = join(dir, ".knit", ".runtime", "runs", runId);
+    const report = "```json\n{\"summary\":\"rex 终态关闭\",\"changedPaths\":[]}\n```";
+    const closed = [];
+    let sessionFile = null;
+    let scheduled = false;
+    const methods = REX_REQUIRED_METHODS.map((name) => ({ name }));
+    const exec = async (args) => {
+      if (args.includes("list")) return { stdout: JSON.stringify({ methods }) };
+      const index = args.indexOf("call");
+      const method = args[index + 1];
+      if (method === "session.list_blocks") {
+        return { stdout: JSON.stringify({ blocks: [{ block_id: "block-1", label: rexLabel(runId) }] }) };
+      }
+      if (method === "session.new_layer") {
+        const manifest = readRexWorkerManifest(rexManifestPath(runDirectory));
+        // 模拟已报到的 worker：先落 running 状态（含真实 pid），补报窗口结束后再写终态结果。
+        writeRexWorkerState(rexStatePath(runDirectory), stateFor(runId, {
+          instance: manifest.instance,
+          status: "running",
+          run: 1,
+          pid: worker.child.pid,
+        }));
+        if (!scheduled) {
+          scheduled = true;
+          setTimeout(() => {
+            writeRexWorkerState(rexStatePath(runDirectory), stateFor(runId, {
+              instance: manifest.instance,
+              status: "completed",
+              run: 1,
+              resultRevision: 1,
+              pid: worker.child.pid,
+            }));
+            writeRexWorkerResult(rexDirectory(runDirectory), {
+              schemaVersion: 1,
+              runId,
+              revision: 1,
+              outcome: "completed",
+              text: report,
+              error: null,
+              sessionFile,
+              leafId: "a1",
+              completedAt: new Date().toISOString(),
+            });
+          }, 60);
+        }
+        return { stdout: JSON.stringify({ layer_id: "layer-1", block_ids: ["block-1"] }) };
+      }
+      if (method === "session.set_layer_state") return { stdout: "{}" };
+      if (method === "session.close_layer") {
+        closed.push(JSON.parse(args[index + 2]).layer_id);
+        return { stdout: "{}" };
+      }
+      if (method === "com.superlogical.terminal.process") return { stdout: JSON.stringify({ last_exit: null }) };
+      return { stdout: "{}" };
+    };
+    const api = new RexApi({ session: "rex-session", exec, watch: () => ({ stop() {} }) });
+    const captured = [];
+    const runner = new StageRunner({
+      root: dir,
+      request: prepared.request,
+      plan,
+      inputs: {},
+      store,
+      runs: new RunStore(dir),
+      rexLauncherFactory: (options) => {
+        captured.push(options);
+        sessionFile = join(dir, ".knit", ".runtime", "pi-sessions", `fake_${options.sessionId}.jsonl`);
+        mkdirSync(dirname(sessionFile), { recursive: true });
+        writeFileSync(
+          sessionFile,
+          [
+            JSON.stringify({ type: "session", version: 3, id: options.sessionId, cwd: dir }),
+            JSON.stringify({
+              id: "a1",
+              parentId: null,
+              type: "message",
+              message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: report }] },
+            }),
+          ].join("\n") + "\n",
+        );
+        return new RexLauncher({
+          ...options,
+          rex: api,
+          pollIntervalMs: 20,
+          bridgeConnectTimeoutMs: 100,
+          startupTimeoutMs: 3_000,
+          cancelGraceMs: 200,
+        });
+      },
+    });
+    const execution = await runner.execute();
+    assert.equal(execution.result.state, "completed");
+    // 直接覆盖 StageRunner 的实际取值：补报需要 worker 存活，终态由 terminate 收口。
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].closeOnSettle, false);
+    assert.deepEqual(closed, ["layer-1"]);
+    assert.notEqual(await exitWithin(worker.exited), null, "阶段 Pi 进程应在终态后被终止");
+  } finally {
+    killIdleProcess(worker.child);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("StageRunner Rex：取消时 bridge stop 成功后仍关闭浮层并结束阶段 Pi", async () => {
+  const dir = project("stagerun-cancel");
+  const store = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
+  const locks = new LockManager({ root: join(dir, ".locks") });
+  const tasks = new TaskService({ store, locks, randomHex });
+  const worker = spawnIdleProcess();
+  let server = null;
+  try {
+    const task = await tasks.newTask({ dir, title: "rex cancel", slug: "rex-cancel", verification: "independent" });
+    writeAcceptanceFixture(dir, task.taskId);
+    await tasks.ready({ dir, taskId: task.taskId });
+    const planner = new ContextPlanner({ store });
+    const plan = await planner.plan({ dir, taskId: task.taskId, role: "implement" });
+    const coordinator = new RunCoordinator({ store, randomHex, lockRoot: join(dir, ".locks"), hostProbe: async () => {} });
+    const prepared = await coordinator.prepare({
+      dir,
+      taskId: task.taskId,
+      phase: "implement",
+      presentation: "rex",
+      initiator: { client: "cli", knitSessionId: null, nativeSessionId: null, cwd: dir },
+      model: { runtime: "pi", provider: "fake", model: "fake" },
+    });
+    const runId = prepared.request.runId;
+    const runDirectory = join(dir, ".knit", ".runtime", "runs", runId);
+    const closed = [];
+    const stopMethods = [];
+    let workerState = null;
+    const methods = REX_REQUIRED_METHODS.map((name) => ({ name }));
+    const exec = async (args) => {
+      if (args.includes("list")) return { stdout: JSON.stringify({ methods }) };
+      const index = args.indexOf("call");
+      const method = args[index + 1];
+      if (method === "session.list_blocks") {
+        return { stdout: JSON.stringify({ blocks: [{ block_id: "block-1", label: rexLabel(runId) }] }) };
+      }
+      if (method === "session.new_layer") {
+        const manifest = readRexWorkerManifest(rexManifestPath(runDirectory));
+        workerState = stateFor(runId, { instance: manifest.instance, status: "running", run: 1, pid: worker.child.pid });
+        writeRexWorkerState(rexStatePath(runDirectory), workerState);
+        // 真实 bridge：stop 请求被 worker 接受后仍不自行退出，由核心在宽限后收口。
+        server = new BridgeServer(manifest.socketPath, () => workerState, (request) => {
+          if (request.method === "stop") {
+            stopMethods.push(request.method);
+            setTimeout(() => {
+              workerState = stateFor(runId, {
+                instance: manifest.instance,
+                status: "aborted",
+                run: 1,
+                resultRevision: 1,
+                pid: worker.child.pid,
+              });
+              writeRexWorkerState(rexStatePath(runDirectory), workerState);
+              writeRexWorkerResult(rexDirectory(runDirectory), {
+                schemaVersion: 1,
+                runId,
+                revision: 1,
+                outcome: "aborted",
+                text: "",
+                error: null,
+                sessionFile: null,
+                leafId: null,
+                completedAt: new Date().toISOString(),
+              });
+            }, 20);
+            return { accepted: true, run: 1 };
+          }
+          return workerState;
+        });
+        await server.listen();
+        return { stdout: JSON.stringify({ layer_id: "layer-1", block_ids: ["block-1"] }) };
+      }
+      if (method === "session.set_layer_state") return { stdout: "{}" };
+      if (method === "session.close_layer") {
+        closed.push(JSON.parse(args[index + 2]).layer_id);
+        return { stdout: "{}" };
+      }
+      if (method === "com.superlogical.terminal.process") return { stdout: JSON.stringify({ last_exit: null }) };
+      return { stdout: "{}" };
+    };
+    const api = new RexApi({ session: "rex-session", exec, watch: () => ({ stop() {} }) });
+    const captured = [];
+    const launchers = [];
+    const runner = new StageRunner({
+      root: dir,
+      request: prepared.request,
+      plan,
+      inputs: {},
+      store,
+      runs: new RunStore(dir),
+      rexLauncherFactory: (options) => {
+        captured.push(options);
+        const launcher = new RexLauncher({
+          ...options,
+          rex: api,
+          pollIntervalMs: 20,
+          bridgeConnectTimeoutMs: 500,
+          startupTimeoutMs: 3_000,
+          cancelGraceMs: 200,
+        });
+        launchers.push(launcher);
+        return launcher;
+      },
+    });
+    const pending = runner.execute();
+    await waitUntil(() => launchers.length === 1 && launchers[0].status()?.status === "running", 5_000);
+    new RunStore(dir).writeCancel(runId, {
+      schemaVersion: 1,
+      runId,
+      operationId: "op-rex-cancel-test",
+      token: ["cancel", "rex"].join("-"),
+      requestedAt: new Date().toISOString(),
+      reason: "测试取消",
+    });
+    const execution = await pending;
+    assert.equal(captured[0].closeOnSettle, false);
+    assert.deepEqual(stopMethods, ["stop"], "取消应经 bridge stop 请求 worker 中止");
+    assert.equal(execution.result.state, "cancelled");
+    assert.deepEqual(closed, ["layer-1"]);
+    assert.notEqual(await exitWithin(worker.exited), null, "取消收敛后阶段 Pi 进程应已退出");
+  } finally {
+    killIdleProcess(worker.child);
+    if (server !== null) await server.close();
     store.close();
     rmSync(dir, { recursive: true, force: true });
   }

@@ -112,6 +112,8 @@ export default function registerRexWorker(pi: WorkerPiLike): void {
     publish();
     if (manifest.closeOnSettle) {
       // 结果与 state 已落盘；让 settled 处理器全部结束后再关闭 TUI。
+      // closeOnSettle=false（StageRunner 的补报窗口）时不自行退出，
+      // 由核心在补报窗口结束后 terminate() 关闭浮层并终止本进程。
       setTimeout(() => {
         try {
           context?.shutdown();

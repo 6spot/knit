@@ -8,8 +8,10 @@
  *   4. 写 rex.json 与 rex/ 私有事实，订阅 bridge 状态、rex events 与 state.json 兜底；
  *   5. 返回最后 assistant 文本、sessionFile、pid 与 outcome，后续报告校验/接收仍走 StageRunner。
  *
- * 终态由 StageRunner 调用 closeLayer() 关闭本次浮层；terminate() 只保留取消／失败的终止语义，
- * 两者共用同一套 rex.json 关联解析且幂等。本模块不写核心 state/result，不改变验收资格；失败只以返回值表达。
+ * 终态关闭责任在核心：StageRunner 在补报窗口结束后（无论完成、失败或取消）调用
+ * terminate() 关闭本次浮层并终止阶段 Pi。closeLayer() 保留 closeOnSettle 门控，仅供
+ * 直接使用 launcher 的测试／调试保留浮层；两条路径共用同一套 rex.json 关联解析且幂等。
+ * 本模块不写核心 state/result，不改变验收资格；失败只以返回值表达。
  */
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
@@ -179,7 +181,11 @@ export interface RexLauncherOptions {
   rex?: RexApi;
   now?: () => Date;
   randomHex?: (bytes: number) => string;
-  /** settle 后是否请求 Pi 关闭；阶段默认关闭 Pi、保留浮层输出。 */
+  /**
+   * settle 后是否请求 worker 自行关闭 TUI（默认 true）。
+   * StageRunner 传 false：settle 后保持 worker 存活以承接报告补报，补报窗口结束后由核心
+   * terminate() 关层并终止进程；false 本身不表示终态保留浮层。
+   */
   closeOnSettle?: boolean;
   /** 取消后等待 worker 自行退出的宽限；超时关闭浮层并终止进程。 */
   cancelGraceMs?: number;
@@ -290,7 +296,8 @@ export class RexLauncher {
   private watch: { stop(): void } | null = null;
   private wake: (() => void) | null = null;
   private stopRequestedAt: number | null = null;
-  private terminated = false;
+  /** cancel 宽限后强制收敛；bridge 接受 stop 不代表 worker 已退出。 */
+  private cancelTermination: ReturnType<typeof setTimeout> | null = null;
   private layerClosed = false;
   private bridgeClosed = false;
   private startupDiagnostics: RexStartupDiagnostics | null = null;
@@ -354,6 +361,9 @@ export class RexLauncher {
     const discovery = await this.discover();
     if (discovery.state === "completed") {
       this.association = discovery.association;
+      // 结果可能先于 bridge 状态到达：落盘 state 里仍有 pid/sessionFile，先记下再返回。
+      const persisted = this.persistedOwnState();
+      if (persisted !== null) this.noteState(persisted);
       return this.executionFromResult(discovery.result, this.latestState);
     }
     if (discovery.state === "attached") {
@@ -583,6 +593,12 @@ export class RexLauncher {
     };
     this.association = association;
     writeRexAssociation(rexAssociationPath(this.runDirectory), association);
+    // 取消／占用丢失可能在建层期间先调用过 terminate()：层刚落地时再收口一次，
+    // 避免“先终止、后建层”逃过第一次清理；terminate() 可重入且只处理本次关联。
+    if (this.stopRequestedAt !== null) {
+      await this.terminate();
+      return this.executionFromExit(this.latestState, true);
+    }
     await this.presentMinimized(layerId, blockId);
     this.startWatch();
     try {
@@ -688,6 +704,24 @@ export class RexLauncher {
     this.onPid?.(state.pid);
   }
 
+  /**
+   * 本 run 目录内落盘的 worker 状态：只接受 runId 一致且（已知实例时）实例一致的记录。
+   * 用于结果先到而 bridge 状态未及送达时补齐 pid／sessionFile，以及 terminate() 的进程兜底；
+   * 不能凭其它实例的 state 关层或杀进程。
+   */
+  private persistedOwnState(): RexWorkerState | null {
+    let state: RexWorkerState | null;
+    try {
+      state = readRexWorkerState(rexStatePath(this.runDirectory));
+    } catch {
+      return null;
+    }
+    if (state === null || state.runId !== this.runId) return null;
+    const expected = this.association?.instance ?? this.manifest?.instance ?? null;
+    if (expected !== null && state.instance !== expected) return null;
+    return state;
+  }
+
   private startWatch(): void {
     if (this.watch !== null) return;
     try {
@@ -709,7 +743,12 @@ export class RexLauncher {
     const startedAt = Date.now();
     for (;;) {
       const result = readLatestRexWorkerResult(this.rexDirectory);
-      if (result !== null && result.revision > afterRevision) return this.executionFromResult(result, this.latestState);
+      if (result !== null && result.revision > afterRevision) {
+        // 结果落盘即先读 state：否则 bridge 延迟时 pid 为空，终态无法终止阶段 Pi。
+        const persisted = this.persistedOwnState();
+        if (persisted !== null) this.noteState(persisted);
+        return this.executionFromResult(result, this.latestState);
+      }
 
       const fileState = readRexWorkerState(rexStatePath(this.runDirectory));
       if (fileState !== null) this.noteState(fileState);
@@ -832,13 +871,18 @@ export class RexLauncher {
     return this.latestState;
   }
 
-  /** 发送 stop；bridge 不可用时直接关闭浮层并终止自有进程，仍以 cancelled 返回。 */
+  /**
+   * 发送 stop；bridge 不可用时直接关闭浮层并终止自有进程，仍以 cancelled 返回。
+   * bridge 接受 stop 只是请求 worker 中止：宽限 cancelGraceMs 后仍强制 terminate()，
+   * 保证“bridge stop 成功”之后阶段进程与浮层也一定收敛。
+   */
   async stop(): Promise<void> {
     if (this.stopRequestedAt !== null) return;
     this.stopRequestedAt = Date.now();
     if (this.client !== null) {
       try {
         await this.client.call("stop");
+        this.armCancelTermination();
         return;
       } catch {
         // 连接断开：走进程终止兜底。
@@ -847,9 +891,27 @@ export class RexLauncher {
     await this.terminate();
   }
 
+  /** 取消宽限后的强制收敛；与 waitForTerminal 的超时路径互为兜底，terminate() 幂等。 */
+  private armCancelTermination(): void {
+    if (this.cancelTermination !== null) return;
+    this.cancelTermination = setTimeout(() => {
+      this.cancelTermination = null;
+      void this.terminate().catch(() => {});
+    }, Math.max(0, this.cancelGraceMs));
+    this.cancelTermination.unref?.();
+  }
+
+  private clearCancelTermination(): void {
+    if (this.cancelTermination === null) return;
+    clearTimeout(this.cancelTermination);
+    this.cancelTermination = null;
+  }
+
   /**
    * 终态关闭本 run 的浮层：优先 rex.json 的 layerId，缺失时按 blockId 反查；幂等。
-   * closeOnSettle=false 时保留浮层（测试／调试）；关闭失败只忽略，不改变已落盘 run 结果。
+   * 受 closeOnSettle 门控：false 时保留浮层（直接使用 launcher 的测试／调试）。
+   * StageRunner 的终态收口不调用本方法，而是 terminate()：同时终止阶段 Pi，
+   * 避免 closeOnSettle=false 的补报保留变成终态残留。
    */
   async closeLayer(): Promise<void> {
     if (!this.closeOnSettle) return;
@@ -872,12 +934,16 @@ export class RexLauncher {
     }
   }
 
-  /** 终止本 run 的浮层与已记录 Pi 进程；只处理 rex.json/state 记录的自有对象。 */
+  /**
+   * 终止本 run 的浮层与已记录 Pi 进程；只处理 rex.json/state 记录的自有对象。
+   * 可重入：取消可能在浮层创建前先调用一次，建层完成后再次调用要能收口新资源；
+   * 重复调用时 closeAssociatedLayer() 按 layerClosed 幂等跳过。
+   */
   async terminate(): Promise<void> {
-    if (this.terminated) return;
-    this.terminated = true;
+    this.clearCancelTermination();
     await this.closeAssociatedLayer();
-    const pid = this.latestState?.pid ?? null;
+    // pid 兜底读落盘 state：结果先于 bridge 状态到达时 latestState 可能仍为空。
+    const pid = this.latestState?.pid ?? this.persistedOwnState()?.pid ?? null;
     if (pid !== null && procStartTicks(pid) !== null) {
       const tree = processTreePids(pid);
       if (tree.length > 0) {

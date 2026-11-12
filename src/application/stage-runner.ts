@@ -1037,7 +1037,10 @@ export class StageRunner {
       // 不把 StageRunner 的默认目录硬塞给 Rex shell；保留宿主显式配置。
       agentDir: process.env.PI_CODING_AGENT_DIR ?? undefined,
       cancelGraceMs: this.cancelGraceMs,
-      // 报告可能补报：settle 后保持 worker 存活，由核心决定再补一轮还是关闭浮层。
+      // 报告可能补报：settle 后保持 worker 存活，补报仍可用同一 bridge 追加一轮；
+      // 补报窗口结束（无论完成、失败还是取消）由本函数末尾的 finally 统一
+      // terminate()：关闭本次浮层并终止阶段 Pi，避免终态残留。worker 自退会切断补报，
+      // 因此这里不用 closeOnSettle=true。
       closeOnSettle: false,
       onPid: (pid) => {
         piPid = pid;
@@ -1076,7 +1079,8 @@ export class StageRunner {
       await launcher.dispose().catch(() => {});
       this.writeRexDiagnostics(launcher, reason, message);
       if (await this.rexFallbackEligible(launcher, null, session, beforeLeaf, cancelRequested || ownershipLost !== null)) {
-        if (typeof launcher.closeLayer === "function") await launcher.closeLayer().catch(() => {});
+        // 回退 local 前必须收尾本次 Rex 尝试：关层并终止块内进程，避免同一 run 留下孤儿浮层。
+        await launcher.terminate().catch(() => {});
         this.writeStageProcess(session, "exited", null, processStartedAt);
         return { fallback: REX_FALLBACK_REASON };
       }
@@ -1230,9 +1234,11 @@ export class StageRunner {
         },
       });
     } finally {
-      // 终态统一收口：completed／aborted／error 与恢复发现路径都在此关闭本次浮层；
-      // terminate() 已关闭时 closeLayer() 幂等跳过，关闭失败不改变已落盘结果。
-      if (typeof launcher.closeLayer === "function") await launcher.closeLayer().catch(() => {});
+      // 终态统一收口（补报窗口结束后的关闭责任在核心）：completed／aborted／error
+      // 与恢复发现路径都在此 terminate()，关闭本次浮层、终止阶段 Pi 并释放 bridge；
+      // closeOnSettle=false 只保证 worker 不自行退出以承载补报，不改变终态收敛。
+      // terminate() 幂等，关闭失败只忽略，不改变已落盘结果。
+      await launcher.terminate().catch(() => {});
       await launcher.dispose().catch(() => {});
       const pid = execution?.pid ?? piPid;
       try {
