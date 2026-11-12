@@ -235,6 +235,7 @@ export default async function (pi: any) {
     lastScanAt: null,
     contextCache: null,
     contextWork: null,
+    contextGeneration: 0,
     versionNoticed: false,
   };
   // reload／重复加载时先停掉上一个模块实例的轮询和旧上下文，避免多个观察器并发通知。
@@ -243,6 +244,7 @@ export default async function (pi: any) {
     try { previousObserver(); } catch {}
   }
   const releaseObserver = () => {
+    invalidateTurnContext();
     stopObserver();
     if ((globalThis as any)[OBSERVER_GUARD] === releaseObserver) delete (globalThis as any)[OBSERVER_GUARD];
   };
@@ -471,7 +473,28 @@ export default async function (pi: any) {
         error: result.stdout.trim().slice(0, 500) || "Knit 返回非 JSON",
       };
     }
+    // 只在成功的相关写动作后失效；只读查询仍可与预热共享请求。
+    if (result.code === 0 && response?.outcome === "completed" && changesTurnContext(args)) invalidateTurnContext();
     return { ...result, response };
+  }
+
+  function changesTurnContext(args: string[]): boolean {
+    const [command, action, subaction] = args;
+    if (command === "task") {
+      if (action === "material") return subaction === "save" || subaction === "delete";
+      return ["new", "use", "clear", "rename", "parent", "priority", "depends", "verification", "update", "ready", "record", "rebind", "implement", "close", "order", "adopt"].includes(action);
+    }
+    if (command === "run") return ["prepare", "start", "resume", "cancel", "accept"].includes(action);
+    if (command === "workflow") return action !== "show" && action !== "validate";
+    if (command === "standards") return action === "apply" || action === "migrate";
+    if (command === "deliver") return !args.includes("--plan");
+    return ["archive", "cancel", "supersede"].includes(command);
+  }
+
+  /** 只丢弃可共享请求，保留成功缓存供明确标注过期的降级使用。 */
+  function invalidateTurnContext(): void {
+    state.contextGeneration += 1;
+    state.contextWork = null;
   }
 
   function toolResult(
@@ -529,6 +552,8 @@ export default async function (pi: any) {
    */
   async function attachSession(ctx: any, nativeId: string): Promise<SessionRef | null> {
     if (state.nativeSessionId !== nativeId) {
+      invalidateTurnContext();
+      state.contextCache = null;
       state.nativeSessionId = nativeId;
       state.knitSessionId = null;
       state.verified = false;
@@ -842,8 +867,8 @@ export default async function (pi: any) {
     | { status: "unavailable"; reason: string };
 
   /**
-   * 同一主会话同一时间只保留一个在途 `session context`：session_start 预热与首轮注入共享结果，
-   * 不再各起一个 CLI 进程、让首轮 300ms 预算等不到预热（续接会话丢分节的根因）。
+   * 同一主会话同一代际共享在途 `session context`：写动作或会话重核后不再复用旧请求。
+   * 结果交给 buildTurnContext 再核对代际，旧回包不能标 fresh 或覆盖新缓存。
    */
   async function requestTurnContext(session: SessionRef, timeout: number): Promise<{ data: any | null; timedOut: boolean; failure: string | null }> {
     const pending: { knitSessionId: string; promise: Promise<{ data: any | null; timedOut: boolean; failure: string | null }> } | null = state.contextWork;
@@ -932,8 +957,13 @@ export default async function (pi: any) {
     if (session === null) return { status: "unavailable", reason: installationReady().reason ?? "原生会话未登记" };
     const cached: ContextCacheEntry | null =
       state.contextCache !== null && state.contextCache.knitSessionId === session.knitSessionId ? state.contextCache : null;
+    const generation = state.contextGeneration;
     const timeout = options.timeout ?? contextTimeoutMs(cached !== null);
-    const result = await requestTurnContext(session, timeout);
+    let result = await requestTurnContext(session, timeout);
+    if (generation !== state.contextGeneration || session.nativeSessionId !== state.nativeSessionId) {
+      result = { data: null, timedOut: false, failure: "context_invalidated" };
+      diag("context_refresh_failed", { reason: "context_invalidated" });
+    }
     if (result.data !== null && typeof result.data === "object") {
       const rendered = renderTurnContext(result.data);
       state.contextCache = {
@@ -949,13 +979,16 @@ export default async function (pi: any) {
       result.timedOut === true
         ? `本次查询超过 ${timeout}ms`
         : `本次刷新失败（${result.failure ?? "未知原因"}）`;
-    if (cached !== null) {
+    const fallback: ContextCacheEntry | null =
+      state.contextCache?.knitSessionId === session.knitSessionId && state.contextCache?.nativeSessionId === state.nativeSessionId
+        ? state.contextCache : null;
+    if (fallback !== null) {
       diag("context_cache_used", { reason: result.timedOut === true ? "timeout" : result.failure ?? "failed" });
-      const ageSeconds = Math.max(0, Math.round((Date.now() - cached.at) / 1000));
+      const ageSeconds = Math.max(0, Math.round((Date.now() - fallback.at) / 1000));
       return {
         status: "stale",
-        text: withStaleNotice(cached.text, `${cause}，使用上一轮缓存（${ageSeconds} 秒前）`),
-        taskId: cached.taskId,
+        text: withStaleNotice(fallback.text, `${cause}，使用上一轮缓存（${ageSeconds} 秒前）`),
+        taskId: fallback.taskId,
         reason: cause,
       };
     }
@@ -1018,6 +1051,7 @@ export default async function (pi: any) {
   });
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    invalidateTurnContext();
     state.ctx = ctx;
     const session = await sessionOf(ctx);
     if (session !== null) {

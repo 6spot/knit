@@ -104,7 +104,21 @@ async function loadBridge(dir) {
   // 安装映射与清单已 ready；用临时副本替换 __BRIDGE_BASELINE__ 占位后经 tsc 编译加载。
   const { execFileSync } = await import("node:child_process");
   const tsc = join(import.meta.dirname, "..", "node_modules", ".bin", "tsc");
-  const source = readFileSync(BRIDGE_TEMPLATE, "utf8").replace("__BRIDGE_BASELINE__", "stub-baseline");
+  // 仅在编译后的测试替身中追踪所有 CLI Promise，清理时等到 close，避免后台刷新继续写已删除的目录。
+  const source = readFileSync(BRIDGE_TEMPLATE, "utf8")
+    .replace("__BRIDGE_BASELINE__", "stub-baseline")
+    .replace("function runProcess(", "function fixtureRunProcess(") + `
+const fixtureProcesses = new Set<Promise<ExecResult>>();
+function runProcess(...args: Parameters<typeof fixtureRunProcess>): Promise<ExecResult> {
+  const work = fixtureRunProcess(...args);
+  fixtureProcesses.add(work);
+  void work.finally(() => fixtureProcesses.delete(work));
+  return work;
+}
+export async function drainFixtureProcesses(): Promise<void> {
+  while (fixtureProcesses.size > 0) await Promise.all([...fixtureProcesses]);
+}
+`;
   const bridgeTs = join(dir, ".bridge-stub.ts");
   writeFileSync(bridgeTs, source);
   // 编译产物放进测试项目的 .pi/extensions/.bridge-build/，与安装布局同构（root 推导 = 项目根）。
@@ -120,6 +134,13 @@ async function loadBridge(dir) {
   const module = await import(pathToFileURL(join(buildDir, "bridge-stub.js")).href);
   const host = makeHostStub();
   const api = await module.default(host.pi);
+  const shutdown = host.handlers.get("session_shutdown");
+  host.handlers.set("session_shutdown", async () => {
+    // 先停止调度，再等已排队扫描与所有 CLI close；不终止夹具以外的进程。
+    shutdown();
+    await api.state.scanChain;
+    await module.drainFixtureProcesses();
+  });
   return { host, bridgePath: bridgeTs, api };
 }
 
@@ -835,7 +856,7 @@ function installCliSpy(dir) {
   const installation = JSON.parse(readFileSync(installPath, "utf8"));
   const spyPath = join(base, "cli", "knit.mjs");
   writeFileSync(spyPath, [
-    'import { appendFileSync } from "node:fs";',
+    'import { appendFileSync, existsSync, renameSync, writeFileSync } from "node:fs";',
     'import { spawnSync } from "node:child_process";',
     "const log = process.env.KNIT_SPY_LOG;",
     "if (log) appendFileSync(log, JSON.stringify(process.argv.slice(2)) + \"\\n\");",
@@ -843,8 +864,25 @@ function installCliSpy(dir) {
     "if (process.env.KNIT_SPY_FAIL_RUN_LIST === \"1\" && process.argv[3] === \"run\" && process.argv[4] === \"list\") process.exit(1);",
     "const delay = Number(process.env.KNIT_SPY_DELAY_MS ?? 0);",
     "const contextOnly = process.env.KNIT_SPY_DELAY_CONTEXT_ONLY === \"1\";",
-    "const isContext = process.argv[3] === \"session\" && process.argv[4] === \"context\";",
+    "const commandArgs = process.argv.slice(2).filter((arg) => arg !== \"--dev\");",
+    "const isContext = commandArgs[1] === \"session\" && commandArgs[2] === \"context\";",
     "if (Number.isFinite(delay) && delay > 0 && (!contextOnly || isContext)) await new Promise((resolve) => setTimeout(resolve, delay));",
+    "if (isContext && process.env.KNIT_SPY_FAIL_CONTEXT === \"1\") process.exit(1);",
+    // 先执行真实查询，再挂起已读取快照的回包；由文件信号显式释放。
+    "const gate = isContext ? process.env.KNIT_SPY_CONTEXT_GATE : undefined;",
+    "if (gate) {",
+    "  const child = spawnSync(process.execPath, [process.env.KNIT_SPY_REAL, ...process.argv.slice(2)], { encoding: \"utf8\", env: process.env });",
+    "  writeFileSync(gate + \".snapshot.tmp\", child.stdout);",
+    "  renameSync(gate + \".snapshot.tmp\", gate + \".snapshot\");",
+    "  const deadline = Date.now() + 15000;",
+    "  while (!existsSync(gate + \".release\")) {",
+    "    if (Date.now() > deadline) process.exit(2);",
+    "    await new Promise((resolve) => setTimeout(resolve, 10));",
+    "  }",
+    "  process.stdout.write(child.stdout);",
+    "  process.stderr.write(child.stderr);",
+    "  process.exit(child.status ?? 1);",
+    "}",
     "const child = spawnSync(process.execPath, [process.env.KNIT_SPY_REAL, ...process.argv.slice(2)], { stdio: \"inherit\", env: process.env });",
     "process.exit(child.status ?? 1);",
     "",
@@ -878,7 +916,7 @@ function captureDiagChunks() {
   return {
     chunks,
     events: () =>
-      chunks
+      chunks.join("").split("\n")
         .filter((line) => line.trim().startsWith("{"))
         .map((line) => JSON.parse(line))
         .filter((event) => event.type === "knit.bridge.diag"),
@@ -887,6 +925,145 @@ function captureDiagChunks() {
     },
   };
 }
+
+/** 有界等待显式快照信号；时序由 gate 控制，不靠长 sleep 猜查询进度。 */
+async function waitForContextSnapshot(gate) {
+  const deadline = Date.now() + 10000;
+  while (!existsSync(`${gate}.snapshot`)) {
+    assert.ok(Date.now() < deadline, `未收到快照信号: ${gate}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return JSON.parse(readFileSync(`${gate}.snapshot`, "utf8")).data;
+}
+
+for (const failNewContext of [false, true]) {
+  test(`上下文竞态：读 A 后切 B，${failNewContext ? "新查询失败保留原生分节" : "B 先缓存、A 最后回包再失败"}（k-8fc483a6e41e）`, async () => {
+    const dir = project("context-race");
+    const names = ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_CONTEXT_GATE", "KNIT_SPY_FAIL_CONTEXT", "KNIT_BRIDGE_CONTEXT_TIMEOUT_MS", "KNIT_DEV"];
+    const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    const gate = join(dir, "held-a");
+    let host;
+    let oldTurn;
+    let diag;
+    try {
+      const create = (slug) => JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", `竞态任务${slug}`, "--slug", `race-${slug}`, "--dir", dir], { encoding: "utf8" })).data.taskId;
+      const a = create("a");
+      const b = create("b");
+      const spy = installCliSpy(dir);
+      process.env.KNIT_SPY_LOG = spy.log;
+      process.env.KNIT_SPY_REAL = spy.real;
+      process.env.KNIT_SPY_FAIL_CONTEXT = "1";
+      process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "10000";
+      process.env.KNIT_DEV = "1";
+      ({ host } = await loadBridge(dir));
+      // init 正常生成本次模板，不依赖 force 或安装外部包。
+      assert.equal(readFileSync(join(dir, ".pi", "extensions", "knit.ts"), "utf8").replace(/const MANAGED_BASELINE = "[^"]+";/, 'const MANAGED_BASELINE = "__BRIDGE_BASELINE__";'), readFileSync(BRIDGE_TEMPLATE, "utf8"));
+      const selection = { type: "custom", id: "sel-a", parentId: null, customType: "knit.selection", data: { taskId: a, branch: "refs/heads/main", operationId: "race-a" } };
+      host.setSessionFile(writeStubNativeSession(dir, "stub-session", [selection]));
+      host.entries.push(selection);
+      const previous = `<!-- knit:turn-context -->\n当前任务：「合法上一轮」（${shortId(a)}）`;
+      host.entries.push({ type: "message", id: "prev", message: { role: "system", sections: { knit: renderKnitSection(previous) } } });
+      diag = captureDiagChunks();
+      await host.handlers.get("session_start")({}, host.ctx);
+      // 先让失败的预热彻底结束，保留无内存缓存的原生回填路径。
+      await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: { sections: {} } }, host.ctx);
+      delete process.env.KNIT_SPY_FAIL_CONTEXT;
+      process.env.KNIT_SPY_CONTEXT_GATE = gate;
+      rmSync(spy.log, { force: true });
+      const oldOptions = { sections: {} };
+      let oldTurnSettled = false;
+      oldTurn = host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: oldOptions }, host.ctx).then(() => { oldTurnSettled = true; });
+      assert.equal((await waitForContextSnapshot(gate)).taskId, a, "旧请求已实际读取 A");
+      const queried = await host.tools.get("knit_status").execute("read-only", { taskId: a }, null, null, host.ctx);
+      assert.equal(queried.isError, false);
+      const sharedOptions = { sections: {} };
+      const sharedTurn = host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: sharedOptions }, host.ctx);
+      delete process.env.KNIT_SPY_CONTEXT_GATE;
+      if (failNewContext) process.env.KNIT_SPY_FAIL_CONTEXT = "1";
+      const used = await host.tools.get("knit_task").execute("switch-b", { action: "use", taskId: b }, null, null, host.ctx);
+      assert.equal(used.isError, false);
+      assert.equal(sessionContextOf(dir).taskId, b, "核心当前选择确为 B");
+      const current = { sections: {} };
+      await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: current }, host.ctx);
+      if (failNewContext) {
+        assert.match(current.sections.knit, /合法上一轮/);
+        assert.match(current.sections.knit, /上下文可能过期/);
+        assert.ok(diag.events().some((event) => event.event === "context_refresh_failed"));
+      } else {
+        assert.match(current.sections.knit, new RegExp(shortId(b)));
+        assert.doesNotMatch(current.sections.knit, new RegExp(`${shortId(a)}|上下文可能过期`));
+      }
+      // B 的查询已完成后才允许 A 回包；等旧用户轮次完成即确认其缓存写入路径也已走完。
+      assert.equal(oldTurnSettled, false, "A 必须仍在等待回包，不能靠超时结束竞态");
+      writeFileSync(`${gate}.release`, "release\n");
+      await oldTurn;
+      await sharedTurn;
+      assert.equal(readSpyCalls(spy.log).filter((args) => {
+        const plain = args.filter((arg) => arg !== "--dev");
+        return plain[1] === "session" && plain[2] === "context";
+      }).length, 2, "只读查询不失效：A 请求共享，写动作后只新建一次 B 查询");
+      assert.match(oldOptions.sections.knit, /上下文可能过期/, "旧回包不能被标 fresh");
+      process.env.KNIT_SPY_FAIL_CONTEXT = "1";
+      const fallback = { sections: {} };
+      await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: fallback }, host.ctx);
+      assert.match(fallback.sections.knit, /上下文可能过期/);
+      if (failNewContext) assert.match(fallback.sections.knit, /合法上一轮/);
+      else {
+        assert.match(fallback.sections.knit, new RegExp(shortId(b)), "旧 A 不得覆盖已成功缓存的 B");
+        assert.doesNotMatch(fallback.sections.knit, new RegExp(shortId(a)));
+      }
+      assert.doesNotMatch(fallback.sections.knit, /<knit>/);
+      assert.equal((fallback.sections.knit.match(/<!-- knit:turn-context -->/g) ?? []).length, 1);
+      assert.ok(diag.events().some((event) => event.event === "context_refresh_failed" && event.reason === "context_invalidated"));
+    } finally {
+      writeFileSync(`${gate}.release`, "release\n");
+      if (oldTurn) await oldTurn;
+      if (host) await host.handlers.get("session_shutdown")();
+      if (diag) diag.restore();
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("夹具清理：shutdown 等待已读取快照的后台 CLI 关闭后再删除项目", async () => {
+  const dir = project("cleanup-inflight");
+  const gate = join(dir, "held-background");
+  const names = ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_CONTEXT_GATE"];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  let host;
+  let shutdown;
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_CONTEXT_GATE = gate;
+    ({ host } = await loadBridge(dir));
+    host.setSessionFile(writeStubNativeSession(dir, "stub-session", []));
+    await host.handlers.get("session_start")({}, host.ctx);
+    await waitForContextSnapshot(gate);
+    let closed = false;
+    shutdown = host.handlers.get("session_shutdown")().then(() => { closed = true; });
+    // 一个 event-loop 回合让清理走到等待点；gate 未释放前，CLI 必须仍然在途。
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(closed, false, "不能只停止观察器就宣称夹具已静止");
+    writeFileSync(`${gate}.release`, "release\n");
+    await shutdown;
+    assert.equal(closed, true);
+  } finally {
+    writeFileSync(`${gate}.release`, "release\n");
+    if (shutdown) await shutdown;
+    else if (host) await host.handlers.get("session_shutdown")();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("每轮上下文只调一次 session context；超时用上一轮缓存并标注可能过期（k-0524fc52e81b）", async () => {
   const dir = project("context-once");
@@ -1280,6 +1457,7 @@ test("观察器：无活动 run 退避到 30 秒，有活动 run 回到 5 秒；
 test("观察器：run list 查询失败不推进扫描时间，恢复后从原时间点继续查（k-0524fc52e81b）", async () => {
   const dir = project("observer-scan-failure");
   const saved = {};
+  let host;
   for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_FAIL_RUN_LIST"]) saved[name] = process.env[name];
   try {
     const spy = installCliSpy(dir);
@@ -1287,7 +1465,9 @@ test("观察器：run list 查询失败不推进扫描时间，恢复后从原�
     process.env.KNIT_SPY_REAL = spy.real;
     process.env.KNIT_SPY_DELAY_MS = "0";
     delete process.env.KNIT_SPY_FAIL_RUN_LIST;
-    const { host, api } = await loadBridge(dir);
+    const loaded = await loadBridge(dir);
+    host = loaded.host;
+    const { api } = loaded;
     const nativeFile = writeStubNativeSession(dir, "stub-session", []);
     host.setSessionFile(nativeFile);
     await host.handlers.get("session_start")({}, host.ctx);
@@ -1321,8 +1501,8 @@ test("观察器：run list 查询失败不推进扫描时间，恢复后从原�
     await settle();
     assert.equal(sinceOfLastScan(), scannedAt, "恢复后的查询仍用失败前的时间点");
     assert.ok(api.state.lastScanAt > scannedAt, "查询成功后推进扫描时间");
-    await host.handlers.get("session_shutdown")();
   } finally {
+    if (host) await host.handlers.get("session_shutdown")();
     for (const [name, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
