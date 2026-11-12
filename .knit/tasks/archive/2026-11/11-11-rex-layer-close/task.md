@@ -83,4 +83,10 @@ title: 修复 Rex 阶段浮层终态不关闭与 worker 残留
 - 结果: 正常交付；检查 run-51a2aa731c69 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-11-rex-layer-close
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-bfafe51bb6b3 -->
+- 任务资料提交: 5f13d17ddb3b1d7a1f15f52bcb829fe8eba534a2
+- 归档目标: .knit/tasks/archive/2026-11/11-11-rex-layer-close
+
 <!-- knit:progress:end -->
