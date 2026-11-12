@@ -217,6 +217,39 @@ function contextTimeoutMs(hasCache: boolean): number {
   return hasCache ? CONTEXT_TIMEOUT_MS : CONTEXT_FIRST_TIMEOUT_MS;
 }
 
+/** 宿主 TUI 组件包：只有 Pi 加载器能解析；用非字面量说明符按需加载，模板仍只静态依赖 node 内建模块。 */
+const TUI_MODULE = "@earendil-works/pi-tui";
+
+/** 加载失败（非 Pi 加载器、测试替身）返回 null，不抛出；被动通知退回无依赖的最小组件。 */
+async function loadTui(): Promise<any | null> {
+  try {
+    const tui: any = await import(TUI_MODULE);
+    return typeof tui?.Box === "function" && typeof tui?.Text === "function" && typeof tui?.Spacer === "function" ? tui : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 被动通知卡片：沿用宿主默认 custom message 的 [knit.notice] 外观（标签＋空行＋正文）。
+ * 只渲染带展示文案的条目；需处理通知的去重条目与旧去重条目没有 text，返回 undefined、不显示，
+ * 避免需处理通知出现第二张卡片。前置空行由宿主添加，这里只提供内容。
+ */
+function noticeCard(tui: any | null, data: any, theme: any): any {
+  const text = data?.text;
+  if (typeof text !== "string" || text === "") return undefined;
+  const label = `[${NOTICE_ENTRY}]`;
+  if (tui === null) return { render: () => [label, "", ...text.split("\n")], invalidate: () => {} };
+  // theme 方法缺失时按原文输出，不抛错。
+  const paint = (method: "fg" | "bg", color: string, value: string): string => (typeof theme?.[method] === "function" ? theme[method](color, value) : value);
+  const bold = (value: string): string => (typeof theme?.bold === "function" ? theme.bold(value) : value);
+  const box = new tui.Box(1, 1, (value: string) => paint("bg", "customMessageBg", value));
+  box.addChild(new tui.Text(paint("fg", "customMessageLabel", bold(label)), 0, 0));
+  box.addChild(new tui.Spacer(1));
+  box.addChild(new tui.Text(paint("fg", "customMessageText", text), 0, 0));
+  return box;
+}
+
 export default async function (pi: any) {
   const root = projectRootFromExtension();
   const toolSignal = new AsyncLocalStorage<AbortSignal | undefined>();
@@ -658,7 +691,7 @@ export default async function (pi: any) {
     state.ctx = ctx;
     if (state.verified !== true) await sessionOf(ctx);
     // --since：已接收的完成 run 只保留上次扫描之后出结果的，避免反复重算历史 run，
-    // 同时保留“首次观察时已收敛”的被动通知（DESIGN §9.3）。
+    // 同时保留“首次观察时已收敛”的被动通知：只展示、不进上下文（DESIGN §9.3）。
     const scanStartedAt = Date.now();
     const sinceAt = typeof state.lastScanAt === "number" ? state.lastScanAt : scanStartedAt - 60_000;
     const since = new Date(sinceAt).toISOString();
@@ -677,7 +710,7 @@ export default async function (pi: any) {
         active = true;
         continue;
       }
-      // 失败、取消或结果待接收才需要处理；完成且已接收的通知只进入下一轮上下文（DESIGN §9.3）。
+      // 失败、取消或结果待接收才需要处理：进入上下文并唤醒；完成且已接收的是被动通知，只展示、不进上下文（DESIGN §9.3）。
       const acceptanceState = view.acceptance?.state ?? null;
       const needsAction = noticeState === "failed" || noticeState === "cancelled" || (noticeState === "completed" && acceptanceState !== "completed");
       if (currentBranch === undefined) currentBranch = await branchNow();
@@ -695,12 +728,16 @@ export default async function (pi: any) {
         ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
         : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
       const text = [base, ...boundaryNotes(view.result), ...(typeof view.noOutputNotice === "string" ? [view.noOutputNotice] : [])].join("\n");
+      const details = { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature };
       try {
-        pi.sendMessage(
-          { customType: NOTICE_ENTRY, content: text, display: true, details: { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature } },
-          needsAction ? { deliverAs: "followUp", triggerTurn: true } : { deliverAs: "nextTurn", triggerTurn: false },
-        );
-        pi.appendEntry(NOTICE_ENTRY, { signature, runId: view.runId, state: noticeState });
+        if (needsAction) {
+          // 需处理：custom message 进入上下文并唤醒；另写不带 text 的去重条目（渲染器不显示它）。
+          pi.sendMessage({ customType: NOTICE_ENTRY, content: text, display: true, details }, { deliverAs: "followUp", triggerTurn: true });
+          pi.appendEntry(NOTICE_ENTRY, { signature, runId: view.runId, state: noticeState });
+        } else {
+          // 被动：custom entry 不参与 LLM 上下文、不触发轮次；条目同时承载去重签名与展示文案。
+          pi.appendEntry(NOTICE_ENTRY, { ...details, text });
+        }
         diag("notice_sent", { runId: view.runId, state: noticeState });
       } catch (error) {
         diag("notice_failed", { runId: view.runId, reason: String(error) });
@@ -1198,6 +1235,10 @@ export default async function (pi: any) {
     }
     return null;
   };
+
+  // 被动通知的展示入口：条目持久保存，续接／reload 后由宿主按条目重新渲染，不进入 LLM 上下文。
+  const tui = await loadTui();
+  pi.registerEntryRenderer(NOTICE_ENTRY, (entry: any, _options: any, theme: any) => noticeCard(tui, entry?.data, theme));
 
   pi.registerCommand("knit-status", {
     description: "Knit：查看任务与运行状态",

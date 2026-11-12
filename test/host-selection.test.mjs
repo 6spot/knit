@@ -433,7 +433,7 @@ test("CLI：--rex 与 --local 冲突报 invalid_request；帮助与桥接不再�
   }
 });
 
-test("桥接通知：仅需处理时唤醒，completed+accepted 以 nextTurn 进入下一轮", () => {
+test("桥接通知：需处理的进入上下文并唤醒，completed+accepted 只展示、不进上下文", () => {
   const bridge = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
   assert.equal(bridge, readFileSync(join(ROOT, ".pi", "extensions", "knit.ts"), "utf8"), "两份桥接保持一致");
 
@@ -446,14 +446,24 @@ test("桥接通知：仅需处理时唤醒，completed+accepted 以 nextTurn 进
   assert.equal(needsAction("completed", "pending"), true, "结果待接收需处理");
   assert.equal(needsAction("completed", "completed"), false, "完成且已接收不唤醒");
 
-  const delivery = bridge.match(/needsAction\s*\?\s*(\{[^}]*\})\s*:\s*(\{[^}]*\})/);
-  assert.ok(delivery, "投递策略按 needsAction 分流");
-  assert.match(delivery[1], /deliverAs: "followUp".*triggerTurn: true/, "需处理走 followUp 并唤醒");
-  assert.match(delivery[2], /deliverAs: "nextTurn".*triggerTurn: false/, "被动通知只进入下一轮上下文");
+  const delivery = bridge.match(/if \(needsAction\) \{([\s\S]*?)\n\s*\} else \{([\s\S]*?)\n\s*\}\n\s*diag\("notice_sent"/);
+  assert.ok(delivery, "投递按 needsAction 分流");
+  assert.match(delivery[1], /pi\.sendMessage\(\{ customType: NOTICE_ENTRY,[^\n]*\{ deliverAs: "followUp", triggerTurn: true \}\);/, "需处理走 sendMessage：followUp 并唤醒");
+  assert.match(delivery[1], /pi\.appendEntry\(NOTICE_ENTRY, \{ signature, runId: view\.runId, state: noticeState \}\);/, "需处理另写不带 text 的去重条目");
+  assert.ok(delivery[1].indexOf("pi.sendMessage(") < delivery[1].indexOf("pi.appendEntry("), "投递成功后才写签名");
+  assert.match(delivery[2], /pi\.appendEntry\(NOTICE_ENTRY, \{ \.\.\.details, text \}\);/, "被动通知只追加带展示文案的条目");
+  assert.doesNotMatch(delivery[2], /sendMessage|sendUserMessage/, "被动分支不调用 sendMessage，不进上下文");
+  assert.match(bridge, /const details = \{ runId: view\.runId, state: noticeState, acceptance: acceptanceState, signature \};/, "被动条目承载 runId／state／acceptance／signature");
+  assert.doesNotMatch(bridge, /nextTurn/, "桥接不再使用 nextTurn");
+  assert.equal(bridge.match(/pi\.sendMessage\(/g)?.length, 1, "只有需处理通知调用 sendMessage");
+  assert.match(bridge, /pi\.registerEntryRenderer\(NOTICE_ENTRY, /, "注册 knit.notice 的 entry renderer");
+  assert.match(bridge, /const NOTICE_ENTRY = "knit\.notice";/);
+  assert.doesNotMatch(bridge, /from "@earendil-works\/pi-tui"/, "不静态导入宿主 TUI 包（模板只静态依赖 node 内建模块）");
   assert.doesNotMatch(bridge, /ctx\.isIdle|busy \?/, "不再按 busy 无差别唤醒");
 
   const design = readFileSync(join(ROOT, "docs", "design", "DESIGN.md"), "utf8");
   const section = design.slice(design.indexOf("### 9.3"), design.indexOf("### 9.4"));
   assert.match(section, /失败、取消或结果待接收/, "DESIGN §9.3 记录唤醒条件");
-  assert.match(section, /nextTurn/, "DESIGN §9.3 记录被动投递");
+  assert.doesNotMatch(section, /nextTurn|进入下一轮上下文/, "DESIGN §9.3 不再声称被动通知进入下一轮上下文");
+  assert.match(section, /只追加 `knit\.notice` 条目[^。]*entry renderer[^。]*不进入任何一轮模型上下文/, "DESIGN §9.3 写明被动通知只展示、不进上下文");
 });

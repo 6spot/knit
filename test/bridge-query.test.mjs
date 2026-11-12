@@ -53,10 +53,12 @@ function makeHostStub() {
   const messages = [];
   const handlers = new Map();
   const tools = new Map();
+  const entryRenderers = new Map();
   const pi = {
     on: (name, handler) => handlers.set(name, handler),
     registerCommand: (name, definition) => commands.set(name, definition),
     registerTool: (definition) => tools.set(definition.name, definition),
+    registerEntryRenderer: (customType, renderer) => entryRenderers.set(customType, renderer),
     sendMessage: (message, options) => messages.push({ message, options }),
     appendEntry: (customType, data) => {
       entries.push({ type: "custom", customType, id: `entry-${entries.length + 1}`, parentId: null, data });
@@ -79,7 +81,7 @@ function makeHostStub() {
       getEntries: () => entries,
     },
   };
-  return { commands, notifications, messages, pi, ctx, handlers, tools, systemPromptOptions, entries, setSessionFile: (path) => { sessionFile = path; } };
+  return { commands, notifications, messages, pi, ctx, handlers, tools, entryRenderers, systemPromptOptions, entries, setSessionFile: (path) => { sessionFile = path; } };
 }
 
 /** 生成带 session 头与选择条目的原生会话文件（stub 会话管理器的真实文件）。 */
@@ -486,30 +488,74 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
     await db.operations.setState(runA.acceptanceOperationId, "completed");
     db.close();
 
+    const noticeEntries = () => host.entries.filter((entry) => entry.type === "custom" && entry.customType === "knit.notice");
+    const renderNotice = host.entryRenderers.get("knit.notice");
+    assert.equal(typeof renderNotice, "function", "桥接注册了 knit.notice 的 entry renderer");
+
+    // 被动：完成且已接收——不调用 sendMessage（不进上下文、不触发轮次），只追加带展示文案的条目。
     await host.handlers.get("agent_settled")({}, host.ctx);
-    assert.equal(host.messages.length, 1, "终态通知已投递");
-    assert.deepEqual(host.messages[0].options, { deliverAs: "nextTurn", triggerTurn: false }, "完成且已接收：只进入下一轮上下文，不唤醒");
-    const notice = host.messages[0].message.content;
+    assert.equal(host.messages.length, 0, "完成且已接收：不调用 sendMessage，不进入任何一轮上下文");
+    assert.equal(noticeEntries().length, 1, "被动通知恰好追加一条 knit.notice 条目");
+    const passive = noticeEntries()[0];
+    assert.deepEqual(Object.keys(passive.data).sort(), ["acceptance", "runId", "signature", "state", "text"], "被动条目承载去重与展示字段");
+    assert.equal(passive.data.signature, `${runA.runId}:completed`);
+    assert.equal(passive.data.runId, runA.runId);
+    assert.equal(passive.data.state, "completed");
+    assert.equal(passive.data.acceptance, "completed");
+    const notice = passive.data.text;
     assert.match(notice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runA.runId)} pass；下一步：`), "通知先给标题与阶段名，run 用短 ID");
     assert.match(notice, new RegExp(runA.runId), "下一步保留完整 run ID");
+    // 展示路径：entry renderer 返回组件，输出含 [knit.notice] 标签与完整文案（theme 缺方法时不抛错）。
+    const card = renderNotice(passive, { expanded: false }, {});
+    assert.equal(typeof card?.render, "function", "被动条目渲染为组件");
+    const rendered = card.render(200).join("\n");
+    assert.match(rendered, /\[knit\.notice\]/, "卡片带 [knit.notice] 标签");
+    for (const line of notice.split("\n")) assert.ok(rendered.includes(line), `卡片展示完整文案：${line}`);
+
+    // 重复扫描：同一终态不再追加条目、不产生消息。
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(host.messages.length, 0, "重复扫描不产生消息");
+    assert.equal(noticeEntries().length, 1, "重复扫描不重复追加条目");
 
     // 待同步：结果已发布但尚未接收；保留“不要重复实施”措辞。
     const runB = prepareBridgeRun(dir, taskId, "check");
     finishBridgeRun(dir, runB, "pass");
     await host.handlers.get("agent_settled")({}, host.ctx);
-    assert.equal(host.messages.length, 2);
-    assert.deepEqual(host.messages[1].options, { deliverAs: "followUp", triggerTurn: true }, "结果待接收：唤醒主 Agent");
-    const pendingNotice = host.messages[1].message.content;
+    assert.equal(host.messages.length, 1, "结果待接收：新增一条消息");
+    assert.deepEqual(host.messages[0].options, { deliverAs: "followUp", triggerTurn: true }, "结果待接收：进入上下文并唤醒主 Agent");
+    assert.equal(host.messages[0].message.customType, "knit.notice");
+    assert.equal(host.messages[0].message.display, true);
+    assert.deepEqual(host.messages[0].message.details, { runId: runB.runId, state: "completed", acceptance: host.messages[0].message.details.acceptance, signature: `${runB.runId}:completed` });
+    assert.notEqual(host.messages[0].message.details.acceptance, "completed", "结果尚未接收");
+    const pendingNotice = host.messages[0].message.content;
     assert.match(pendingNotice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runB.runId)} 已完成，结果待同步`));
     assert.match(pendingNotice, /不要重复实施/);
+    assert.equal(noticeEntries().length, 2, "需处理通知另写一条去重条目");
+    const pendingDedupe = noticeEntries()[1];
+    assert.deepEqual(pendingDedupe.data, { signature: `${runB.runId}:completed`, runId: runB.runId, state: "completed" }, "去重条目不带 text");
+    assert.equal(renderNotice(pendingDedupe, { expanded: false }, {}), undefined, "去重条目不渲染，需处理通知不出现第二张卡片");
 
     // 失败：仍需处理，保持唤醒。
     const runC = prepareBridgeRun(dir, taskId, "check");
     finishBridgeRun(dir, runC, "failed", "failed");
     await host.handlers.get("agent_settled")({}, host.ctx);
-    assert.equal(host.messages.length, 3, "失败终态通知已投递");
-    assert.deepEqual(host.messages[2].options, { deliverAs: "followUp", triggerTurn: true }, "失败：需处理并唤醒主 Agent");
-    assert.match(host.messages[2].message.content, /failed/, "失败通知如实展示终态");
+    assert.equal(host.messages.length, 2, "失败终态通知已投递");
+    assert.deepEqual(host.messages[1].options, { deliverAs: "followUp", triggerTurn: true }, "失败：需处理并唤醒主 Agent");
+    assert.match(host.messages[1].message.content, /failed/, "失败通知如实展示终态");
+    assert.equal(noticeEntries().length, 3);
+    const failedDedupe = noticeEntries()[2];
+    assert.deepEqual(failedDedupe.data, { signature: `${runC.runId}:failed`, runId: runC.runId, state: "failed" }, "失败去重条目不带 text");
+    assert.equal(renderNotice(failedDedupe, { expanded: false }, {}), undefined, "失败去重条目不渲染");
+
+    // 再次扫描：三种终态都已去重，消息与条目数不变。
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    assert.equal(host.messages.length, 2, "需处理通知不重复投递");
+    assert.equal(noticeEntries().length, 3, "条目不重复追加");
+    assert.ok(host.messages.every((item) => item.options.deliverAs === "followUp" && item.options.triggerTurn === true), "所有进入上下文的通知都是需处理通知");
+    // 改动前遗留的旧去重条目（无 text）与异常数据同样不渲染。
+    assert.equal(renderNotice({ type: "custom", customType: "knit.notice", data: { signature: "run-legacy:completed", runId: "run-legacy", state: "completed" } }, { expanded: false }, {}), undefined);
+    assert.equal(renderNotice({ type: "custom", customType: "knit.notice", data: { signature: "x", text: "" } }, { expanded: false }, {}), undefined);
+    assert.equal(renderNotice({ type: "custom", customType: "knit.notice" }, { expanded: false }, {}), undefined);
 
     // 每轮上下文：标题与短任务 ID 同行，阶段行带配置显示名。
     execFileSync(process.execPath, [CLI, "--json", "task", "use", taskId, "--session", resolveMain(dir), "--entry", "sel-display", "--persisted", "--dir", dir], { encoding: "utf8" });
