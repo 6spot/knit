@@ -21,10 +21,17 @@ const NOTICE_ENTRY = "knit.notice";
 const POLL_MS = 5000;
 const IDLE_POLL_MS = 30_000;
 const OBSERVER_GUARD = Symbol.for("knit.bridge.observer");
-/** 每轮上下文预算：超过即用上一轮缓存（k-0524fc52e81b 用户决定：不阻塞等待）。 */
+/** 每轮上下文预算：有上一轮缓存时超过即用缓存（k-0524fc52e81b 用户决定：不阻塞等待）。 */
 const CONTEXT_TIMEOUT_MS = 300;
+/** 续接会话首轮没有可回退缓存时的等待上限：CLI 冷启动实测约 0.6s，留足余量。 */
+const CONTEXT_FIRST_TIMEOUT_MS = 2_000;
 /** 预热与工具动作后的刷新预算：不在模型轮次关键路径上，允许等待 CLI 完成。 */
 const CONTEXT_REFRESH_TIMEOUT_MS = 10_000;
+/** 注入分节标记与降级说明：Pi 按分节 diff 持久化，失败时不重设等于删除。 */
+const TURN_CONTEXT_MARKER = "<!-- knit:turn-context -->";
+const CONTEXT_STALE_PREFIX = "上下文可能过期：";
+/** 共享请求超过本次预算的哨兵：底层请求继续跑完并写缓存，只让当前轮不阻塞。 */
+const CONTEXT_DEADLINE = Symbol("knit.context.deadline");
 const WAIT_LIMIT_MS = 180_000;
 const WAIT_POLL_MS = 1000;
 const CLI_TIMEOUT_MS = 180_000;
@@ -181,9 +188,33 @@ function terminalState(state: unknown): boolean {
   return state === "completed" || state === "cancelled" || state === "failed";
 }
 
-function contextTimeoutMs(): number {
+/**
+ * 在共享请求上等本次预算：超时返回哨兵，不终止底层请求（预热继续完成并写缓存）。
+ * 调用方只据此决定本轮是否回退，不能把超时当成请求失败。
+ */
+function raceDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof CONTEXT_DEADLINE> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: any = null;
+    const finish = (value: T | typeof CONTEXT_DEADLINE): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolve(value);
+    };
+    timer = setTimeout(() => finish(CONTEXT_DEADLINE), ms);
+    promise.then(
+      (value) => finish(value),
+      () => finish(CONTEXT_DEADLINE),
+    );
+  });
+}
+
+/** 每轮预算：显式环境覆盖优先；无可回退缓存等冷启动（续接会话首轮），否则 300ms 不阻塞。 */
+function contextTimeoutMs(hasCache: boolean): number {
   const raw = Number(process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : CONTEXT_TIMEOUT_MS;
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return hasCache ? CONTEXT_TIMEOUT_MS : CONTEXT_FIRST_TIMEOUT_MS;
 }
 
 export default async function (pi: any) {
@@ -203,6 +234,7 @@ export default async function (pi: any) {
     lastScanActive: true,
     lastScanAt: null,
     contextCache: null,
+    contextWork: null,
     versionNoticed: false,
   };
   // reload／重复加载时先停掉上一个模块实例的轮询和旧上下文，避免多个观察器并发通知。
@@ -765,8 +797,9 @@ export default async function (pi: any) {
    * Pi 对分节做 diff，只追加变更，不堆叠历史正文。注入是行为引导，
    * 所有写动作仍经核心按授权／阶段／锁／版本重新核对。
    *
-   * 每轮只调一次 `session context`（选择、状态、资料与 nextAction）：
-   * 超过预算（默认 300ms）不阻塞，改用上一轮缓存并标注“可能过期”。
+   * 每轮只调一次 `session context`（选择、状态、资料与 nextAction），并与 session_start 预热共享在途请求：
+   * 有缓存时超过预算（默认 300ms）不阻塞、改用缓存并标注“可能过期”；
+   * 续接会话首轮没有缓存时等待当轮结果（上限 2s），失败保留上一轮分节并记录诊断，不静默删除。
    */
   function renderTurnContext(data: any): { text: string; taskId: string | null } {
     const lines: string[] = [];
@@ -803,14 +836,106 @@ export default async function (pi: any) {
     return { text: lines.join("\n"), taskId };
   }
 
-  async function buildTurnContext(ctx: any, options: { timeout?: number } = {}): Promise<{ text: string; taskId: string | null; stale?: boolean } | null> {
+  type TurnContextResult =
+    | { status: "fresh"; text: string; taskId: string | null }
+    | { status: "stale"; text: string; taskId: string | null; reason: string }
+    | { status: "unavailable"; reason: string };
+
+  /**
+   * 同一主会话同一时间只保留一个在途 `session context`：session_start 预热与首轮注入共享结果，
+   * 不再各起一个 CLI 进程、让首轮 300ms 预算等不到预热（续接会话丢分节的根因）。
+   */
+  async function requestTurnContext(session: SessionRef, timeout: number): Promise<{ data: any | null; timedOut: boolean; failure: string | null }> {
+    const pending: { knitSessionId: string; promise: Promise<{ data: any | null; timedOut: boolean; failure: string | null }> } | null = state.contextWork;
+    if (pending !== null && pending.knitSessionId === session.knitSessionId) {
+      const shared = await raceDeadline(pending.promise, timeout);
+      if (shared === CONTEXT_DEADLINE) return { data: null, timedOut: true, failure: null };
+      return shared;
+    }
+    const promise = (async () => {
+      const result = await core(["session", "context", session.knitSessionId, "--dir", root], undefined, { timeout });
+      const data = result.response?.outcome === "completed" ? result.response.data : null;
+      if (data !== null && typeof data === "object") return { data, timedOut: false, failure: null };
+      const failure = result.timedOut === true ? null : result.error ?? result.response?.reasonCode ?? "unknown";
+      return { data: null, timedOut: result.timedOut === true, failure };
+    })();
+    state.contextWork = { knitSessionId: session.knitSessionId, promise };
+    const clear = (): void => {
+      if (state.contextWork !== null && state.contextWork.promise === promise) state.contextWork = null;
+    };
+    void promise.then(clear, clear);
+    return await promise;
+  }
+
+  /**
+   * 回放原生会话的 system 分节，取上一轮注入的 knit 分节（Pi 按 section diff 持久化）。
+   * 持久化的是渲染后的 `<knit>…</knit>`；回填前还原成 raw 正文，避免宿主再次包装成嵌套分节。
+   */
+  function previousKnitSection(ctx: any): string | null {
+    let entries: any[] = [];
+    try {
+      entries = typeof ctx?.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+    } catch {
+      entries = [];
+    }
+    let section: string | null = null;
+    for (const entry of entries) {
+      if (entry?.type !== "message" || entry?.message?.role !== "system") continue;
+      const sections = entry.message.sections;
+      if (sections === null || typeof sections !== "object" || !("knit" in sections)) continue;
+      section = typeof sections.knit === "string" ? sections.knit : null;
+    }
+    if (section === null) return null;
+    const body = unwrapKnitSection(section);
+    return body === "" ? TURN_CONTEXT_MARKER : `${TURN_CONTEXT_MARKER}\n${body}`;
+  }
+
+  /**
+   * 还原 raw 正文：剥离宿主的 `<knit>` 包装（含旧版本造成的多层嵌套）与分节标记，
+   * 保留正文（含旧过期说明，供不需要刷新的轮次原样保留）。
+   */
+  function unwrapKnitSection(section: string): string {
+    let body = section.trim();
+    for (;;) {
+      let changed = false;
+      if (body.startsWith("<knit>\n") && body.endsWith("\n</knit>")) {
+        body = body.slice("<knit>\n".length, body.length - "\n</knit>".length).trim();
+        changed = true;
+      }
+      if (body === TURN_CONTEXT_MARKER) {
+        body = "";
+        changed = true;
+      } else if (body.startsWith(`${TURN_CONTEXT_MARKER}\n`)) {
+        body = body.slice(TURN_CONTEXT_MARKER.length + 1);
+        changed = true;
+      }
+      if (!changed) break;
+    }
+    return body.trimEnd();
+  }
+
+  /** 去掉旧降级说明，避免多次降级叠加。 */
+  function knitSectionBody(section: string): string {
+    return unwrapKnitSection(section)
+      .split("\n")
+      .filter((line) => !line.startsWith(CONTEXT_STALE_PREFIX))
+      .join("\n")
+      .trimEnd();
+  }
+
+  function withStaleNotice(text: string, cause: string): string {
+    return `${knitSectionBody(text)}\n${CONTEXT_STALE_PREFIX}${cause}。`;
+  }
+
+  async function buildTurnContext(ctx: any, options: { timeout?: number } = {}): Promise<TurnContextResult> {
     const session = await sessionOf(ctx);
-    if (session === null) return null;
-    const timeout = options.timeout ?? contextTimeoutMs();
-    const result = await core(["session", "context", session.knitSessionId, "--dir", root], undefined, { timeout });
-    const data = result.response?.outcome === "completed" ? result.response.data : null;
-    if (data !== null && typeof data === "object") {
-      const rendered = renderTurnContext(data);
+    if (session === null) return { status: "unavailable", reason: installationReady().reason ?? "原生会话未登记" };
+    const cached: ContextCacheEntry | null =
+      state.contextCache !== null && state.contextCache.knitSessionId === session.knitSessionId ? state.contextCache : null;
+    const timeout = options.timeout ?? contextTimeoutMs(cached !== null);
+    const result = await requestTurnContext(session, timeout);
+    if (result.data !== null && typeof result.data === "object") {
+      const rendered = renderTurnContext(result.data);
       state.contextCache = {
         knitSessionId: session.knitSessionId,
         nativeSessionId: session.nativeSessionId,
@@ -818,21 +943,24 @@ export default async function (pi: any) {
         taskId: rendered.taskId,
         at: Date.now(),
       } as ContextCacheEntry;
-      return rendered;
+      return { status: "fresh", text: rendered.text, taskId: rendered.taskId };
     }
-    const cached: ContextCacheEntry | null = state.contextCache;
-    if (cached === null || cached.knitSessionId !== session.knitSessionId) return null;
-    diag("context_cache_used", { reason: result.timedOut === true ? "timeout" : result.error ?? "failed" });
-    const ageSeconds = Math.max(0, Math.round((Date.now() - cached.at) / 1000));
     const cause =
       result.timedOut === true
         ? `本次查询超过 ${timeout}ms`
-        : `本次刷新失败（${result.error ?? result.response?.reasonCode ?? "未知原因"}）`;
-    return {
-      text: `${cached.text}\n上下文可能过期：${cause}，使用上一轮缓存（${ageSeconds} 秒前）。`,
-      taskId: cached.taskId,
-      stale: true,
-    };
+        : `本次刷新失败（${result.failure ?? "未知原因"}）`;
+    if (cached !== null) {
+      diag("context_cache_used", { reason: result.timedOut === true ? "timeout" : result.failure ?? "failed" });
+      const ageSeconds = Math.max(0, Math.round((Date.now() - cached.at) / 1000));
+      return {
+        status: "stale",
+        text: withStaleNotice(cached.text, `${cause}，使用上一轮缓存（${ageSeconds} 秒前）`),
+        taskId: cached.taskId,
+        reason: cause,
+      };
+    }
+    diag("context_refresh_failed", { reason: cause });
+    return { status: "unavailable", reason: cause };
   }
 
   /** 预热／动作后刷新：不占模型轮次预算；失败只记诊断，不影响工具结果。 */
@@ -844,23 +972,48 @@ export default async function (pi: any) {
     }
   }
 
+  /** 保留已有 knit 分节：Pi 每轮用新 options 与历史分节做 diff，不重设等于删除。 */
+  function keepKnitSection(event: any, ctx: any, cause?: string): void {
+    const options = event?.systemPromptOptions;
+    if (options === null || typeof options !== "object" || options.sections === null || typeof options.sections !== "object") return;
+    const previous = previousKnitSection(ctx);
+    if (previous === null) return;
+    options.sections.knit = cause === undefined ? previous : `${TURN_CONTEXT_MARKER}\n${withStaleNotice(previous, cause)}`;
+  }
+
   pi.on("before_agent_start", async (event: any, ctx: any) => {
-    if (state.nativeSessionId !== ctx?.sessionManager?.getSessionId?.()) return;
-    if (event.messageType !== "user") return; // 只注入用户发起的轮次；自身通知触发的轮次不叠加。
+    if (state.nativeSessionId !== ctx?.sessionManager?.getSessionId?.()) {
+      // 会话未登记或已切换：本轮不查询，但保留当前分支已有的分节，不靠“不设置”删除历史。
+      keepKnitSection(event, ctx);
+      return;
+    }
+    if (event.messageType !== "user") {
+      // 只刷新用户发起的轮次；自身通知触发的轮次不叠加正文，但保留已有分节。
+      keepKnitSection(event, ctx);
+      return;
+    }
     try {
       const context = await buildTurnContext(ctx);
       const options = event.systemPromptOptions;
       if (options === null || typeof options !== "object" || options.sections === null || typeof options.sections !== "object") {
-        if (context === null) diag("inject_unavailable", { reason: installationReady().reason ?? "session attach failed" });
+        diag("inject_unavailable", { reason: installationReady().reason ?? "systemPromptOptions.sections missing" });
         return;
       }
-      if (context === null) {
-        delete options.sections.knit;
+      if (context.status === "unavailable") {
+        const previous = previousKnitSection(ctx);
+        if (previous !== null) {
+          options.sections.knit = `${TURN_CONTEXT_MARKER}\n${withStaleNotice(previous, `${context.reason}，沿用上一轮注入`)}`;
+          diag("context_previous_section_used", { reason: context.reason });
+        } else {
+          options.sections.knit = `${TURN_CONTEXT_MARKER}\nknit 上下文暂不可用：${context.reason}。写动作仍由核心核对授权、阶段与状态。`;
+          diag("inject_unavailable", { reason: context.reason });
+        }
         return;
       }
-      options.sections.knit = `<!-- knit:turn-context -->\n${context.text}`;
+      options.sections.knit = `${TURN_CONTEXT_MARKER}\n${context.text}`;
     } catch (error) {
       diag("inject_failed", { reason: String(error) });
+      keepKnitSection(event, ctx, `本次注入失败（${String(error)}）`);
     }
   });
 
@@ -876,7 +1029,7 @@ export default async function (pi: any) {
       }
       await restoreSelection(ctx);
       startObserver(ctx);
-      // 预热每轮上下文缓存：首轮即使超过 300ms 预算也有可用（标注过期的）上下文。
+      // 预热每轮上下文缓存：首轮与预热共享在途请求，随后各轮有可回退的上一轮内容。
       void refreshTurnContext(ctx);
     } else {
       diag("not_ready", { reason: installationReady().reason ?? "session attach failed" });

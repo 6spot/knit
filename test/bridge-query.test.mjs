@@ -79,7 +79,7 @@ function makeHostStub() {
       getEntries: () => entries,
     },
   };
-  return { commands, notifications, messages, pi, ctx, handlers, tools, systemPromptOptions, setSessionFile: (path) => { sessionFile = path; } };
+  return { commands, notifications, messages, pi, ctx, handlers, tools, systemPromptOptions, entries, setSessionFile: (path) => { sessionFile = path; } };
 }
 
 /** 生成带 session 头与选择条目的原生会话文件（stub 会话管理器的真实文件）。 */
@@ -93,6 +93,11 @@ function writeStubNativeSession(dir, nativeId, entries) {
   const file = join(sessionDir, `2026-11-02T00-00-00-000Z_${nativeId}.jsonl`);
   writeFileSync(file, lines.join("\n") + "\n");
   return file;
+}
+
+/** 复刻 Pi 1.5.2 buildSystemPromptSections：raw 正文渲染为 `<knit>…</knit>` 存入 system 分节。 */
+function renderKnitSection(raw) {
+  return raw ? `<knit>\n${raw}\n</knit>` : raw;
 }
 
 async function loadBridge(dir) {
@@ -837,7 +842,9 @@ function installCliSpy(dir) {
     // 测试钩子：让 run list 查询失败（无输出、非零退出），其余命令照常转发。
     "if (process.env.KNIT_SPY_FAIL_RUN_LIST === \"1\" && process.argv[3] === \"run\" && process.argv[4] === \"list\") process.exit(1);",
     "const delay = Number(process.env.KNIT_SPY_DELAY_MS ?? 0);",
-    "if (Number.isFinite(delay) && delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));",
+    "const contextOnly = process.env.KNIT_SPY_DELAY_CONTEXT_ONLY === \"1\";",
+    "const isContext = process.argv[3] === \"session\" && process.argv[4] === \"context\";",
+    "if (Number.isFinite(delay) && delay > 0 && (!contextOnly || isContext)) await new Promise((resolve) => setTimeout(resolve, delay));",
     "const child = spawnSync(process.execPath, [process.env.KNIT_SPY_REAL, ...process.argv.slice(2)], { stdio: \"inherit\", env: process.env });",
     "process.exit(child.status ?? 1);",
     "",
@@ -849,6 +856,36 @@ function installCliSpy(dir) {
 function readSpyCalls(path) {
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf8").trim().split("\n").filter((line) => line !== "").map((line) => JSON.parse(line));
+}
+
+/** 读取主会话与 `knit session context` 的当前选择／阶段，作为注入文本的对照权威。 */
+function sessionContextOf(dir) {
+  const sessions = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "session", "list", "--dir", dir], { encoding: "utf8" }));
+  const main = sessions.data.find((entry) => entry.kind === "main" && entry.ref?.nativeSessionId === "stub-session") ?? sessions.data.find((entry) => entry.kind === "main");
+  assert.ok(main, "缺少主会话登记");
+  const context = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "session", "context", main.knitSessionId, "--dir", dir], { encoding: "utf8" }));
+  return context.data;
+}
+
+function captureDiagChunks() {
+  const chunks = [];
+  const savedWrite = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => {
+    void rest;
+    chunks.push(String(chunk));
+    return true;
+  };
+  return {
+    chunks,
+    events: () =>
+      chunks
+        .filter((line) => line.trim().startsWith("{"))
+        .map((line) => JSON.parse(line))
+        .filter((event) => event.type === "knit.bridge.diag"),
+    restore: () => {
+      process.stderr.write = savedWrite;
+    },
+  };
 }
 
 test("每轮上下文只调一次 session context；超时用上一轮缓存并标注可能过期（k-0524fc52e81b）", async () => {
@@ -900,6 +937,230 @@ test("每轮上下文只调一次 session context；超时用上一轮缓存并�
     else process.env.KNIT_SPY_DELAY_MS = savedDelay;
     if (savedTimeout === undefined) delete process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS;
     else process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = savedTimeout;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("续接会话：预热在途时三轮用户消息都注入当轮上下文（k-50d398bff55f／R1.S1）", async () => {
+  const dir = project("resume-inject");
+  const saved = {};
+  for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_DELAY_CONTEXT_ONLY", "KNIT_BRIDGE_CONTEXT_TIMEOUT_MS"]) {
+    saved[name] = process.env[name];
+  }
+  try {
+    const first = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "续接任务一", "--slug", "resume-one", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const firstId = first.data.taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", firstId, "--dir", dir], { encoding: "utf8" });
+    const second = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", "续接任务二", "--slug", "resume-two", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const secondId = second.data.taskId;
+
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    // 续接进程的冷启动约 0.6s：拖慢 session context 超过单轮 300ms 预算，attach／verify 不受影响。
+    process.env.KNIT_SPY_DELAY_MS = "800";
+    process.env.KNIT_SPY_DELAY_CONTEXT_ONLY = "1";
+    delete process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS;
+
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", [
+      { type: "custom", id: "sel-1", parentId: null, customType: "knit.selection", data: { taskId: firstId, branch: "refs/heads/main", operationId: "sel-op-1" } },
+    ]);
+    host.setSessionFile(nativeFile);
+    host.entries.push({ type: "custom", id: "sel-1", parentId: null, customType: "knit.selection", data: { taskId: firstId, branch: "refs/heads/main", operationId: "sel-op-1" } });
+    await host.handlers.get("session_start")({}, host.ctx);
+
+    // 第 1 轮：session_start 预热仍在途（800ms > 300ms）。旧实现会再起一个 CLI 并超时，删除分节。
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const firstSection = host.systemPromptOptions.sections.knit;
+    assert.ok(firstSection, "续接首轮必须有 knit 分节");
+    assert.match(firstSection, /当前任务：「续接任务一」/);
+    const firstContext = sessionContextOf(dir);
+    assert.equal(firstContext.taskId, firstId, "首轮任务与 session context 一致");
+    assert.equal(firstContext.task.stage, "implement", "首轮阶段与 session context 一致");
+    assert.match(firstSection, new RegExp(`阶段：实现（implement）`));
+    assert.match(firstSection, new RegExp(shortId(firstId)));
+    assert.doesNotMatch(firstSection, /上下文可能过期/, "预热结果应作为当轮上下文，不是降级缓存");
+    assert.equal(readSpyCalls(spy.log).filter((call) => call[1] === "session" && call[2] === "context").length, 1, "预热与首轮共享同一个 session context 调用");
+
+    // 第 2 轮：切换任务后必须拿到新任务与阶段，不能用上一轮内容。
+    // task use 触发的后台刷新与本轮注入共享在途请求；给 1s 预算避免测试机负载误判回退（默认 300ms 回退由超时用例覆盖）。
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "1000";
+    process.env.KNIT_SPY_DELAY_MS = "0";
+    const usedSecond = await host.tools.get("knit_task").execute("use-second", { action: "use", taskId: secondId }, null, null, host.ctx);
+    assert.equal(usedSecond.isError, false, usedSecond.content?.[0]?.text ?? "");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const secondSection = host.systemPromptOptions.sections.knit;
+    assert.ok(secondSection, "续接第 2 轮必须有 knit 分节");
+    const secondContext = sessionContextOf(dir);
+    assert.equal(secondContext.taskId, secondId, "第 2 轮任务与 session context 一致");
+    assert.equal(secondContext.task.stage, "start", "第 2 轮阶段与 session context 一致");
+    assert.match(secondSection, /当前任务：「续接任务二」/);
+    assert.match(secondSection, /阶段：准备（start）/);
+    assert.match(secondSection, new RegExp(shortId(secondId)));
+    assert.doesNotMatch(secondSection, /上下文可能过期/);
+
+    // 第 3 轮：切回任务一，仍取当轮选择。
+    const usedFirst = await host.tools.get("knit_task").execute("use-first", { action: "use", taskId: firstId }, null, null, host.ctx);
+    assert.equal(usedFirst.isError, false, usedFirst.content?.[0]?.text ?? "");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const thirdSection = host.systemPromptOptions.sections.knit;
+    assert.ok(thirdSection, "续接第 3 轮必须有 knit 分节");
+    const thirdContext = sessionContextOf(dir);
+    assert.equal(thirdContext.taskId, firstId, "第 3 轮任务与 session context 一致");
+    assert.equal(thirdContext.task.stage, "implement", "第 3 轮阶段与 session context 一致");
+    assert.match(thirdSection, /当前任务：「续接任务一」/);
+    assert.match(thirdSection, /阶段：实现（implement）/);
+    assert.doesNotMatch(thirdSection, /上下文可能过期/);
+    for (const section of [firstSection, secondSection, thirdSection]) {
+      assert.ok(section.startsWith("<!-- knit:turn-context -->"), "每轮都写同一分节，不堆叠历史");
+    }
+    // 自身通知触发的 custom 轮次不重查，但必须保留已有分节（Pi 不设置即按 diff 删除）。
+    // 原生会话里存的是已渲染的 `<knit>…</knit>`，回填时必须还原为 raw 正文，否则会嵌套。
+    host.entries.push({ type: "message", id: "sys-last", parentId: null, message: { role: "system", content: "", sections: { knit: renderKnitSection(thirdSection) } } });
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "custom", message: "knit run 完成", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    assert.equal(host.systemPromptOptions.sections.knit, thirdSection, "custom 轮次保留已有分节并剥离宿主包装");
+    const customRendered = renderKnitSection(host.systemPromptOptions.sections.knit);
+    assert.equal((customRendered.match(/<knit>/g) ?? []).length, 1, "回填后只有宿主单层包裹");
+    assert.equal((customRendered.match(/<!-- knit:turn-context -->/g) ?? []).length, 1, "回填后 marker 不重复");
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("续接会话：刷新超时保留上一轮缓存并标注可能过期、记录诊断（k-50d398bff55f／R1.S2）", async () => {
+  const dir = project("resume-stale");
+  const saved = {};
+  for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_DELAY_CONTEXT_ONLY", "KNIT_BRIDGE_CONTEXT_TIMEOUT_MS", "KNIT_DEV"]) {
+    saved[name] = process.env[name];
+  }
+  let diag = null;
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_DELAY_CONTEXT_ONLY = "1";
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "10000";
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const previous = host.systemPromptOptions.sections.knit;
+    assert.ok(previous, "首轮先有可回退的上下文");
+
+    // 第二轮刷新超时（1ms）：保留上一轮正文，标注可能过期，并记诊断事件。
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "1";
+    process.env.KNIT_SPY_DELAY_MS = "2000";
+    process.env.KNIT_DEV = "1";
+    diag = captureDiagChunks();
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const stale = host.systemPromptOptions.sections.knit;
+    assert.ok(stale, "刷新失败不得清空分节");
+    assert.match(stale, /当前无选定任务/, "保留上一轮正文");
+    assert.match(stale, /上下文可能过期/, "标注可能过期");
+    assert.match(stale, /本次查询超过 1ms/, "写明失败原因");
+    assert.equal((stale.match(/上下文可能过期/g) ?? []).length, 1, "降级说明不堆叠");
+    const events = diag.events();
+    const cachedEvent = events.find((event) => event.event === "context_cache_used");
+    assert.ok(cachedEvent, `缺少缓存回退诊断: ${diag.chunks.join("")}`);
+    assert.equal(cachedEvent.reason, "timeout", "诊断说明是超时");
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    if (diag !== null) diag.restore();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("续接会话：无缓存且刷新失败时保留原生上一轮分节、不静默清空（k-50d398bff55f／R1.S2）", async () => {
+  const dir = project("resume-fallback");
+  const saved = {};
+  for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_DELAY_CONTEXT_ONLY", "KNIT_BRIDGE_CONTEXT_TIMEOUT_MS", "KNIT_DEV"]) {
+    saved[name] = process.env[name];
+  }
+  const savedWrite = process.stderr.write;
+  const chunks = [];
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_DELAY_MS = "5000";
+    process.env.KNIT_SPY_DELAY_CONTEXT_ONLY = "1";
+    process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = "1";
+    process.env.KNIT_DEV = "1";
+    process.stderr.write = (chunk, ...rest) => {
+      void rest;
+      chunks.push(String(chunk));
+      return true;
+    };
+    const { host } = await loadBridge(dir);
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    // 续接进程的新桥接实例没有内存缓存；上一轮分节只存在于原生会话的 system diff 中。
+    // 真实宿主保存的是渲染后的 `<knit>…</knit>`，回填前必须剥离包装。
+    const previousBody = "<!-- knit:turn-context -->\n当前任务：「上一轮任务」（k-aaaaaa）\n阶段：准备（start）";
+    host.entries.push({ type: "message", id: "sys-prev", parentId: null, message: { role: "system", content: "", sections: { knit: renderKnitSection(previousBody) } } });
+    await host.handlers.get("session_start")({}, host.ctx);
+
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const injected = host.systemPromptOptions.sections.knit;
+    assert.ok(injected, "刷新失败且无缓存时也不能 delete 分节");
+    assert.match(injected, /上一轮任务/, "保留原生会话里的上一轮正文");
+    assert.match(injected, /上下文可能过期/, "标注可能过期");
+    assert.match(injected, /本次查询超过 1ms/, "写明失败原因");
+    assert.ok(injected.startsWith("<!-- knit:turn-context -->\n"), "回填的是 raw 正文，等待宿主统一包装");
+    assert.doesNotMatch(injected, /<knit>/, "不得把宿主渲染的包装写回 raw 分节");
+    assert.equal((injected.match(/<!-- knit:turn-context -->/g) ?? []).length, 1, "回填后 marker 不重复");
+    const injectedRendered = renderKnitSection(injected);
+    assert.equal((injectedRendered.match(/<knit>/g) ?? []).length, 1, "渲染后只有单层 <knit> 包裹");
+
+    // 不需要刷新的 custom 轮次原样保留正文与过期标注（只剥离宿主包装）。
+    host.entries.push({ type: "message", id: "sys-stale", parentId: null, message: { role: "system", content: "", sections: { knit: renderKnitSection(injected) } } });
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "custom", message: "knit run 完成", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    assert.equal(host.systemPromptOptions.sections.knit, injected, "custom 轮次原样保留过期标注");
+
+    // 旧版本曾把已渲染分节写回 raw，真实会话里留下嵌套；回填时应收敛为单层、不再叠加。
+    host.entries.push({ type: "message", id: "sys-nested", parentId: null, message: { role: "system", content: "", sections: { knit: renderKnitSection(renderKnitSection(`${previousBody}\n上下文可能过期：旧失败。`)) } } });
+    host.systemPromptOptions.sections = {};
+    await host.handlers.get("before_agent_start")({ messageType: "user", systemPromptOptions: host.systemPromptOptions }, host.ctx);
+    const converged = host.systemPromptOptions.sections.knit;
+    assert.ok(converged, "旧版嵌套分节也不能丢");
+    assert.doesNotMatch(converged, /<knit>/, "回填时收敛掉旧版嵌套包装");
+    assert.equal((converged.match(/<!-- knit:turn-context -->/g) ?? []).length, 1, "旧版重复 marker 不继续叠加");
+    assert.equal((converged.match(/上下文可能过期/g) ?? []).length, 1, "旧版过期说明不继续叠加");
+    const events = chunks
+      .filter((line) => line.trim().startsWith("{"))
+      .map((line) => JSON.parse(line))
+      .filter((event) => event.type === "knit.bridge.diag");
+    const previousEvent = events.find((event) => event.event === "context_previous_section_used" && /超过 1ms/.test(String(event.reason)));
+    assert.ok(previousEvent, `缺少上一轮分节回退诊断: ${chunks.join("")}`);
+    await host.handlers.get("session_shutdown")();
+  } finally {
+    process.stderr.write = savedWrite;
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });
