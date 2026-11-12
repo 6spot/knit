@@ -98,4 +98,10 @@ title: 补修上下文竞态：任务变更后拒绝旧请求回填
 - 结果: 正常交付；检查 run-fb487ecb56f4 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-12-bridge-context-race-fix
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1f081e135ed4 -->
+- 任务资料提交: a419a1e83c88c65cd01084646e3a063e0414e24b
+- 归档目标: .knit/tasks/archive/2026-11/11-12-bridge-context-race-fix
+
 <!-- knit:progress:end -->
