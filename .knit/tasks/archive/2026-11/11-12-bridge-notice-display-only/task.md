@@ -154,4 +154,10 @@ title: 桥接通知按类型投递：被动通知只展示、不进上下文
 - 结果: 正常交付；检查 run-adaac0bd1a31 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-12-bridge-notice-display-only
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a2da5cb63d38 -->
+- 任务资料提交: 4f2210175eb3669ab682c28cb8faef18face6d66
+- 归档目标: .knit/tasks/archive/2026-11/11-12-bridge-notice-display-only
+
 <!-- knit:progress:end -->
