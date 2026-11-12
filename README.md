@@ -4,7 +4,7 @@
 
 现有开发已完成 001–060 的实现、复核与阻塞修复，记录保留在[开发历史](https://github.com/6spot/knit/blob/main/docs/history/TASKS.md)，验证依据见 [validation](https://github.com/6spot/knit/tree/main/validation)。Linux 候选安装验收记录已保留；后续真机／真实模型验收按用户决定延期，macOS 完整安装与运行验收仍待进行，当前不声明 macOS 兼容。NPM 发布和外部部署尚未进行。
 
-开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，流程由 `.knit/workflow.yaml` 声明（默认 准备 → 实现 → 检查 → 收尾），用 `npx --no-install knit task list` 查看活跃任务（归档用 `npx --no-install knit task list --archive`）；用户决定是否建任务，各任务的 `task.md` 保存需求、业务意图与 stage 名义，可交付资格是本机事实、换机后用 `task rebind` 重建。旧编号任务保留为历史档案。
+开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，流程由 `.knit/workflow.yaml` 声明（默认 准备 → 实现 → 检查 → 收尾），用 `knit task list` 查看活跃任务（归档用 `knit task list --archive`）；用户决定是否建任务，各任务的 `task.md` 保存需求、业务意图与 stage 名义，可交付资格是本机事实、换机后用 `task rebind` 重建。旧编号任务保留为历史档案。
 
 设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)、[阶段契约](https://github.com/6spot/knit/blob/main/docs/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
 
@@ -33,7 +33,7 @@ knit init --pi --dir <项目>
 knit start --pi --dir <项目>
 ```
 
-在仓库根目录执行。脚本先通过 `npm ci --include=dev` 按锁文件重新安装依赖，再由 `npm pack` 的 `prepack` 构建，生成并保留根目录的 `knit-<版本>.tgz`，最后从 tgz 安装到 npm 全局位置并校验安装版本。需要下载依赖；任一步失败会停止并返回非零退出码。重复执行会更新该位置已安装的 Knit。`init`／`start` 的 `--pi` 可省略（当前默认客户端）；未注册的客户端开关会被拒绝。`knit init` 默认不覆盖已有项目文件；只有显式 `knit init --force` 才按当前模板覆盖，并先把原文件备份到 `.knit/.runtime/init-backup/<时间戳>/`。
+在仓库根目录执行。脚本先通过 `npm ci --include=dev` 按锁文件重新安装依赖，再由 `npm pack` 的 `prepack` 构建，生成并保留根目录的 `knit-<版本>.tgz`，最后从 tgz 安装到 npm 全局位置并校验安装版本。需要下载依赖；任一步失败会停止并返回非零退出码。重复执行会更新该位置已安装的 Knit。`init`／`start` 的 `--pi` 可省略（当前默认客户端）；未注册的客户端开关会被拒绝。`knit init` 默认不覆盖已有项目文件；只有显式 `knit init --force` 才按当前模板覆盖，并先把原文件备份到 `.knit/.runtime/init-backup/<时间戳>/`。`init` 写入的受管入口按本机解析：`PATH` 中的 `knit` 与本 CLI 版本一致时写 `knit`，否则写当前 CLI 入口的绝对路径；不写依赖项目内 `node_modules` 的 npx 入口。
 
 指定安装位置（例如使用用户目录，避免全局目录权限问题）：
 

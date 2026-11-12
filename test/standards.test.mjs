@@ -623,7 +623,7 @@ test("CLI：无任务 propose/review/apply/pending/list/migrate 走协议输出"
 
 
 test("模板指令：主动识别、冲突待决定、项目候选、一次性范围与末尾告知均有规则", () => {
-  const agents = agentsManagedBlock("npx --no-install knit");
+  const agents = agentsManagedBlock("knit");
   assert.match(agents, /规范沉淀/);
   assert.match(agents, /不依附任务/);
   assert.match(agents, /冲突.*取得用户决定/);

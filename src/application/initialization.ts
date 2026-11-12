@@ -4,8 +4,8 @@
  * 计划 → preparing 清单与安装映射 → 项目补缺与受管候选 → 指纹核对 → 原子发布桥接 → ready。
  * --check 只读；失败记录逐项结果，部分初始化不当成功。
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { atomicWrite } from "../infrastructure/atomic.js";
@@ -95,7 +95,7 @@ export interface InitResult {
 export interface InitServiceOptions {
   /** 覆盖用户锁根（测试注入；生产默认 ~/.knit/locks）。 */
   locksRoot?: string;
-  /** 受管块展示的 CLI 调用名。 */
+  /** 受管块展示的 CLI 调用名；默认按 PATH 中 knit 的版本解析（测试可用此注入）。 */
   knitCommand?: string;
   now?: () => Date;
 }
@@ -139,12 +139,14 @@ function runtimeIgnoreWarning(root: string, isGitRepo: boolean): string | null {
 
 export class InitializationService {
   private readonly locks: LockManager;
-  private readonly knitCommand: string;
+  private readonly knitCommand: string | undefined;
   private readonly now: () => Date;
+  /** 本次服务实例解析出的受管入口命令；同一实例重复 init 不重复探测 PATH。 */
+  private resolvedKnitCommand: string | null = null;
 
   constructor(options: InitServiceOptions = {}) {
     this.locks = new LockManager(options.locksRoot ? { root: options.locksRoot } : {});
-    this.knitCommand = options.knitCommand ?? "npx --no-install knit";
+    this.knitCommand = options.knitCommand;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -164,6 +166,19 @@ export class InitializationService {
   private cliEntry(): string {
     // dist/application/initialization.js → dist → dist/cli/knit.js
     return join(fileURLToPath(new URL("../cli/knit.js", import.meta.url)));
+  }
+
+  /**
+   * 受管块与提示里的 CLI 调用名。显式注入优先；否则 PATH 中的 knit 可执行且
+   * `knit --version` 与本 CLI 一致时写 `knit`，否则回退当前 CLI 入口绝对路径。
+   * 不写 `npx --no-install knit`：README 的安装方式是 npm 全局安装，新项目没有项目内依赖。
+   */
+  private managedCommand(version: string): string {
+    if (this.knitCommand !== undefined) return this.knitCommand;
+    if (this.resolvedKnitCommand === null) {
+      this.resolvedKnitCommand = resolveManagedKnitCommand(this.cliEntry(), version);
+    }
+    return this.resolvedKnitCommand;
   }
 
   private readManifestIfExists(root: string): InitManifest | null {
@@ -429,7 +444,7 @@ export class InitializationService {
     // 4. AGENTS.md 受管入口：已有正文保留并追加；已有块按块内容核对，人工改动冲突不覆盖
     const agentsPath = join(root, "AGENTS.md");
     try {
-      const managedBlock = agentsManagedBlock(this.knitCommand);
+      const managedBlock = agentsManagedBlock(this.managedCommand(currentVersion));
       if (!existsSync(agentsPath)) {
         atomicWrite({ path: agentsPath, data: Buffer.from(managedBlock, "utf8"), expectedSha256: null, mode: 0o644 });
         record("AGENTS.md", "managed", "created", { baselineSha256: sha256Text(managedBlock) });
@@ -530,4 +545,62 @@ function compareVersions(left: string, right: string): number {
     if (delta !== 0) return delta;
   }
   return 0;
+}
+
+/**
+ * 受管入口命令：PATH 中的 `knit` 可执行且 `knit --version` 与当前 CLI 版本一致时返回
+ * `knit`，否则返回当前 CLI 入口绝对路径。`npx --no-install knit` 依赖项目内
+ * node_modules，与 README 的 npm 全局安装方式不符，不再作为回退。
+ */
+export function resolveManagedKnitCommand(
+  cliEntry: string,
+  cliVersion: string,
+  options: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+): string {
+  const env = options.env ?? process.env;
+  const timeoutMs = options.timeoutMs ?? 3000;
+  for (const candidate of pathCandidates("knit", env)) {
+    if (!isExecutableFile(candidate)) continue;
+    // 只核对 shell 实际会解析到的第一个 knit：若它版本不符，写 `knit` 仍会执行错版本，必须回退。
+    const probe = spawnSync(candidate, ["--version"], {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      env,
+      windowsHide: true,
+      shell: process.platform === "win32" && /\.(?:cmd|bat)$/i.test(candidate),
+    });
+    return probe.status === 0 && (probe.stdout ?? "").trim() === cliVersion ? "knit" : cliEntry;
+  }
+  return cliEntry;
+}
+
+/** PATH 中的命令候选；Windows 按 PATHEXT 展开，Windows PATH 条目可带引号。 */
+function pathCandidates(command: string, env: NodeJS.ProcessEnv): string[] {
+  const rawPath = env.PATH ?? env.Path ?? "";
+  const directories = rawPath
+    .split(delimiter)
+    .map((entry) => entry.replace(/^"(.*)"$/, "$1"))
+    .filter((entry) => entry.length > 0);
+  const extensions = process.platform === "win32"
+    ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry.length > 0)
+    : [""];
+  const candidates: string[] = [];
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const suffix = extension === "" || extension.startsWith(".") ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
+      candidates.push(join(directory, `${command}${suffix}`));
+    }
+  }
+  return candidates;
+}
+
+/** 普通文件且当前用户可执行；Windows 只看文件是否存在。 */
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (process.platform !== "win32") accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }

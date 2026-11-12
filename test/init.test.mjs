@@ -373,7 +373,7 @@ test("init：重复执行幂等，AGENTS 标记块只追加一次", async () => 
 test("init：旧项目修改受管块报告差异，--force 显式更新，项目正文保留", async () => {
   const dir = freshProject("agents-conflict");
   try {
-    const service = new InitializationService({ locksRoot: join(dir, ".locks-root") });
+    const service = new InitializationService({ locksRoot: join(dir, ".locks-root"), knitCommand: "knit" });
     await init(service, dir);
     const agentsPath = join(dir, "AGENTS.md");
     const original = readFileSync(agentsPath, "utf8");
@@ -387,7 +387,7 @@ test("init：旧项目修改受管块报告差异，--force 显式更新，项�
     assert.equal(forced.ready, true, forced.conflicts.join(","));
     const updated = readFileSync(agentsPath, "utf8");
     assert.ok(updated.startsWith("项目自定义规则\n"), "受管块外正文保留");
-    assert.equal(updated.slice(updated.indexOf(AGENTS_MANAGED_MARKER_BEGIN)), agentsManagedBlock("npx --no-install knit"), "force 更新为当前基线");
+    assert.equal(updated.slice(updated.indexOf(AGENTS_MANAGED_MARKER_BEGIN)), agentsManagedBlock("knit"), "force 更新为当前基线");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -621,7 +621,8 @@ test("模板：仓库 AGENTS.md 受管块与当前基线逐字一致", () => {
   const end = content.indexOf(AGENTS_MANAGED_MARKER_END);
   assert.ok(begin !== -1 && end > begin, "仓库 AGENTS.md 含受管块标记");
   const currentBlock = `${content.slice(begin, end + AGENTS_MANAGED_MARKER_END.length)}\n`;
-  assert.equal(currentBlock, agentsManagedBlock("npx --no-install knit"), "受管块不漂移");
+  assert.equal(currentBlock, agentsManagedBlock("knit"), "受管块不漂移");
+  assert.equal(currentBlock.includes("npx --no-install knit"), false, "受管块不写项目内 npx 入口");
 });
 
 test("模板：受管基线指纹稳定，AGENTS 块含标记与入口", () => {
@@ -657,7 +658,7 @@ test("模板：阶段契约文档覆盖职责、停止条件、报告与 Trellis
 
 test("模板：派发分层标准与两个桥接逐字一致（k-ae990e2f36dc）", () => {
   const root = join(import.meta.dirname, "..");
-  const block = agentsManagedBlock("npx --no-install knit");
+  const block = agentsManagedBlock("knit");
   const line = block.split("\n").find((entry) => entry.startsWith("- 派发分层："));
   assert.ok(line, "受管块含派发分层条目");
   const guidance = line.slice(2);

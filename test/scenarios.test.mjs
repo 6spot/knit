@@ -261,7 +261,7 @@ test("R6.S2 worker 同会话补报：缺编号与名称、格式指引、最终�
 test("R7–R10 模板、受管块、桥接、文档与固定来源", () => {
   assert.equal(readFileSync(join(TEMPLATES, "workflow.yaml"), "utf8"), DEFAULT_WORKFLOW_YAML);
   assert.equal(parseWorkflow(DEFAULT_WORKFLOW_YAML).workflow.stages.find((item) => item.id === "check").report.scenarios, "string[]");
-  const managed = agentsManagedBlock("npx --no-install knit");
+  const managed = agentsManagedBlock("knit");
   const agents = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
   assert.equal(agents.slice(agents.indexOf("<!-- knit:managed-begin -->")), managed);
   assert.match(managed, /验收写成场景.*independent 任务必须写场景/);
