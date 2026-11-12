@@ -1,0 +1,6 @@
+项目根: /private/tmp/knit-macos/proj
+清单状态: ready
+创建: .knit/.gitignore, .knit/.runtime/installation.json, .knit/config.json, .knit/workflow.yaml, .knit/agents/implement.md, .knit/agents/check.md, .knit/agents/runtimes/pi.md, .knit/standards/index.md, AGENTS.md, .pi/extensions/knit.ts
+注意: 非 Git 目录：资料可初始化；正式任务执行需 Git 仓库、可读 HEAD 与本地分支
+初始化完成：桥接按宿主项目信任规则加载（新会话自动加载；已有会话 /reload 或重启）。
+EXIT=0

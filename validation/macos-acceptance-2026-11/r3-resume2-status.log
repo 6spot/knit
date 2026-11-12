@@ -1,0 +1,6 @@
+任务：「R3 阶段链路」k-fc1f6e（阶段：检查 check）
+run run-8cea2cea7e20: completed（启动 confirmed，尝试 1）
+呈现: rex（来源 explicit）
+准备: true；快照: 无；耗时 113162ms
+输入摘要: 4919002650e1；整体身份: ae54c0c5f030
+结果: completed / pass
