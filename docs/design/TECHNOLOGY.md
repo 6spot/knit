@@ -20,7 +20,7 @@
 | Pi 阶段执行 | 本机已安装 Pi CLI；验证版本 1.5.0（兼容报告见 validation/pi-1.5.0-compat/），历史基线 1.4.0（validation/pi-cli-1.4.0/） | 直接启动进程并使用 stdin/stdout RPC JSONL；不依赖 Pi SDK 或 RpcClient，不另建模型／鉴权运行时 |
 | 进程／文件 | Node child_process、fs、crypto、os | 集中封装、可替换；原子写、进程身份与锁规则见下文 |
 | 测试 | node:test、node:assert/strict、fake runtime、临时仓库 | 通过端口注入时钟／进程／故障，不依赖真实模型或全局模块 mock |
-| 支持目标 | 首版 Linux + Node24 已通过本地候选验证；macOS 为开发环境级支持：`npm test` 在 macOS 开发机必须通过（Rex 终端与普通终端各一次），安装与真机运行验收仍延期（B001） | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
+| 支持目标 | 首版 Linux + Node24 已通过本地候选验证；macOS 已实测安装／init／start／真实宿主桥接／Rex 浮层／阶段链路与中断恢复（2026-11-11，Node 26.3.0、Pi 1.5.2、Rex preview.14，证据 `validation/macos-acceptance-2026-11/`），`npm test` 在 macOS 开发机必须通过（Rex 终端与普通终端各一次）；Node 24 组合与发布流程在 macOS 仍未实测（B001 余留） | 进程组、身份和本地文件系统分别验证；其他平台未验证不宣称具备写入保护 |
 
 schema 采用上述精确版本，其他直接依赖在 M0 建立 lockfile 时固定补丁；Pi CLI 独立安装，不进入 Knit 的依赖。启动时探测客户端版本和必要能力，升级按协议、取消、原生恢复与新会话续做验证，不盲随 latest，也不只凭主版本判兼容。
 
@@ -77,7 +77,7 @@ Pi RPC 的 prompt 响应仅表示接受／排队／命令处理，不是阶段�
 
 工程命令 typecheck、build、test、pack 检查已落实并在 Linux 候选验证；不能把 Linux 结果外推为 macOS 兼容。
 
-macOS 支持级别（任务 k-fd956a1c3dc0）：开发环境测试必须通过——`npm test` 在 macOS 开发机的 Rex 终端与普通终端各跑一次都应全绿；macOS 安装、发布与真机运行验收仍延期（B001），开发机测试通过不等于已完成这些验收。已在代码与测试中处理的 macOS 差异：
+macOS 支持级别：开发环境测试必须通过——`npm test` 在 macOS 开发机的 Rex 终端与普通终端各跑一次都应全绿；安装、init、start、真实 Pi 桥接、Rex 浮层、阶段链路与中断恢复已于 2026-11-11 在本机实测（Node 26.3.0、Pi 1.5.2、Rex preview.14，三轮复跑，证据 `validation/macos-acceptance-2026-11/`）；Node 24 组合矩阵、发布与外部部署仍未实测，已实测不等于发布就绪。已在代码与测试中处理的 macOS 差异：
 
 - 进程组信号：组长已退出、组内只剩僵尸时 `killpg` 返回 `EPERM`（Linux 为 `ESRCH`）；`signalProcessGroup` 已观察到退出时按已结束处理，否则退而向组长 pid 发信号，再遇 `ESRCH`／`EPERM` 视为已结束。
 - Unix socket：`sun_path` 上限 macOS／BSD 104 字节（Linux 108）；Rex worker 的 `rex/bridge.sock` 超限时改用 `$TMPDIR/knit-rex-<uid>/<run 目录摘要>.sock`（`$TMPDIR` 仍过长再试 `/tmp`，均超限如实报错），目录 0700 且必须为本用户真实目录；实际路径写入 manifest 与 `rex.json`，恢复以记录为准。

@@ -1,0 +1,2 @@
+system#3 knit=TEXT:<knit> | <!-- knit:turn-context --> | 当前无选定任务。 | 是否建任务由用户决定：普通讨论、问答、只读调查、审阅和非正式小修改直接完成，不因调研、委派或报告落盘强制建任务。 | 不建
+system#11 knit=TEXT:<knit> | <!-- knit:turn-context --> | 当前任务：「F4 注入探针」（k-013300） | 阶段：实现（implement）；状态: open；分支: refs/heads/main

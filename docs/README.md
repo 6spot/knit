@@ -24,7 +24,7 @@
 | [RESEARCH.md](research/RESEARCH.md) | 调研依据、比较与实验索引 |
 | [validation/](../validation/) | 原始日志、实验夹具、验收与独立复核证据 |
 
-后续真机／真实模型验收按用户决定延期；本地隔离测试不替代 macOS 完整安装与运行验收。
+macOS 真机与真实模型验收已于 2026-11-11 在本机执行（安装、init、start、桥接、Rex 浮层、阶段链路、中断恢复与跨功能对话，证据 [validation/macos-acceptance-2026-11/](../validation/macos-acceptance-2026-11/README.md)）；Node 24 组合与发布流程仍未实测。
 
 ## 开发历史
 
