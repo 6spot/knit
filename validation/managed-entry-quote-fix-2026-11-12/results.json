@@ -1,0 +1,47 @@
+{
+  "taskId": "k-aa8a516e1edb",
+  "runId": "run-3f9e6879f487",
+  "kind": "implementation-self-validation",
+  "environment": { "platform": "darwin", "arch": "arm64", "node": "v26.13.0", "packageVersion": "0.1.0", "shell": "/bin/sh" },
+  "checks": [
+    { "method": "npm run -s typecheck", "status": "pass", "exitCode": 0 },
+    { "method": "npm run -s build", "status": "pass", "exitCode": 0 },
+    { "method": "node --test test/managed-entry.test.mjs (isolated environment)", "status": "pass", "passed": 11, "failed": 0, "skipped": 0 },
+    { "method": "node --test test/init.test.mjs (isolated environment, after managed-entry)", "status": "pass", "passed": 27, "failed": 0, "skipped": 0 },
+    { "method": "git diff --check", "status": "pass", "exitCode": 0 }
+  ],
+  "matrix": {
+    "directories": ["installation-plain", "installation with spaces", "installation ' \"$KNIT_QUOTE_VALUE\" $(touch injected)"],
+    "pathBranches": ["missing", "mismatch", "failed"],
+    "shellCallsPerInstallation": ["--version", "task list", "task list --archive"],
+    "installations": 9,
+    "generatedShellCalls": 27,
+    "generatedShellCallExitCodes": [0],
+    "versionStdout": "0.1.0",
+    "taskListStdout": "进行中（0）\n待归档（0）\n已取消（0）\n进行中 0 · 待归档 0 · 已取消 0 · 阻塞 0 · 归档 0（knit task list --archive）",
+    "archiveListStdout": "归档（0）",
+    "installationRealpathAssertionsPassed": 9,
+    "nodeArgvInitCheckExitCodes": [0],
+    "sideEffectMarkersCreated": 0,
+    "localNodeModulesCreated": 0
+  },
+  "actualCommandSamples": [
+    {
+      "case": "spaces/missing",
+      "command": "'/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-managed-quote-IPxLqB/installation with spaces/dist/cli/knit.js'",
+      "cliEntry": "/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-managed-quote-IPxLqB/installation with spaces/dist/cli/knit.js",
+      "barePathBaselineExitCode": 127,
+      "barePathBaselineStderr": "/bin/sh: /private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-managed-quote-IPxLqB/installation: No such file or directory",
+      "generatedCommandExitCodes": [0, 0, 0]
+    },
+    {
+      "case": "special/mismatch",
+      "command": "'/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-managed-quote-fEjKBn/installation '\\'' \"$KNIT_QUOTE_VALUE\" $(touch injected)/dist/cli/knit.js'",
+      "cliEntry": "/private/var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-managed-quote-fEjKBn/installation ' \"$KNIT_QUOTE_VALUE\" $(touch injected)/dist/cli/knit.js",
+      "generatedCommandExitCodes": [0, 0, 0],
+      "injectedMarkerExists": false
+    }
+  ],
+  "scenarios": { "R1.S1": "pass", "R1.S2": "pass", "R2.S1": "pass", "R2.S2": "pass" },
+  "notRun": ["independent check", "ordinary and real Rex terminal full npm test", "Linux/Windows/other shells", "Node24 matrix", "real Pi/full real-device and release matrix"]
+}

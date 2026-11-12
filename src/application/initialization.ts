@@ -549,7 +549,8 @@ function compareVersions(left: string, right: string): number {
 
 /**
  * 受管入口命令：PATH 中的 `knit` 可执行且 `knit --version` 与当前 CLI 版本一致时返回
- * `knit`，否则返回当前 CLI 入口绝对路径。`npx --no-install knit` 依赖项目内
+ * `knit`，否则返回当前 CLI 入口绝对路径的 shell token。文件路径身份仍保留原值。
+ * `npx --no-install knit` 依赖项目内
  * node_modules，与 README 的 npm 全局安装方式不符，不再作为回退。
  */
 export function resolveManagedKnitCommand(
@@ -559,6 +560,7 @@ export function resolveManagedKnitCommand(
 ): string {
   const env = options.env ?? process.env;
   const timeoutMs = options.timeoutMs ?? 3000;
+  const fallbackCommand = shellPathToken(cliEntry);
   for (const candidate of pathCandidates("knit", env)) {
     if (!isExecutableFile(candidate)) continue;
     // 只核对 shell 实际会解析到的第一个 knit：若它版本不符，写 `knit` 仍会执行错版本，必须回退。
@@ -569,9 +571,14 @@ export function resolveManagedKnitCommand(
       windowsHide: true,
       shell: process.platform === "win32" && /\.(?:cmd|bat)$/i.test(candidate),
     });
-    return probe.status === 0 && (probe.stdout ?? "").trim() === cliVersion ? "knit" : cliEntry;
+    return probe.status === 0 && (probe.stdout ?? "").trim() === cliVersion ? "knit" : fallbackCommand;
   }
-  return cliEntry;
+  return fallbackCommand;
+}
+
+/** POSIX shell 中的字面量路径；安全普通路径保持原样，单引号用闭合、转义、重开表示。 */
+function shellPathToken(path: string): string {
+  return /^[a-zA-Z0-9_./-]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`;
 }
 
 /** PATH 中的命令候选；Windows 按 PATHEXT 展开，Windows PATH 条目可带引号。 */
