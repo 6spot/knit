@@ -56,4 +56,10 @@ title: 清理材料中已移除的 --client 用法
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-11-init-client-flag
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8852b9053461 -->
+- 任务资料提交: b10503856b09cdfc1fd97168a92b5ee17452f3a1
+- 归档目标: .knit/tasks/archive/2026-11/11-11-init-client-flag
+
 <!-- knit:progress:end -->
