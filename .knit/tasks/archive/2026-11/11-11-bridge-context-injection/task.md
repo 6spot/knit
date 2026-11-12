@@ -82,4 +82,10 @@ title: 修复续接会话每轮 knit 上下文缺失
 - 结果: 正常交付；检查 run-29596ef451c8 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-11-bridge-context-injection
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-bb7309100aff -->
+- 任务资料提交: 05982d7ce15cac7f67b311f70125d049546fc498
+- 归档目标: .knit/tasks/archive/2026-11/11-11-bridge-context-injection
+
 <!-- knit:progress:end -->
