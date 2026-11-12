@@ -72,6 +72,7 @@
 - 任务书必需验证逐项：
   - Linux + Node24 + Pi1.4.0：PASS（实际安装、init、start）。
   - macOS：**未执行**，没有真实 macOS 环境；不标通过。
+  - 复跑提示：现行 CLI 已无 `init --client`（`bcff877` 起 `knit init` 默认启用 `--pi`）；本记录保留当时的命令，矩阵复跑前先核对 `knit init --help`。
   - 包排除 validation／任务／私有历史／日志／凭据：PASS（162 文件清单）。
   - 不 npm publish／部署／push／外部发布：保持。
 - 证据位置：`validation/release-candidate-linux/README.md`、`version.txt`、`init.txt`、`start.txt`、`start.err`。
