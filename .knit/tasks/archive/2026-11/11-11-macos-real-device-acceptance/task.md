@@ -186,4 +186,10 @@ macOS 当前只到「开发环境级」支持：`docs/design/TECHNOLOGY.md` 第 
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-11-macos-real-device-acceptance
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b2e07c91ead9 -->
+- 任务资料提交: bf23da5429746bb3ff4774475cb415a9b4e71945
+- 归档目标: .knit/tasks/archive/2026-11/11-11-macos-real-device-acceptance
+
 <!-- knit:progress:end -->
