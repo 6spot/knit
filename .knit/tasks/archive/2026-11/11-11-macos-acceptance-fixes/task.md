@@ -71,4 +71,10 @@ title: macOS 验收缺陷收口（主任务）
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-11-macos-acceptance-fixes
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d2b8f5b40d91 -->
+- 任务资料提交: c7d70becd9d6e9abd26a99725f27f24dda87c0b8
+- 归档目标: .knit/tasks/archive/2026-11/11-11-macos-acceptance-fixes
+
 <!-- knit:progress:end -->
