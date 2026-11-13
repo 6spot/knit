@@ -68,4 +68,10 @@ title: 测试清理时序：锁目录轮询与临时目录删除不再偶发失�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-14-test-cleanup-timing
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3e52f71279c4 -->
+- 任务资料提交: b01ec7a247dc6e4f8c575de7774de95eb2c6e678
+- 归档目标: .knit/tasks/archive/2026-11/11-14-test-cleanup-timing
+
 <!-- knit:progress:end -->
