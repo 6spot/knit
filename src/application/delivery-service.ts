@@ -416,7 +416,7 @@ export class DeliveryService {
         const isolation = hookIsolatedGit(deliveryHooksOf(config), this.git);
         try {
           if (input.recoverPolicy === true && operation.policyVersion !== policyVersion(root, config)) {
-            const recovered = this.recoverPolicy(root, input, operation, caller);
+            const recovered = this.recoverPolicy(root, input, operation, caller, classified);
             // 全部当前资格、授权和分支守卫通过后才发布策略恢复；不让开关跳过 prepare。
             await this.prepare(root, input, recovered, caller, messageInput, isolation.git);
             await this.store.operations.save(recovered);
@@ -596,7 +596,7 @@ export class DeliveryService {
     return { scope: "task" as const, rawKey: `${root}::${taskId}` };
   }
 
-  private recoverPolicy(root: string, input: DeliveryInput, operation: DeliveryOperation, caller: "cli" | "agent"): DeliveryOperation {
+  private recoverPolicy(root: string, input: DeliveryInput, operation: DeliveryOperation, caller: "cli" | "agent", classified: { artifacts: string[]; metadata: string[]; selected: string[] }): DeliveryOperation {
     if ((input.authorizationRef ?? "").trim() === "" || input.authorizationRef !== operation.authorizationRef) {
       throw new GuardError("authorization_required", "策略恢复须显式提供原操作授权来源");
     }
@@ -623,6 +623,21 @@ export class DeliveryService {
     for (const step of operation.steps) {
       const commit = commits.get(step.kind) ?? null;
       if (commit === null && step.state === "planned" && step.before === null && step.after === null && step.evidence === null) continue;
+      if (commits.has(step.kind) && step.state === "needs_attention" && input.retry === true) {
+        const stage = step.kind === "metadata_commit" ? "metadata" : step.kind === "archive_commit" ? "archive" : step.kind === "work_commit" ? "deliver" : "artifact";
+        if (commit === null) {
+          // 末尾历史扫描仍会拒绝未记录的本操作提交（包括旧 deliver 文案）。
+          continue;
+        }
+        const selected = step.kind === "archive_commit" ? [archiveScope(operation.taskPath), ...(operation.archivePath === null ? [] : [operation.archivePath])]
+          : step.kind === "metadata_commit" ? classified.metadata : step.kind === "work_commit" ? classified.selected : classified.artifacts;
+        const checked = this.verifyRetryCommit(root, operation, commit, selected, step.kind, stage, step.evidence ?? {});
+        if (checked.attention !== null) {
+          throw new GuardError("policy_recovery_effects", `副作用尚不能核验: ${step.stepId} (${commit}, ${checked.attention})`);
+        }
+        verifiedCommits.push(commit);
+        continue;
+      }
       if (!commits.has(step.kind) || commit === null || step.state !== "completed") {
         throw new GuardError("policy_recovery_effects", `副作用尚不能核验: ${step.stepId}`);
       }
@@ -645,9 +660,10 @@ export class DeliveryService {
       if (commit != null && !verifiedCommits.includes(commit)) throw new GuardError("policy_recovery_effects", `旧提交缺少步骤来源: ${commit}`);
     }
     for (const stage of ["artifact", "deliver", "metadata", "archive"] as const) {
-      const commit = this.findOperationCommit(root, operation.operationId, stage);
-      if (commit !== null && !verifiedCommits.includes(commit)) {
-        throw new GuardError("policy_recovery_effects", `发现未核验的操作提交: ${commit}`);
+      for (const commit of this.findOperationCommits(root, operation.operationId, stage)) {
+        if (!verifiedCommits.includes(commit)) {
+          throw new GuardError("policy_recovery_effects", `发现未核验的操作提交: ${commit}`);
+        }
       }
     }
     if (operation.sealDigest !== null) throw new GuardError("policy_recovery_effects", "已封存操作须先按原操作核对封存与移动副作用");
@@ -886,7 +902,7 @@ export class DeliveryService {
       throw new GuardError("branch_mismatch", `继续操作的分支 ${operation.branch} 与本次 --branch 不一致`);
     }
     if (operation.policyVersion !== policyVersion(root, this.readConfig(root))) {
-      throw new GuardError("policy_changed", "交付策略在操作开始后变化，重核后再继续");
+      throw new GuardError("policy_changed", `交付策略在操作开始后变化，重核后再继续；可用 --recover-policy 加原授权引用重核${operation.state === "needs_attention" ? "，同时加 --retry" : ""}`);
     }
     const located = locateTaskDocument(root, input.taskId);
     const taskDir = located.dir;
@@ -1098,36 +1114,9 @@ export class DeliveryService {
           }
         } else if (op.workCommit !== null) {
           // 上次已产生提交但被 hook 等置 needs_attention：显式重试只核实，不重复提交。
-          if (!commitExists(prepared.root, op.workCommit, this.git)) return attention("work_commit", "step_effect_missing");
-          if (!isStageCommit(commitMessage(prepared.root, op.workCommit, this.git), "deliver", op.operationId)) {
-            return attention("work_commit", "commit_message_mismatch", { commit: op.workCommit });
-          }
-          if (!isAncestor(prepared.root, op.workCommit, "HEAD", this.git)) return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, reason: "commit_not_ancestor" });
-          const prior = work?.evidence ?? {};
-          if (prior.before !== undefined) {
-            const parent = gitOrThrow(prepared.root, ["rev-parse", `${op.workCommit}^`], "读取提交父节点", this.git);
-            if (parent !== prior.before) return attention("work_commit", "commit_parent_mismatch", { commit: op.workCommit, parent });
-          }
-          if (prior.expectedPaths !== undefined) {
-            const actualPaths = commitPaths(prepared.root, op.workCommit, this.git);
-            const expectedPaths = prior.expectedPaths.split("\n").filter(Boolean);
-            if (!sameSet(actualPaths, expectedPaths)) {
-              return attention("work_commit", "commit_scope_mismatch", { commit: op.workCommit, expected: prior.expectedPaths, actual: actualPaths.join("\n") });
-            }
-          }
-          let supplemented: string[] = [];
-          if (prior.expectedTree !== undefined) {
-            let expectedTree: Record<string, string> = {};
-            try {
-              expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
-            } catch {
-              return attention("work_commit", "commit_verification_unavailable", { commit: op.workCommit });
-            }
-            const recovered = recoveredTreePaths(expectedTree, treeSnapshot(prepared.root, op.workCommit, prepared.selected, this.git), prepared.selected, prior.expectedPaths?.split("\n").filter(Boolean) ?? null);
-            if (recovered === null) return attention("work_commit", "hook_changed_selected", { commit: op.workCommit });
-            supplemented = recovered;
-          }
-          await completeStep("work_commit", { commit: op.workCommit, recovered: "true", supplementedPaths: supplemented.join("\n") });
+          const checked = this.verifyRetryCommit(prepared.root, op, op.workCommit, prepared.selected, "work_commit", "deliver", work?.evidence ?? {});
+          if (checked.attention !== null) return attention("work_commit", checked.attention, checked.evidence);
+          await completeStep("work_commit", checked.evidence);
         } else {
           const result = await this.workCommit(prepared, op, checkpoint);
           if (result.commit !== null) await save({ workCommit: result.commit });
@@ -1244,35 +1233,9 @@ export class DeliveryService {
       if (head !== op.archiveCommit) return attention("archive_commit", "archive_head_advanced", { commit: op.archiveCommit, head });
       this.removeSeal(join(prepared.root, op.archivePath ?? ""));
     } else if (op.archiveCommit !== null) {
-      if (!commitExists(prepared.root, op.archiveCommit, this.git)) return attention("archive_commit", "step_effect_missing");
-      if (!isStageCommit(commitMessage(prepared.root, op.archiveCommit, this.git), "archive", op.operationId)) {
-        return attention("archive_commit", "archive_message_mismatch", { commit: op.archiveCommit });
-      }
-      const head = gitOrThrow(prepared.root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-      if (head !== op.archiveCommit) return attention("archive_commit", "archive_scope_mismatch", { commit: op.archiveCommit, head });
-      const prior = archiveCommit?.evidence ?? {};
-      if (prior.before !== undefined) {
-        const parent = gitOrThrow(prepared.root, ["rev-parse", `${op.archiveCommit}^`], "读取归档提交父节点", this.git);
-        if (parent !== prior.before) return attention("archive_commit", "archive_parent_mismatch", { commit: op.archiveCommit, parent });
-      }
-      const selected = [archiveScope(op.taskPath), op.archivePath ?? ""];
-      const actual = commitPaths(prepared.root, op.archiveCommit, this.git);
-      if (prior.expectedPaths !== undefined) {
-        const expected = prior.expectedPaths.split("\n").filter(Boolean);
-        if (!sameSet(actual, expected)) return attention("archive_commit", "archive_scope_mismatch", { commit: op.archiveCommit, expected: prior.expectedPaths, actual: actual.join("\n") });
-      }
-      if (prior.expectedTree !== undefined) {
-        let expectedTree: Record<string, string> = {};
-        try {
-          expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
-        } catch {
-          return attention("archive_commit", "archive_verification_unavailable", { commit: op.archiveCommit });
-        }
-        if (!sameTree(expectedTree, treeSnapshot(prepared.root, op.archiveCommit, selected, this.git), selected)) {
-          return attention("archive_commit", "archive_content_mismatch", { commit: op.archiveCommit });
-        }
-      }
-      await completeStep("archive_commit", { commit: op.archiveCommit, recovered: "true" });
+      const checked = this.verifyRetryCommit(prepared.root, op, op.archiveCommit, [archiveScope(op.taskPath), op.archivePath ?? ""], "archive_commit", "archive", archiveCommit?.evidence ?? {});
+      if (checked.attention !== null) return attention("archive_commit", checked.attention, checked.evidence);
+      await completeStep("archive_commit", checked.evidence);
       this.removeSeal(join(prepared.root, op.archivePath ?? ""));
     } else {
       const message = await stageMessage("archive", () => this.archiveMessage(prepared, op));
@@ -1417,15 +1380,17 @@ export class DeliveryService {
 
   /** 回执丢失时用操作 ID 缩小候选（新旧格式都含该 ID），再按 trailer／旧前缀定位阶段提交。 */
   private findOperationCommit(root: string, operationId: string, stage: DeliveryStage): string | null {
+    return this.findOperationCommits(root, operationId, stage)[0] ?? null;
+  }
+
+  private findOperationCommits(root: string, operationId: string, stage: DeliveryStage): string[] {
     const result = this.git(
       ["log", "--all", "--format=%H", "--all-match", "--fixed-strings", `--grep=${operationId}`],
       root,
     );
-    if (result.code !== 0) return null;
-    for (const oid of result.stdout.split(/\s+/).filter(Boolean)) {
-      if (isStageCommit(commitMessage(root, oid, this.git), stage, operationId)) return oid;
-    }
-    return null;
+    if (result.code !== 0) return [];
+    return result.stdout.split(/\s+/).filter(Boolean)
+      .filter(oid => isStageCommit(commitMessage(root, oid, this.git), stage, operationId));
   }
 
   /** 产物步骤兼容升级前的 `knit: deliver` 工作提交。 */
@@ -1436,6 +1401,54 @@ export class DeliveryService {
 
   private async workCommit(prepared: Prepared, op: DeliveryOperation, checkpoint?: (kind: string, evidence: Record<string, string>) => Promise<void>): Promise<{ commit: string | null; evidence: Record<string, string>; attention: string | null }> {
     return this.commitSelected(prepared, op, prepared.selected, "work_commit", "deliver", null, checkpoint);
+  }
+
+  /** 策略恢复与普通重试共用；只读核验，不补写步骤或提交检查点。 */
+  private verifyRetryCommit(
+    root: string, op: DeliveryOperation, recovered: string, selected: string[],
+    stepKind: string, stage: DeliveryStage, prior: Record<string, string>,
+  ): { commit: string; evidence: Record<string, string>; attention: string | null } {
+    const archive = stepKind === "archive_commit";
+    const fail = (reason: string, evidence: Record<string, string> = {}) => ({
+      commit: recovered, evidence: { reason, commit: recovered, ...evidence }, attention: reason,
+    });
+    const scopeMismatch = archive ? "archive_scope_mismatch" : "commit_scope_mismatch";
+    if (!commitExists(root, recovered, this.git)) return fail("step_effect_missing");
+    if (!this.isOperationCommit(commitMessage(root, recovered, this.git), stage, op.operationId)) {
+      return fail(archive ? "archive_message_mismatch" : "commit_message_mismatch");
+    }
+    if (!isAncestor(root, recovered, "HEAD", this.git)) return fail(scopeMismatch, { reason: "commit_not_ancestor" });
+    const actual = commitPaths(root, recovered, this.git);
+    const head = gitOrThrow(root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
+    if (head !== recovered && stepKind !== "artifact_commit" && stepKind !== "work_commit") {
+      return fail(scopeMismatch, { head, recovered: "true" });
+    }
+    if (prior.before !== undefined) {
+      const parent = gitOrThrow(root, ["rev-parse", `${recovered}^`], "读取提交父节点", this.git);
+      if (parent !== prior.before) return fail(archive ? "archive_parent_mismatch" : "commit_parent_mismatch", { parent, recovered: "true" });
+    }
+    if (prior.expectedPaths !== undefined && !sameSet(actual, prior.expectedPaths.split("\n").filter(Boolean))) {
+      return fail(scopeMismatch, { expected: prior.expectedPaths, actual: actual.join("\n"), recovered: "true" });
+    }
+    let supplemented: string[] = [];
+    if (prior.expectedTree !== undefined) {
+      let expectedTree: Record<string, string>;
+      try {
+        expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
+        if (expectedTree === null || typeof expectedTree !== "object" || Array.isArray(expectedTree)) throw new Error("invalid tree");
+      } catch {
+        return fail(archive ? "archive_verification_unavailable" : "commit_verification_unavailable");
+      }
+      const actualTree = treeSnapshot(root, recovered, selected, this.git);
+      const matched = stepKind === "artifact_commit" || stepKind === "work_commit"
+        ? recoveredTreePaths(expectedTree, actualTree, selected, prior.expectedPaths?.split("\n").filter(Boolean) ?? null)
+        : sameTree(expectedTree, actualTree, selected) ? [] : null;
+      if (matched === null) return fail(archive ? "archive_content_mismatch" : "hook_changed_selected", { recovered: "true" });
+      supplemented = matched;
+    }
+    const outside = actual.filter((path) => !selectedPath(path, selected));
+    if (outside.length > 0) return fail(scopeMismatch, { paths: actual.join("\n"), unexpected: outside.join("\n"), recovered: "true" });
+    return { commit: recovered, evidence: { commit: recovered, paths: actual.join("\n"), recovered: "true", supplementedPaths: supplemented.join("\n") }, attention: null };
   }
 
   private async commitSelected(
@@ -1461,63 +1474,8 @@ export class DeliveryService {
       recovered = op.workCommit;
     }
     const prior = op.steps.find((item) => item.kind === stepKind)?.evidence ?? {};
-    if (recovered !== null && !commitExists(root, recovered, this.git)) {
-      return { commit: recovered, evidence: { commit: recovered }, attention: "step_effect_missing" };
-    }
     if (recovered !== null) {
-      if (!this.isOperationCommit(commitMessage(root, recovered, this.git), stage, op.operationId)) {
-        return { commit: recovered, evidence: { reason: "commit_message_mismatch", commit: recovered }, attention: "commit_message_mismatch" };
-      }
-      if (!isAncestor(root, recovered, "HEAD", this.git)) {
-        return { commit: recovered, evidence: { commit: recovered, reason: "commit_not_ancestor" }, attention: "commit_scope_mismatch" };
-      }
-      const actual = commitPaths(root, recovered, this.git);
-      const head = gitOrThrow(root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-      if (head !== recovered && stepKind !== "artifact_commit" && stepKind !== "work_commit") {
-        return { commit: recovered, evidence: { reason: "commit_scope_mismatch", commit: recovered, head, recovered: "true" }, attention: "commit_scope_mismatch" };
-      }
-      if (prior.before !== undefined) {
-        const parent = gitOrThrow(root, ["rev-parse", `${recovered}^`], "读取提交父节点", this.git);
-        if (parent !== prior.before) {
-          return { commit: recovered, evidence: { reason: "commit_parent_mismatch", commit: recovered, parent, recovered: "true" }, attention: "commit_parent_mismatch" };
-        }
-      }
-      if (prior.expectedPaths !== undefined) {
-        const expectedPaths = prior.expectedPaths.split("\n").filter(Boolean);
-        if (!sameSet(actual, expectedPaths)) {
-          return {
-            commit: recovered,
-            evidence: { reason: "commit_scope_mismatch", commit: recovered, expected: prior.expectedPaths, actual: actual.join("\n"), recovered: "true" },
-            attention: "commit_scope_mismatch",
-          };
-        }
-      }
-      let supplemented: string[] = [];
-      if (prior.expectedTree !== undefined) {
-        let expectedTree: Record<string, string> = {};
-        try {
-          expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
-        } catch {
-          return { commit: recovered, evidence: { reason: "commit_verification_unavailable", commit: recovered }, attention: "commit_verification_unavailable" };
-        }
-        const actualTree = treeSnapshot(root, recovered, selected, this.git);
-        const matched = stepKind === "artifact_commit" || stepKind === "work_commit"
-          ? recoveredTreePaths(expectedTree, actualTree, selected, prior.expectedPaths?.split("\n").filter(Boolean) ?? null)
-          : sameTree(expectedTree, actualTree, selected) ? [] : null;
-        if (matched === null) {
-          return { commit: recovered, evidence: { reason: "hook_changed_selected", commit: recovered, recovered: "true" }, attention: "hook_changed_selected" };
-        }
-        supplemented = matched;
-      }
-      const outside = actual.filter((path) => !selectedPath(path, selected));
-      if (outside.length > 0) {
-        return {
-          commit: recovered,
-          evidence: { reason: "commit_scope_mismatch", commit: recovered, paths: actual.join("\n"), unexpected: outside.join("\n"), recovered: "true" },
-          attention: "commit_scope_mismatch",
-        };
-      }
-      return { commit: recovered, evidence: { commit: recovered, paths: actual.join("\n"), recovered: "true", supplementedPaths: supplemented.join("\n") }, attention: null };
+      return this.verifyRetryCommit(root, op, recovered, selected, stepKind, stage, prior);
     }
     const beforeHead = gitOrThrow(root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
     if (prior.before !== undefined && beforeHead !== prior.before) {
@@ -1608,48 +1566,7 @@ export class DeliveryService {
     const recovered = this.findOperationCommit(root, op.operationId, "archive");
     const prior = op.steps.find((item) => item.kind === "archive_commit")?.evidence ?? {};
     if (recovered !== null && isAncestor(root, recovered, "HEAD", this.git)) {
-      const actual = commitPaths(root, recovered, this.git);
-      const selectedForRecovery = [archiveScope(op.taskPath), op.archivePath];
-      const head = gitOrThrow(root, ["rev-parse", "HEAD"], "读取 HEAD", this.git);
-      if (head !== recovered) {
-        return { commit: recovered, evidence: { reason: "archive_scope_mismatch", commit: recovered, head, recovered: "true" }, attention: "archive_scope_mismatch" };
-      }
-      if (prior.before !== undefined) {
-        const parent = gitOrThrow(root, ["rev-parse", `${recovered}^`], "读取提交父节点", this.git);
-        if (parent !== prior.before) {
-          return { commit: recovered, evidence: { reason: "archive_parent_mismatch", commit: recovered, parent, recovered: "true" }, attention: "archive_parent_mismatch" };
-        }
-      }
-      if (prior.expectedPaths !== undefined) {
-        const expectedPaths = prior.expectedPaths.split("\n").filter(Boolean);
-        if (!sameSet(actual, expectedPaths)) {
-          return {
-            commit: recovered,
-            evidence: { reason: "archive_scope_mismatch", commit: recovered, expected: prior.expectedPaths, actual: actual.join("\n"), recovered: "true" },
-            attention: "archive_scope_mismatch",
-          };
-        }
-      }
-      if (prior.expectedTree !== undefined) {
-        let expectedTree: Record<string, string> = {};
-        try {
-          expectedTree = JSON.parse(prior.expectedTree) as Record<string, string>;
-        } catch {
-          return { commit: recovered, evidence: { reason: "archive_verification_unavailable", commit: recovered }, attention: "archive_verification_unavailable" };
-        }
-        if (!sameTree(expectedTree, treeSnapshot(root, recovered, selectedForRecovery, this.git), selectedForRecovery)) {
-          return { commit: recovered, evidence: { reason: "archive_content_mismatch", commit: recovered, recovered: "true" }, attention: "archive_content_mismatch" };
-        }
-      }
-      const outside = actual.filter((path) => !selectedPath(path, selectedForRecovery));
-      if (outside.length > 0) {
-        return {
-          commit: recovered,
-          evidence: { reason: "archive_scope_mismatch", commit: recovered, paths: actual.join("\n"), unexpected: outside.join("\n"), recovered: "true" },
-          attention: "archive_scope_mismatch",
-        };
-      }
-      return { commit: recovered, evidence: { commit: recovered, paths: actual.join("\n"), recovered: "true" }, attention: null };
+      return this.verifyRetryCommit(root, op, recovered, [archiveScope(op.taskPath), op.archivePath], "archive_commit", "archive", prior);
     }
     const targetDir = join(root, op.archivePath);
     const archivedTask = join(targetDir, TASK_FILE);

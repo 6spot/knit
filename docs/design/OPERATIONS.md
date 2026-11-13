@@ -202,7 +202,7 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 
 scope 保留原路径并合入签名记录的历史路径，原 runIds 不变；`recoveries` 追加分支、提交、时间、旧范围摘要、原实施凭据字节摘要与位置及复核路径的新旧指纹。不会创建 implementation 或虚报 changedPaths。复核清除当前完成资格与 lastCheckRunId，原 run／检查文件保留；完成凭据另记 `recoveryCommits`。随后必须在当前输入与提示词上重新正式 independent 检查，完整 scope 和全部场景的覆盖守卫照常生效，缺路径或场景不能完成。原签名备份只作核验来源，不复制回 runtime；换机缺密钥时不能信任它。
 
-旧交付因 `policy_changed` 停止时，已有授权覆盖的主会话可执行 `knit deliver <id> --branch <ref> --authorization-ref <原引用> --recover-policy`（needs_attention 同时给 `--retry`）。核心重新核对分支、当前资格、原授权文件或原生用户消息及已有提交的来源、祖先、路径和提交树；无法核验的副作用报 `policy_recovery_effects`，不自动重做。已封存／移动而无足够核验链的操作仍拒绝。只有重核通过才更新当前策略并追加 `policyRecoveries`，保留旧策略、授权和已核验提交；普通 retry 不跳过策略检查。
+旧交付因 `policy_changed` 停止时，已有授权覆盖的主会话可执行 `knit deliver <id> --branch <ref> --authorization-ref <原引用> --recover-policy`（needs_attention 同时给 `--retry`）。核心重新核对分支、当前资格、原授权文件或原生用户消息及已有提交的来源、祖先、路径和提交树。needs_attention 的产物、资料和归档提交步骤按普通重试共用的规则核验：提交存在、文案属于本操作与阶段、是 HEAD 的祖先、已记录父提交相符、expectedPaths 与实际路径集合相等、expectedTree 逐条相等；产物提交沿用尾斜杠目录漏记条目的补认规则。步骤未记录提交且历史中没有本操作该阶段的提交时视为无副作用；历史中发现未记录或未核验的本操作提交仍拒绝。非提交步骤（final_record、seal、move）只接受无痕迹的 planned，已封存操作仍拒绝。无法核验的副作用报 `policy_recovery_effects` 并保留步骤或提交标识，不更新策略、恢复记录、步骤状态或提交。只有全部重核及当前资格守卫通过才更新策略并追加 `policyRecoveries`，保留旧策略、授权和已核验提交，同一次调用继续普通重试；普通 retry 不跳过策略检查。needs_attention 不带 `--retry` 时直接返回已有结果，即使给出 `--recover-policy` 也不恢复策略。
 
 公开 cancel 将无副作用 planned 操作变为 abandoned 后，后续交付忽略该历史操作并建立新操作；带副作用或检查点的 abandoned 操作阻挡重新交付，避免重复执行。目录选择按后代文件展开提交，资料提交与归档移动保持同一目录范围。恢复选项目前由 CLI／TaskService、DeliveryService 提供；宿主桥接未载入这些参数时，在项目根使用本次构建的 `node dist/cli/knit.js` 调同一公开入口。
 

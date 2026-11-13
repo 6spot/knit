@@ -1474,6 +1474,115 @@ test("策略显式恢复：保留旧策略，核验授权并正常提交归档�
   } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+for (const variant of ["recorded", "trailing-directory", "before-commit", "tree-mismatch", "paths-mismatch", "parent-mismatch", "message-mismatch", "missing-commit", "not-ancestor", "unrecorded", "unverified-history", "retry-only", "recover-only", "wrong-authorization", "wrong-branch", "final_record", "seal", "move", "sealed"]) {
+  test(`策略恢复随重试：${variant}`, async () => {
+    const dir = project(`policy-retry-${variant}`);
+    const s = services(dir);
+    try {
+      const task = await makeDeliverable(dir, s);
+      const runs = new RunStore(dir);
+      if (variant === "trailing-directory") {
+        mkdirSync(join(dir, "dir"));
+        writeFileSync(join(dir, "dir/a.txt"), "a\n");
+        writeFileSync(join(dir, "dir/b.txt"), "b\n");
+        task.scope.entries = [currentEntry(dir, "dir/", { factsKind: true })];
+        task.scope.digest = scopeDigest(task.scope.entries);
+        runs.writeScope(task.taskId, task.scope);
+        task.check.scopeDigest = task.scope.digest;
+        task.check.runId = "run-abcdef123457";
+        runs.writeCheck(task.check.runId, task.check);
+        const binding = await s.store.bindings.get(task.taskId);
+        await s.store.bindings.save({ ...binding, lastCheckRunId: task.check.runId });
+      }
+      const request = { dir, taskId: task.taskId, branch: BRANCH, authorizationRef: "workflow:AGENTS.md#交付授权" };
+      const hook = join(dir, ".git/hooks", variant === "before-commit" ? "pre-commit" : "post-commit");
+      writeFileSync(hook, variant === "before-commit" ? "#!/bin/sh\nexit 1\n" : "#!/bin/sh\necho hook-change >> other.txt\n");
+      chmodSync(hook, 0o755);
+      const first = await s.delivery.deliver(request);
+      assert.equal(first.state, "needs_attention", first.reason);
+      assert.equal(Boolean(first.workCommit), variant !== "before-commit");
+      rmSync(hook);
+      git(dir, ["restore", "other.txt"]);
+      let operation = await s.store.operations.get(first.operationId);
+      const artifact = operation.steps.find(step => step.kind === "artifact_commit");
+      assert.equal(artifact.state, "needs_attention");
+      const originalCommit = first.workCommit;
+      if (variant === "trailing-directory") artifact.evidence.expectedTree = "{}";
+      if (variant === "tree-mismatch") artifact.evidence.expectedTree = JSON.stringify({ "app.txt": "100644 blob wrong" });
+      if (variant === "paths-mismatch") artifact.evidence.expectedPaths = "other.txt";
+      if (variant === "parent-mismatch") artifact.evidence.before = "f".repeat(40);
+      if (variant === "missing-commit") operation.workCommit = "f".repeat(40);
+      if (variant === "message-mismatch") {
+        git(dir, ["commit", "--amend", "-qm", "unrelated commit"]);
+        operation.workCommit = git(dir, ["rev-parse", "HEAD"]);
+      }
+      if (variant === "not-ancestor") git(dir, ["reset", "--soft", `${originalCommit}^`]);
+      if (variant === "unrecorded") operation.workCommit = null;
+      if (variant === "unverified-history") {
+        const hidden = execFileSync("git", ["commit-tree", `${originalCommit}^{tree}`, "-p", `${originalCommit}^`, "-m", `knit: artifact ${task.taskId} (${operation.operationId})`], {
+          cwd: dir, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z" },
+        }).trim();
+        git(dir, ["branch", "unverified-history", hidden]);
+      }
+      if (["final_record", "seal", "move"].includes(variant)) {
+        const step = operation.steps.find(step => step.kind === variant);
+        step.state = "needs_attention";
+        step.evidence = { reason: "interrupted" };
+      }
+      if (variant === "sealed") operation.sealDigest = "a".repeat(64);
+      await s.store.operations.save(operation);
+      writeFileSync(join(dir, "AGENTS.md"), readFileSync(join(dir, "AGENTS.md"), "utf8") + "策略新增检查说明。\n");
+      if (variant === "before-commit") {
+        // 策略变化后重建当前检查资格；恢复开关仍须经过正常 prepare 守卫。
+        const document = parseTaskDocument(readFileSync(task.taskFile, "utf8"), task.taskFile);
+        writeFileSync(task.taskFile, renderTaskDocument({ ...document, frontmatter: { ...document.frontmatter, status: "open", outcome: null } }));
+        runs.removeCompletion(task.taskId);
+        const plan = await new ContextPlanner({ store: s.store, now: () => NOW, randomHex: () => "abcdef123456" }).plan({ dir, taskId: task.taskId, role: "check" });
+        const check = { ...task.check, runId: "run-abcdef123458", inputsDigest: plan.inputsDigest, standardsDigest: plan.standardsDigest, effectiveInputsDigest: plan.effectiveInputsDigest };
+        runs.writeCheck(check.runId, check);
+        const binding = await s.store.bindings.get(task.taskId);
+        await s.store.bindings.save({ ...binding, lastCheckRunId: check.runId });
+      }
+      operation = await s.store.operations.get(first.operationId);
+      const head = git(dir, ["rev-parse", "HEAD"]);
+      const originalRecord = JSON.stringify(operation);
+      const retry = { ...request, retry: true, recoverPolicy: true };
+      if (variant === "retry-only") {
+        await assert.rejects(s.delivery.deliver({ ...request, retry: true }), error =>
+          error.guardReason === "policy_changed" && /交付策略在操作开始后变化/.test(error.message) && /--recover-policy/.test(error.message) && /--retry/.test(error.message));
+      } else if (variant === "recover-only") {
+        const result = await s.delivery.deliver({ ...request, recoverPolicy: true });
+        assert.equal(result.state, "needs_attention");
+        assert.equal(result.operationId, operation.operationId);
+      } else if (variant === "wrong-authorization") {
+        await assert.rejects(s.delivery.deliver({ ...retry, authorizationRef: "user:other" }), error => error.guardReason === "authorization_required");
+      } else if (variant === "wrong-branch") {
+        await assert.rejects(s.delivery.deliver({ ...retry, branch: "refs/heads/other" }), error => error.guardReason === "branch_mismatch");
+      } else if (!["recorded", "trailing-directory", "before-commit"].includes(variant)) {
+        await assert.rejects(s.delivery.deliver(retry), error => error.guardReason === "policy_recovery_effects" && /步骤|提交|副作用|封存/.test(error.message));
+      } else {
+        const result = await s.delivery.deliver(retry);
+        assert.equal(result.state, "completed", result.reason);
+        assert.ok(result.metadataCommit && result.archiveCommit);
+        if (originalCommit !== null) assert.equal(result.workCommit, originalCommit);
+        const recovered = await s.store.operations.get(operation.operationId);
+        assert.equal(recovered.policyRecoveries.length, 1);
+        const recovery = recovered.policyRecoveries[0];
+        assert.equal(recovery.previousPolicy, operation.policyVersion);
+        assert.notEqual(recovery.currentPolicy, operation.policyVersion);
+        assert.equal(recovery.currentPolicy, recovered.policyVersion);
+        assert.equal(recovery.authorization.verified, true);
+        assert.deepEqual(recovery.verifiedCommits, originalCommit === null ? [] : [originalCommit]);
+        assert.equal(git(dir, ["log", "--format=%H", "--fixed-strings", "--grep=Knit-Stage: artifact"]).split("\n").filter(Boolean).length, 1);
+        if (variant === "trailing-directory") assert.equal(recovered.steps.find(step => step.kind === "artifact_commit").evidence.supplementedPaths, "dir/a.txt\ndir/b.txt");
+        return;
+      }
+      assert.equal(JSON.stringify(await s.store.operations.get(operation.operationId)), originalRecord);
+      assert.equal(git(dir, ["rev-parse", "HEAD"]), head);
+    } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
 test("abandoned 的无副作用交付保留历史且不被重新执行", async () => {
   const dir = project("abandoned");
   const s = services(dir);
