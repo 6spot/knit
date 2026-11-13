@@ -17,6 +17,7 @@ export type StageForbiddenAction =
   | "worktree merge --apply"
   | "worktree cleanup"
   | "task close"
+  | "task rebind --recover"
   | "unlock"
   | "gc --apply"
   | "run accept";

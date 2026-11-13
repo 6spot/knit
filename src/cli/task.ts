@@ -396,14 +396,16 @@ export function registerTaskCommands(program: Command): void {
 
   task
     .command("rebind <taskId>")
-    .description("clone／换机后按 task.md 重建本机绑定与证据落点（降级不消耗 stageVisits）")
+    .description("clone／换机后重建本机绑定；--recover 显式复核历史成果来源")
     .option("--dir <dir>", "项目目录", ".")
+    .option("--recover <file>", "历史复核 JSON：branch、commit、paths，可选 implementationFile（原签名记录）")
     .action(async (taskId, options) => {
       const requestId = `task-rebind-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await withService(
         requestId,
         options.dir,
-        (service) => service.rebind({ dir: options.dir, taskId }),
+        (service) => service.rebind({ dir: options.dir, taskId,
+          ...(options.recover === undefined ? {} : { recovery: JSON.parse(readFileSync(options.recover, "utf8")) }) }),
         (result) => {
           console.log(`任务 ${result.taskId}: ${result.rebound ? "本机绑定已重建" : "本机已有绑定"} ${result.branch ?? "（无分支）"}`);
           console.log(`阶段: ${result.originalStage} → ${result.stage}；${result.reason}`);

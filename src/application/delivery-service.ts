@@ -5,7 +5,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { TaskBinding } from "../contracts/metadata.js";
 import type {
   AuthorizationSource,
@@ -102,6 +102,8 @@ export interface DeliveryInput {
   messageFile?: string | null;
   /** 显式重试 needs_attention：先核验已完成效果，不盲目重复提交。 */
   retry?: boolean;
+  /** 显式按当前策略重核；保留旧策略、授权与副作用证据。 */
+  recoverPolicy?: boolean;
   /** 显式授权本次交付先合入已绑定 worktree；缺省按 delivery.mode 配置。 */
   merge?: boolean;
   /** 显式授权交付后清理 worktree；缺省按 worktree.cleanup 配置。 */
@@ -365,6 +367,9 @@ export class DeliveryService {
     const caller = input.caller ?? "cli";
     const config = this.readConfig(root);
     const existing = await this.latestOperation(root, input.taskId);
+    if (existing?.state === "abandoned") {
+      throw new GuardError("operation_abandoned_effects", "已放弃操作仍有副作用或检查点；先核对原操作，不能另起重复交付");
+    }
     if (existing?.state === "completed") {
       return await this.cleanupAfterDelivery(root, input, config, this.resultOf(existing, true));
     }
@@ -389,6 +394,9 @@ export class DeliveryService {
     let result: DeliveryResult | null = null;
     try {
       const latest = await this.latestOperation(root, input.taskId);
+      if (latest?.state === "abandoned") {
+        throw new GuardError("operation_abandoned_effects", "已放弃操作仍有未收束副作用");
+      }
       if (latest?.state === "completed") {
         result = this.resultOf(latest, true);
       } else if (latest?.state === "needs_attention" && input.retry !== true) {
@@ -401,11 +409,18 @@ export class DeliveryService {
           throw new GuardError("preexisting_staged", `任务资料已有用户暂存内容，请先整理index: ${stagedMetadata.join(", ")}`);
         }
         const messageInput = this.messageInputFor(input, latest);
-        const operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft, followUp ?? undefined));
+        let operation = latest ?? (await this.createOperation(root, input, caller, messageInput.draft, followUp ?? undefined));
         recheckAuthorization(root, operation.authorization, caller);
         // Knit 发起的提交按 delivery.hooks 隔离用户 hooks：skip（缺省）用私有空目录作 core.hooksPath。
         const isolation = hookIsolatedGit(deliveryHooksOf(config), this.git);
         try {
+          if (input.recoverPolicy === true && operation.policyVersion !== policyVersion(root, config)) {
+            const recovered = this.recoverPolicy(root, input, operation, caller);
+            // 全部当前资格、授权和分支守卫通过后才发布策略恢复；不让开关跳过 prepare。
+            await this.prepare(root, input, recovered, caller, messageInput, isolation.git);
+            await this.store.operations.save(recovered);
+            operation = recovered;
+          }
           const prepared = await this.prepare(root, input, operation, caller, messageInput, isolation.git);
           result = await this.execute(prepared, operation);
         } finally {
@@ -580,10 +595,77 @@ export class DeliveryService {
     return { scope: "task" as const, rawKey: `${root}::${taskId}` };
   }
 
+  private recoverPolicy(root: string, input: DeliveryInput, operation: DeliveryOperation, caller: "cli" | "agent"): DeliveryOperation {
+    if ((input.authorizationRef ?? "").trim() === "" || input.authorizationRef !== operation.authorizationRef) {
+      throw new GuardError("authorization_required", "策略恢复须显式提供原操作授权来源");
+    }
+    let authorization = recheckAuthorization(root, operation.authorization, caller);
+    if (authorization.kind === "user_reference") {
+      if (!authorization.verified || authorization.path === null || authorization.ref === null) {
+        throw new GuardError("authorization_unverified", "旧用户授权缺少可核验的原生会话来源");
+      }
+      const refreshed = resolveAuthorization(root, authorization.ref, caller, { sessionFile: resolve(root, authorization.path) });
+      if (refreshed.digest !== authorization.digest || refreshed.section !== authorization.section) {
+        throw new GuardError("authorization_changed", "原用户授权消息已变化");
+      }
+      authorization = refreshed;
+    }
+    if (!authorization.verified) throw new GuardError("authorization_unverified", "策略恢复需要可核验的授权来源");
+    if (operation.branch !== input.branch || currentBranch(root, this.git) !== input.branch) {
+      throw new GuardError("branch_mismatch", "策略恢复分支与当前任务操作不符");
+    }
+    const verifiedCommits: string[] = [];
+    const commits = new Map<string, string | null>([
+      ["artifact_commit", operation.workCommit], ["work_commit", operation.workCommit],
+      ["metadata_commit", operation.metadataCommit ?? null], ["archive_commit", operation.archiveCommit],
+    ]);
+    for (const step of operation.steps) {
+      const commit = commits.get(step.kind) ?? null;
+      if (commit === null && step.state === "planned" && step.before === null && step.after === null && step.evidence === null) continue;
+      if (!commits.has(step.kind) || commit === null || step.state !== "completed") {
+        throw new GuardError("policy_recovery_effects", `副作用尚不能核验: ${step.stepId}`);
+      }
+      const stage = step.kind === "metadata_commit" ? "metadata" : step.kind === "archive_commit" ? "archive" : "artifact";
+      const evidence = step.evidence;
+      let expected: Record<string, string>;
+      try { expected = JSON.parse(evidence?.expectedTree ?? "null") as Record<string, string>; }
+      catch { throw new GuardError("policy_recovery_effects", `缺少原提交树证据: ${commit}`); }
+      const paths = evidence?.expectedPaths?.split("\n").filter(Boolean) ?? [];
+      if (expected === null || typeof expected !== "object" || Array.isArray(expected) || paths.length === 0 ||
+          !isAncestor(root, commit, "HEAD", this.git) ||
+          !this.isOperationCommit(commitMessage(root, commit, this.git), stage, operation.operationId) ||
+          !sameSet(commitPaths(root, commit, this.git), paths) ||
+          !sameTree(expected, treeSnapshot(root, commit, paths, this.git), paths)) {
+        throw new GuardError("policy_recovery_effects", `旧提交不可核验: ${commit}`);
+      }
+      verifiedCommits.push(commit);
+    }
+    for (const commit of [operation.workCommit, operation.metadataCommit, operation.archiveCommit]) {
+      if (commit != null && !verifiedCommits.includes(commit)) throw new GuardError("policy_recovery_effects", `旧提交缺少步骤来源: ${commit}`);
+    }
+    for (const stage of ["artifact", "deliver", "metadata", "archive"] as const) {
+      const commit = this.findOperationCommit(root, operation.operationId, stage);
+      if (commit !== null && !verifiedCommits.includes(commit)) {
+        throw new GuardError("policy_recovery_effects", `发现未核验的操作提交: ${commit}`);
+      }
+    }
+    if (operation.sealDigest !== null) throw new GuardError("policy_recovery_effects", "已封存操作须先按原操作核对封存与移动副作用");
+    const currentPolicy = policyVersion(root, this.readConfig(root));
+    return { ...operation, policyVersion: currentPolicy, updatedAt: this.now().toISOString(),
+      policyRecoveries: [...(operation.policyRecoveries ?? []), { previousPolicy: operation.policyVersion,
+        currentPolicy, authorization, branch: input.branch, recordedAt: this.now().toISOString(), verifiedCommits }] };
+  }
+
   private async latestOperation(root: string, taskId: string): Promise<DeliveryOperation | null> {
     const all = await this.store.operations.list();
     const candidates = all
-      .filter((operation) => operation.kind.startsWith("delivery.") && (operation as Partial<DeliveryOperation>).taskId === taskId)
+      .filter((operation) => {
+        if (!operation.kind.startsWith("delivery.") || (operation as Partial<DeliveryOperation>).taskId !== taskId) return false;
+        if (operation.state !== "abandoned") return true;
+        const delivery = operation as DeliveryOperation;
+        return delivery.workCommit !== null || delivery.metadataCommit != null || delivery.archiveCommit !== null ||
+          delivery.sealDigest !== null || delivery.steps.some(step => step.state !== "planned" || step.before !== null || step.after !== null || step.evidence !== null);
+      })
       .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
     return (candidates.at(-1) as DeliveryOperation | undefined) ?? null;
   }
@@ -959,7 +1041,7 @@ export class DeliveryService {
       const target = step(kind);
       if (target !== undefined) {
         target.state = "completed";
-        target.evidence = evidence;
+        target.evidence = { ...(target.evidence ?? {}), ...evidence };
         target.after = evidence;
       }
       await save({ state: op.state === "planned" ? "running" : op.state });

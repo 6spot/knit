@@ -43,7 +43,8 @@ import { assertNotInStageContext } from "./stage-context.js";
 import { formalStandardsDigest } from "./standards.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
-import { currentEntry, scopeDigest, type ScopeEntry } from "./scope.js";
+import { currentEntry, loadScope, scopeDigest, type ScopeEntry } from "./scope.js";
+import { recoveredScope, type ScopeRecoveryInput } from "./scope-recovery.js";
 import { readWithVersion, atomicWrite } from "../infrastructure/atomic.js";
 import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
@@ -332,6 +333,8 @@ export interface TaskAdoptResult {
 export interface TaskRebindInput {
   dir: string;
   taskId: string;
+  /** 显式复核历史成果；不会创建实施记录或检查资格。 */
+  recovery?: ScopeRecoveryInput;
 }
 
 export interface TaskRebindResult {
@@ -1717,6 +1720,7 @@ export class TaskService {
    * 不创建 run，不写检查／完成凭据；降级不进入阶段，不消耗 stageVisits 预算。
    */
   async rebind(input: TaskRebindInput): Promise<TaskRebindResult> {
+    if (input.recovery !== undefined) assertNotInStageContext("task rebind --recover");
     const root = normalizeRoot(input.dir);
     const lock = await this.lockTaskState(root, input.taskId, "task.rebind");
     try {
@@ -1727,6 +1731,27 @@ export class TaskService {
       if (before === null) throw new InfrastructureError("io_error", `task.md 缺失: ${file}`);
       const document = parseTaskDocument(before.data.toString("utf8"), file);
       const existing = await this.store.bindings.get(input.taskId);
+      if (input.recovery !== undefined) {
+        if (existing === null || existing.pendingDraft !== null || document.frontmatter.status !== "open" ||
+            existing.confirmedInputsDigest !== inputsDigestOf(before.data.toString("utf8"))) {
+          throw new TaskGuardError("inputs_not_confirmed", "恢复需要已 ready 的开放任务与无待应用草案的本机绑定");
+        }
+        if (document.frontmatter.branch !== input.recovery.branch || existing.branch !== input.recovery.branch || existing.worktree?.active === true) {
+          throw new TaskGuardError("branch_mismatch", "恢复须在任务绑定的主检出分支执行");
+        }
+        const runs = new RunStore(root);
+        const scope = await recoveredScope({ ...input.recovery, root, taskId: input.taskId,
+          scope: loadScope(runs, input.taskId, this.now().toISOString()), store: this.store, now: this.now().toISOString() });
+        // 先清除当前完成资格；历史 run/check 不变。失败中断时最多需要重新检查。
+        runs.removeCompletion(input.taskId);
+        await this.store.bindings.save({ ...existing, lastCheckRunId: null });
+        runs.writeScope(input.taskId, scope);
+        return { taskId: input.taskId, rebound: true, branch: existing.branch,
+          originalStage: document.frontmatter.stage, stage: document.frontmatter.stage,
+          originalStatus: document.frontmatter.status, status: document.frontmatter.status,
+          reason: `已复核历史成果 ${input.recovery.paths.length} 路径；须重新完整独立检查`,
+          confirmedInputsDigest: existing.confirmedInputsDigest! };
+      }
       if (existing !== null && existing.confirmedInputsDigest !== null) {
         return {
           taskId: input.taskId,

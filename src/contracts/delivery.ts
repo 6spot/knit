@@ -121,6 +121,15 @@ export const DeliveryRecordSchema = obj(
     invocation: opt(DeliveryInvocationSchema),
     defaultBranch: DefaultBranchSchema,
     policyVersion: str({ minLength: 1 }),
+    /** 显式策略复核的追加历史；旧策略和授权不丢失。 */
+    policyRecoveries: opt(arr(obj({
+      previousPolicy: str({ minLength: 1 }),
+      currentPolicy: str({ minLength: 1 }),
+      authorization: AuthorizationSourceSchema,
+      branch: str({ minLength: 1 }),
+      recordedAt: str({ minLength: 1 }),
+      verifiedCommits: arr(str({ minLength: 1 })),
+    }))),
     taskPath: str({ minLength: 1 }),
     archivePath: union([str(), nul()]),
     /** 业务产物提交；旧记录为原来的合并工作提交。 */

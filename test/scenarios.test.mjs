@@ -198,6 +198,51 @@ async function implemented(s) {
   return task;
 }
 
+test("R12.S1–S3 历史恢复：真实实施来源、未收敛拒绝、完整路径与场景检查", async () => {
+  for (const [kind, value, reason] of [
+    ["active", null, "runs_unsettled"],
+    ["coverage", report({ coverage: [] }), "check_scope_incomplete:app.txt"],
+    ["scenarios", report({ scenarios: [PASS[0], PASS[2]] }), "check_scenarios_incomplete:R1.S2"],
+    ["pass", report(), null],
+  ]) {
+    const s = project();
+    try {
+      const task = await implemented(s);
+      await s.tasks.adopt({ dir: s.dir, taskId: task.taskId, branch: "refs/heads/main" });
+      writeFileSync(join(s.dir, "app.txt"), "later committed source\n");
+      execFileSync("git", ["add", "app.txt"], { cwd: s.dir });
+      execFileSync("git", ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "合法后续成果"], { cwd: s.dir });
+      const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: s.dir, encoding: "utf8" }).trim();
+      const branch = execFileSync("git", ["symbolic-ref", "HEAD"], { cwd: s.dir, encoding: "utf8" }).trim();
+      const recovery = { branch, commit, paths: ["app.txt"] };
+      const runs = new RunStore(s.dir);
+      const previous = runs.readScope(task.taskId);
+      if (kind === "active") {
+        await prepare(s, task.taskId, "check");
+        await assert.rejects(s.tasks.rebind({ dir: s.dir, taskId: task.taskId, recovery }), error => error.guardReason === reason);
+        assert.deepEqual(runs.readScope(task.taskId), previous);
+        continue;
+      }
+      await s.tasks.rebind({ dir: s.dir, taskId: task.taskId, recovery });
+      const scope = runs.readScope(task.taskId);
+      assert.deepEqual(scope.entries.map(entry => entry.path), previous.entries.map(entry => entry.path));
+      assert.deepEqual(scope.runIds, previous.runIds);
+      const prepared = await prepare(s, task.taskId, "check");
+      await s.coordinator.start({ dir: s.dir, runId: prepared.request.runId, prepareOnly: true });
+      assert.equal(prepared.request.expected.scopeDigest, scope.digest);
+      runs.writeResult(prepared.request.runId, { schemaVersion: 1, runId: prepared.request.runId, taskId: task.taskId, phase: "check", state: "completed", report: value, reportSummary: value.summary, nativeEntries: { startEntryId: null, leafEntryId: null }, usage: { inputTokens: null, outputTokens: null }, session: null, actualChangedPaths: [], acceptanceOperationId: prepared.request.acceptanceOperationId, recordedAt: new Date().toISOString(), failureReason: null });
+      const accepted = await s.acceptance.accept({ dir: s.dir, runId: prepared.request.runId });
+      assert.equal(accepted.accepted, reason === null, accepted.reason);
+      if (reason !== null) assert.equal(accepted.reason, reason);
+      assert.deepEqual(runs.readScope(task.taskId).recoveries, scope.recoveries);
+      if (reason === null) {
+        await s.tasks.close({ dir: s.dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+        assert.deepEqual(runs.readCompletion(task.taskId).recoveryCommits, [commit]);
+      }
+    } finally { s.cleanup(); }
+  }
+});
+
 test("R5 接收守卫：缺项、非法字段、伪 pass、路径覆盖、修改结论和冻结输入一致", async () => {
   const cases = [
     [report({ scenarios: [PASS[0], PASS[2]] }), "check_scenarios_incomplete:R1.S2"],

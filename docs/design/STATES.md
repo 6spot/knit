@@ -190,6 +190,8 @@ scope 按 Task 累积，恢复新起点不清空旧成果。实现（任务013�
 
 操作 planned → running → completed；冲突、失败、取消或未知效果进入 needs_attention，核实后恢复。只有明确撤回且没有未知效果才 abandoned；completed/abandoned 不改回运行中。步骤保留尝试与已核验证据。
 
+历史成果复核不是新状态或实际写入：`task rebind --recover` 保留 scope 原路径、runIds 与追加的 recoveries，清除现行完成资格和检查引用；原 run/check 仍作历史。正式检查按完整范围、当前输入及提示词重建，完成凭据的 recoveryCommits 区分复核来源与实际实施来源。策略变化继续默认拒绝 policy_changed，显式 `deliver --recover-policy` 在全部守卫通过后追加 policyRecoveries，保留旧策略与核验来源。无副作用 abandoned 不再参与后续操作选择；有检查点或副作用的 abandoned 仍阻挡重复交付。参数、拒绝与操作顺序见 OPERATIONS §3.2。
+
 | 实际效果 | 恢复行为 |
 | --- | --- |
 | 仍为 before | 可执行原授权步骤 |

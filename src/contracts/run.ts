@@ -471,6 +471,17 @@ export const ScopeFileSchema = obj(
     taskId: str({ minLength: 1 }),
     runIds: arr(str({ minLength: 1 })),
     entries: arr(ScopeEntrySchema),
+    /** 有来源的历史复核；不加入 runIds，不声明实际写入。 */
+    recoveries: opt(arr(obj({
+      branch: str({ minLength: 1 }),
+      commit: str({ minLength: 1 }),
+      recordedAt: str({ minLength: 1 }),
+      previousDigest: str({ minLength: 1 }),
+      implementationSource: union([str(), nul()]),
+      implementationPath: opt(str({ minLength: 1 })),
+      before: arr(ScopeEntrySchema),
+      after: arr(ScopeEntrySchema),
+    }))),
     digest: str({ minLength: 1 }),
     updatedAt: str({ minLength: 1 }),
   },

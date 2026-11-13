@@ -145,6 +145,7 @@ prepare 先持久化 run/operation ID；持有调用的桥接或直接 CLI 入�
 | `deliver`（非 `--plan`）、`archive` | CLI 入口与 `DeliveryService` |
 | `worktree merge --apply`、`worktree cleanup` | CLI 入口与对应服务 |
 | `task close` | `TaskService.close` |
+| `task rebind --recover` | `TaskService.rebind` |
 | `unlock` | CLI 入口 |
 | `gc --apply` | `GcService.apply` |
 | `run accept` | CLI 入口（含 `resume <op>` 的接收分支）；worker 内部接收不经该入口 |
@@ -188,6 +189,22 @@ Task 管理资料的旧版本只作对照，不能以通用 restore 整份覆盖
 7. `stage`：按当前阶段推进（start → `task ready`；工作阶段 → `run prepare`＋`run start`；deliver → `task close --outcome completed` 与 `deliver --plan`，independent 且检查者修复过时 → 再派 `run check`）。
 
 任务已关闭或归档时 `nextAction` 为 null。桥接每轮上下文、`knit_status <task>` 与 `knit_context` 同步显示同一条（`下一步（<kind>）: …` 加命令行）。
+
+### 3.2 历史成果与交付策略复核
+
+历史成果随后被合法提交更新时，主会话先按当前需求完成 change／ready 和实施，再在所有 run 与接收收敛后执行 `knit task rebind <id> --recover <manifest.json>`。这是显式复核入口，普通 rebind 的已有绑定行为不变。manifest 示例：
+
+```json
+{"branch":"refs/heads/main","commit":"完整提交对象 ID","paths":["src/a.ts"],"implementationFile":"原签名实施记录的只读备份路径（可选）"}
+```
+
+任务须开放、当前输入已确认、无待应用草案，且在绑定的主检出分支；阶段进程不能调用。来源提交须为该分支祖先，普通文件的 blob 与执行位或已提交删除状态须匹配本机。路径必须属于原 scope 或同项目同任务的 HMAC 实施记录；原 scope 的 run 来源须已完成并接收。缺少来源、未知路径、内容不符、分支不符或未收敛运行分别拒绝，不发布资格。当前入口复核普通文件和删除路径，目录、符号链接及经过链接的路径拒绝。
+
+scope 保留原路径并合入签名记录的历史路径，原 runIds 不变；`recoveries` 追加分支、提交、时间、旧范围摘要、原实施凭据字节摘要与位置及复核路径的新旧指纹。不会创建 implementation 或虚报 changedPaths。复核清除当前完成资格与 lastCheckRunId，原 run／检查文件保留；完成凭据另记 `recoveryCommits`。随后必须在当前输入与提示词上重新正式 independent 检查，完整 scope 和全部场景的覆盖守卫照常生效，缺路径或场景不能完成。原签名备份只作核验来源，不复制回 runtime；换机缺密钥时不能信任它。
+
+旧交付因 `policy_changed` 停止时，已有授权覆盖的主会话可执行 `knit deliver <id> --branch <ref> --authorization-ref <原引用> --recover-policy`（needs_attention 同时给 `--retry`）。核心重新核对分支、当前资格、原授权文件或原生用户消息及已有提交的来源、祖先、路径和提交树；无法核验的副作用报 `policy_recovery_effects`，不自动重做。已封存／移动而无足够核验链的操作仍拒绝。只有重核通过才更新当前策略并追加 `policyRecoveries`，保留旧策略、授权和已核验提交；普通 retry 不跳过策略检查。
+
+公开 cancel 将无副作用 planned 操作变为 abandoned 后，后续交付忽略该历史操作并建立新操作；带副作用或检查点的 abandoned 操作阻挡重新交付，避免重复执行。目录选择按后代文件展开提交，资料提交与归档移动保持同一目录范围。恢复选项目前由 CLI／TaskService、DeliveryService 提供；宿主桥接未载入这些参数时，在项目根使用本次构建的 `node dist/cli/knit.js` 调同一公开入口。
 
 ## 4. 主会话工作流与任务规划资料
 

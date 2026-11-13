@@ -118,7 +118,12 @@ function runProcess(...args: Parameters<typeof fixtureRunProcess>): Promise<Exec
   return work;
 }
 export async function drainFixtureProcesses(): Promise<void> {
-  while (fixtureProcesses.size > 0) await Promise.all([...fixtureProcesses]);
+  do {
+    await Promise.all([...fixtureProcesses]);
+    // 预热与扫描的上层 continuation 可能在子进程 close 后再排下一次 CLI；
+    // 等到本轮事件循环结束后再判空，避免清理目录时仍有后续查询写入。
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } while (fixtureProcesses.size > 0);
 }
 `;
   const bridgeTs = join(dir, ".bridge-stub.ts");

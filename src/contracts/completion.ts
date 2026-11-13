@@ -15,6 +15,8 @@ export const CompletionFileSchema = obj(
     inputsDigest: str({ minLength: 1 }),
     /** 完成时的成果范围摘要。 */
     scopeDigest: str({ minLength: 1 }),
+    /** 历史成果重新取证的提交来源；与实际实施 run 分开记录。 */
+    recoveryCommits: opt(arr(str({ minLength: 1 }))),
     /** self／independent 的实施事实来源；旧凭据缺省按 run 处理。 */
     implementedBy: opt(union([lit("run"), lit("record"), lit("forced")])),
     /** self／independent 的最近获准实施；record／forced 可为 null。 */

@@ -1279,3 +1279,135 @@ test("commit-msg hook 改写 trailer：保留提交但 needs_attention，不把�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("历史成果恢复：验证原签名来源、提交与内容，保留完整范围并失效旧检查", async () => {
+  const dir = project("scope-recovery");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const runs = new RunStore(dir);
+    writeFileSync(join(dir, "legacy.txt"), "original\n");
+    const entries = [currentEntry(dir, "app.txt", { factsKind: true }), currentEntry(dir, "legacy.txt", { factsKind: true })];
+    runs.writeImplementation(task.taskId, { schemaVersion: 1, taskId: task.taskId, executor: "main-session",
+      inputsDigest: task.check.inputsDigest, entries, scopeDigest: scopeDigest(entries),
+      validations: ["原实施实际验证"], unverified: [], summary: null, recordedAt: NOW.toISOString() });
+    const source = join(dir, "original-implementation.json");
+    writeFileSync(source, readFileSync(join(dir, ".knit/.runtime/implementations", `${task.taskId}.json`)));
+    runs.removeImplementation(task.taskId);
+    writeFileSync(join(dir, "app.txt"), "later committed implementation\n");
+    git(dir, ["add", "app.txt", "legacy.txt"]);
+    git(dir, ["commit", "-qm", "合法后续成果"]);
+    const commit = git(dir, ["rev-parse", "HEAD"]);
+    const recovery = { branch: BRANCH, commit, paths: ["app.txt", "legacy.txt"], implementationFile: source };
+    const original = JSON.stringify(runs.readScope(task.taskId));
+    for (const bad of [
+      { ...recovery, paths: ["other.txt"] }, { ...recovery, commit: "f".repeat(40) },
+      { ...recovery, branch: "refs/heads/other" }, { ...recovery, commit: "HEAD" },
+    ]) {
+      await assert.rejects(s.tasks.rebind({ dir, taskId: task.taskId, recovery: bad }));
+      assert.equal(JSON.stringify(runs.readScope(task.taskId)), original);
+      assert.equal((await s.store.bindings.get(task.taskId)).lastCheckRunId, task.check.runId);
+    }
+    writeFileSync(join(dir, "app.txt"), "uncommitted\n");
+    await assert.rejects(s.tasks.rebind({ dir, taskId: task.taskId, recovery }), /内容或模式不同/);
+    writeFileSync(join(dir, "app.txt"), "later committed implementation\n");
+    const forged = join(dir, "forged.json");
+    writeFileSync(forged, JSON.stringify({ taskId: task.taskId }));
+    await assert.rejects(s.tasks.rebind({ dir, taskId: task.taskId, recovery: { ...recovery, implementationFile: forged } }), /签名不可核验/);
+    const result = await s.tasks.rebind({ dir, taskId: task.taskId, recovery });
+    assert.equal(result.rebound, true);
+    const scope = runs.readScope(task.taskId);
+    assert.deepEqual(scope.entries.map(entry => entry.path), ["app.txt", "legacy.txt"]);
+    assert.deepEqual(scope.runIds, task.scope.runIds);
+    assert.equal(scope.recoveries[0].before[0].digest, entries[0].digest);
+    assert.notEqual(scope.recoveries[0].after[0].digest, entries[0].digest);
+    assert.equal(scope.recoveries[0].commit, commit);
+    assert.equal(runs.readImplementation(task.taskId), null);
+    assert.equal((await s.store.bindings.get(task.taskId)).lastCheckRunId, null);
+    assert.deepEqual(runs.readCheck(task.check.runId), task.check);
+    await assert.rejects(s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true }), /check_missing/);
+    const manifest = join(dir, "recover.json");
+    writeFileSync(manifest, JSON.stringify({ branch: BRANCH, commit, paths: ["legacy.txt"] }));
+    const cli = JSON.parse(execFileSync(process.execPath, [join(import.meta.dirname, "../dist/cli/knit.js"), "--json", "task", "rebind", task.taskId, "--dir", dir, "--recover", manifest], { encoding: "utf8" }));
+    assert.equal(cli.data.rebound, true);
+    assert.equal(runs.readScope(task.taskId).recoveries.length, 2);
+    runs.writeImplementation(task.taskId, { schemaVersion: 1, taskId: task.taskId, executor: "main-session",
+      inputsDigest: task.check.inputsDigest, entries: scope.entries, scopeDigest: scope.digest,
+      validations: ["实际验证"], unverified: [], summary: null, recordedAt: NOW.toISOString() });
+    await s.tasks.rebind({ dir, taskId: task.taskId, recovery: { branch: BRANCH, commit, paths: ["legacy.txt"] } });
+    assert.ok(runs.readScope(task.taskId).recoveries[2].implementationSource);
+    const stageEnv = process.env.KNIT_STAGE_RUN_ID;
+    process.env.KNIT_STAGE_RUN_ID = "run-abcdef123456";
+    try {
+      await assert.rejects(s.tasks.rebind({ dir, taskId: task.taskId, recovery }), error => error.guardReason === "stage_context_forbidden");
+    } finally {
+      if (stageEnv === undefined) delete process.env.KNIT_STAGE_RUN_ID;
+      else process.env.KNIT_STAGE_RUN_ID = stageEnv;
+    }
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("策略显式恢复：保留旧策略，核验授权并正常提交归档目录材料", async () => {
+  const dir = project("policy-recovery");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const runs = new RunStore(dir);
+    const binding = await s.store.bindings.get(task.taskId);
+    await s.store.bindings.save({ ...binding, lastCheckRunId: null });
+    const request = { dir, taskId: task.taskId, branch: BRANCH, authorizationRef: "workflow:AGENTS.md#交付授权" };
+    await assert.rejects(s.delivery.deliver(request), /没有可交付的检查/);
+    const operation = (await s.store.operations.list()).find(op => op.kind === "delivery.deliver");
+    assert.equal(operation.state, "planned");
+    const configFile = join(dir, ".knit/config.json");
+    const config = JSON.parse(readFileSync(configFile, "utf8"));
+    writeFileSync(configFile, JSON.stringify({ ...config, delivery: { ...config.delivery, hooks: "skip" } }));
+    writeFileSync(join(dir, "AGENTS.md"), readFileSync(join(dir, "AGENTS.md"), "utf8") + "检查需要提供证据。\n");
+    const currentPlan = await new ContextPlanner({ store: s.store, now: () => NOW, randomHex: () => "abcdef123456" }).plan({ dir, taskId: task.taskId, role: "check" });
+    const currentCheck = { ...task.check, runId: "run-abcdef123456", inputsDigest: currentPlan.inputsDigest,
+      standardsDigest: currentPlan.standardsDigest, effectiveInputsDigest: currentPlan.effectiveInputsDigest };
+    runs.writeCheck(currentCheck.runId, currentCheck);
+    await s.store.bindings.save({ ...binding, lastCheckRunId: currentCheck.runId });
+    await assert.rejects(s.delivery.deliver(request), /策略在操作开始后变化/);
+    await assert.rejects(s.delivery.deliver({ ...request, recoverPolicy: true, authorizationRef: "user:missing" }), /原操作授权来源/);
+    assert.equal((await s.store.operations.get(operation.operationId)).policyVersion, operation.policyVersion);
+    await s.store.operations.save({ ...operation, workCommit: git(dir, ["rev-parse", "HEAD"]) });
+    await assert.rejects(s.delivery.deliver({ ...request, recoverPolicy: true }), /副作用|旧提交/);
+    assert.equal((await s.store.operations.get(operation.operationId)).policyVersion, operation.policyVersion);
+    await s.store.operations.save({ ...operation, authorization: { kind: "user_reference", ref: "user:missing", path: null, section: null, digest: null, verified: false } });
+    await assert.rejects(s.delivery.deliver({ ...request, recoverPolicy: true }), /用户授权缺少/);
+    await s.store.operations.save(operation);
+    const taskDir = join(dir, ".knit", task.relativePath.replace(/\/task\.md$/, ""));
+    mkdirSync(join(taskDir, "research"), { recursive: true });
+    writeFileSync(join(taskDir, "research/evidence.md"), "真实资料\n");
+    const delivered = await s.delivery.deliver({ ...request, recoverPolicy: true });
+    assert.equal(delivered.state, "completed", delivered.reason ?? "");
+    const recovered = await s.store.operations.get(operation.operationId);
+    assert.equal(recovered.policyRecoveries[0].previousPolicy, operation.policyVersion);
+    assert.notEqual(recovered.policyRecoveries[0].currentPolicy, operation.policyVersion);
+    assert.equal(recovered.policyRecoveries[0].authorization.verified, true);
+    assert.equal(s.tasks.list({ dir }).active.length, 0);
+    assert.ok(existsSync(join(dir, delivered.archivePath, "research/evidence.md")));
+    assert.ok(delivered.metadataCommit && delivered.archiveCommit);
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("abandoned 的无副作用交付保留历史且不被重新执行", async () => {
+  const dir = project("abandoned");
+  const s = services(dir);
+  try {
+    const task = await makeDeliverable(dir, s);
+    const runs = new RunStore(dir);
+    const binding = await s.store.bindings.get(task.taskId);
+    await s.store.bindings.save({ ...binding, lastCheckRunId: null });
+    const request = { dir, taskId: task.taskId, branch: BRANCH };
+    await assert.rejects(s.delivery.deliver(request), /没有可交付的检查/);
+    const old = (await s.store.operations.list()).find(op => op.kind === "delivery.deliver");
+    execFileSync(process.execPath, [join(import.meta.dirname, "../dist/cli/knit.js"), "cancel", "--operation", old.operationId, "--dir", dir], { encoding: "utf8" });
+    await s.store.bindings.save(binding);
+    const delivered = await s.delivery.deliver(request);
+    assert.equal(delivered.state, "completed", delivered.reason ?? "");
+    assert.notEqual(delivered.operationId, old.operationId);
+    assert.equal((await s.store.operations.get(old.operationId)).state, "abandoned");
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});

@@ -73,7 +73,7 @@
 | 会话 | 每个阶段按阶段 id 创建或恢复独立 Session；阶段不同即不同原生对象。内部 Session 记录的 `role` 字段与 CLI `--role` 是历史命名，值即阶段 id，新调用优先使用 `--stage` |
 | 提示词 | `prompt` 缺省或文件缺失时用核心默认 agent 指令，不阻断执行，也不使整份流程降级 |
 | 流程降级 | 配置非法时生效流程为 `start → deliver`，不套提示词；`workflowMode`、`workflow show`、顶部提示与 `doctor` 显示原因 |
-| 交付与 Git | 阶段不执行 commit／push／rebase；交付由主会话在授权后协调确定性工具，子进程完成不等于授权。阶段进程带 `KNIT_STAGE_RUN_ID`（与 `KNIT_RUN` 同值），在阶段内调用 `deliver`、`archive`、`worktree merge --apply`、`worktree cleanup`、`task close`、`unlock`、`gc --apply`、`run accept` 一律以 `stage_context_forbidden` 拒绝；阶段写入的 `.git/hooks` 即使未被发现，交付提交缺省（`delivery.hooks: skip`）也不执行（OPERATIONS §2.2） |
+| 交付与 Git | 阶段不执行 commit／push／rebase；交付由主会话在授权后协调确定性工具，子进程完成不等于授权。阶段进程带 `KNIT_STAGE_RUN_ID`（与 `KNIT_RUN` 同值），在阶段内调用 `deliver`、`archive`、`worktree merge --apply`、`worktree cleanup`、`task close`、`task rebind --recover`、`unlock`、`gc --apply`、`run accept` 一律以 `stage_context_forbidden` 拒绝；阶段写入的 `.git/hooks` 即使未被发现，交付提交缺省（`delivery.hooks: skip`）也不执行（OPERATIONS §2.2） |
 | 凭据 | 检查／完成凭据、实施记录、run 结果与接收检查点由核心写入并附本机 HMAC（密钥在用户目录，不传给阶段）；阶段内手写或改写这些文件得不到有效签名，读取时以 `credential_tampered`／`credential_unsigned` 拒绝，不当作有效凭据 |
 | 委派 | 阶段执行器不是主 Agent，不递归派发其他阶段 |
 | 扩展与资源 | Pi 阶段默认 `--no-extensions`、`--no-mcp`、`--no-skills`、`--offline`，只加载受控阶段提示词、规范与任务资料；`external`／`network` 才显式放开 |

@@ -365,7 +365,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
 | task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
-| task rebind <id> | clone／换机后按 task.md 重建本机绑定与证据落点；降级不消耗 stageVisits，不创建 run，不写检查／完成凭据 |
+| task rebind <id> [--recover <file>] | 缺绑定时重建本机证据落点；显式 --recover 核验历史成果路径、当前分支提交与原签名实施来源，保留原 run 与旧新指纹并要求重新正式检查（OPERATIONS §3.2）；不创建实施 run 或检查／完成凭据 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝；`set-tools` 接受 `all`（全部放开）、`[]`（全部禁用）或能力清单，`--clear` 删除字段 |
 | run prepare/start --stage <id> --task <id> [--rex/--local] [--worktree on\|off] | 按生效流程派发阶段 worker；配置外的阶段拒绝并返回合法清单；缺省按 execution.host 自动选择宿主；--worktree 只覆盖本次派发的自动创建策略 |
 | run schedule [--once] [--until-idle] [--max <n>] [--authorization-ref <ref>] | Worktree 模式下按就绪集、影响路径与并发上限派发；`--once` 只派一批，默认循环接收并推进到 deliver 前；未开启 worktree.default 时只说明、不派发。长循环不暴露为桥接工具 |

@@ -93,6 +93,7 @@ interface DeliveryOptions {
   dir: string;
   locks?: string;
   retry?: boolean;
+  recoverPolicy?: boolean;
   plan?: boolean;
   messageFile?: string[];
   merge?: boolean;
@@ -158,6 +159,7 @@ export function registerDeliveryCommands(program: Command): void {
     authorizationRef: options.authorizationRef ?? null,
     caller: options.caller === "agent" ? "agent" : "cli",
     retry: options.retry === true,
+    recoverPolicy: options.recoverPolicy === true,
     messageFile: messageFiles.get(taskId) ?? null,
     merge: options.merge === true,
     cleanup: options.cleanup === true,
@@ -182,6 +184,7 @@ export function registerDeliveryCommands(program: Command): void {
     .option("--dir <dir>", "项目目录", ".")
     .option("--locks <dir>", "锁根目录（隔离测试用）")
     .option("--retry", "显式重试 needs_attention：先核验已完成效果")
+    .option("--recover-policy", "显式按当前策略重核旧操作（须提供原授权来源）")
     .option("--merge", "显式授权交付前合入已绑定 worktree（需已有 authorization-ref）", false)
     .option("--cleanup", "显式授权交付后清理 worktree（需已有 authorization-ref）", false)
     .option("--plan", "只读预检：输出任务产物／资料分类与冲突，不写 Git", false)

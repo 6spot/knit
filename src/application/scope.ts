@@ -75,6 +75,7 @@ export function mergeScope(
   const sorted = [...entries.values()].sort((a, b) => a.path.localeCompare(b.path));
   const runIds = previous.runIds.includes(input.runId) ? previous.runIds : [...previous.runIds, input.runId];
   return {
+    ...(previous.recoveries === undefined ? {} : { recoveries: previous.recoveries }),
     schemaVersion: 1,
     taskId: input.taskId,
     runIds,

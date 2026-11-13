@@ -155,6 +155,7 @@ export class CompletionService {
       verification,
       inputsDigest: inputsDigestOf(input.raw.toString("utf8")),
       scopeDigest: scope.digest,
+      ...(scope.recoveries === undefined ? {} : { recoveryCommits: scope.recoveries.map(item => item.commit) }),
       implementedBy: input.decision.implementedBy,
       implementRunId: input.decision.implementRunId,
       checkRunId: input.decision.checkRunId,
