@@ -488,4 +488,10 @@ OpenSpec 用 `### Requirement:` 加 `#### Scenario:`（WHEN／THEN）表达行�
 - 结果: 正常交付；检查 run-ea809fc9bab1 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-11-scenario-acceptance-criteria
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-82859126c85c -->
+- 任务资料提交: d7909bfcfed16d327d7f6f96f7c06752af1b120b
+- 归档目标: .knit/tasks/archive/2026-11/11-11-scenario-acceptance-criteria
+
 <!-- knit:progress:end -->
