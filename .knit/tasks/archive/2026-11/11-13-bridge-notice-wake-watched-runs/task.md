@@ -209,4 +209,10 @@ title: 桥接通知：本会话跟踪的 run 完成后唤醒主会话
 - 结果: 正常交付；检查 run-70d0e7f904db 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-13-bridge-notice-wake-watched-runs
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-31f86a7a2a00 -->
+- 任务资料提交: 5bb48838e6c8af1de60a997dd8b4a7b092624bee
+- 归档目标: .knit/tasks/archive/2026-11/11-13-bridge-notice-wake-watched-runs
+
 <!-- knit:progress:end -->
