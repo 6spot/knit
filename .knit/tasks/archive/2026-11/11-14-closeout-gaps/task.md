@@ -227,4 +227,10 @@ C. worktree 内的任务收口：
 - 结果: 正常交付；检查 run-f212dcb49f27 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-14-closeout-gaps
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-805b17291d13 -->
+- 任务资料提交: 90c4696f1c5c43799dbd7cb3d1d408d3a7ff6039
+- 归档目标: .knit/tasks/archive/2026-11/11-14-closeout-gaps
+
 <!-- knit:progress:end -->
