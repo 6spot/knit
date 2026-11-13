@@ -433,7 +433,7 @@ test("CLI：--rex 与 --local 冲突报 invalid_request；帮助与桥接不再�
   }
 });
 
-test("桥接通知：需处理的进入上下文并唤醒，completed+accepted 只展示、不进上下文", () => {
+test("桥接通知：需处理或本会话跟踪中的进入上下文并唤醒，其余 completed+accepted 只展示、不进上下文", () => {
   const bridge = readFileSync(join(ROOT, "assets", "templates", "pi", "extensions", "knit.ts"), "utf8");
   assert.equal(bridge, readFileSync(join(ROOT, ".pi", "extensions", "knit.ts"), "utf8"), "两份桥接保持一致");
 
@@ -444,18 +444,32 @@ test("桥接通知：需处理的进入上下文并唤醒，completed+accepted �
   assert.equal(needsAction("cancelled", null), true, "取消需处理");
   assert.equal(needsAction("completed", null), true, "完成但结果未接收需处理");
   assert.equal(needsAction("completed", "pending"), true, "结果待接收需处理");
-  assert.equal(needsAction("completed", "completed"), false, "完成且已接收不唤醒");
+  assert.equal(needsAction("completed", "completed"), false, "完成且已接收本身不算需处理");
 
-  const delivery = bridge.match(/if \(needsAction\) \{([\s\S]*?)\n\s*\} else \{([\s\S]*?)\n\s*\}\n\s*diag\("notice_sent"/);
-  assert.ok(delivery, "投递按 needsAction 分流");
+  // 唤醒 = 需处理 || 本会话跟踪中；wait 正在等待或已返回终态的 run 不算跟踪中（k-b9ea41e9eec0）。
+  assert.match(bridge, /const tracked = state\.watchedRuns\.has\(view\.runId\);/, "跟踪中 = 在跟踪集合");
+  assert.match(bridge, /terminalState\(status\.response\?\.data\?\.state\)\) \{\n\s*state\.watchedRuns\.delete\(runId\);/, "wait 已返回终态：移出跟踪集合");
+  assert.match(bridge, /const waiting = needsAction \? undefined : state\.waitingRuns\.get\(view\.runId\);\n\s*if \(waiting !== undefined\) await waiting;\n\s*const tracked = /, "wait 仍在等待时先等其结论再分流");
+  assert.match(bridge, /const wake = needsAction \|\| tracked;/, "唤醒条件：需处理或跟踪中");
+  assert.match(bridge, /if \(!terminalState\(noticeState\)\) \{\n\s*active = true;\n\s*watchRun\(view\.runId\);/, "扫描看到未到终态的本会话 run 加入跟踪集合");
+  assert.match(bridge, /if \(resumed\.response\?\.data\?\.resumed === true\) watchRun\(newRunId\);/, "resume 生成的新 run 加入跟踪集合");
+  assert.match(bridge, /watchRun\(runId\);\n\s*pokeObserver\(ctx\);\n\s*const started = await core\(\["run", "start", runId,/, "阶段派发取得 runId 后加入跟踪集合");
+  assert.match(bridge, /state\.watchedRuns\.clear\(\);\n\s*state\.nativeSessionId = nativeId;/, "切换原生会话清空跟踪集合");
+  assert.equal(bridge.match(/await waitForRun\(/g)?.length, 1, "wait 只经 waitTracked 进入");
+
+  const delivery = bridge.match(/if \(wake\) \{([\s\S]*?)\n\s*\} else \{([\s\S]*?)\n\s*\}\n\s*state\.watchedRuns\.delete\(view\.runId\);\n\s*diag\("notice_sent"/);
+  assert.ok(delivery, "投递按 wake 分流，投递后移出跟踪集合");
   assert.match(delivery[1], /pi\.sendMessage\(\{ customType: NOTICE_ENTRY,[^\n]*\{ deliverAs: "followUp", triggerTurn: true \}\);/, "需处理走 sendMessage：followUp 并唤醒");
   assert.match(delivery[1], /pi\.appendEntry\(NOTICE_ENTRY, \{ signature, runId: view\.runId, state: noticeState \}\);/, "需处理另写不带 text 的去重条目");
   assert.ok(delivery[1].indexOf("pi.sendMessage(") < delivery[1].indexOf("pi.appendEntry("), "投递成功后才写签名");
   assert.match(delivery[2], /pi\.appendEntry\(NOTICE_ENTRY, \{ \.\.\.details, text \}\);/, "被动通知只追加带展示文案的条目");
   assert.doesNotMatch(delivery[2], /sendMessage|sendUserMessage/, "被动分支不调用 sendMessage，不进上下文");
   assert.match(bridge, /const details = \{ runId: view\.runId, state: noticeState, acceptance: acceptanceState, signature \};/, "被动条目承载 runId／state／acceptance／signature");
+  assert.match(bridge, /if \(!sameSession\(ctx, scanSession\)\) \{\n\s*diag\("notice_skipped_session"[^\n]*\n\s*return false;\n\s*\}\n\s*try \{\n\s*if \(wake\) \{/, "投递前再次核对原生会话，不一致不投递");
   assert.doesNotMatch(bridge, /nextTurn/, "桥接不再使用 nextTurn");
-  assert.equal(bridge.match(/pi\.sendMessage\(/g)?.length, 1, "只有需处理通知调用 sendMessage");
+  assert.equal(bridge.match(/pi\.sendMessage\(/g)?.length, 1, "只有唤醒通知调用 sendMessage");
+  assert.match(bridge, /结果已接收；下一步：\$\{next\}（报告：knit status --run \$\{view\.runId\}）/, "已接收的完成通知给任务级下一步并保留完整 run ID");
+  assert.match(bridge, /结果已接收；下一步：knit status --run \$\{view\.runId\} 查看。/, "取不到任务级下一步时退回 run 级查看");
   assert.match(bridge, /pi\.registerEntryRenderer\(NOTICE_ENTRY, /, "注册 knit.notice 的 entry renderer");
   assert.match(bridge, /const NOTICE_ENTRY = "knit\.notice";/);
   assert.doesNotMatch(bridge, /from "@earendil-works\/pi-tui"/, "不静态导入宿主 TUI 包（模板只静态依赖 node 内建模块）");
@@ -466,4 +480,9 @@ test("桥接通知：需处理的进入上下文并唤醒，completed+accepted �
   assert.match(section, /失败、取消或结果待接收/, "DESIGN §9.3 记录唤醒条件");
   assert.doesNotMatch(section, /nextTurn|进入下一轮上下文/, "DESIGN §9.3 不再声称被动通知进入下一轮上下文");
   assert.match(section, /只追加 `knit\.notice` 条目[^。]*entry renderer[^。]*不进入任何一轮模型上下文/, "DESIGN §9.3 写明被动通知只展示、不进上下文");
+  assert.match(section, /本会话跟踪中的 run 完成且结果已接收/, "DESIGN §9.3 写明跟踪中的 run 完成即唤醒");
+  assert.match(section, /首次观察时已收尾的 run，以及 `knit_run` 带 `wait` 且工具结果已返回终态的 run/, "DESIGN §9.3 写明被动范围：首次观察已收尾与 wait 已返回终态");
+  assert.match(section, /任务级下一步/, "DESIGN §9.3 写明完成通知给任务级下一步");
+  const architecture = readFileSync(join(ROOT, "docs", "design", "ARCHITECTURE.md"), "utf8");
+  assert.match(architecture, /本会话跟踪中的 run 完成时唤醒/, "ARCHITECTURE 的通知描述与 §9.3 一致");
 });

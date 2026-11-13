@@ -266,6 +266,10 @@ export default async function (pi: any) {
     scanChain: Promise.resolve(),
     lastScanActive: true,
     lastScanAt: null,
+    // 本会话跟踪中的 run（只存内存）：派发、恢复或扫描看到未到终态时加入，通知投递后移除。
+    watchedRuns: new Set<string>(),
+    // knit_run wait 正在等待的 run：扫描看到其终态时先等这次等待结束，再按是否仍在跟踪集合分流。
+    waitingRuns: new Map<string, Promise<void>>(),
     contextCache: null,
     contextWork: null,
     contextGeneration: 0,
@@ -587,6 +591,7 @@ export default async function (pi: any) {
     if (state.nativeSessionId !== nativeId) {
       invalidateTurnContext();
       state.contextCache = null;
+      state.watchedRuns.clear();
       state.nativeSessionId = nativeId;
       state.knitSessionId = null;
       state.verified = false;
@@ -679,6 +684,26 @@ export default async function (pi: any) {
     }
   }
 
+  /** 加入本会话的跟踪集合：这些 run 完成后即使结果已接收也唤醒主 Agent（DESIGN §9.3）。 */
+  function watchRun(runId: unknown): void {
+    if (typeof runId === "string" && runId !== "") state.watchedRuns.add(runId);
+  }
+
+  /** 核心推导的任务级下一步摘要（只读 status）；查询失败或缺失返回 null，通知退回 run 级查看。 */
+  async function taskNextSummary(taskId: unknown): Promise<string | null> {
+    const id = safeId(taskId, "k-");
+    if (id === null) return null;
+    try {
+      const result = await core(["status", id, "--dir", root]);
+      const summary = result.code === 0 && result.response?.outcome === "completed" ? result.response.data?.nextAction?.summary : null;
+      if (typeof summary !== "string") return null;
+      const line = summary.replace(/\s+/g, " ").trim();
+      return line === "" ? null : line;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * 一次 run list --active --with-status 观察本会话的 run；串行执行、不重入。
    * 返回是否有本会话尚未到终态的 run（用于 5s／30s 退避）。
@@ -690,6 +715,7 @@ export default async function (pi: any) {
     }
     state.ctx = ctx;
     if (state.verified !== true) await sessionOf(ctx);
+    const scanSession = state.nativeSessionId;
     // --since：已接收的完成 run 只保留上次扫描之后出结果的，避免反复重算历史 run，
     // 同时保留“首次观察时已收敛”的被动通知：只展示、不进上下文（DESIGN §9.3）。
     const scanStartedAt = Date.now();
@@ -708,43 +734,80 @@ export default async function (pi: any) {
       const noticeState = resultState ?? view.state;
       if (!terminalState(noticeState)) {
         active = true;
+        watchRun(view.runId);
         continue;
       }
-      // 失败、取消或结果待接收才需要处理：进入上下文并唤醒；完成且已接收的是被动通知，只展示、不进上下文（DESIGN §9.3）。
+      // 失败、取消或结果待接收需要处理；本会话跟踪中的 run 完成后也要由主 Agent 接手下一步：两者都进入上下文并唤醒。
+      // 首次观察时已完成且已接收的 run、wait 已把终态带回当前轮的 run 是被动通知，只展示、不进上下文（DESIGN §9.3）。
       const acceptanceState = view.acceptance?.state ?? null;
       const needsAction = noticeState === "failed" || noticeState === "cancelled" || (noticeState === "completed" && acceptanceState !== "completed");
+      // wait 仍在等待该 run：先等它的结论再分流（run 已到终态，等待会在下一次轮询或中止时结束），
+      // 避免按被动展示后等待却被中止、终态没有回到当前轮。
+      const waiting = needsAction ? undefined : state.waitingRuns.get(view.runId);
+      if (waiting !== undefined) await waiting;
+      const tracked = state.watchedRuns.has(view.runId);
+      const wake = needsAction || tracked;
       if (currentBranch === undefined) currentBranch = await branchNow();
       if (typeof view.branch === "string" && currentBranch !== null && view.branch !== currentBranch) {
         diag("notice_skipped_branch", { runId: view.runId, branch: view.branch });
         continue;
       }
       const signature = `${view.runId}:${noticeState}`;
-      if (notified(ctx).has(signature)) continue;
+      if (notified(ctx).has(signature)) {
+        state.watchedRuns.delete(view.runId);
+        continue;
+      }
       const pending = resultState === "completed" && acceptanceState !== "completed";
+      const accepted = noticeState === "completed" && acceptanceState === "completed";
       const stage = typeof view.stageName === "string" && view.stageName !== "" ? view.stageName : view.phase;
       const shortRunId = shortId(view.runId);
       const outcome = view.result?.report?.verdict ?? resultState ?? view.state;
-      const base = pending
-        ? `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`
-        : `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
+      let base: string;
+      if (pending) {
+        base = `${taskName(view)}${stage}：${shortRunId} 已完成，结果待同步；下一步：knit status --run ${view.runId}（不要重复实施）`;
+      } else if (accepted) {
+        // 结果已记入任务：给任务级下一步，不再建议 resume；取不到时退回 run 级查看。
+        const next = await taskNextSummary(view.taskId);
+        base = next !== null
+          ? `${taskName(view)}${stage}：${shortRunId} ${outcome}，结果已接收；下一步：${next}（报告：knit status --run ${view.runId}）`
+          : `${taskName(view)}${stage}：${shortRunId} ${outcome}，结果已接收；下一步：knit status --run ${view.runId} 查看。`;
+      } else {
+        base = `${taskName(view)}${stage}：${shortRunId} ${outcome}；下一步：knit status --run ${view.runId} 查看，或 resume。`;
+      }
       const text = [base, ...boundaryNotes(view.result), ...(typeof view.noOutputNotice === "string" ? [view.noOutputNotice] : [])].join("\n");
       const details = { runId: view.runId, state: noticeState, acceptance: acceptanceState, signature };
+      // 投递前再次核对原生会话（DESIGN §9.3）：等 wait 结论、查分支与任务下一步期间会话可能已切换，
+      // 旧会话的通知不投进新会话；本轮扫描到此为止，核心结果仍可查询。观察器由下一次节拍的入口核对处理。
+      if (!sameSession(ctx, scanSession)) {
+        diag("notice_skipped_session", { runId: view.runId, state: noticeState });
+        return false;
+      }
       try {
-        if (needsAction) {
-          // 需处理：custom message 进入上下文并唤醒；另写不带 text 的去重条目（渲染器不显示它）。
+        if (wake) {
+          // 需处理或跟踪中：custom message 进入上下文并唤醒；另写不带 text 的去重条目（渲染器不显示它）。
           pi.sendMessage({ customType: NOTICE_ENTRY, content: text, display: true, details }, { deliverAs: "followUp", triggerTurn: true });
           pi.appendEntry(NOTICE_ENTRY, { signature, runId: view.runId, state: noticeState });
         } else {
           // 被动：custom entry 不参与 LLM 上下文、不触发轮次；条目同时承载去重签名与展示文案。
           pi.appendEntry(NOTICE_ENTRY, { ...details, text });
         }
-        diag("notice_sent", { runId: view.runId, state: noticeState });
+        state.watchedRuns.delete(view.runId);
+        diag("notice_sent", { runId: view.runId, state: noticeState, wake });
       } catch (error) {
         diag("notice_failed", { runId: view.runId, reason: String(error) });
       }
     }
     state.lastScanActive = active;
     return active;
+  }
+
+  /** 扫描开始时的原生会话是否仍是当前会话；宿主对象已失效（读取抛错）按已切换处理。 */
+  function sameSession(ctx: any, nativeId: string | null): boolean {
+    try {
+      return typeof nativeId === "string" && state.nativeSessionId === nativeId && ctx?.sessionManager?.getSessionId?.() === nativeId;
+    } catch {
+      return false;
+    }
   }
 
   /** 串行扫描队列：观察器与 agent_settled 共用，避免同一 run 并发通知。 */
@@ -1598,6 +1661,25 @@ export default async function (pi: any) {
     }
   }
 
+  /**
+   * knit_run wait：等待期间登记该 run；工具结果已带回终态时移出跟踪集合，其完成通知按被动处理。
+   * 等待超时或中止不算已返回终态，run 留在跟踪集合，之后完成仍唤醒。
+   */
+  async function waitTracked(runId: string, signal?: AbortSignal): Promise<CoreResult & { waitAborted?: boolean }> {
+    let settle: () => void = () => {};
+    state.waitingRuns.set(runId, new Promise<void>((resolve) => { settle = resolve; }));
+    try {
+      const status = await waitForRun(runId, signal);
+      if (status.waitAborted !== true && status.timedOut !== true && terminalState(status.response?.data?.state)) {
+        state.watchedRuns.delete(runId);
+      }
+      return status;
+    } finally {
+      state.waitingRuns.delete(runId);
+      settle();
+    }
+  }
+
   /** wait 结果合并进工具 data；中止与超时如实标注，不伪装终态。 */
   function mergeWaitStatus(data: any, status: CoreResult & { waitAborted?: boolean }): any {
     if (status.response?.data?.state === undefined) return data;
@@ -1646,8 +1728,9 @@ export default async function (pi: any) {
         // resume 与 CLI 同一实现：生成新 run 后立即启动（与 run implement 同一 start 流程），返回 launch 已确认的状态。
         const resumed = await core(["run", "resume", params.runId, "--dir", root]);
         const newRunId = resumed.response?.data?.request?.runId;
+        if (resumed.response?.data?.resumed === true) watchRun(newRunId);
         if (params.wait === true && resumed.response?.data?.started === true && typeof newRunId === "string") {
-          const status = await waitForRun(newRunId, signal);
+          const status = await waitTracked(newRunId, signal);
           if (resumed.response !== null) resumed.response = { ...resumed.response, data: mergeWaitStatus(resumed.response.data, status) };
         }
         pokeObserver(ctx);
@@ -1700,13 +1783,18 @@ export default async function (pi: any) {
       if (prepared.code !== 0 || prepared.response?.outcome !== "completed") return toolResult(prepared);
       const runId = prepared.response?.data?.request?.runId;
       if (typeof runId !== "string") return failText(`Knit 未返回 runId（action=${params.action}）`);
+      // 派发即跟踪：完成后由通知唤醒主 Agent 接手下一步；启动失败随工具结果返回，不再跟踪。
+      watchRun(runId);
       pokeObserver(ctx);
       const started = await core(["run", "start", runId, "--dir", root]);
-      if (started.code !== 0 || started.response?.outcome !== "completed") return toolResult(started);
+      if (started.code !== 0 || started.response?.outcome !== "completed") {
+        state.watchedRuns.delete(runId);
+        return toolResult(started);
+      }
       pokeObserver(ctx);
       let data: any = { ...(prepared.response?.data ?? {}), ...(started.response?.data ?? {}) };
       if (params.wait === true) {
-        const status = await waitForRun(runId, signal);
+        const status = await waitTracked(runId, signal);
         data = mergeWaitStatus(data, status);
       }
       const taskStatus = await core(["status", params.taskId, "--dir", root]);

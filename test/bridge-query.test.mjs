@@ -508,8 +508,9 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
     assert.equal(passive.data.state, "completed");
     assert.equal(passive.data.acceptance, "completed");
     const notice = passive.data.text;
-    assert.match(notice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runA.runId)} pass；下一步：`), "通知先给标题与阶段名，run 用短 ID");
-    assert.match(notice, new RegExp(runA.runId), "下一步保留完整 run ID");
+    assert.match(notice, new RegExp(`^「${truncateTitle(title)}」检查：${shortId(runA.runId)} pass，结果已接收；下一步：`), "通知先给标题与阶段名，run 用短 ID，并写明结果已接收");
+    assert.match(notice, new RegExp(runA.runId), "保留完整 run ID");
+    assert.doesNotMatch(notice, /或 resume/, "已接收的完成通知不再建议 resume");
     // 展示路径：entry renderer 返回组件，输出含 [knit.notice] 标签与完整文案（theme 缺方法时不抛错）。
     const card = renderNotice(passive, { expanded: false }, {});
     assert.equal(typeof card?.render, "function", "被动条目渲染为组件");
@@ -556,7 +557,8 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
     await host.handlers.get("agent_settled")({}, host.ctx);
     assert.equal(host.messages.length, 2, "需处理通知不重复投递");
     assert.equal(noticeEntries().length, 3, "条目不重复追加");
-    assert.ok(host.messages.every((item) => item.options.deliverAs === "followUp" && item.options.triggerTurn === true), "所有进入上下文的通知都是需处理通知");
+    assert.ok(host.messages.every((item) => item.options.deliverAs === "followUp" && item.options.triggerTurn === true), "所有进入上下文的通知都以 followUp 唤醒");
+    assert.match(host.messages[1].message.content, /或 resume/, "失败通知文案保持现状");
     // 改动前遗留的旧去重条目（无 text）与异常数据同样不渲染。
     assert.equal(renderNotice({ type: "custom", customType: "knit.notice", data: { signature: "run-legacy:completed", runId: "run-legacy", state: "completed" } }, { expanded: false }, {}), undefined);
     assert.equal(renderNotice({ type: "custom", customType: "knit.notice", data: { signature: "x", text: "" } }, { expanded: false }, {}), undefined);
@@ -913,6 +915,8 @@ function installCliSpy(dir) {
     "if (log) appendFileSync(log, JSON.stringify(process.argv.slice(2)) + \"\\n\");",
     // 测试钩子：让 run list 查询失败（无输出、非零退出），其余命令照常转发。
     "if (process.env.KNIT_SPY_FAIL_RUN_LIST === \"1\" && process.argv[3] === \"run\" && process.argv[4] === \"list\") process.exit(1);",
+    // 测试钩子：让任务级 status 查询失败（status --run 照常转发）。
+    "if (process.env.KNIT_SPY_FAIL_TASK_STATUS === \"1\" && process.argv[3] === \"status\" && String(process.argv[4] ?? \"\").startsWith(\"k-\")) process.exit(1);",
     "const delay = Number(process.env.KNIT_SPY_DELAY_MS ?? 0);",
     "const contextOnly = process.env.KNIT_SPY_DELAY_CONTEXT_ONLY === \"1\";",
     "const commandArgs = process.argv.slice(2).filter((arg) => arg !== \"--dev\");",
@@ -1398,7 +1402,7 @@ test("knit_run wait=true 期间中止：及时返回当前状态，不取消 run
   const savedBin = process.env.KNIT_PI_BIN;
   const savedAction = process.env.KNIT_FAKE_ACTION;
   try {
-    const { host } = await loadBridge(dir);
+    const { host, api } = await loadBridge(dir);
     const nativeFile = writeStubNativeSession(dir, "stub-session", []);
     host.setSessionFile(nativeFile);
     await host.handlers.get("session_start")({}, host.ctx);
@@ -1441,6 +1445,8 @@ test("knit_run wait=true 期间中止：及时返回当前状态，不取消 run
     const status = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", "--run", runId, "--dir", dir], { encoding: "utf8" }));
     assert.notEqual(status.data.state, "cancelled", "中止等待不取消 run");
     assert.equal(status.data.cancelRequestedAt, null);
+    // 等待中止不算已返回终态：run 留在跟踪集合（此时 run 仍在运行，观察器扫描只会重复加入，不会移除）。
+    assert.equal(api.state.watchedRuns.has(runId), true, "中止的等待不算已返回终态：run 留在跟踪集合");
     // 收尾：放出等待信号，让假 Pi 正常结束，避免残留 worker。
     writeFileSync(join(dir, ".never-signal"), "done\n");
     for (let index = 0; index < 50; index += 1) {
@@ -1448,8 +1454,301 @@ test("knit_run wait=true 期间中止：及时返回当前状态，不取消 run
       const current = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", "--run", runId, "--dir", dir], { encoding: "utf8" }));
       if (["completed", "cancelled", "failed"].includes(current.data.state)) break;
     }
+    // run 之后完成仍唤醒主 Agent，且只唤醒一次（k-b9ea41e9eec0）。观察器节拍可能先于下面的显式扫描投递，两种顺序结果相同。
+    await host.handlers.get("agent_settled")({}, host.ctx);
+    await api.state.scanChain;
+    const woke = host.messages.filter((item) => item.message.details?.runId === runId);
+    assert.equal(woke.length, 1, "等待中止后 run 完成：唤醒主 Agent 一次");
+    assert.deepEqual(woke[0].options, { deliverAs: "followUp", triggerTurn: true });
+    assert.equal(api.state.watchedRuns.has(runId), false, "通知投递后移出跟踪集合");
     await host.handlers.get("session_shutdown")();
   } finally {
+    if (savedBin === undefined) delete process.env.KNIT_PI_BIN;
+    else process.env.KNIT_PI_BIN = savedBin;
+    if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
+    else process.env.KNIT_FAKE_ACTION = savedAction;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 停掉桥接自带的观察器节拍：通知用例只由显式 agent_settled 触发扫描，避免定时扫描落在发布与接收之间。 */
+async function stopBridgeObserver(api) {
+  await api.state.scanChain;
+  api.state.started = false;
+  if (api.state.timer !== null) {
+    clearTimeout(api.state.timer);
+    api.state.timer = null;
+  }
+  await api.state.scanChain;
+}
+
+test("桥接通知：本会话跟踪的 run 完成且已接收后唤醒；未跟踪的只展示；文案给任务级下一步（k-b9ea41e9eec0）", async () => {
+  const dir = project("notice-watched");
+  const saved = {};
+  let host;
+  for (const name of ["KNIT_SPY_LOG", "KNIT_SPY_REAL", "KNIT_SPY_DELAY_MS", "KNIT_SPY_FAIL_TASK_STATUS"]) saved[name] = process.env[name];
+  try {
+    const spy = installCliSpy(dir);
+    process.env.KNIT_SPY_LOG = spy.log;
+    process.env.KNIT_SPY_REAL = spy.real;
+    process.env.KNIT_SPY_DELAY_MS = "0";
+    delete process.env.KNIT_SPY_FAIL_TASK_STATUS;
+    // 标题不超过 20 字：通知展示完整标题，不截断。
+    const title = "跟踪通知";
+    const loaded = await loadBridge(dir);
+    host = loaded.host;
+    const { api } = loaded;
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    await stopBridgeObserver(api);
+
+    const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", title, "--slug", "notice-watched", "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+    const taskId = created.data.taskId;
+    execFileSync(process.execPath, [CLI, "--json", "task", "ready", taskId, "--dir", dir], { encoding: "utf8" });
+    const taskFile = join(dir, ".knit", created.data.relativePath);
+    writeFileSync(taskFile, readFileSync(taskFile, "utf8").replace(/^stage: .*$/m, "stage: check"));
+
+    const settle = async () => {
+      await host.handlers.get("agent_settled")({}, host.ctx);
+      await api.state.scanChain;
+    };
+    const accept = async (run) => {
+      const db = new SqliteMetadataStore(join(dir, ".knit", ".runtime", "metadata.db"));
+      await db.operations.setState(run.acceptanceOperationId, "completed");
+      db.close();
+    };
+    const nextSummary = () => {
+      const status = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", taskId, "--dir", dir], { encoding: "utf8" }));
+      return status.data.nextAction.summary;
+    };
+    const noticeEntries = () => host.entries.filter((entry) => entry.type === "custom" && entry.customType === "knit.notice");
+    const renderNotice = host.entryRenderers.get("knit.notice");
+    const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // 扫描看到运行中：加入跟踪集合，不产生通知。
+    const runA = prepareBridgeRun(dir, taskId, "check");
+    await settle();
+    assert.equal(api.state.watchedRuns.has(runA.runId), true, "未到终态的本会话 run 加入跟踪集合");
+    assert.equal(host.messages.length, 0);
+    assert.equal(noticeEntries().length, 0);
+
+    // 随后完成且已接收：进入上下文并唤醒，文案给任务级下一步。
+    finishBridgeRun(dir, runA, "pass");
+    await accept(runA);
+    const next = nextSummary();
+    assert.equal(typeof next, "string");
+    await settle();
+    assert.equal(host.messages.length, 1, "跟踪中的 run 完成且已接收：发送消息");
+    assert.deepEqual(host.messages[0].options, { deliverAs: "followUp", triggerTurn: true }, "进入上下文并唤醒主 Agent");
+    assert.equal(host.messages[0].message.customType, "knit.notice");
+    assert.deepEqual(host.messages[0].message.details, { runId: runA.runId, state: "completed", acceptance: "completed", signature: `${runA.runId}:completed` });
+    const woke = host.messages[0].message.content.split("\n")[0];
+    assert.equal(woke, `「${title}」检查：${shortId(runA.runId)} pass，结果已接收；下一步：${next.replace(/\s+/g, " ").trim()}（报告：knit status --run ${runA.runId}）`);
+    assert.doesNotMatch(woke, /或 resume/, "已接收的完成通知不再建议 resume");
+    assert.equal(noticeEntries().length, 1, "唤醒通知另写一条去重条目");
+    assert.deepEqual(noticeEntries()[0].data, { signature: `${runA.runId}:completed`, runId: runA.runId, state: "completed" }, "去重条目不带 text");
+    assert.equal(renderNotice(noticeEntries()[0], { expanded: false }, {}), undefined, "去重条目不渲染，不出现第二张卡片");
+    assert.equal(api.state.watchedRuns.has(runA.runId), false, "通知投递后移出跟踪集合");
+
+    // 重复扫描不重复唤醒。
+    await settle();
+    assert.equal(host.messages.length, 1, "重复扫描不重复唤醒");
+    assert.equal(noticeEntries().length, 1, "重复扫描不重复追加条目");
+
+    // 未跟踪：首次看到就已完成且已接收——只展示、不进上下文。
+    const runB = prepareBridgeRun(dir, taskId, "check");
+    finishBridgeRun(dir, runB, "pass");
+    await accept(runB);
+    assert.equal(api.state.watchedRuns.has(runB.runId), false);
+    await settle();
+    assert.equal(host.messages.length, 1, "未跟踪的已收尾 run 不调用 sendMessage");
+    assert.equal(noticeEntries().length, 2);
+    const passive = noticeEntries()[1];
+    assert.equal(passive.data.signature, `${runB.runId}:completed`);
+    assert.match(passive.data.text, new RegExp(`^「${title}」检查：${shortId(runB.runId)} pass，结果已接收；下一步：`), "被动通知同样写明结果已接收");
+    assert.equal(typeof renderNotice(passive, { expanded: false }, {})?.render, "function", "被动条目由 entry renderer 展示");
+
+    // 取不到任务级下一步：退回 run 级查看，通知照常唤醒。
+    const runC = prepareBridgeRun(dir, taskId, "check");
+    await settle();
+    assert.equal(api.state.watchedRuns.has(runC.runId), true);
+    finishBridgeRun(dir, runC, "pass");
+    await accept(runC);
+    process.env.KNIT_SPY_FAIL_TASK_STATUS = "1";
+    await settle();
+    delete process.env.KNIT_SPY_FAIL_TASK_STATUS;
+    assert.equal(host.messages.length, 2, "任务状态查询失败不影响投递");
+    assert.deepEqual(host.messages[1].options, { deliverAs: "followUp", triggerTurn: true });
+    assert.match(host.messages[1].message.content, new RegExp(`^「${title}」检查：${shortId(runC.runId)} pass，结果已接收；下一步：knit status --run ${escape(runC.runId)} 查看。$`, "m"));
+    assert.doesNotMatch(host.messages[1].message.content, /或 resume/);
+
+    // 跟踪中的 run 失败：仍按需处理唤醒，文案保持现状。
+    const runD = prepareBridgeRun(dir, taskId, "check");
+    await settle();
+    finishBridgeRun(dir, runD, "failed", "failed");
+    await settle();
+    assert.equal(host.messages.length, 3);
+    assert.deepEqual(host.messages[2].options, { deliverAs: "followUp", triggerTurn: true });
+    assert.match(host.messages[2].message.content, new RegExp(`${shortId(runD.runId)} failed；下一步：knit status --run ${escape(runD.runId)} 查看，或 resume。`));
+    assert.equal(api.state.watchedRuns.size, 0, "已通知的 run 都移出跟踪集合");
+
+    // wait 仍在等待时扫描先看到终态：等 wait 的结论再分流。等待被中止（终态未随工具结果返回）→ 唤醒。
+    const pendingWait = (runId) => {
+      let release = () => {};
+      api.state.waitingRuns.set(runId, new Promise((resolve) => { release = resolve; }));
+      return (returned) => {
+        if (returned) api.state.watchedRuns.delete(runId);
+        api.state.waitingRuns.delete(runId);
+        release();
+      };
+    };
+    const scanDuringWait = async (run, returned) => {
+      await settle();
+      assert.equal(api.state.watchedRuns.has(run.runId), true);
+      const finishWait = pendingWait(run.runId);
+      finishBridgeRun(dir, run, "pass");
+      await accept(run);
+      const before = { messages: host.messages.length, entries: noticeEntries().length };
+      let scanned = false;
+      const scan = host.handlers.get("agent_settled")({}, host.ctx).then(() => { scanned = true; });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      assert.equal(scanned, false, "wait 未出结论前扫描不分流");
+      assert.deepEqual({ messages: host.messages.length, entries: noticeEntries().length }, before, "wait 未出结论前不投递也不展示");
+      finishWait(returned);
+      await scan;
+      await api.state.scanChain;
+      return before;
+    };
+    const runE = prepareBridgeRun(dir, taskId, "check");
+    const beforeE = await scanDuringWait(runE, false);
+    assert.equal(host.messages.length, beforeE.messages + 1, "等待中止：完成通知唤醒主 Agent");
+    assert.equal(host.messages.at(-1).message.details.runId, runE.runId);
+    assert.deepEqual(host.messages.at(-1).options, { deliverAs: "followUp", triggerTurn: true });
+
+    // 等待已把终态带回工具结果 → 只展示。
+    const runF = prepareBridgeRun(dir, taskId, "check");
+    const beforeF = await scanDuringWait(runF, true);
+    assert.equal(host.messages.length, beforeF.messages, "wait 已返回终态：不唤醒");
+    assert.equal(noticeEntries().length, beforeF.entries + 1);
+    assert.equal(noticeEntries().at(-1).data.signature, `${runF.runId}:completed`);
+    assert.equal(typeof noticeEntries().at(-1).data.text, "string", "只追加带展示文案的条目");
+    assert.equal(api.state.watchedRuns.size, 0);
+
+    // 投递前再次核对原生会话：扫描等待期间会话已切换或宿主对象已失效，旧会话的通知既不唤醒也不展示（DESIGN §9.3）。
+    const scanAcrossSwitch = async (change, restore, label) => {
+      const run = prepareBridgeRun(dir, taskId, "check");
+      await settle();
+      assert.equal(api.state.watchedRuns.has(run.runId), true);
+      const finishWait = pendingWait(run.runId);
+      finishBridgeRun(dir, run, "pass");
+      await accept(run);
+      const before = { messages: host.messages.length, entries: noticeEntries().length };
+      const scan = host.handlers.get("agent_settled")({}, host.ctx);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      change();
+      try {
+        finishWait(false);
+        await scan;
+        await api.state.scanChain;
+        assert.deepEqual({ messages: host.messages.length, entries: noticeEntries().length }, before, label);
+      } finally {
+        restore();
+      }
+    };
+    // 宿主对象已失效：读取会话抛错按已切换处理，扫描不抛错。
+    const originalSessionId = host.ctx.sessionManager.getSessionId;
+    await scanAcrossSwitch(
+      () => { host.ctx.sessionManager.getSessionId = () => { throw new Error("stale ctx"); }; },
+      () => { host.ctx.sessionManager.getSessionId = originalSessionId; },
+      "宿主对象已失效：不投递也不展示",
+    );
+    // 桥接已登记到另一个原生会话：扫描开始时的会话不再是当前会话。
+    await scanAcrossSwitch(
+      () => { api.state.nativeSessionId = "switched-session"; },
+      () => {},
+      "会话已切换：不投递也不展示",
+    );
+  } finally {
+    if (host) await host.handlers.get("session_shutdown")();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("knit_run 派发的 run 未被扫描到运行中也唤醒；wait 已返回终态的只展示（k-b9ea41e9eec0）", async () => {
+  const dir = project("notice-dispatch");
+  const savedBin = process.env.KNIT_PI_BIN;
+  const savedAction = process.env.KNIT_FAKE_ACTION;
+  let host;
+  try {
+    const loaded = await loadBridge(dir);
+    host = loaded.host;
+    const { api } = loaded;
+    const nativeFile = writeStubNativeSession(dir, "stub-session", []);
+    host.setSessionFile(nativeFile);
+    await host.handlers.get("session_start")({}, host.ctx);
+    // 观察器停掉后 pokeObserver 不再扫描：下面的跟踪只可能来自派发登记。
+    await stopBridgeObserver(api);
+    process.env.KNIT_PI_BIN = join(import.meta.dirname, "fixtures", "fake-pi.mjs");
+    const actionPath = join(dir, "fake-action.json");
+    process.env.KNIT_FAKE_ACTION = actionPath;
+    const newTask = (name, slug) => {
+      const created = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "new", "--title", name, "--slug", slug, "--verification", "self", "--dir", dir], { encoding: "utf8" }));
+      execFileSync(process.execPath, [CLI, "--json", "task", "ready", created.data.taskId, "--dir", dir], { encoding: "utf8" });
+      return created.data.taskId;
+    };
+    const runStatus = (runId) => JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", "--run", runId, "--dir", dir], { encoding: "utf8" })).data;
+    const settle = async () => {
+      await host.handlers.get("agent_settled")({}, host.ctx);
+      await api.state.scanChain;
+    };
+    const noticeEntries = () => host.entries.filter((entry) => entry.type === "custom" && entry.customType === "knit.notice");
+
+    // 派发（不 wait）：取得 runId 即登记跟踪；首次扫描时已完成且已接收，仍唤醒。
+    const taskA = newTask("派发后唤醒", "dispatch-wake");
+    writeFileSync(actionPath, JSON.stringify({ writes: [{ path: "a.txt", content: "dispatched\n" }], report: { summary: "派发完成", changedPaths: ["a.txt"] } }));
+    const dispatched = await host.tools.get("knit_run").execute("d1", { action: "implement", taskId: taskA, provider: "test", model: "fake" }, null, null, host.ctx);
+    assert.equal(dispatched.isError, false, dispatched.content?.[0]?.text ?? "");
+    const runA = dispatched.details.request.runId;
+    assert.equal(api.state.watchedRuns.has(runA), true, "派发即加入跟踪集合");
+    let viewA = runStatus(runA);
+    for (let index = 0; index < 150 && !["completed", "cancelled", "failed"].includes(viewA.state); index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      viewA = runStatus(runA);
+    }
+    assert.equal(viewA.state, "completed", `run 终态: ${viewA.state}（${viewA.reason ?? viewA.result?.failureReason ?? ""}）`);
+    assert.equal(viewA.acceptance?.state, "completed", "worker 已自行接收结果");
+    assert.equal(host.messages.length, 0, "派发到完成之间没有扫描");
+    await settle();
+    assert.equal(host.messages.length, 1, "派发的 run 首次扫描即已完成且已接收：仍唤醒");
+    assert.deepEqual(host.messages[0].options, { deliverAs: "followUp", triggerTurn: true });
+    assert.equal(host.messages[0].message.details.runId, runA);
+    assert.equal(host.messages[0].message.details.acceptance, "completed");
+    assert.match(host.messages[0].message.content, /结果已接收；下一步：/);
+    assert.equal(noticeEntries().length, 1);
+
+    // wait 已返回终态：结果已在当前轮工具结果里，完成通知只展示。
+    const taskB = newTask("等待后不唤醒", "wait-passive");
+    writeFileSync(actionPath, JSON.stringify({ writes: [{ path: "b.txt", content: "waited\n" }], report: { summary: "等待完成", changedPaths: ["b.txt"] } }));
+    const waited = await host.tools.get("knit_run").execute("d2", { action: "implement", taskId: taskB, provider: "test", model: "fake", wait: true }, null, null, host.ctx);
+    assert.equal(waited.isError, false, waited.content?.[0]?.text ?? "");
+    const runB = waited.details.request.runId;
+    assert.equal(waited.details.status.state, "completed", "wait 返回终态");
+    assert.equal(waited.details.status.acceptance?.state, "completed");
+    assert.equal(api.state.waitingRuns.size, 0, "等待结束后清除等待登记");
+    assert.equal(api.state.watchedRuns.has(runB), false, "wait 已返回终态：移出跟踪集合");
+    await settle();
+    assert.equal(host.messages.length, 1, "wait 已返回终态：不再唤醒");
+    assert.equal(noticeEntries().length, 2);
+    assert.equal(noticeEntries()[1].data.signature, `${runB}:completed`);
+    assert.match(noticeEntries()[1].data.text, /结果已接收；下一步：/, "wait 后的完成通知只追加带展示文案的条目");
+    assert.equal(api.state.watchedRuns.size, 0);
+  } finally {
+    if (host) await host.handlers.get("session_shutdown")();
     if (savedBin === undefined) delete process.env.KNIT_PI_BIN;
     else process.env.KNIT_PI_BIN = savedBin;
     if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
