@@ -169,4 +169,10 @@ title: 策略恢复：needs_attention 的提交步骤可随重试重核
 - 结果: 正常交付；检查 run-0ac98d57462e 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-14-policy-recovery-retry
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-93b4378473bf -->
+- 任务资料提交: 62ea8d392071e193add9b3692c3242c49ff366ca
+- 归档目标: .knit/tasks/archive/2026-11/11-14-policy-recovery-retry
+
 <!-- knit:progress:end -->
