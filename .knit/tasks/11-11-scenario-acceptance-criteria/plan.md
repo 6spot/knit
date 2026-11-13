@@ -1,3 +1,35 @@
+# 本轮有效计划：正式恢复与归档（2026-11-13）
+
+用户在本会话明确选择「补齐恢复入口，再完成归档」。task.md 已经 change 重开，保留原场景化功能、任务身份与 independent；新增恢复验收以 task.md 为准。以下历史计划中的「本次不归档」只描述当时授权，已由本次明确收尾授权替代。
+
+## 当前执行
+
+## 当前阻塞（2026-11-13）
+
+正式检查 run-8b454443fb55 报告 pass（52路径、41场景、检查者无写入），但并行P1 k-b9ea41e9eec0修改两份桥接，接收被scope_changed拒绝，无有效新检查。用户明确暂不授权P1提交；保留其工作，本P2等待真实来源提交，不close、不归档、不推送。证据与正规后续路径见 research/parallel-scope-block-2026-11-13.md。源码提交876dcef和双终端各743/743已保留；这些测试发生在P1后续变更前。
+
+- [x] 历史成果、正式操作和阻塞已取证，报告在 research/delivery-recovery-review-2026-11-13.md。
+- [x] 独立只读审阅否决空 scope clone、伪称写入和降低验证的绕行；本机证据未改写。
+- [x] 用户确认扩展恢复机制范围；经正式 task update --kind change 重开，尚待 ready。
+- [x] 正式 Knit implement run-df1727de11fb 已完成并接收：公开 task rebind --recover 与 deliver --recover-policy、关键拒绝测试和文档；报告普通终端 npm test 750/750。
+- [x] 主会话已接收成果、公开恢复9个历史路径并保留原来源，scope=51；修复测试夹具清理竞态，实际普通Terminal.app与Rex最终npm test均743/743。产物提交876dcef之后再公开复核夹具修复路径，完整52路径全部当前有效（新增1条真实夹具修改）。详见research/recovery-validation-2026-11-13.md。
+- [ ] 全新独立 check：run-8b454443fb55报告pass但scope_changed未获准；待并行P1相关修改有经授权的真实提交后，恢复范围并重新检查，不沿用失效报告。
+- [ ] 依据既有P2授权完成正式deliver/归档；当前被并行成果未提交阻塞，用户暂不授权P1提交，不越界代提交、不混合任务历史。
+
+## 实施交接与约束
+
+- 原正式 scope 是实施 run 的 37 路径；另外四条历史成果原先由带 HMAC 的主会话实施记录补录，不能遗失：src/application/stage.ts、src/domain/workflow.ts、src/cli/task.ts、assets/templates/.knit/workflow.yaml。旧独立检查曾覆盖合计 41 条路径。
+- 正式 change/ready 按现行规则会失效并清除现行 completion/implementation。重开之前已对原 scope、completion、implementation、task.md 作逐字节只读审计备份，未伪造或覆写原凭据。目录为 /var/folders/25/wn233x_93rv9z2jjm9xzfm_00000gn/T/knit-scenario-recovery-dyvQQS/，manifest.json 记录原 sha256。旧 main implementation 有可验证 HMAC，路径为该目录下 .knit/.runtime/implementations/k-185ace3b9556.json；恢复入口如需从旧记录纳入完整历史范围，必须核验真实凭据和归属，不当作恢复者新实施。
+- 原交付 op-82859126c85c 仍 planned，所有步骤 planned、没有 Git 副作用；旧授权 user:c9a5f8e6 已 verified。正式恢复须重新检查当前策略和授权来源、保留旧版本，不直接覆盖 policyVersion。
+- 实现可选择最小公开 CLI/API；不新增不必要的独立状态机。scope 复核必须保留来源链，且 completion 能区分真实新实施与有证据的历史重核。桥接/CLI、文档、测试必须一致。
+- 正式 worker 不提交 Git、不改 .knit/ 下受保护资料、不改凭据/checkpoint，不派额外 worker。生产源码之外已有 config、其他任务、验证目录、deepseek-reviewer 配置均为既有无关改动，保持原样。
+- 模型可用 magpie/codex/gpt-6.1-sol；独立检查必须新原生会话。主会话与 worker 各自保留真实验证记录；开发机 npm test 需普通终端与 Rex 各一次，Rex 使用 rex skill。全局安装、发布、部署、真实用户项目仍不在范围。
+- 若新的恢复命令尚未载入当前宿主桥接，可由主会话用本次构建 node dist/cli/knit.js 调用，同样走公开核心入口，不能直接编辑运行资料。
+
+---
+
+# 历史计划与已完成事实（原文保留）
+
 # 场景化完成条件实施与检查计划
 
 需求权威为 task.md「目标与边界／关键决定／完成条件」，已获用户批准；本计划只记录方案、进度与交接，不新增验收。

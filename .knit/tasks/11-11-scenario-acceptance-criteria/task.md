@@ -346,6 +346,52 @@ OpenSpec 用 `### Requirement:` 加 `#### Scenario:`（WHEN／THEN）表达行�
 - THEN 全部通过
 - AND 新增测试覆盖前六个 Requirement 的各个场景
 
+### Requirement: 已完成任务的正式恢复入口
+
+本节是 2026-11-13 用户明确选择「补齐恢复入口，再完成归档」后增加的范围。保留原场景化功能、independent 验证级别与原任务身份；不处理本机真实 Pi 验收及其他任务。当前阻塞与代码证据见 `research/delivery-recovery-review-2026-11-13.md`。
+
+#### Scenario: 有来源地复核被后续提交更新的成果
+
+- GIVEN 任务已有正式实施来源和非空成果 scope，部分成果路径随后被其他已提交工作合法更新
+- WHEN 主会话通过显式公开恢复入口提供待复核的既有成果路径及可核验的当前提交来源
+- THEN 核心核对来源提交、分支、路径内容与本机当前指纹后，记录旧新指纹和来源，形成可供新独立检查使用的当前成果范围
+- AND 原成果路径集合及原实施来源保留，不把复核声明成恢复者的新实际写入，不依赖假改动或非真实 changedPaths
+
+#### Scenario: 未经核验的成果不得恢复
+
+- GIVEN 某路径不在既有成果范围内，或声明来源不存在、内容不匹配、分支不符、运行未结束
+- WHEN 尝试恢复该路径的成果资格
+- THEN 拒绝对应不合法请求，不产生可以绕过检查的有效资格
+
+#### Scenario: 恢复后必须完整独立检查
+
+- GIVEN 旧检查因提示词或成果指纹变化失效，成果范围已按可核验来源复核
+- WHEN 派发并接收新的独立检查
+- THEN 提示与覆盖校验包含完整历史成果范围和本任务全部场景，新检查基于当前输入、提示词与成果指纹
+- AND 缺任何既有路径覆盖或场景结论时不能完成任务，不能以空 scope、降低验证级别或 task implement 补录非实际改动代替
+- AND 原 run、旧检查与恢复前证据的审计来源保留；现行完成资格仍按正式失效与重建规则处理
+
+#### Scenario: 交付策略变化后显式恢复
+
+- GIVEN 已有交付操作因当前交付策略与操作记录不一致而被拒绝
+- WHEN 主会话在既有用户授权覆盖下显式按当前策略重核并恢复
+- THEN 当前策略、授权来源、分支和已有副作用重新核验并留下可追溯记录
+- AND 未核验的旧提交或不充分授权仍被拒绝，不能直接跳过 policy_changed 或覆写旧策略历史
+
+#### Scenario: 放弃的无副作用操作不阻塞后续正规交付
+
+- GIVEN 一个交付操作在产生实际副作用前被公开取消为 abandoned
+- WHEN 任务通过当前资格核验后重新正式交付
+- THEN abandoned 操作保留为历史，不被错误复用成仍需执行的最新操作
+
+#### Scenario: 当前任务可正常提交与归档
+
+- GIVEN 当前任务的成果已按当前来源复核，全部原功能与恢复场景通过独立检查
+- WHEN 正式执行 deliver 与归档
+- THEN 实际产生的资料提交、封存与归档位置一致，当前任务移出活跃任务列表
+- AND 目录选择与提交文件展开保持一致，不把合法目录集合误判为选中内容被改写
+- AND 不 force、不手改凭据或归档状态，不提交其他任务及无关工作区改动
+
 ## 实施要点
 
 - 解析器与「待澄清」解析放在同一层（`src/contracts/task-inputs.ts` 或相邻文件），纯函数，输入是 task.md 文本。
@@ -413,5 +459,33 @@ OpenSpec 用 `### Requirement:` 加 `#### Scenario:`（WHEN／THEN）表达行�
 收尾验证缺口已补齐：用户选择允许 Terminal 自动化后，真实 Terminal.app 窗口 12635 启动标准 npm test；TERM_PROGRAM=Apple_Terminal 488.9、tty=/dev/ttys007，Node v26.3.0，typecheck/build 与隔离测试脚本完整执行。719/719 pass、0 fail、0 skipped，238869.374ms，退出 0，完成于 2026-11-11T11:32:29.409Z；日志 /tmp/knit-session-handoff-ts14l3da/ordinary-terminal-npm-test-final.log 和结果 JSON 保留，原环境-only 标签的普通终端证明以本次实际 App 证据补足。关闭后同步的三个 .knit/agents 副本与已独立检查模板字节相同，workflow validate 通过。之前直接 node --test 未按脚本隔离 env/密钥的 6/8 失败日志保留，后续标准全量包含并通过这些用例；不虚构代码修复。正式 independent 35/35 场景和 41 路径、Rex 全量 719/719 仍成立。授权 Git 条件已满足，提交文案已展示；定向分开提交 41 产物和 8 元数据并推送 origin/main，排除 .knit/config.json，采用 hooks skip，不归档或安装。
 
 实际宿主 Git 产物提交已成功：66f2d3f1c4e585e04efb214817166cd441aad139（66f2d3f），父节点 c5dab24573a44d34a500d41ebd2db5b20a9d3471。提交仅含已核对的 41 产物路径；逐路径核对 index 与提交树 blob，全部等于已选中的工作区字节；提交后 index 为空。Source trailer 为 Knit-Task k-185ace3b9556／Knit-Stage artifact／Knit-Verification independent；hooks skip，未创建 Knit delivery operation。来源不明 .knit/config.json 未暂存、内容 blob 仍为 7ee20f4858d8a405de82e05aeb59daad84a119dc，仓库配置未改。下一步单独提交 8 条任务／流程／提示词资料后，按既有授权非强制推送 origin/main；这里尚不记推送成功，真实后续结果以 Git 和主会话回报为准。
+
+2026-11-12 实际 deliver 被 stale_input 拒绝；原需求 inputsDigest、正式 standardsDigest 均匹配，但 role:check / runtime:pi 的冻结内容摘要与当前不同，effectiveInputsDigest 不匹配。未提交、未暂存，全部临时物化源文件已恢复并验明字节/模式；不退回当前受管提示词或修改凭据。待通过正常正式独立复核重建资格，既有远端产物 66f2d3f / 58a2dc2 不重复提交。
+
+其他已获授权成果已按任务保留历史写入后，现行分支上的旧 scope 有 10 个路径指纹已被后续已完成任务合法更新。正常正式 check 不仅要求当前提示词，还在接收时校验 untouched scope 的现行指纹（run-acceptance.ts scope_changed）；不能用非正式 check --scope 或 task implement 替代，也不能用旧快照重新提交已在远端的成果。故本任务资料收尾需先通过正式来源/实施链重建当前 scope 再做独立检查；在不自动生产修复的授权边界内暂记阻塞，不启动已知无法接收的空检查。
+
+主会话已接收正式实现 run-df1727de11fb。使用本次构建的公开 task rebind --recover，以 refs/heads/main 的当前提交 2d6801411158253beda3d5016ab0b781d12b37c8 和原本机 HMAC 签名实施记录审计备份核验 9 个历史成果路径；scope 从48扩充为51条、所有当前指纹一致，原run-4725f81f73af及新实施来源保留，无假changedPaths。恢复请求与测试日志在原审计目录。实现方报告普通终端全量750/750通过；主会话Rex全量运行中，尚未声称新增独立检查通过、提交或归档。
+
+最终普通Terminal.app和Rex的npm test均743/743、0失败、0跳过、退出0，保留此前失败/中断日志。仅18条产物路径形成已授权本地提交876dcefbdf8d73416cfedbd41169de300b698fad；随后公开rebind --recover按该提交更新已登记的夹具实际修改路径。scope仍51路径、来源与两次复核记录保留，准备全新完整independent检查；资料提交与归档尚未完成，未推送。实际证据详见research/recovery-validation-2026-11-13.md。
+
+补充最终范围核对：第二次公开恢复同时纳入本轮主会话真实修改并签名登记的test/bridge-query.test.mjs，最终scope实际为52条（此前51为夹具实际修改纳入前的范围）；所有52条指纹当前有效，2次恢复记录、原实施来源保留。新独立检查以52条完整范围为准，资料相应更正。
+
+正式独立run-8b454443fb55报告pass（coverage52、scenarios41、changedPaths=[]、标准npm test743/743），但检查期间另一会话P1任务k-b9ea41e9eec0改动本P2范围内两份桥接，核心接收以scope_changed拒绝：run状态failed、接收needs_attention，未发布有效新检查，不能close或归档。来源与后续路径见research/parallel-scope-block-2026-11-13.md。用户在本会话明确选择“暂不授权P1提交”；不提交、覆盖或接管P1，不将其未提交内容混入本P2。保留本P2已授权产物提交876dcefbdf8d73416cfedbd41169de300b698fad与普通Terminal.app/Rex各743/743历史证据，任务维持open/check，等待受影响路径形成经授权的真实提交，再公开恢复范围、新独立检查、close和正式deliver/archive。未推送、未归档。
+
+续接只读核对：HEAD仍876dcef，未产生新的真实来源提交。52条scope条目的当前指纹漂移增至3条（两份桥接及docs/design/DESIGN.md），第三条diff为并行P1的通知唤醒说明；其ARCHITECTURE.md修改不在本P2 scope。用户暂不授权P1提交的决定保持有效。未重复实施/检查、未触碰并行成果、未提交或推送、未close或归档。详细证据补记research/parallel-scope-block-2026-11-13.md。
+
+2026-11-14 续接收口（主会话，授权来源用户消息 9698c2d8，范围为本地提交与归档，不含推送）：并行 P1 k-b9ea41e9eec0 及后续两项核心修复（k-e7876542ec29、k-2af2e1208325）均已独立检查通过并各自提交归档，本任务 scope 内 19 条被更新的路径由此取得真实提交来源。以 refs/heads/main 的 2dff2a3e922eecdb694e77ad6fa80f990f897d65 为来源执行公开 task rebind --recover（请求 /tmp/knit-k185/recovery-request.json），19 条全部复核，scope 52 条、当前指纹 0 漂移，恢复记录 3 条，原实施来源 run-4725f81f73af、run-df1727de11fb 保留；未手改凭据、检查点或阶段。新的完整独立检查 run-ea809fc9bab1（magpie / group/deepseek）pass：coverage 52、scenarios 41 全 pass、无 findings、检查者未改文件，接收 check_pass；检查者在 Rex 终端跑标准 npm test 782/782。同一份源码在本会话的普通 Terminal.app 首次 781/782（test/run.test.mjs 锁目录轮询的 find 竞态，单独重跑 6/6 通过）、重跑 782/782，Rex 782/782。旧检查 run-8b454443fb55 的报告与拒绝接收证据保留。未验证：真实 Pi 会话端到端与 macOS 安装验收按任务边界延期。
+
+### 交付记录
+
+<!-- knit:delivery:op-82859126c85c -->
+- 操作: op-82859126c85c
+- 时间: 2026-11-13T21:50:20.282Z
+- 分支: refs/heads/main
+- 授权来源: user:sha256:022d9ea53babe7e8033f06eee04f16b45c91d3186198d2f54e989836fe25d3cc
+- 调用: bridge
+- 工作提交: 无
+- 结果: 正常交付；检查 run-ea809fc9bab1 通过；验证 independent
+- 归档目标: .knit/tasks/archive/2026-11/11-11-scenario-acceptance-criteria
 
 <!-- knit:progress:end -->
