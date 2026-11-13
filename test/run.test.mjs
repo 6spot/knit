@@ -42,6 +42,19 @@ function git(dir, args) {
   return execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 }
 
+// 进程内列举锁目录（含子目录），换行连接。worker 释放占用时目录可能在列举途中被删除：
+// 条目消失就重读，根目录不存在才算空，其它读取错误照常抛出。
+function lockEntries(root) {
+  for (let attempt = 0; ; attempt += 1) {
+    if (!existsSync(root)) return "";
+    try {
+      return readdirSync(root, { recursive: true }).sort().join("\n");
+    } catch (error) {
+      if (error?.code !== "ENOENT" || attempt >= 20) throw error;
+    }
+  }
+}
+
 function project(prefix) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), `knit-012-${prefix}-`)));
   git(dir, ["init", "-q", "-b", "main"]);
@@ -109,7 +122,7 @@ test("prepare 只发布请求；start 后 worker 自行持锁并冻结输入，�
     assert.equal(existsSync(join(runDir, "snapshot")), false);
     // 无 CLI→worker 长锁交接：prepare 不留下项目执行占用。
     const projectLocks = join(dir, ".locks", "projects");
-    assert.equal(existsSync(projectLocks) ? execFileSync("find", [projectLocks, "-mindepth", "1"], { encoding: "utf8" }).trim() : "", "");
+    assert.equal(lockEntries(projectLocks), "");
     assert.equal(readFileSync(taskFile, "utf8"), beforeTask);
     const operation = await s.store.operations.get(prepared.request.acceptanceOperationId);
     assert.equal(operation.state, "planned");
@@ -133,13 +146,11 @@ test("prepare 只发布请求；start 后 worker 自行持锁并冻结输入，�
     assert.equal(readFileSync(taskFile, "utf8"), beforeTask);
     // worker 退出后释放占用（prepared 落盘与释放有很短竞态，轮询确认）。
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      const left = existsSync(projectLocks)
-        ? execFileSync("find", [projectLocks, "-mindepth", "1"], { encoding: "utf8" }).trim()
-        : "";
+      const left = lockEntries(projectLocks);
       if (left === "") break;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    assert.deepEqual(existsSync(projectLocks) ? execFileSync("find", [projectLocks, "-mindepth", "1"], { encoding: "utf8" }).trim() : "", "");
+    assert.deepEqual(lockEntries(projectLocks), "");
 
     // 已确认后再次 start：观察原运行，不重复启动。
     const second = await s.coordinator.start({ dir, runId: prepared.request.runId });

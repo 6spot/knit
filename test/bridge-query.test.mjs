@@ -207,7 +207,7 @@ test("桥接命令展示结构化查询结果：task list、status、按任务�
     rmSync(join(dir, "node_modules"), { recursive: true, force: true });
     void dirname;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -331,7 +331,7 @@ test("每轮注入：before_agent_start 写 knit 分节；无任务入口规则�
     assert.equal(host.systemPromptOptions.sections.knit, undefined, "custom 轮次不注入");
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -390,7 +390,7 @@ test("对话任务衔接：显式创建、重复引导、拒绝无副作用、�
     const listFinal = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "task", "list", "--dir", dir], { encoding: "utf8" }));
     assert.equal(listFinal.data.active.length, 2);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -426,7 +426,7 @@ test("桥接按 workflow.yaml 派生阶段 schema；读取失败退回字符串�
     assert.equal(validated.details.validation.ok, true);
     assert.equal(JSON.stringify(host.tools.get("knit_run").parameters).includes("advisory"), false);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -450,7 +450,7 @@ test("桥接 knit_workflow set-tools：all／[]／clear 与 show 回显一致", 
     assert.equal(await toolsAfter({ clear: true }), null, "clear = 删除字段（全部放开）");
     assert.equal(/tools:/.test(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8")), false);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -466,7 +466,7 @@ test("桥接读取坏配置失败时退回字符串参数，不静默通过（P6
     assert.equal(stage.type, "string");
     assert.equal(stage.anyOf, undefined);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -586,7 +586,7 @@ test("桥接通知与 turn context 优先标题与阶段名；knit_status／knit
 
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -702,7 +702,7 @@ test("knit_material 与 knit_task new 提醒：需求写入入口与重复创建
 
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -744,7 +744,7 @@ test("knit_task ready／record／close 未传 taskId 使用当前选择；无选
 
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -789,7 +789,7 @@ test("knit_task action=list：默认只列活跃并提示归档条数，archive 
 
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -851,7 +851,7 @@ test("knit_run action=resume：生成新 run 后真启动，wait 观察到终态
     else process.env.KNIT_PI_BIN = savedBin;
     if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
     else process.env.KNIT_FAKE_ACTION = savedAction;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -892,7 +892,7 @@ test("knit_deliver 桥接：非 plan 动作一律传会话记录，native:／mes
     assert.doesNotMatch(policy.content[0].text, /authorization_unverified/, policy.content[0].text);
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1079,7 +1079,7 @@ for (const failNewContext of [false, true]) {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
     }
   });
 }
@@ -1116,7 +1116,7 @@ test("夹具清理：shutdown 等待已读取快照的后台 CLI 关闭后再删
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1169,7 +1169,7 @@ test("每轮上下文只调一次 session context；超时用上一轮缓存并�
     else process.env.KNIT_SPY_DELAY_MS = savedDelay;
     if (savedTimeout === undefined) delete process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS;
     else process.env.KNIT_BRIDGE_CONTEXT_TIMEOUT_MS = savedTimeout;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1267,7 +1267,7 @@ test("续接会话：预热在途时三轮用户消息都注入当轮上下文�
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1318,7 +1318,7 @@ test("续接会话：刷新超时保留上一轮缓存并标注可能过期、�
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1393,7 +1393,7 @@ test("续接会话：无缓存且刷新失败时保留原生上一轮分节、�
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1467,7 +1467,7 @@ test("knit_run wait=true 期间中止：及时返回当前状态，不取消 run
     else process.env.KNIT_PI_BIN = savedBin;
     if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
     else process.env.KNIT_FAKE_ACTION = savedAction;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1675,7 +1675,7 @@ test("桥接通知：本会话跟踪的 run 完成且已接收后唤醒；未跟
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1753,7 +1753,7 @@ test("knit_run 派发的 run 未被扫描到运行中也唤醒；wait 已返回�
     else process.env.KNIT_PI_BIN = savedBin;
     if (savedAction === undefined) delete process.env.KNIT_FAKE_ACTION;
     else process.env.KNIT_FAKE_ACTION = savedAction;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1800,7 +1800,7 @@ test("观察器：无活动 run 退避到 30 秒，有活动 run 回到 5 秒；
     assert.equal(await waitDelay(5_000), true, `有活动 run 应回到 5s，实际 ${api.state.timer?._idleTimeout}`);
     await host.handlers.get("session_shutdown")();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1857,7 +1857,7 @@ test("观察器：run list 查询失败不推进扫描时间，恢复后从原�
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1898,6 +1898,6 @@ test("桥接诊断：cli_version 记录安装 CLI 与仓库版本／dist 摘要�
     process.stderr.write = savedWrite;
     if (savedDev === undefined) delete process.env.KNIT_DEV;
     else process.env.KNIT_DEV = savedDev;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });

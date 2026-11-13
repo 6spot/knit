@@ -212,7 +212,7 @@ test("implement→check 独立会话；结果与原生范围保存，重复接�
     assert.equal(afterClose.frontmatter.outcome, "completed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -303,7 +303,7 @@ test("接收检查点：Task 已写而 binding 失败时重入收敛，不重复
     assert.equal(checked.lastRunIds.length, 2);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -373,7 +373,7 @@ test("检查修复的接收检查点可重入：scope 并入与检查凭据不�
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "runs", prepared.request.runId, "acceptance.json")), false);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -404,7 +404,7 @@ test("任务关闭后迟到结果只保留事实，不隐式重开", async () =>
     assert.equal(after.frontmatter.stage, "implement");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -451,7 +451,7 @@ test("活动 run 未收敛时 task close 拒绝；任务服务按真实 run 仓�
     assert.equal((await s.store.bindings.get(task.taskId)).pendingDraft, null);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -509,7 +509,7 @@ test("允许写的检查阶段可在既定范围内修复：改动落盘、接�
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.status, "open");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -547,7 +547,7 @@ test("检查 changes_requested 的落盘修复也并入 scope，避免后续指�
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "implement");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -591,7 +591,7 @@ test("检查报告 changedPaths 缺失或与实际不符时拒绝，Task 不被�
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -616,7 +616,7 @@ test("检查修改 .knit 元数据仍被拒绝", async () => {
     assert.equal(parseTaskDocument(readFileSync(join(dir, ".knit", "tasks", task.relativePath.split("/")[1], "task.md"), "utf8")).frontmatter.stage, "check");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -645,7 +645,7 @@ test("取消终态且无 result 的 run 不把取消意图当完成，也不阻�
     assert.equal((await s.tasks.close({ dir, taskId: task.taskId, outcome: "cancelled", runsSettled: true })).status, "closed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -670,7 +670,7 @@ test("报告改动路径与实际不符时不接收，失败原因带实际路�
     assert.equal((await s.store.bindings.get(task.taskId)).scope, undefined);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -715,7 +715,7 @@ test("树基线已含改动时重派：失败残留可声明继承，未声明�
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "check");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -756,7 +756,7 @@ test("changes_requested→修复→重查两轮后停止，不自动开始第三
     );
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -810,7 +810,7 @@ test("阶段 maxVisits：回退进入超过上限时接收需人工处理并写 
     assert.equal(retry.reason, "repair_round_limit");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -865,7 +865,7 @@ test("阶段访问计数从第一次接收 run 开始：失败 run 不算开始�
     assert.deepEqual(binding.stageVisits, { implement: 2, check: 1 });
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -934,7 +934,7 @@ test("自定义阶段：按声明校验报告、按配置流转并累计访问",
     assert.equal(closed.status, "closed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -962,7 +962,7 @@ test("配置在 prepare 后降级：在途 run 继续完成并记录 fallback �
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "deliver");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1057,7 +1057,7 @@ test("配置在 prepare 后降级：自定义提示词／能力／报告按冻�
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1114,7 +1114,7 @@ test("tools: [] 全部禁用：工具策略为空能力，Pi 启动参数含 --n
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1179,7 +1179,7 @@ test("配置在 prepare 后降级：自定义结论阶段按冻结定义接收�
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1221,7 +1221,7 @@ test("配置在 prepare 后降级：自定义实施结果仍进入上一实施�
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1259,7 +1259,7 @@ test("配置在 prepare 后降级：接收按冻结声明校验报告", async ()
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.stage, "verify");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1301,7 +1301,7 @@ test("配置在 prepare 后降级：无 prompt 阶段不套旧提示词", async 
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1353,7 +1353,7 @@ test("配置在 prepare 后降级：报告声明按冻结定义校验", async ()
   } finally {
     clearFakeStageEnv();
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1390,7 +1390,7 @@ test("scope 跨 run 累积、换会话不重置修复计数与检查事实", asy
     assert.equal(binding.lastCheckRunId, check1.runId, "新实现保留最近检查事实，不由旧回执改写");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1424,7 +1424,7 @@ test("检查接收窗口外部改动成果：重核不符转 scope_changed，不
     assert.equal(recovered.phase, "deliver");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1463,7 +1463,7 @@ test("输入在结果发布后变化时接收 stale，不写 Task／scope", asyn
     assert.equal(existsSync(join(dir, ".knit", ".runtime", "checks", `${prepared.request.runId}.json`)), false);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1539,7 +1539,7 @@ test("运行边界核对实际分支：prepare、启动、接收三处拒绝，d
     assert.equal(parseTaskDocument(readFileSync(taskFile, "utf8"), taskFile).frontmatter.branch, "refs/heads/side");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1570,7 +1570,7 @@ test("resume --run：结果待同步先接收不重跑；已完成不新建 run�
     assert.equal(again.reason, "already_accepted");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1611,7 +1611,7 @@ test("原生引用不可恢复时保留执行结果，不把会话失败当代�
     if (previous === undefined) delete process.env.KNIT_FAKE_NO_FILE;
     else process.env.KNIT_FAKE_NO_FILE = previous;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1668,7 +1668,7 @@ test("runtime 启动失败保留 pi 侧错误细节；run 目录与 status 可�
     if (previousFailure === undefined) delete process.env.KNIT_FAKE_START_FAILURE;
     else process.env.KNIT_FAKE_START_FAILURE = previousFailure;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1692,7 +1692,7 @@ test("连接中断启动失败同样落盘诊断尾部", async () => {
     if (previousFailure === undefined) delete process.env.KNIT_FAKE_START_FAILURE;
     else process.env.KNIT_FAKE_START_FAILURE = previousFailure;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1743,7 +1743,7 @@ test("真实 worker 持项目占用时草案保存与撤回；旧 run 沿冻结�
     );
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1776,7 +1776,7 @@ test("结果写入失败不发布完成，Task 不推进", async () => {
     assert.equal(status.acceptance.reason, "result_missing");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1826,7 +1826,7 @@ test("取消在安全点收敛为 cancelled，不推进 Task；旧 run 取消不
     assert.equal(nextStatus.acceptance.state, "completed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1873,7 +1873,7 @@ test("取消与完成竞争：fake-pi 收到取消的同一 tick 发布完成结
   } finally {
     delete process.env.KNIT_FAKE_COMPLETE_ON_ABORT;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1905,7 +1905,7 @@ test("resume --run：已完成结果待同步时只接收，不新建 run、不�
     assert.equal((await s.coordinator.status({ dir, runId: check.request.runId })).state, "completed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1927,7 +1927,7 @@ test("advisory 不再作为阶段：准备被拒绝，不推进 Task", async () 
     assert.equal(new RunStore(dir).listRunIds().length, 0);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -1971,7 +1971,7 @@ test("取消在工具不响应 abort 时按宽限终止自有 Pi 进程组，留
     else process.env.KNIT_FAKE_IGNORE_ABORT = previous;
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2060,7 +2060,7 @@ test("SIGKILL worker 后阶段 Pi 仍存活：resume 拒绝兜底；清理自有
     else process.env.KNIT_FAKE_IGNORE_ABORT = previous;
     delete process.env.KNIT_FAKE_IGNORE_STDIN_CLOSE;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2116,7 +2116,7 @@ test("心跳丢失后 worker 停止新动作：fake-pi 下一次调用被拒绝�
     assert.equal(new RunStore(dir).readState(runId)?.reason.startsWith("lock_ownership_lost"), true);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2156,7 +2156,7 @@ test("无固定阶段总时限：长阶段跨原 15 分钟截止仍完成；显�
     assert.equal(status.acceptance.reason, "implementation_accepted");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2197,7 +2197,7 @@ test("授权规范成果：明确授权后实施可改正式规范并进 scope�
     assert.ok(authorizedStatus.acceptance.reason === "implementation_accepted");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2272,7 +2272,7 @@ test("prefer 恢复身份核对与回退：实际 ID 不符新建续做，旧查
     assert.equal(binding.lastCheckRunId, null, "StageRunner 只执行阶段，接收属 worker 边界");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2351,7 +2351,7 @@ test("检查报告带 ```json 围栏与前置说明时 run 以 pass 完成；畸
     assert.ok(badStatus.result.failureReason.startsWith("report_not_json:"));
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2397,7 +2397,7 @@ test("报告补报：首轮缺路径，同一会话补报一次后接收并记�
   } finally {
     delete process.env.KNIT_FAKE_PROMPT_LOG;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2422,7 +2422,7 @@ test("报告补报：首轮畸形 JSON 也只补报一次，最终报告完整",
     assert.deepEqual(status.result.actualChangedPaths, ["README.md"]);
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2460,7 +2460,7 @@ test("报告补报：补报轮写入文件即失败，不把二次实施当作�
   } finally {
     delete process.env.KNIT_FAKE_PROMPT_LOG;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2496,7 +2496,7 @@ test("报告补报：limits.reportRetries=0 维持首轮失败语义，不发起
   } finally {
     delete process.env.KNIT_FAKE_PROMPT_LOG;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2528,7 +2528,7 @@ test("报告补报：首轮报告有效时不追加轮次", async () => {
   } finally {
     delete process.env.KNIT_FAKE_PROMPT_LOG;
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
 
@@ -2558,6 +2558,6 @@ test("报告补报：检查报告 coverage 缺项在同一会话补报后接收"
     assert.equal(status.acceptance.state, "completed");
   } finally {
     s.store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
