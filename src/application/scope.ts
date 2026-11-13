@@ -1,6 +1,6 @@
 /**
  * 成果 scope：按 Task 累积、路径带当前指纹（DESIGN.md 5.3、9.3）。
- * scope 只记录已接收实施实际产生的路径；恢复与换会话不重置。
+ * scope 记录已接收实施实际产生或主会话实施登记的路径；恢复与换会话不重置。
  * 新条目指纹含路径、类型、模式和内容；无类型字段的旧记录按原语义仅核内容（任务027）。
  */
 import type { ScopeFile } from "../contracts/run.js";
@@ -12,6 +12,8 @@ import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 export type ScopeFactsKind = "file" | "directory" | "link" | "absent";
 
 export interface ScopeEntry {
+  /** 登记来源；主会话记录不代表任何 run 的实际写入。 */
+  source?: "main-session-implementation";
   path: string;
   digest: string | null;
   absent: boolean;
@@ -63,17 +65,17 @@ export function currentEntry(root: string, relativePath: string, options: { fact
   }
 }
 
-/** 合并本次实际改动；同路径后来版本覆盖旧条目，但 scopeRunIds 保留历史。 */
+/** 合并实施路径；同路径后来版本覆盖旧条目，主会话登记不增加 scopeRunIds。 */
 export function mergeScope(
   previous: ScopeFile,
-  input: { runId: string; taskId: string; paths: string[]; root: string; now: string },
+  input: { runId?: string; source?: "main-session-implementation"; taskId: string; paths: string[]; root: string; now: string },
 ): ScopeFile {
   const entries = new Map(previous.entries.map((entry) => [entry.path, entry]));
   for (const path of input.paths) {
-    entries.set(path, currentEntry(input.root, path, { factsKind: true }));
+    entries.set(path, { ...currentEntry(input.root, path, { factsKind: true }), ...(input.source === undefined ? {} : { source: input.source }) });
   }
   const sorted = [...entries.values()].sort((a, b) => a.path.localeCompare(b.path));
-  const runIds = previous.runIds.includes(input.runId) ? previous.runIds : [...previous.runIds, input.runId];
+  const runIds = input.runId === undefined || previous.runIds.includes(input.runId) ? previous.runIds : [...previous.runIds, input.runId];
   return {
     ...(previous.recoveries === undefined ? {} : { recoveries: previous.recoveries }),
     schemaVersion: 1,

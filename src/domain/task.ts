@@ -173,7 +173,7 @@ function isDecisionStage(stage: WorkflowStage): boolean {
 }
 
 /** 配置中最后一个结论阶段；作为 independent 的检查回归目标。 */
-function checkStageOf(workflow: WorkflowDefinition): TaskStage | null {
+export function checkStageOf(workflow: WorkflowDefinition): TaskStage | null {
   let result: TaskStage | null = null;
   for (const stage of workflow.stages) {
     if (isDecisionStage(stage)) result = stage.id;

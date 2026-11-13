@@ -119,6 +119,45 @@ async function startRun(s, { mainRoot, executionDir, taskId, phase = "implement"
   return { prepared, started, status, runId: prepared.request.runId };
 }
 
+for (const fromMain of [false, true]) test(`CLI task close：${fromMain ? "主检出" : "worktree"} 核对主检出中的实施 run`, async () => {
+  const dir = project(`close-${fromMain}`);
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "close-routing", verification: "self" });
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    const wt = await setupWorktree(dir, s, task.taskId);
+    const impl = await startRun(s, {
+      mainRoot: dir, executionDir: wt.path, taskId: task.taskId,
+      action: { writes: [{ path: "README.md", content: "# worktree done\n" }], report: { summary: "done", changedPaths: ["README.md"] } },
+    });
+    assert.equal(impl.status.state, "completed", impl.status.result?.failureReason);
+    const closed = spawnSync(process.execPath, [CLI, "--json", "task", "close", task.taskId, "--outcome", "completed", "--dir", fromMain ? dir : wt.path], { encoding: "utf8" });
+    assert.equal(closed.status, 0, closed.stdout + closed.stderr);
+    assert.equal(new RunStore(dir).readCompletion(task.taskId).implementedBy, "run");
+    assert.equal(existsSync(join(wt.path, ".knit", ".runtime")), false);
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }); }
+});
+
+for (const fromMain of [false, true]) test(`CLI task implement：${fromMain ? "主检出路由" : "worktree 内登记"} 使用 worktree 指纹`, async () => {
+  const dir = project(`record-${fromMain}`);
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "record-routing", verification: "self" });
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    const wt = await setupWorktree(dir, s, task.taskId);
+    writeFileSync(join(wt.path, "README.md"), "# main-session in worktree\n");
+    const recorded = spawnSync(process.execPath, [CLI, "--json", "task", "implement", task.taskId, "--path", "README.md", "--validation", "自检通过", "--dir", fromMain ? dir : wt.path], { encoding: "utf8" });
+    assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr);
+    const runs = new RunStore(dir);
+    assert.ok(runs.readImplementation(task.taskId));
+    assert.equal(existsSync(join(wt.path, ".knit", ".runtime")), false);
+    const closed = spawnSync(process.execPath, [CLI, "--json", "task", "close", task.taskId, "--outcome", "completed", "--dir", fromMain ? dir : wt.path], { encoding: "utf8" });
+    assert.equal(closed.status, 0, closed.stdout + closed.stderr);
+    assert.equal(runs.readCompletion(task.taskId).implementedBy, "record");
+    assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "# demo\n");
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }); }
+});
+
 function taskFileIn(taskDir) {
   return join(taskDir, "task.md");
 }

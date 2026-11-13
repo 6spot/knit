@@ -13,6 +13,8 @@ import { SessionService } from "../application/session-service.js";
 import { searchHistory } from "../application/history-search.js";
 import { emit, jsonResponse, outcomeForError, reasonForError } from "./output.js";
 import { cliMainRoot } from "./root.js";
+import { executionRouteOf, resolveProjectStart } from "../application/worktree-routing.js";
+import { GuardError } from "../application/guard-error.js";
 import { gitSync } from "../infrastructure/process.js";
 
 const RUNTIME_DIR = ".knit/.runtime";
@@ -157,6 +159,12 @@ function summarizeUpdate(result: TaskUpdateResult): string {
 export function registerTaskCommands(program: Command): void {
   const jsonMode = () => program.opts().json || process.env.KNIT_JSON === "1";
   const task = program.command("task").description("任务身份、输入与记录管理");
+  const taskRoute = async (dir: string, taskId: string, store: SqliteMetadataStore) => {
+    const start = resolveProjectStart(dir);
+    const route = executionRouteOf(await store.bindings.get(taskId), start.mainRoot);
+    if (route.state === "invalid") throw new GuardError("worktree_invalid", route.problem ?? "worktree 路由无效");
+    return { dir: start.mainRoot, evidenceRoot: start.mainRoot, executionDir: route.dir };
+  };
 
   const withStore = async <T>(requestId: string, dir: string, fn: (store: SqliteMetadataStore) => Promise<T>, render: (result: T) => void, failureCode?: (result: T) => boolean): Promise<void> => {
     const store = openStore(dir);
@@ -537,9 +545,9 @@ export function registerTaskCommands(program: Command): void {
       await withService(
         requestId,
         options.dir,
-        (service) =>
+        async (service, store) =>
           service.implement({
-            dir: options.dir,
+            ...await taskRoute(options.dir, taskId, store),
             taskId,
             paths: options.path,
             validations: options.validation,
@@ -549,6 +557,7 @@ export function registerTaskCommands(program: Command): void {
           }),
         (result) => {
           console.log(`实施事实已记录: ${result.taskId}（${result.executor}）· 路径 ${result.paths.length} · 验证 ${result.validations}`);
+          if (result.enteredCheck === true) console.log(`已进入检查阶段 ${result.stage}；下一步派发独立检查 run`);
           if (result.bindingRebuilt === true) console.log(`本机绑定已重建；当前阶段 ${result.stage ?? "?"}（先按当前需求核对再完成）`);
         },
       );
@@ -773,9 +782,9 @@ export function registerTaskCommands(program: Command): void {
       await withService(
         requestId,
         options.dir,
-        (service) =>
+        async (service, store) =>
           service.close({
-            dir: options.dir,
+            ...await taskRoute(options.dir, taskId, store),
             taskId,
             outcome: options.outcome,
             reason: options.reason,

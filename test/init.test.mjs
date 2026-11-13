@@ -671,8 +671,10 @@ test("模板：派发分层标准与两个桥接逐字一致（k-ae990e2f36dc）
     "没有任务就没有 Knit worker",
     "该派但无任务时先向用户提议建任务，不代建",
     "复杂但不建任务时用宿主通用子 Agent",
-    "independent 不得用主会话自检或 run check --scope 代替",
-    "也不得用 task implement 绕开 W1",
+    "independent 的检查必须由独立检查 run 完成",
+    "不得用主会话自检或 run check --scope 代替",
+    "在用户明确指定时由主会话做并用 task implement 登记后进入检查",
+    "task implement 不代替独立检查",
   ]) {
     assert.ok(guidance.includes(phrase), `受管块含：${phrase}`);
   }
@@ -700,8 +702,9 @@ test("文档：DESIGN §4.2 与 ROLE-CONTRACT 派发分层同口径（k-ae990e2f
   assert.match(section, /不以墙钟时长、步骤数量、阶段数量或是否需要恢复作判据/, "阈值边界与提示词一致");
   assert.match(section, /\| 工作 \| 无任务 \| 有任务 \|/, "含任务与派发矩阵");
   assert.match(section, /没有任务就没有 Knit worker/);
-  assert.match(section, /independent` 不得用主会话自检或 `run check --scope` 代替/, "独立检查不可替代");
-  assert.match(section, /不得用 `task implement` 绕开 W1/, "task implement 不绕开 W1");
+  assert.match(section, /`independent` 的检查必须由独立检查 run 完成，不得用主会话自检或 `run check --scope` 代替/, "独立检查不可替代");
+  assert.match(section, /在用户明确指定时由主会话做并用 `task implement` 登记后进入检查/);
+  assert.match(section, /`task implement` 不代替独立检查/, "task implement 保留独立检查");
   const role = readFileSync(join(root, "docs", "design", "ROLE-CONTRACT.md"), "utf8");
   assert.match(role, /主会话派发分层/);
   assert.match(role, /W1–W4 判断是否派 Knit worker/);

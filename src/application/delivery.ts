@@ -546,7 +546,21 @@ export function sameSet(left: string[], right: string[]): boolean {
 }
 
 export function selectedPath(path: string, selected: string[]): boolean {
-  return selected.some((entry) => path === entry || path.startsWith(`${entry}/`));
+  return selected.some((entry) => {
+    const normalized = entry.replace(/\/+$/, "");
+    return path === normalized || path.startsWith(`${normalized}/`);
+  });
+}
+
+/** 只补认旧尾斜杠缺陷漏记的条目；null 表示真实差异或无可靠路径检查点。 */
+export function recoveredTreePaths(
+  expected: Record<string, string>, actual: Record<string, string>, selected: string[], expectedPaths: string[] | null,
+): string[] | null {
+  if (Object.entries(expected).some(([path, value]) => actual[path] !== value)) return null;
+  const extra = Object.keys(actual).filter((path) => !(path in expected));
+  const directories = selected.filter((path) => path.endsWith("/"));
+  if (extra.some((path) => expectedPaths === null || !expectedPaths.includes(path) || !directories.some((dir) => path.startsWith(`${dir.replace(/\/+$/, "")}/`)))) return null;
+  return extra.sort();
 }
 
 /** 指定提交树内的模式／对象类型／blob OID；用于核对 hook 是否改了实际提交内容。 */

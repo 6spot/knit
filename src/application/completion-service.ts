@@ -120,7 +120,7 @@ export class CompletionService {
           ? null
           : {
               inputsDigest: implementation.inputsDigest,
-              entriesCurrent: scopeEntriesCurrent(root, implementation.entries as ScopeEntry[]),
+              entriesCurrent: scopeEntriesCurrent(executionDir, implementation.entries as ScopeEntry[]),
             },
       checkQualification,
       checkRunId,

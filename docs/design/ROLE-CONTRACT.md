@@ -17,7 +17,7 @@
 
 `.knit/` 下规范、配置、流程与提示词是所有阶段的硬保护路径（改动判 `protected_path_modified`）。任务资料（`.knit/tasks/**`：task.md、plan／design／research）优先经 `knit_task`／`knit_material` 或同名 CLI 写入，接口做版本核对、输入摘要与阶段守卫；直接编辑不判越界、不计入成果，但无法归因，输入区变化收尾判 `stale_input`（任务 k-f0d9a8952aff）。
 
-**主会话派发分层**：主会话在动手前按 W1–W4 判断是否派 Knit worker——W1 独立检查（任务要求 `independent`，或正确性无法自证）、W2 改动面（≥ 3 个文件或跨 ≥ 2 个模块／包）、W3 摸底成本（需读 ≥ 8 个文件或 ≥ 1500 行，或依赖大量搜索／长日志）、W4 用户指定；不满足则主会话直接做。判断顺序、矩阵与阈值边界见 [DESIGN.md 第 4.2 节](DESIGN.md#42-主会话工作流)；阈值是判断辅助，不以时长、步骤数、阶段数或是否需要恢复作判据。worker 仍只在任务内派发：`run prepare/start/implement/check` 都要求 `--task`，没有任务就没有 Knit worker；该派但无任务时先向用户提议建任务，不代建，复杂但不建任务时用宿主通用子 Agent。`independent` 不得用主会话自检或 `run check --scope` 代替，也不得用 `task implement` 绕开 W1。
+**主会话派发分层**：主会话在动手前按 W1–W4 判断是否派 Knit worker——W1 独立检查（任务要求 `independent`，或正确性无法自证）、W2 改动面（≥ 3 个文件或跨 ≥ 2 个模块／包）、W3 摸底成本（需读 ≥ 8 个文件或 ≥ 1500 行，或依赖大量搜索／长日志）、W4 用户指定；不满足则主会话直接做。判断顺序、矩阵与阈值边界见 [DESIGN.md 第 4.2 节](DESIGN.md#42-主会话工作流)；阈值是判断辅助，不以时长、步骤数、阶段数或是否需要恢复作判据。worker 仍只在任务内派发：`run prepare/start/implement/check` 都要求 `--task`，没有任务就没有 Knit worker；该派但无任务时先向用户提议建任务，不代建，复杂但不建任务时用宿主通用子 Agent。`independent` 的检查必须由独立检查 run 完成，不得用主会话自检或 `run check --scope` 代替；实现可以由 worker 做，也可以在用户明确指定时由主会话做并用 `task implement` 登记后进入检查；`task implement` 不代替独立检查。
 
 锚点 `start`／`deliver` 不产生 worker 报告。配置阶段可以有任意 id；默认模板使用 `implement`／`check`，只是示例，不是固定枚举。同一提示词文件可被多个阶段复用；阶段 id 是 Session 引用、访问计数与任务 `stage` 的稳定键。
 

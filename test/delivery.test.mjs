@@ -10,6 +10,7 @@ import { SqliteMetadataStore } from "../dist/infrastructure/sqlite-metadata-stor
 import { LockManager } from "../dist/infrastructure/locks.js";
 import { TaskService } from "../dist/application/task-service.js";
 import { DeliveryService } from "../dist/application/delivery-service.js";
+import { selectedPath, recoveredTreePaths } from "../dist/application/delivery.js";
 import { StandardsService } from "../dist/application/standards-service.js";
 import { ContextPlanner } from "../dist/application/context-planner.js";
 import { currentEntry, emptyScope, scopeDigest } from "../dist/application/scope.js";
@@ -126,6 +127,87 @@ async function makeDeliverable(dir, s, { stage = "deliver", status = "open", out
   }
   return { ...created, taskFile, check, scope };
 }
+
+test("目录选择：尾斜杠等价且不匹配兄弟前缀，补认仍拒绝真实差异", () => {
+  for (const selected of [["dir"], ["dir/"]]) {
+    assert.equal(selectedPath("dir", selected), true);
+    assert.equal(selectedPath("dir/file", selected), true);
+    assert.equal(selectedPath("dir-other/file", selected), false);
+  }
+  assert.deepEqual(recoveredTreePaths({}, { "dir/a": "blob" }, ["dir/"], ["dir/a"]), ["dir/a"]);
+  assert.equal(recoveredTreePaths({ a: "old" }, { a: "new" }, ["a"], ["a"]), null);
+  assert.equal(recoveredTreePaths({}, { "dir/a": "blob" }, ["dir/"], []), null);
+  assert.equal(recoveredTreePaths({}, { "dir/a": "blob" }, ["dir"], ["dir/a"]), null);
+});
+
+for (const variant of ["normal", "legacy", "work-legacy", "later", "dirty", "recorded-diff", "unexpected-path", "not-ancestor"]) test(`目录交付与恢复：${variant}`, async () => {
+  const dir = project(`directory-${variant}`);
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: "directory", branch: BRANCH, verification: "self" });
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    mkdirSync(join(dir, "dir"));
+    writeFileSync(join(dir, "dir", "a.txt"), "a\n");
+    writeFileSync(join(dir, "dir", "b.txt"), "b\n");
+    await s.tasks.implement({ dir, taskId: task.taskId, paths: ["dir/"], validations: ["目录自检"] });
+    await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", runsSettled: true });
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    if (variant !== "normal") {
+      writeFileSync(hook, "#!/bin/sh\nif git diff --cached --name-only | grep -q '.knit/tasks/'; then exit 1; fi\n");
+      chmodSync(hook, 0o755);
+    }
+    const first = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH });
+    if (variant === "normal") {
+      assert.equal(first.state, "completed", first.reason);
+      assert.ok(first.workCommit && first.metadataCommit && first.archiveCommit);
+      return;
+    }
+    assert.equal(first.state, "needs_attention");
+    assert.ok(first.workCommit);
+    rmSync(hook);
+    const op = await s.store.operations.get(first.operationId);
+    const artifact = op.steps.find((step) => step.kind === "artifact_commit");
+    const expectedTree = JSON.parse(artifact.evidence.expectedTree);
+    if (variant === "recorded-diff") expectedTree["dir/a.txt"] = "100644 blob wrong";
+    else for (const path of Object.keys(expectedTree)) delete expectedTree[path];
+    const steps = op.steps.map((step) => step.kind === "artifact_commit" ? {
+      ...step, state: "needs_attention", evidence: { ...step.evidence, expectedTree: JSON.stringify(expectedTree), ...(variant === "unexpected-path" ? { expectedPaths: "dir/a.txt" } : {}) },
+    } : step.kind === "metadata_commit" ? { ...step, state: "planned", evidence: null } : step);
+    // 还原旧检查点：产物已提交，目录条目未记入 expectedTree；不改任何真实任务运行资料。
+    git(dir, ["reset", "--", join(".knit", task.relativePath)]);
+    let productCommit = first.workCommit;
+    if (variant === "work-legacy") {
+      git(dir, ["commit", "--amend", "--only", "-q", "-m", `knit: deliver ${task.taskId} (${first.operationId})`]);
+      productCommit = git(dir, ["rev-parse", "HEAD"]);
+      steps.find((step) => step.kind === "artifact_commit").kind = "work_commit";
+    }
+    await s.store.operations.save({ ...op, workCommit: productCommit, reason: "hook_changed_selected", steps: variant === "work-legacy" ? steps.filter((step) => step.kind !== "metadata_commit") : steps });
+    if (variant === "later" || variant === "dirty") {
+      writeFileSync(join(dir, variant === "later" ? "other.txt" : "dir/a.txt"), "later committed\n");
+      git(dir, ["add", "--", variant === "later" ? "other.txt" : "dir/a.txt"]);
+      git(dir, ["commit", "-q", "-m", "later unrelated task"]);
+      if (variant === "dirty") writeFileSync(join(dir, "dir/a.txt"), "later worktree\n");
+    }
+    if (variant === "not-ancestor") git(dir, ["reset", "--mixed", `${productCommit}^`]);
+    const headBefore = git(dir, ["rev-parse", "HEAD"]);
+    const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
+    if (["recorded-diff", "unexpected-path", "not-ancestor"].includes(variant)) {
+      assert.equal(retry.state, "needs_attention");
+      assert.equal(retry.reason, variant === "unexpected-path" || variant === "not-ancestor" ? "commit_scope_mismatch" : "hook_changed_selected");
+    } else {
+      assert.equal(retry.state, "completed", retry.reason);
+      assert.equal(retry.workCommit, productCommit);
+      assert.deepEqual(git(dir, ["show", "--format=", "--name-only", productCommit]).split("\n").filter(Boolean).sort(), ["dir/a.txt", "dir/b.txt"]);
+      const saved = await s.store.operations.get(first.operationId);
+      assert.equal(saved.steps.find((step) => step.kind === (variant === "work-legacy" ? "work_commit" : "artifact_commit")).evidence.supplementedPaths, "dir/a.txt\ndir/b.txt");
+      if (variant !== "work-legacy") {
+        assert.equal(git(dir, ["rev-parse", `${retry.metadataCommit}^`]), headBefore);
+        assert.equal(git(dir, ["diff-tree", "--no-commit-id", "--name-only", "-r", retry.metadataCommit]).includes("dir/a.txt"), false);
+      }
+      if (variant === "dirty") assert.equal(readFileSync(join(dir, "dir/a.txt"), "utf8"), "later worktree\n");
+    }
+  } finally { s.store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("正常交付：工作提交与归档提交范围准确，无关 staged／unstaged 保留", async () => {
   const dir = project("normal");
@@ -474,7 +556,7 @@ test("hook 改动选中文件：提交保留但 needs_attention，不移动任�
   }
 });
 
-test("hook 改内容后的显式 retry 不复用旧 pass；scope 现状重核拒绝 check_stale", async () => {
+test("hook 后续改动工作区：retry 核对已提交产物，不提交后来改动", async () => {
   const dir = project("hook-content-retry");
   const s = services(dir);
   try {
@@ -486,12 +568,11 @@ test("hook 改内容后的显式 retry 不复用旧 pass；scope 现状重核拒
     assert.equal(first.state, "needs_attention");
     assert.equal(first.reason, "hook_changed_selected");
     rmSync(hook);
-    // 任务027：hook 改写了 scope 文件，旧 pass 不再代表当前成果，重试必须重新检查。
-    await assert.rejects(
-      () => s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true }),
-      /check_stale|检查后成果路径现状与记录不符/,
-    );
-    assert.ok(existsSync(task.taskFile));
+    const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
+    assert.equal(retry.state, "completed", retry.reason);
+    assert.equal(retry.workCommit, first.workCommit);
+    assert.equal(readFileSync(join(dir, "app.txt"), "utf8"), "hooked\n");
+    assert.equal(git(dir, ["show", `${retry.workCommit}:app.txt`]), "new");
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -524,7 +605,7 @@ test("commit 已成功但回执丢失：恢复仍核验提交范围，不把越�
   }
 });
 
-test("恢复时 HEAD 已有额外提交：即使找到操作提交也拒绝，不把后续历史并入归档", async () => {
+test("恢复时 HEAD 已有额外提交：核对操作提交后继续归档", async () => {
   const dir = project("recovery-head-advanced");
   const s = services(dir);
   try {
@@ -540,9 +621,10 @@ test("恢复时 HEAD 已有额外提交：即使找到操作提交也拒绝，�
     writeFileSync(join(dir, "extra.txt"), "outside\n");
     git(dir, ["add", "extra.txt"]);
     git(dir, ["commit", "-q", "-m", "later external commit"]);
+    const later = git(dir, ["rev-parse", "HEAD"]);
     const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
-    assert.equal(retry.state, "needs_attention");
-    assert.equal(retry.reason, "commit_scope_mismatch");
+    assert.equal(retry.state, "completed", retry.reason);
+    assert.equal(git(dir, ["rev-parse", `${retry.metadataCommit}^`]), later);
   } finally {
     s.store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -654,7 +736,7 @@ test("归档提交 pre-commit 拒绝后 retry：旧任务路径删除与新路�
   }
 });
 
-test("工作提交完成后出现额外提交：恢复拒绝把额外历史并入归档", async () => {
+test("资料提交已开始后出现额外提交：保留资料检查点的 HEAD 守卫", async () => {
   const dir = project("post-work-extra");
   const s = services(dir);
   try {
@@ -671,7 +753,7 @@ test("工作提交完成后出现额外提交：恢复拒绝把额外历史并�
     git(dir, ["commit", "-q", "-m", "external after work"]);
     const retry = await s.delivery.deliver({ dir, taskId: task.taskId, branch: BRANCH, retry: true });
     assert.equal(retry.state, "needs_attention");
-    assert.equal(retry.reason, "commit_scope_mismatch");
+    assert.equal(retry.reason, "commit_unverified");
     assert.equal(retry.archiveCommit, null);
   } finally {
     s.store.close();

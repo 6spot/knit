@@ -150,7 +150,11 @@ function qualificationDecision(facts: CompletionFacts): CompletionDecision {
 
   if (facts.confirmedInputsDigest === null) return { allowed: false, reason: "inputs_not_confirmed" };
   if (facts.confirmedInputsDigest !== facts.currentInputsDigest) return { allowed: false, reason: "inputs_changed" };
-  if (!facts.scopeCurrent) return { allowed: false, reason: "scope_changed" };
+  if (!facts.scopeCurrent) {
+    if (facts.verification === "independent" && facts.checkQualification === "stale") return { allowed: false, reason: "check_not_valid" };
+    if (facts.verification === "self" && facts.implementationRecord !== null && !facts.implementationRecord.entriesCurrent) return { allowed: false, reason: "implementation_stale" };
+    return { allowed: false, reason: "scope_changed" };
+  }
 
   if (facts.verification === "self") {
     const run = facts.lastImplement;

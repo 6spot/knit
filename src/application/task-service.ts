@@ -23,6 +23,7 @@ import {
 } from "../contracts/task-inputs.js";
 import type { TaskBinding } from "../contracts/metadata.js";
 import { onParentAssigned, onParentCompletion, parentChainContains, isKnownStage, rebindStageOf, transition as stageTransition, type Decision, type TaskFacts, type TaskTransition, type TaskTransitionResult } from "../domain/task.js";
+import { checkStageOf } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { workflowOf } from "./workflow.js";
 import {
@@ -43,8 +44,9 @@ import { assertNotInStageContext } from "./stage-context.js";
 import { formalStandardsDigest } from "./standards.js";
 import { normalizeRoot, safeJoin } from "../infrastructure/paths.js";
 import { RunStore } from "../infrastructure/run-store.js";
-import { currentEntry, loadScope, scopeDigest, type ScopeEntry } from "./scope.js";
+import { currentEntry, loadScope, mergeScope, scopeDigest, type ScopeEntry } from "./scope.js";
 import { recoveredScope, type ScopeRecoveryInput } from "./scope-recovery.js";
+import { sha256Bytes } from "../infrastructure/fingerprint.js";
 import { readWithVersion, atomicWrite } from "../infrastructure/atomic.js";
 import { ArgvGitPort, gitSync } from "../infrastructure/process.js";
 import type { GitPort } from "../ports/infrastructure.js";
@@ -403,6 +405,10 @@ export interface TaskUpdateResult {
 /** 主会话／用户实施事实：没有 worker run 时用于完成资格核对。 */
 export interface TaskImplementInput {
   dir: string;
+  /** 任务正文与路径指纹所在检出；缺省同 dir。 */
+  executionDir?: string;
+  /** scope、实施记录与运行事实所在主检出；缺省同 dir。 */
+  evidenceRoot?: string;
   taskId: string;
   /** 实际改动路径；至少一条。 */
   paths: string[];
@@ -424,6 +430,7 @@ export interface TaskImplementResult {
   bindingRebuilt?: boolean;
   /** 记录实施后 task.md 的阶段；自动重建时可能已降级。 */
   stage?: string;
+  enteredCheck?: boolean;
 }
 
 export interface TaskCloseInput {
@@ -2483,7 +2490,8 @@ export class TaskService {
    * 记录只在任务锁内写；输入变化、ready 或重新讨论后旧记录失效并被清理。
    */
   async implement(input: TaskImplementInput): Promise<TaskImplementResult> {
-    const root = normalizeRoot(input.dir);
+    const root = normalizeRoot(input.evidenceRoot ?? input.dir);
+    const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
     const paths = [...new Set(input.paths.map((path) => path.trim()).filter((path) => path !== ""))];
     if (paths.length === 0) throw new TaskGuardError("invalid_request", "至少给出一个 --path（实际改动路径）");
     const validations = input.validations.map((line) => line.trim()).filter((line) => line !== "");
@@ -2494,7 +2502,7 @@ export class TaskService {
     assertFormalTaskEnvironment(root);
     const lock = await this.lockTaskState(root, input.taskId, "task.implement");
     try {
-      const located = this.locate(root, input.taskId);
+      const located = this.locate(executionRoot, input.taskId);
       if (located.archived) throw new TaskGuardError("task_archived", "已归档任务不能再记录实施事实");
       const file = join(located.dir, TASK_FILE);
       const before = readWithVersion(file);
@@ -2526,9 +2534,31 @@ export class TaskService {
         throw new TaskGuardError("pending_draft_exists", "存在未应用输入草案，先应用或撤回再记录实施");
       }
       const entries: ScopeEntry[] = paths.map((path) => {
-        safeJoin(root, path);
-        return currentEntry(root, path, { factsKind: true });
+        safeJoin(executionRoot, path);
+        return currentEntry(executionRoot, path, { factsKind: true });
       });
+      const workflow = workflowOf(executionRoot);
+      const stage = document.frontmatter.stage;
+      const enteredCheck = verificationModeOf(document.frontmatter) === "independent" &&
+        stage !== "start" && stage !== "deliver" && stage !== checkStageOf(workflow);
+      if (enteredCheck) {
+        const decision = stageTransition(workflow, stageFactsOf(document, binding), { kind: "implementationAccepted" });
+        if ("allowed" in decision && decision.allowed === false && decision.stopReason !== undefined) {
+          await this.store.bindings.save({ ...binding, stopReason: decision.stopReason });
+        }
+        const next = guardRejected(decision, "task implement");
+        document = withRegions(document, { frontmatter: { ...document.frontmatter, stage: next.stage } });
+        const raw = Buffer.from(renderTaskDocument(document), "utf8");
+        atomicWrite({ path: file, data: raw, expectedSha256: sha256Bytes(recordRaw), mode: 0o644 });
+        recordRaw = raw;
+        binding = { ...binding, stageVisits: next.visits, stopReason: next.stopReason, confirmedInputsDigest: inputsDigestOf(raw.toString("utf8")) };
+      }
+      const runs = new RunStore(root);
+      const scope = mergeScope(loadScope(runs, input.taskId, this.now().toISOString()), {
+        taskId: input.taskId, paths, root: executionRoot, now: this.now().toISOString(), source: "main-session-implementation",
+      });
+      runs.writeScope(input.taskId, scope);
+      await this.store.bindings.save({ ...binding, scope: scope.entries, scopeRunIds: scope.runIds });
       const digest = scopeDigest(entries);
       const inputsDigest = inputsDigestOf(recordRaw.toString("utf8"));
       new RunStore(root).writeImplementation(input.taskId, {
@@ -2550,7 +2580,9 @@ export class TaskService {
         validations: validations.length,
         inputsDigest,
         scopeDigest: digest,
-        ...(bindingRebuilt ? { bindingRebuilt: true, stage: document.frontmatter.stage } : {}),
+        stage: document.frontmatter.stage,
+        enteredCheck,
+        ...(bindingRebuilt ? { bindingRebuilt: true } : {}),
       };
     } finally {
       this.locks.release(lock);

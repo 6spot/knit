@@ -224,6 +224,8 @@ frontmatter 的 stage 表示下一项业务工作，取值是内置锚点或当�
 
 业务完成由 `task close --outcome completed` 按当前目标、成果和任务验证要求核对后记录；不要求已有 Git 提交、交付回执或归档。完成凭据写入 `.knit/.runtime/completions/<task-id>.json`，只冻结完成时的输入、scope、验证方式与来源，不新增业务 stage。`self` 依据最近获准实施及其输入／scope，或主会话实施记录（`task implement` 记录的输入摘要、成果路径指纹与实际验证），`independent` 依据当前有效且检查者未改动文件的正式检查（最新检查带 `checkerChangedPaths` 时报 `check_self_modified`，§5.1）；`none` 只在用户明确选择时使用，并记录未验证项。没有可用证据而用户明确要求时，可用 `task close --force --reason` 强制完成：凭据记 `forced`、原因与未验证项，交付提交带 `forced` 标记；`independent` 不能借 force 跳过正式检查。`self`／`independent` 的成果范围为空（scope 与主会话实施记录都没有路径，如实施报告 `changedPaths: []` 被接收）时完成以 `empty_scope` 拒绝，避免“本来没有产物”“产物已被外部提交”“产物留在工作区未归属”三种情况静默完成；确实没有产物时用 `task close --outcome completed --no-artifacts --reason <原因>`，凭据记 `artifacts: none` 与 `noArtifactsReason`，成果非空时声明无产物报 `artifacts_present`。`none` 模式、主会话 `task implement` 已登记路径、强制完成与父任务（存在子任务）总体验收不受此守卫约束；`deliver` 预检同一守卫。交付没有产物提交（`workCommit` 为空）时结果带 `noArtifactCommit: true` 与完成凭据中的原因，人读输出与桥接通知写明“本次交付没有产物提交”；空报告的实施 run 被接收时 `run status` 提示“本轮未产生成果”（任务 k-86d01bf85274，审计 F4）。完成后的输入或成果变化使凭据失效，不能继续沿用旧完成交付。
 
+主会话 `task implement` 对所有验证模式以当前路径指纹并入 scope，来源记为主会话实施记录，不声明 run 写入、不增加 runIds；重新登记覆盖实施记录并刷新对应 scope 条目。independent 在工作阶段登记成功后沿生效流程按 `implementationAccepted` 进入下一阶段，更新 task.md、确认摘要与阶段访问计数；在检查阶段或 deliver 再登记不重复推进。检查 coverage、scopeDigest 与完成核对均覆盖这些条目；scope 变化按现有规则使旧检查失效。self／none 登记不推进阶段。
+
 task update 直接写入／保存输入时须声明 --kind clarify/change 及说明；apply/withdraw-pending 使用第3.8节的独立模式，应用时复用草案保存的 kind。clarify 保持当前阶段，摘要变化使检查 stale；当前为 deliver 且 stale 时 independent 回到最近检查阶段、self／none 回到最近工作阶段并清 completed。change 改变目标、条件、范围或业务约束，回 open/start。核心只验摘要、版本与结构，主 Agent 判断类型；新引用带来新要求不能标 clarify，摘要未变不迁移，clarify 不重置修复次数。
 
 上述输入变更迁移仅用于未归档且 outcome 不是 cancelled/superseded 的任务。取消／替代与完整归档不通过输入更新隐式重开；新业务目标按任务创建授权另建，原档案仍可补记和维护资料。
@@ -332,7 +334,7 @@ task update 直接写入／保存输入时须声明 --kind clarify/change 及说
 | 复杂、可委派 | 宿主通用子 Agent；需要独立核对时用 `run check --scope` | Knit worker（implement→check） |
 | 复杂、强耦合或需求未稳 | 主会话先澄清再动手 | 主会话先澄清；确认可委派后仍建议派 worker |
 
-硬约束：没有任务就没有 Knit worker。`run prepare/start/implement/check` 都要求 `--task <taskId>`；唯一例外是 `run check --scope`——它是非正式只读核对，不建 Task 绑定、不推进阶段、不赋交付资格。该派但无任务时先向用户提议建任务，不代建；复杂但不建任务时用宿主通用子 Agent，宿主不提供时主会话直接做并说明限制。`independent` 不得用主会话自检或 `run check --scope` 代替，也不得用 `task implement` 绕开 W1 的独立检查。交付报告不单独标注「主会话实施／worker 执行」，`task implement` 与 run 记录足以事后核对。
+硬约束：没有任务就没有 Knit worker。`run prepare/start/implement/check` 都要求 `--task <taskId>`；唯一例外是 `run check --scope`——它是非正式只读核对，不建 Task 绑定、不推进阶段、不赋交付资格。该派但无任务时先向用户提议建任务，不代建；复杂但不建任务时用宿主通用子 Agent，宿主不提供时主会话直接做并说明限制。`independent` 的检查必须由独立检查 run 完成，不得用主会话自检或 `run check --scope` 代替；实现可以由 worker 做，也可以在用户明确指定时由主会话做并用 `task implement` 登记后进入检查；`task implement` 不代替独立检查。交付报告不单独标注「主会话实施／worker 执行」，`task implement` 与 run 记录足以事后核对。
 
 实施验证按目标、改动范围、影响与风险选择：小范围只检查相关范围；共享基础设施按实际影响扩大并说明理由；用户明确要求的更广／更窄范围优先，未执行项如实记录。不能把建立任务自动解释为全项目全量复核。
 
@@ -363,7 +365,7 @@ Knit 独立安装，项目 Pi 桥接的 /knit 和工具转交同一核心处理�
 | task update [id] --kind clarify/change [--run <run-id>] [--pending] | 明确变更类型，可用 --file 或 stdin；目标有活动 run 时须 `--run`（缺省读 `KNIT_RUN`），否则 `task_busy`；`--pending` 只存草案、不需要 `--run` |
 | task update [id] --apply-pending / --withdraw-pending --expect-pending <digest> | 按摘要应用／撤回草案；撤回另带 --reason，不与 --kind 同用 |
 | task record [id] | 短锁写纯记录；封存中明确返回未保存 |
-| task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实：输入摘要、成果路径指纹与实际验证；没有 worker run 时作为 self 完成依据 |
+| task implement <id> --path <p> --validation <text> | 记录主会话／用户实施事实并以当前指纹并入 scope（来源为主会话实施记录，不增加 runIds）；independent 在工作阶段登记后按 implementationAccepted 推进下一阶段并累计访问，已在检查或 deliver 不重复推进；self／none 阶段不变 |
 | task adopt <id> --branch current | 接管当前可见分支，不切分支，不附带提交授权 |
 | task rebind <id> [--recover <file>] | 缺绑定时重建本机证据落点；显式 --recover 核验历史成果路径、当前分支提交与原签名实施来源，保留原 run 与旧新指纹并要求重新正式检查（OPERATIONS §3.2）；不创建实施 run 或检查／完成凭据 |
 | workflow init/show/validate/add/remove/move/set-prompt/set-tools/set-report/set-next | 生成、查看、校验与修改 `.knit/workflow.yaml`；写入先全量校验，失败带 YAML 行号拒绝；`set-tools` 接受 `all`（全部放开）、`[]`（全部禁用）或能力清单，`--clear` 删除字段 |
@@ -570,7 +572,7 @@ Worktree 执行环境已实现；本章是现行规则概览，命令语法见�
 
 任务资料只保留一个当前写入位置：交接成功后绑定按稳定任务 ID 指向该 worktree，实施与检查在该执行目录运行；合入把资料与绑定转交回目标分支。同一执行目录一次一个执行者，不同执行目录可按各自工作树租约并行，主检出路由仍串行（占用细节见[运行细则](OPERATIONS.md#2-占用与解除)）。
 
-项目默认由 `.knit/config.json` 的 `worktree.default` 决定（缺省 `off`）：`on` 时 `run prepare` 在派发当前生效流程的首个配置阶段前自动确保 worktree，顺序为主检出脏守卫 → `worktree create` → `worktree handoff` → `worktree prepare`；已存在且已交接的绑定按现有路由使用；自动创建中断、绑定已写入但交接未完成时，在策略 on 下续做交接／准备，不重建、不删除。失败时 prepare 返回明确原因（`worktree_dirty_source`、`git_head_required`、`detached_head`、`git_occupied` 等），不写 request、不创建 run。任务级 `run prepare --worktree on|off` 只覆盖本次派发：`on` 可打开项目默认 off，`off` 只抑制自动创建、不清除已有绑定。后续阶段、`run check --scope` 与主会话 `task implement` 不触发自动创建；主会话实施仍在主检出执行。
+项目默认由 `.knit/config.json` 的 `worktree.default` 决定（缺省 `off`）：`on` 时 `run prepare` 在派发当前生效流程的首个配置阶段前自动确保 worktree，顺序为主检出脏守卫 → `worktree create` → `worktree handoff` → `worktree prepare`；已存在且已交接的绑定按现有路由使用；自动创建中断、绑定已写入但交接未完成时，在策略 on 下续做交接／准备，不重建、不删除。失败时 prepare 返回明确原因（`worktree_dirty_source`、`git_head_required`、`detached_head`、`git_occupied` 等），不写 request、不创建 run。任务级 `run prepare --worktree on|off` 只覆盖本次派发：`on` 可打开项目默认 off，`off` 只抑制自动创建、不清除已有绑定。后续阶段、`run check --scope` 与主会话 `task implement` 不触发自动创建；`task implement` 与 `task close` 按绑定路由读取任务正文，路径指纹按实际执行检出计算；运行记录、scope、实施记录与完成凭据均在主检出读写，主检出和关联 worktree 内均可调用。
 
 自动创建前检查主检出：`git status --porcelain=v1 -z --untracked-files=all` 在任务资料之外存在改动时返回 `worktree_dirty_source` 并列出数量与前 8 个路径，用户可提交、stash，或显式执行 `worktree create --allow-dirty`；自动路径永不携带该标志，也不搬运、stash 或丢弃任何未提交内容。忽略内容与 Knit 运行资料、锁、任务目录、其它关联 worktree 不计入业务脏改动。
 
@@ -728,7 +730,7 @@ deliver 由核心 CLI 同步执行；单独观察断开不等于取消，实际�
 3. 使用限定路径提交，程序检查实际 Commit 范围，并保持其他路径的暂存与工作区状态。
 4. Hook 失败或其他进程改变内容时保存现状，核对检查有效性后继续。
 
-自动提交使用明确路径集合。暂存整理保留用户现场；stash、reset、amend、rebase 或历史改写需要对应的明确操作意图。
+自动提交使用明确路径集合。目录选中项 `dir` 与 `dir/` 等价，包含自身与其下路径，不匹配 `dir-other`。已有产物提交的 `deliver --retry` 依次核对提交存在、文案属于操作、是 HEAD 的祖先及 expectedPaths 与实际路径集合相等，再逐条核对 expectedTree。旧尾斜杠缺陷漏记的树条目仅在同时属于 expectedPaths 且位于带尾斜杠的选中目录下时接受，步骤证据 supplementedPaths 记录补认清单；其它内容差异仍停在 needs_attention。产物提交之后的提交可以修改相同路径，工作区也可以继续修改；重试只核对原产物提交，后续改动不进入本操作的资料／归档提交。尚未产生过产物提交时仍核对当前成果资格。暂存整理保留用户现场；stash、reset、amend、rebase 或历史改写需要对应的明确操作意图。
 
 Knit 发起的交付类操作（`deliver`／`archive` 的产物／资料／归档提交、`worktree merge --apply` 的合入与失败后的 `merge --abort`、`worktree cleanup --apply`）按 `delivery.hooks` 处理仓库 hooks：缺省 `skip`，每次操作在系统临时目录建一个私有空目录，操作全程（异步调用链范围）内本进程发起的全部 Git 命令前置 `-c core.hooksPath=<空目录>`，结束即删除。隔离覆盖的不只是 `commit`／`merge`：`add`、`reset`、`merge --abort`、刷新 index 的 `status`／`diff` 会触发 `post-index-change`，`branch -D`、`worktree remove` 会触发 `reference-transaction`，这些同样不执行；阶段 Agent 写入 `.git/hooks` 的脚本因此不会在用户授权交付时执行。需要 lint／format hook 的项目在配置中显式改为 `run`，此时仓库 hooks（含 `core.hooksPath`）照常执行，下文 hook 越界核验仍生效。交付前（`deliver --plan` 与交付结果的 `hooks` 字段）列出实际生效 hooks 目录中自上次交付以来新增或修改的 hook（忽略 `*.sample`）：每次交付完成后把该目录快照（名称、权限与内容摘要）写入 `.knit/.runtime/delivery-hooks.json` 并附本机 HMAC，没有基线或签名无效时把现有 hook 全部列为新增。列出只提醒、不阻塞。
 

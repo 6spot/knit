@@ -26,7 +26,7 @@
 | 流程降级 | 配置非法时生效流程退为 `start → deliver`，不套提示词；`workflowMode`、`workflow show`、顶部提示与 `doctor` 显示原因，在途 run 继续跑完 |
 | 模板已移除文件 | 上次 init 清单记录、当前模板不再生成但项目里仍存在的文件；init 默认只报告不删除 |
 | 业务结束／closed | 业务不再推进；收尾是否完成另看真实提交、归档和操作回执 |
-| 实施事实 | 已接收的 implement run，或 `task implement` 记录的主会话／用户实施：输入摘要、成果路径指纹与实际验证；`self` 完成以此核对 |
+| 实施事实 | 已接收的 implement run，或 `task implement` 记录的主会话／用户实施：输入摘要、成果路径指纹与实际验证；`self` 完成以此核对，主会话登记路径同样进入 scope；`independent` 登记后进入正式检查，完成仍须独立检查 run |
 | 强制完成 | 用户明确要求时 `task close --force --reason`：跳过完成证据核对，凭据记 `forced`、原因与未验证项；`independent` 不使用 |
 | 父任务／子任务 | 以稳定任务 ID 记录的层级关系，只存子任务 frontmatter.parent；父任务总体验收需子任务全部结束并由主会话给出依据，父子不等于执行依赖 |
 | 优先级 | 任务自身 P0–P3 的业务排序权重，缺省 P2；与父子层级和阶段状态无关 |

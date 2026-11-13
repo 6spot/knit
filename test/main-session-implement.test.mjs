@@ -55,6 +55,9 @@ test("task implement：ready 后记录实施事实即可完成，不需要 imple
     const file = new RunStore(dir).readImplementation(taskId);
     assert.equal(file?.taskId, taskId);
     assert.equal(file?.entries[0]?.path, "app.txt");
+    assert.equal((await store.bindings.get(taskId)).scopeRunIds.length, 0);
+    assert.equal(new RunStore(dir).readScope(taskId).entries[0].source, "main-session-implementation");
+    assert.equal(recorded.stage, "implement", "self 登记不推进工作阶段");
     const closed = await service.close({ dir, taskId, outcome: "completed", runsSettled: true });
     assert.equal(closed.status, "closed");
     assert.equal(closed.outcome, "completed");

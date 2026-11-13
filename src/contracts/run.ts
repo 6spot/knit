@@ -454,6 +454,7 @@ export type RunExpectation = Static<typeof RunExpectationSchema>;
 
 /** 成果条目：路径 + 当时指纹；主会话实施记录复用同一结构。 */
 export const ScopeEntrySchema = obj({
+  source: opt(lit("main-session-implementation")),
   path: str({ minLength: 1 }),
   digest: union([str({ minLength: 1 }), nul()]),
   absent: bool(),

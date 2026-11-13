@@ -125,6 +125,96 @@ async function implemented(dir, s, title) {
   return task;
 }
 
+test("主会话 independent：无实施不能检查；登记进入检查、scope 覆盖与正式完成", async () => {
+  const dir = project("main-record");
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s, "main-record");
+    await assert.rejects(() => s.coordinator.prepare({
+      dir, taskId: task.taskId, phase: "check",
+      initiator: { client: "cli", knitSessionId: null, nativeSessionId: null, cwd: dir },
+      model: { runtime: "pi", provider: "fake", model: "fake-model" },
+    }), (error) => error.guardReason === "phase_mismatch");
+    assert.equal(stageOf(dir, task), "implement");
+    writeFileSync(join(dir, "README.md"), "# main implementation\n");
+    const output = execFileSync(process.execPath, [CLI, "task", "implement", task.taskId, "--dir", dir, "--path", "README.md", "--validation", "实际自检通过"], { encoding: "utf8" });
+    assert.match(output, /已进入检查阶段 check/);
+    assert.equal(stageOf(dir, task), "check");
+    const binding = await s.store.bindings.get(task.taskId);
+    assert.equal(binding.stageVisits.check, 1);
+    const runs = new RunStore(dir);
+    const scope = runs.readScope(task.taskId);
+    assert.deepEqual(scope.runIds, []);
+    assert.equal(scope.entries[0].source, "main-session-implementation");
+    assert.equal(scope.entries[0].digest, runs.readImplementation(task.taskId).entries[0].digest);
+    const statusCli = JSON.parse(execFileSync(process.execPath, [CLI, "--json", "status", task.taskId, "--dir", dir], { encoding: "utf8" }));
+    assert.match(JSON.stringify(statusCli), /knit run prepare --task [^"\n]+ --stage check/);
+    const repeated = await s.tasks.implement({ dir, taskId: task.taskId, paths: ["README.md"], validations: ["再次自检通过"] });
+    assert.equal(repeated.enteredCheck, false);
+    assert.deepEqual((await s.store.bindings.get(task.taskId)).stageVisits, binding.stageVisits);
+    await assert.rejects(() => s.tasks.close({ dir, taskId: task.taskId, outcome: "completed", force: true, reason: "跳过" }), /independent/);
+    const check = await startRun(s, dir, task.taskId, "check", { report: PASS });
+    const checked = await waitTerminal(s, dir, check.runId);
+    assert.equal(checked.state, "completed", checked.result?.failureReason);
+    assert.equal(stageOf(dir, task), "deliver");
+    await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed" });
+    const completion = runs.readCompletion(task.taskId);
+    assert.equal(completion.verification, "independent");
+    assert.equal(completion.implementedBy, "record");
+    assert.equal(completion.checkRunId, check.runId);
+  } finally { cleanup(dir, s); }
+});
+
+for (const coverageMissing of [true, false]) test(`主会话登记路径：${coverageMissing ? "coverage 漏项拒绝" : "检查后变化使完成过期"}`, async () => {
+  const dir = project(`main-scope-${coverageMissing}`);
+  const s = services(dir);
+  try {
+    const task = await readyTask(dir, s, "main-scope");
+    await s.tasks.implement({ dir, taskId: task.taskId, paths: ["README.md"], validations: ["自检"] });
+    if (coverageMissing) {
+      const prepared = await s.coordinator.prepare({
+        dir, taskId: task.taskId, phase: "check",
+        initiator: { client: "cli", knitSessionId: null, nativeSessionId: null, cwd: dir },
+        model: { runtime: "pi", provider: "fake", model: "fake-model" },
+      });
+      await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
+      new RunStore(dir).writeResult(prepared.request.runId, {
+        schemaVersion: 1, runId: prepared.request.runId, taskId: task.taskId, phase: "check", state: "completed",
+        report: { ...PASS, coverage: [] }, reportSummary: PASS.summary,
+        nativeEntries: { startEntryId: null, leafEntryId: null }, usage: { inputTokens: null, outputTokens: null }, session: null,
+        actualChangedPaths: [], acceptanceOperationId: prepared.request.acceptanceOperationId, recordedAt: new Date().toISOString(), failureReason: null,
+      });
+      const accepted = await s.acceptance.accept({ dir, runId: prepared.request.runId });
+      assert.equal(accepted.accepted, false);
+      assert.match(accepted.reason, /check_scope_incomplete/);
+    } else {
+      const check = await startRun(s, dir, task.taskId, "check", { report: PASS });
+      const status = await waitTerminal(s, dir, check.runId);
+      assert.equal(status.state, "completed", status.result?.failureReason);
+      writeFileSync(join(dir, "README.md"), "# changed after pass\n");
+      await assert.rejects(() => s.tasks.close({ dir, taskId: task.taskId, outcome: "completed" }), /check_not_valid/);
+      const updated = await s.tasks.implement({ dir, taskId: task.taskId, paths: ["README.md"], validations: ["新版本自检"] });
+      assert.equal(updated.enteredCheck, false);
+      assert.equal(stageOf(dir, task), "deliver");
+      assert.notEqual(new RunStore(dir).readScope(task.taskId).digest, new RunStore(dir).readCheck(check.runId).scopeDigest);
+      await assert.rejects(() => s.tasks.close({ dir, taskId: task.taskId, outcome: "completed" }), /check_not_valid/);
+    }
+  } finally { cleanup(dir, s); }
+});
+
+for (const verification of ["self", "none"]) test(`主会话 ${verification}：工作阶段登记不推进且可以完成`, async () => {
+  const dir = project(`main-${verification}`);
+  const s = services(dir);
+  try {
+    const task = await s.tasks.newTask({ dir, title: `main-${verification}`, verification });
+    await s.tasks.ready({ dir, taskId: task.taskId });
+    await s.tasks.implement({ dir, taskId: task.taskId, paths: ["README.md"], validations: ["自检"] });
+    assert.equal(stageOf(dir, task), "implement");
+    await s.tasks.close({ dir, taskId: task.taskId, outcome: "completed" });
+    assert.equal(new RunStore(dir).readCompletion(task.taskId).implementedBy, "record");
+  } finally { cleanup(dir, s); }
+});
+
 const PASS = { summary: "核对通过", scenarios: SCENARIO_PASS, verdict: "pass", coverage: ["README.md"], findings: [], unverified: [] };
 
 test("单元：能力判定、失败原因、完成守卫与验证标注", () => {
