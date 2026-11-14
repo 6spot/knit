@@ -69,6 +69,8 @@ export interface MetadataStore {
     get(taskId: string): Promise<TaskBinding | null>;
     /** 全量绑定；正式规范变化时机械找出冻结摘要不一致的任务。 */
     list(): Promise<TaskBinding[]>;
+    /** 同步只读快照，供任务目录索引与同步查询使用；不缓存本机绑定。 */
+    listSync(): TaskBinding[];
     save(binding: TaskBinding): Promise<void>;
   };
   standardsReviews: {

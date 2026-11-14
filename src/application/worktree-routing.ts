@@ -184,6 +184,21 @@ export function executionRouteOf(binding: TaskBinding | null, mainRoot: string):
   };
 }
 
+/** 按本项目绑定解析资料根；读取无需 prepare，但必须核实活跃登记，禁止回退旧副本。 */
+export function taskRootOf(startDir: string, taskId: string, bindings: readonly TaskBinding[]): string {
+  const binding = bindings.find((entry) => entry.taskId === taskId);
+  if (binding?.worktree?.active !== true) return normalizeRoot(startDir);
+  const mainRoot = mainRootOf(startDir);
+  if (!existsSync(binding.repoRoot) || normalizeRoot(binding.repoRoot) !== mainRoot) {
+    throw new GuardError("worktree_invalid", `worktree_invalid: 任务 ${taskId} 绑定归属 ${binding.repoRoot} 与 ${mainRoot} 不符（登记路径 ${binding.worktree.path}）`);
+  }
+  const route = executionRouteOf(binding, mainRoot);
+  if (route.state === "invalid") {
+    throw new GuardError("worktree_invalid", `worktree_invalid:${route.problem}（登记路径 ${route.dir}）；先核实现场，不回退主检出`);
+  }
+  return route.dir;
+}
+
 /** 起点是否位于目录内（路径别名不视为项目外）。 */
 function insideDir(dir: string, candidate: string): boolean {
   const rel = relative(resolve(dir), resolve(candidate));

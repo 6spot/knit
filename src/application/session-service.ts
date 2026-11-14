@@ -336,9 +336,10 @@ export class SessionService {
   private assertTaskUsable(root: string, taskId: string): void {
     let located;
     try {
-      located = locateTaskDocument(root, taskId);
-    } catch {
-      throw new GuardError("unknown_task", `任务不存在: ${taskId}`);
+      located = locateTaskDocument(root, taskId, this.store.bindings.listSync());
+    } catch (error) {
+      if (error instanceof GuardError) throw error;
+      throw new GuardError("unknown_task", error instanceof Error ? error.message : `任务不存在: ${taskId}`);
     }
     if (located.archived) throw new GuardError("task_archived", `任务已归档: ${taskId}`);
   }
@@ -535,8 +536,9 @@ export class SessionService {
     } else if (taskId !== null) {
       try {
         this.assertTaskUsable(root, taskId);
-      } catch {
-        reason = "task_not_available";
+      } catch (error) {
+        reason = error instanceof GuardError && error.guardReason === "worktree_invalid"
+          ? `task_not_available: ${error.message}` : "task_not_available";
         taskId = null;
       }
     }

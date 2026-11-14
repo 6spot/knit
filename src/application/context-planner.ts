@@ -24,6 +24,7 @@ import type { MetadataStore } from "../ports/infrastructure.js";
 import { GuardError } from "./guard-error.js";
 import { legalStageList, loadWorkflow, stageBriefOf, workflowStageOf } from "./workflow.js";
 import type { WorkflowStage } from "../domain/workflow.js";
+import { taskRootOf } from "./worktree-routing.js";
 import { locateTaskDocument } from "./task-service.js";
 import { effectiveIdentityDigest, formalStandardFiles, formalStandardsDigest } from "./standards.js";
 import { readTaskMaterial, researchDigestSummary, snapshotTaskMaterials } from "./task-materials.js";
@@ -173,12 +174,16 @@ export class ContextPlanner {
 
   /** 生成冻结输入计划；ready=true 表示参数与必需指令就绪，可发起首轮调用。 */
   async plan(input: ContextPlanInput): Promise<ContextPlan> {
-    const root = normalizeRoot(input.dir);
+    const bindings = this.store.bindings.listSync();
+    const root = taskRootOf(input.dir, input.taskId, bindings);
     let located;
     try {
-      located = locateTaskDocument(root, input.taskId);
-    } catch {
-      throw new GuardError("unknown_task", `任务不存在: ${input.taskId}`);
+      located = locateTaskDocument(root, input.taskId, bindings);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("任务不存在:")) {
+        throw new GuardError("unknown_task", error.message);
+      }
+      throw error;
     }
     if (located.archived) throw new GuardError("task_archived", `任务已归档: ${input.taskId}`);
     const document = located.document;
@@ -465,7 +470,7 @@ export class ContextPlanner {
     const resolved: ContextSection[] = sections.map((section) => ({
       sourceId: section.sourceId,
       kind: section.kind,
-      path: section.path,
+      path: section.path === null ? null : projectPath(normalizeRoot(input.dir), join(root, section.path)),
       digest: section.content === null ? null : sha256Text(section.content),
       bytes: section.content === null ? null : Buffer.byteLength(section.content, "utf8"),
       required: section.required,

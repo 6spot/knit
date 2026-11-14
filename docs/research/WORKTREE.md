@@ -18,6 +18,12 @@
 
 主 Agent 可留在原会话，后续读写通过任务绑定指向 Worktree。每项任务交接自己的资料，后续迁换执行目录沿用这一流程。
 
+主检出的 `task list`、`status <taskId>`、`task use`、每轮 Session 上下文和 `context --task <taskId>` 按本项目本机绑定查找活跃任务。列表按稳定 taskId 合并迁出前副本，保留优先级与业务排序；实际正文、plan/design/research 和阶段规则来自 executionDir，主检出未提交规则不会覆盖它们。record/update/material、rename/ready 以及 implement/close 沿用同一资料定位，scope、run、Session、凭据和锁仍归 mainRoot。没有活跃绑定的普通任务和归档查询保持目录语义。
+
+原主 Session 的 cwd 和选择事件 branch 仍属于该会话所在检出；任务分支按 Worktree 绑定展示。原生选择仍须实际落盘并通过当前有效路径校验，主会话切分支会使旧选择失效。目录缺失、Git 登记／分支／归属异常或正文身份冲突时，查询报告实际登记路径与原因，选择和上下文拒绝使用，不回退旧副本；只读查询不修复或 rebind。
+
+读取有效绑定不要求启动 run；从主检出派发 Worktree run 仍须切换到实际执行目录，例如 `cd <executionDir>` 后再 `knit run prepare --task <taskId> --stage implement`。未 prepare 或失效登记继续由既有派发守卫拒绝。
+
 ## 6.2 创建与连接
 
 默认 Worktree 路径为 `.knit/worktrees/MM-DD-<slug>/`，首次工作分支为 `knit/MM-DD-<slug>`。名称取首次创建执行环境时任务当前的目录名，日期保留任务创建月日。首次命名核对任务目录、计划路径和分支；被其他任务占用时给 slug 添加短序号，再按同一名称确定新环境。已有绑定的目录与分支保留实际名称，任务改名后按稳定 ID 定位。

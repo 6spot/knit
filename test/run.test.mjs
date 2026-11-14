@@ -132,7 +132,8 @@ test("prepare 只发布请求；start 后 worker 自行持锁并冻结输入，�
     assert.equal(again.reused, true);
     assert.equal(again.request.runId, prepared.request.runId);
 
-    const started = await s.coordinator.start({ dir, runId: prepared.request.runId });
+    // prepareOnly 是 start 参数；构造器同名字段不会传到 worker。
+    const started = await s.coordinator.start({ dir, runId: prepared.request.runId, prepareOnly: true });
     assert.equal(started.launch.state, "confirmed");
     assert.equal(started.confirmed, true);
     assert.equal(started.state.prepared, true);

@@ -9,10 +9,9 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { parseTaskDocument } from "./task-document.js";
 import { clarifyStateOf, priorityOf, verificationModeOf, type TaskPriority, type VerificationMode } from "../contracts/task-inputs.js";
 import type { CompletionFile } from "../contracts/completion.js";
-import { listTaskDirectories, locateTaskDocument, taskListOverviewSummaries } from "./task-service.js";
+import { locateTaskDocument, taskListOverviewSummaries } from "./task-service.js";
+import { executionRouteOf, mainRootOf, taskRootOf } from "./worktree-routing.js";
 import { dependencyBlockersOf } from "./task-schedule.js";
-import { readWithVersion } from "../infrastructure/atomic.js";
-import { executionRouteOf } from "./worktree-routing.js";
 import { loadWorkflow } from "./workflow.js";
 import { workflowStageDisplayName } from "../domain/workflow.js";
 import { RunCoordinator, type RunStatusProjection } from "./run-coordinator.js";
@@ -436,7 +435,7 @@ export class StatusService {
   }
 
   async status(input: StatusInput): Promise<RunStatusView | TaskStatusView | StatusOverview> {
-    const root = normalizeRoot(input.dir);
+    const root = mainRootOf(input.dir);
     if (input.runId !== undefined) return this.runStatus(root, input.runId, input.locksRoot);
     if (input.taskId !== undefined) return this.taskStatus(root, input.taskId, input.locksRoot);
     return this.overview(root, input.locksRoot);
@@ -461,7 +460,7 @@ export class StatusService {
     // 心跳按本 run 的执行目录观察：worktree 路由的 project 锁不再占用主检出键（任务17）。
     const executionDir = await this.executionDirOf(root, runId);
     const task = this.taskDocumentOf(root, projection.taskId);
-    const workflow = loadWorkflow(root).workflow;
+    const workflow = loadWorkflow(executionDir).workflow;
     const check = new RunStore(root).readCheckIfIntact(runId);
     const checkerPaths = checkerChangedPathsOf(check);
     const noOutputNotice = noOutputNoticeOf(projection);
@@ -489,9 +488,12 @@ export class StatusService {
   }
 
   async taskStatus(root: string, taskId: string, locksRoot?: string): Promise<TaskStatusView> {
-    const located = locateTaskDocument(root, taskId);
+    root = mainRootOf(root);
+    const bindings = this.store.bindings.listSync();
+    const located = locateTaskDocument(root, taskId, bindings);
+    const executionDir = taskRootOf(root, taskId, bindings);
     const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
-    const workflow = loadWorkflow(root).workflow;
+    const workflow = loadWorkflow(executionDir).workflow;
     const clarify = clarifyStateOf(document.inputsBody);
     const binding = await this.store.bindings.get(taskId);
     const runs = await this.taskRuns(root, taskId, locksRoot);
@@ -501,17 +503,10 @@ export class StatusService {
     // 只在 independent 时检查者修复影响完成资格；其它模式照实显示但不作标注。
     const lastCheckChangedPaths = binding?.lastCheckRunId ? checkerChangedPathsOf(runStore.readCheckIfIntact(binding.lastCheckRunId)) : [];
     const children: Array<{ taskId: string; status: string; outcome: string | null }> = [];
-    for (const { name } of listTaskDirectories(root)) {
-      const file = join(root, ".knit", "tasks", name, "task.md");
-      const raw = readWithVersion(file);
-      if (raw === null) continue;
-      try {
-        const child = parseTaskDocument(raw.data.toString("utf8"), file);
-        if ((child.frontmatter.parent ?? null) !== taskId) continue;
-        children.push({ taskId: child.frontmatter.id, status: child.frontmatter.status, outcome: child.frontmatter.outcome });
-      } catch {
-        // 损坏的其它任务不阻塞当前任务状态；doctor 另行报告。
-      }
+    const summaries = taskListOverviewSummaries(root, bindings);
+    for (const child of [...summaries.active, ...summaries.archived]) {
+      if (child.parent !== taskId) continue;
+      children.push({ taskId: child.taskId, status: child.status, outcome: child.outcome });
     }
     return {
       taskId,
@@ -520,7 +515,7 @@ export class StatusService {
       stage: document.frontmatter.stage,
       stageName: workflowStageDisplayName(workflow, document.frontmatter.stage),
       outcome: document.frontmatter.outcome,
-      branch: document.frontmatter.branch,
+      branch: binding?.worktree?.active ? binding.worktree.branch : document.frontmatter.branch,
       relativePath: relative(root, join(located.dir, "task.md")),
       archived: located.archived,
       createdAt: document.frontmatter.createdAt,
@@ -532,7 +527,7 @@ export class StatusService {
       children,
       priority: priorityOf(document.frontmatter),
       dependsOn: document.frontmatter.dependsOn ?? [],
-      blocked: dependencyBlockersOf(root, taskId),
+      blocked: dependencyBlockersOf(root, taskId, bindings),
       clarify: { blocking: clarify.blocking, assumed: clarify.assumed },
       lastCheckRunId: binding?.lastCheckRunId ?? null,
       verificationLabel: verificationLabel(verificationModeOf(document.frontmatter), lastCheckChangedPaths.length > 0 ? lastCheckChangedPaths : (completion?.checkerChangedPaths ?? [])),
@@ -586,7 +581,6 @@ export class StatusService {
   async overview(root: string, locksRoot?: string): Promise<StatusOverview> {
     const normalizedRoot = normalizeRoot(root);
     const tasks: StatusOverview["tasks"] = [];
-    const workflow = loadWorkflow(normalizedRoot).workflow;
     const runsRoot = new RunStore(normalizedRoot).listRunIds();
     const allRuns: RunStatusView[] = [];
     for (const runId of runsRoot) {
@@ -603,7 +597,7 @@ export class StatusService {
         title: task.title,
         status: task.status,
         stage: task.stage,
-        stageName: workflowStageDisplayName(workflow, task.stage),
+        stageName: workflowStageDisplayName(loadWorkflow(taskRootOf(normalizedRoot, task.taskId, this.store.bindings.listSync())).workflow, task.stage),
         outcome: task.outcome,
         relativePath: task.relativePath,
         archived: task.archived,
@@ -621,7 +615,7 @@ export class StatusService {
   private async listTasks(root: string): Promise<Array<{ taskId: string; title: string; status: string; stage: string; outcome: string | null; relativePath: string; archived: boolean }>> {
     // 与 task list／next 共用同一分区缓存（任务 k-3d730c8907b3）：活跃与归档按指纹复用；
     // 损坏任务仍跳过、重复 ID 如实列出，概览输出口径不变（任务041）。
-    const summaries = taskListOverviewSummaries(root);
+    const summaries = taskListOverviewSummaries(root, this.store.bindings.listSync());
     return [...summaries.active, ...summaries.archived].map((summary) => ({
       taskId: summary.taskId,
       title: summary.title,
@@ -636,7 +630,7 @@ export class StatusService {
   /** 只读取任务完成验证要求；缺失或损坏时为 null。 */
   private taskVerificationOf(root: string, taskId: string): VerificationMode | null {
     try {
-      return verificationModeOf(locateTaskDocument(root, taskId).document.frontmatter);
+      return verificationModeOf(locateTaskDocument(root, taskId, this.store.bindings.listSync()).document.frontmatter);
     } catch {
       return null;
     }
@@ -645,7 +639,7 @@ export class StatusService {
   /** 只读取任务当前业务位置；缺失或损坏时为 null，不影响 run 状态。 */
   private taskStageOf(root: string, taskId: string): { status: string; stage: string } | null {
     try {
-      const { frontmatter } = locateTaskDocument(root, taskId).document;
+      const { frontmatter } = locateTaskDocument(root, taskId, this.store.bindings.listSync()).document;
       return { status: frontmatter.status, stage: frontmatter.stage };
     } catch {
       return null;
@@ -655,7 +649,7 @@ export class StatusService {
   /** 只读定位任务文档（含归档）；缺失或损坏按展示缺失处理，不影响 run 状态。 */
   private taskDocumentOf(root: string, taskId: string): { title: string | null; slug: string } | null {
     try {
-      const located = locateTaskDocument(root, taskId);
+      const located = locateTaskDocument(root, taskId, this.store.bindings.listSync());
       const document = parseTaskDocument(located.raw.toString("utf8"), join(located.dir, "task.md"));
       const title = document.frontmatter.title.trim();
       return { title: title === "" ? null : title, slug: basename(located.dir).replace(/^\d{2}-\d{2}-/, "") };

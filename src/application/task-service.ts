@@ -5,7 +5,7 @@
  * 业务裁决委托 domain/task.ts；本服务核对事实、执行 IO、写回转移结果。
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, statSync, type BigIntStats } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import {
   DEFAULT_VERIFICATION,
@@ -37,7 +37,7 @@ import {
   type ScheduleEntry,
 } from "../domain/schedule.js";
 import { LockManager, orderKeys } from "../infrastructure/locks.js";
-import { mainRootOf } from "./worktree-routing.js";
+import { mainRootOf, taskRootOf } from "./worktree-routing.js";
 import { InfrastructureError } from "../infrastructure/errors.js";
 import { GuardError } from "./guard-error.js";
 import { assertNotInStageContext } from "./stage-context.js";
@@ -135,7 +135,7 @@ export interface TaskSummary {
   branch: string | null;
   /** 完成验证要求；旧记录缺省按 independent 展示。 */
   verification: VerificationMode;
-  /** 归档任务为相对 tasks/ 的目录路径；活跃任务为目录名。 */
+  /** 相对列表根 .knit/ 的实际资料目录；活跃 Worktree 可位于主检出之外。 */
   relativePath: string;
   archived: boolean;
   /** 仅归档条目：跨机历史分类与判定问题；活跃条目为 null。 */
@@ -1079,9 +1079,30 @@ function freezeTaskListResult(result: TaskListResult): void {
   Object.freeze(result);
 }
 
+/** 用本项目活跃绑定替换迁出前条目；只扫描已登记任务所在检出，按稳定 ID 核验。 */
+function routedTaskListPartitions(root: string, bindings: readonly TaskBinding[], loaded: ReturnType<typeof loadTaskListPartitions>, errorMode: "throw" | "collect" = "throw"): ReturnType<typeof loadTaskListPartitions> {
+  const activeBindings = bindings.filter((binding) => binding.worktree?.active === true);
+  if (activeBindings.length === 0) return loaded;
+  const routedIds = new Set(activeBindings.map((binding) => binding.taskId));
+  const entries = loaded.active.entries.filter((entry) => !("summary" in entry) || !routedIds.has(entry.summary.taskId));
+  for (const binding of activeBindings) {
+    try {
+      const located = locateTaskDocument(root, binding.taskId, bindings);
+      if (located.archived) continue;
+      const summary = taskSummaryOf(located.document, relative(join(root, ".knit"), located.dir), false, null);
+      summary.branch = binding.worktree?.branch ?? summary.branch;
+      entries.push({ summary });
+    } catch (error) {
+      if (errorMode === "throw") throw error;
+      entries.push({ error: { path: binding.worktree?.path ?? binding.relativePath, error } });
+    }
+  }
+  return { ...loaded, active: { entries }, cacheEntry: null };
+}
+
 /** status 概览复用同一分区缓存；损坏条目跳过，重复 ID 如实列出。 */
-export function taskListOverviewSummaries(root: string): { active: TaskSummary[]; archived: TaskSummary[] } {
-  const loaded = loadTaskListPartitions(root, undefined, "collect");
+export function taskListOverviewSummaries(root: string, bindings: readonly TaskBinding[] = []): { active: TaskSummary[]; archived: TaskSummary[] } {
+  const loaded = routedTaskListPartitions(root, bindings, loadTaskListPartitions(root, undefined, "collect"), "collect");
   const active: TaskSummary[] = [];
   const archived: TaskSummary[] = [];
   for (const entry of loaded.active.entries) {
@@ -1097,19 +1118,28 @@ export function taskListOverviewSummaries(root: string): { active: TaskSummary[]
 export function locateTaskDocument(
   root: string,
   taskId: string,
+  bindings: readonly TaskBinding[] = [],
 ): { dir: string; archived: boolean; document: TaskDocument; raw: Buffer } {
+  root = taskRootOf(root, taskId, bindings);
   if (typeof taskId !== "string" || taskId.trim() === "") {
     throw new TaskGuardError("invalid_request", "任务 ID 不能为空");
   }
+  const binding = bindings.find((entry) => entry.taskId === taskId && entry.worktree?.active);
   const tasksRoot = tasksRootOf(root);
+  let found: { dir: string; archived: boolean; document: TaskDocument; raw: Buffer } | undefined;
   for (const { name, archived } of listTaskDirectories(root)) {
     const dir = join(tasksRoot, name);
     const file = join(dir, TASK_FILE);
     const raw = readWithVersion(file);
     if (raw === null) continue;
     const document = parseTaskDocument(raw.data.toString("utf8"), file);
-    if (document.frontmatter.id === taskId) return { dir, archived, document, raw: raw.data };
+    if (document.frontmatter.id !== taskId) continue;
+    if (binding === undefined) return { dir, archived, document, raw: raw.data };
+    if (found !== undefined) throw new GuardError("worktree_invalid", `任务身份冲突: ${taskId} 同时存在于 ${found.dir} 与 ${dir}（登记路径 ${root}）`);
+    found = { dir, archived, document, raw: raw.data };
   }
+  if (found !== undefined) return found;
+  if (binding !== undefined) throw new GuardError("worktree_invalid", `任务身份缺失: ${taskId}（登记路径 ${root}）；不回退主检出`);
   throw new InfrastructureError("io_error", `任务不存在: ${taskId}`);
 }
 
@@ -1198,6 +1228,14 @@ export class TaskService {
     return safeJoin(join(root, ".knit"), TASKS_DIR);
   }
 
+  private taskRoot(root: string, taskId: string): string {
+    const bindings = this.store.bindings.listSync();
+    const executionDir = taskRootOf(root, taskId, bindings);
+    // 路由成功也必须证明正文身份；不能让写操作在登记目录创建第二份资料。
+    locateTaskDocument(root, taskId, bindings);
+    return executionDir;
+  }
+
   /** 首次归档月份：归档目标 YYYY-MM 取完成时的本地月份（DESIGN.md 第3.2节）。 */
   private archiveMonth(now: Date): string {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -1213,7 +1251,7 @@ export class TaskService {
     if (typeof taskId !== "string" || taskId.trim() === "") {
       throw new TaskGuardError("invalid_request", "任务 ID 不能为空");
     }
-    return locateTaskDocument(root, taskId);
+    return locateTaskDocument(root, taskId, this.store.bindings.listSync());
   }
 
   /**
@@ -1228,6 +1266,17 @@ export class TaskService {
       if (raw === null) continue;
       const document = parseTaskDocument(raw.data.toString("utf8"), join(dir, TASK_FILE));
       if (!index.has(document.frontmatter.id)) index.set(document.frontmatter.id, { archived, dir, document });
+    }
+    for (const binding of this.store.bindings.listSync()) {
+      if (binding.worktree?.active !== true) continue;
+      index.delete(binding.taskId);
+      try {
+        const located = this.locate(root, binding.taskId);
+        index.set(binding.taskId, located);
+      } catch (error) {
+        // 不让其它失效任务阻塞普通任务，也不把迁出前副本作为当前调度事实。
+        if (!(error instanceof GuardError) || error.guardReason !== "worktree_invalid") throw error;
+      }
     }
     return index;
   }
@@ -1560,9 +1609,10 @@ export class TaskService {
    * 不 stat／read 任何归档 task.md；只重算指纹变化的分区（任务 k-3d730c8907b3）。
    * 命中时返回缓存结果的浅拷贝；数组与条目已冻结，调用方不能污染缓存。
    */
-  list(input: { dir: string }): TaskListResult {
+  list(input: { dir: string; archiveOnly?: boolean }): TaskListResult {
     const root = normalizeRoot(input.dir);
-    const loaded = loadTaskListPartitions(root, this.onListIo, "throw");
+    const bindings = input.archiveOnly ? [] : this.store.bindings.listSync();
+    const loaded = routedTaskListPartitions(root, bindings, loadTaskListPartitions(root, this.onListIo, "throw"));
     if (loaded.cacheEntry !== null && loaded.cacheEntry.result !== null) {
       return { ...loaded.cacheEntry.result };
     }
@@ -1986,7 +2036,7 @@ export class TaskService {
    * 等价改名不影响检查资格；不等价改名由调用方声明，记录 digestImpact 事实（STATES.md 第8节）。
    */
   async rename(input: TaskRenameInput): Promise<TaskRenameResult> {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const tasksRoot = this.tasksRoot(root);
     const existing = this.taskDirectories(root);
     const located = this.locate(root, input.taskId);
@@ -2020,8 +2070,8 @@ export class TaskService {
         });
       }
       if (!input.equivalent) {
-        new RunStore(root).removeCompletion(input.taskId);
-        new RunStore(root).removeImplementation(input.taskId);
+        new RunStore(mainRootOf(root)).removeCompletion(input.taskId);
+        new RunStore(mainRootOf(root)).removeImplementation(input.taskId);
       }
     } finally {
       this.locks.release(lock);
@@ -2034,7 +2084,7 @@ export class TaskService {
    * 封存中明确未保存：sealed=true，不写任务、不留修改。
    */
   async record(input: TaskRecordInput): Promise<TaskRecordResult> {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.record" });
     try {
       // 锁内定位并重读封存标记：seal 由交付流程持同一任务锁写入，
@@ -2080,7 +2130,7 @@ export class TaskService {
     pending: { kind: UpdateKind; digest: string; baselineDigest: string; createdAt: string } | null;
     binding: TaskBinding | null;
   }> {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const located = this.locate(root, input.taskId);
     const file = join(located.dir, TASK_FILE);
     const raw = readFileSync(file, "utf8");
@@ -2096,19 +2146,19 @@ export class TaskService {
 
   /** 任务规划资料：列表／读取／保存／删除／冻结快照（DESIGN §3.4–3.6，任务045）。 */
   async listMaterials(input: { dir: string; taskId: string }) {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     this.locate(root, input.taskId);
     return listMaterials(root, input.taskId);
   }
 
   async readMaterial(input: { dir: string; taskId: string; path: string }) {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     this.locate(root, input.taskId);
     return readMaterial(root, input.taskId, input.path);
   }
 
   async saveMaterial(input: { dir: string; taskId: string; path: string; content: string; expectDigest?: string | null }) {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.save" });
     try {
       this.locate(root, input.taskId);
@@ -2119,7 +2169,7 @@ export class TaskService {
   }
 
   async deleteMaterial(input: { dir: string; taskId: string; path: string }) {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.material.delete" });
     try {
       this.locate(root, input.taskId);
@@ -2130,7 +2180,7 @@ export class TaskService {
   }
 
   async materialSnapshot(input: { dir: string; taskId: string }) {
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     this.locate(root, input.taskId);
     return snapshotMaterials(root, input.taskId);
   }
@@ -2155,7 +2205,7 @@ export class TaskService {
     if (input.kind === undefined) {
       throw new InfrastructureError("io_error", "task update 需要 --kind clarify/change 或 --apply-pending/--withdraw-pending");
     }
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const kindInput = input as TaskUpdateInput & { kind: UpdateKind };
     // 显式草案只写 binding：任务短锁即可，不要求 --run。
     if (input.pending === true) {
@@ -2276,8 +2326,8 @@ export class TaskService {
       });
     }
     if (digestChanged || input.kind === "change" || document.frontmatter.status === "closed") {
-      new RunStore(root).removeCompletion(input.taskId);
-      new RunStore(root).removeImplementation(input.taskId);
+      new RunStore(mainRootOf(root)).removeCompletion(input.taskId);
+      new RunStore(mainRootOf(root)).removeImplementation(input.taskId);
     }
     return {
       taskId: input.taskId,
@@ -2300,7 +2350,7 @@ export class TaskService {
   private async applyPending(input: TaskUpdateInput): Promise<TaskUpdateResult> {
     if (input.expectPending === undefined) throw new InfrastructureError("io_error", "apply 需要 --expect-pending");
     if (input.runsSettled === false) throw new TaskGuardError("runs_unsettled", "应用输入草案前须先收敛活动／未知运行与待接收结果");
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const lock = await this.lockTaskState(root, input.taskId, "task.apply-pending");
     try {
       // 摘要在锁外只是提示；锁内必须重新读取草案与基线，防止撤回后恢复旧草案。
@@ -2315,7 +2365,7 @@ export class TaskService {
       if (draft.digest !== input.expectPending) {
         throw new InfrastructureError("version_conflict", "草案版本摘要不匹配（stale_input）；不作用于后来草案");
       }
-      if (this.runActivity !== null && !(await this.runActivity.settled(root, input.taskId))) {
+      if (this.runActivity !== null && !(await this.runActivity.settled(mainRootOf(root), input.taskId))) {
         throw new TaskGuardError("runs_unsettled", "应用输入草案前旧执行仍活动、未知或结果待接收");
       }
       const currentDigest = inputsDigestOf(before.data.toString("utf8"));
@@ -2350,8 +2400,8 @@ export class TaskService {
         stageVisits: transition.visits,
         stopReason: transition.stopReason,
       });
-      new RunStore(root).removeCompletion(input.taskId);
-      new RunStore(root).removeImplementation(input.taskId);
+      new RunStore(mainRootOf(root)).removeCompletion(input.taskId);
+      new RunStore(mainRootOf(root)).removeImplementation(input.taskId);
       return {
         taskId: input.taskId,
         applied: "pending_applied",
@@ -2372,7 +2422,7 @@ export class TaskService {
     if (input.expectPending === undefined || input.withdrawReason === undefined) {
       throw new InfrastructureError("io_error", "withdraw 需要 --expect-pending 与 --reason");
     }
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     const lock = await this.locks.acquireShort({ keys: [this.taskLockKey(root, input.taskId)], action: "task.withdraw-pending" });
     try {
       // 锁内重读草案：后来草案不能被旧摘要撤回。
@@ -2428,7 +2478,7 @@ export class TaskService {
     if (typeof input.taskId !== "string" || input.taskId.trim() === "") {
       throw new TaskGuardError("invalid_request", "task ready 需要任务 ID");
     }
-    const root = normalizeRoot(input.dir);
+    const root = this.taskRoot(input.dir, input.taskId);
     assertFormalTaskEnvironment(root);
     const lock = await this.lockTaskState(root, input.taskId, "task.ready");
     try {
@@ -2476,8 +2526,8 @@ export class TaskService {
         stageVisits: transition.visits,
         stopReason: transition.stopReason,
       });
-      new RunStore(root).removeCompletion(input.taskId);
-      new RunStore(root).removeImplementation(input.taskId);
+      new RunStore(mainRootOf(root)).removeCompletion(input.taskId);
+      new RunStore(mainRootOf(root)).removeImplementation(input.taskId);
       return { taskId: input.taskId, stage: transition.stage, confirmedInputsDigest, confirmedStandardsDigest, scenarios: structural.scenarios };
     } finally {
       this.locks.release(lock);
@@ -2490,8 +2540,8 @@ export class TaskService {
    * 记录只在任务锁内写；输入变化、ready 或重新讨论后旧记录失效并被清理。
    */
   async implement(input: TaskImplementInput): Promise<TaskImplementResult> {
-    const root = normalizeRoot(input.evidenceRoot ?? input.dir);
-    const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
+    const root = mainRootOf(input.evidenceRoot ?? input.dir);
+    const executionRoot = this.taskRoot(input.executionDir ?? input.dir, input.taskId);
     const paths = [...new Set(input.paths.map((path) => path.trim()).filter((path) => path !== ""))];
     if (paths.length === 0) throw new TaskGuardError("invalid_request", "至少给出一个 --path（实际改动路径）");
     const validations = input.validations.map((line) => line.trim()).filter((line) => line !== "");
@@ -2598,9 +2648,9 @@ export class TaskService {
   async close(input: TaskCloseInput): Promise<TaskCloseResult> {
     // 阶段进程内不能结束任务（含取消／替代）：业务关闭由主会话在阶段结束后处理。
     assertNotInStageContext("task close");
-    const root = normalizeRoot(input.dir);
-    const executionRoot = normalizeRoot(input.executionDir ?? input.dir);
-    const evidenceRoot = normalizeRoot(input.evidenceRoot ?? input.dir);
+    const root = mainRootOf(input.dir);
+    const executionRoot = this.taskRoot(input.executionDir ?? input.dir, input.taskId);
+    const evidenceRoot = mainRootOf(input.evidenceRoot ?? input.dir);
     const lock = await this.lockTaskState(root, input.taskId, "task.close");
     try {
       const located = this.locate(executionRoot, input.taskId);

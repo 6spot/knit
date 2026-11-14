@@ -162,7 +162,7 @@ export function registerTaskCommands(program: Command): void {
   const taskRoute = async (dir: string, taskId: string, store: SqliteMetadataStore) => {
     const start = resolveProjectStart(dir);
     const route = executionRouteOf(await store.bindings.get(taskId), start.mainRoot);
-    if (route.state === "invalid") throw new GuardError("worktree_invalid", route.problem ?? "worktree 路由无效");
+    if (route.state === "invalid") throw new GuardError("worktree_invalid", `${route.problem ?? "worktree 路由无效"}（登记路径 ${route.dir}）；先核实现场`);
     return { dir: start.mainRoot, evidenceRoot: start.mainRoot, executionDir: route.dir };
   };
 
@@ -454,7 +454,7 @@ export function registerTaskCommands(program: Command): void {
         requestId,
         options.dir,
         async (service): Promise<TaskListActiveView | TaskListArchiveView> => {
-          const result: TaskListResult = service.list({ dir: options.dir });
+          const result: TaskListResult = service.list({ dir: options.dir, archiveOnly: archiveView });
           // 月份过滤同时约束问题明细：其它月份的诊断不混进本次视图。
           const problems = month === undefined ? result.problems : result.problems.filter((problem) => problem.path.includes(`/archive/${month}/`));
           if (archiveView) {

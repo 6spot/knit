@@ -8,7 +8,7 @@ import { normalizeRoot } from "../infrastructure/paths.js";
 import { SessionService } from "./session-service.js";
 import { StatusService, type TaskNextAction } from "./status-service.js";
 import { listTaskMaterials, type TaskMaterialEntry } from "./task-materials.js";
-import { resolveProjectStart } from "./worktree-routing.js";
+import { resolveProjectStart, taskRootOf } from "./worktree-routing.js";
 
 /** 注入所需的轻量任务视图：不含 run 诊断、凭据与子任务明细。 */
 export interface SessionContextTaskView {
@@ -65,8 +65,9 @@ export async function buildSessionContext(input: {
     reason: resolution.reason,
   } as const;
   if (taskId === null) return { ...base, task: null, materials: [], nextAction: null };
-  // 任务资料与元数据库在主检出；worktree 内调用按主检出读取，不新建副本。
+  // 运行事实在主检出；任务正文与规划资料来自有效绑定的实际执行检出。
   const mainRoot = resolveProjectStart(root).mainRoot;
+  const executionDir = taskRootOf(root, taskId, input.store.bindings.listSync());
   const view = await new StatusService({ store: input.store }).taskStatus(mainRoot, taskId);
   return {
     ...base,
@@ -86,7 +87,7 @@ export async function buildSessionContext(input: {
         .filter((run) => !TERMINAL_RUN_STATES.has(run.state))
         .map((run) => ({ runId: run.runId, state: run.state })),
     },
-    materials: listTaskMaterials(mainRoot, taskId),
+    materials: listTaskMaterials(executionDir, taskId),
     nextAction: view.nextAction,
   };
 }

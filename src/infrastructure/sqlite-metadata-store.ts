@@ -194,11 +194,11 @@ export class SqliteMetadataStore implements MetadataStore {
       return Promise.resolve(row === undefined ? null : (JSON.parse(textColumn(row.record, "bindings.record")) as TaskBinding));
     },
 
-    list: (): Promise<TaskBinding[]> => {
+    list: (): Promise<TaskBinding[]> => Promise.resolve(this.bindings.listSync()),
+
+    listSync: (): TaskBinding[] => {
       const rows = this.db.prepare("SELECT record FROM bindings ORDER BY task_id").all() as { record?: unknown }[];
-      return Promise.resolve(
-        rows.map((row) => JSON.parse(textColumn(row.record, "bindings.record")) as TaskBinding),
-      );
+      return rows.map((row) => JSON.parse(textColumn(row.record, "bindings.record")) as TaskBinding);
     },
 
     save: (binding: TaskBinding): Promise<void> => {

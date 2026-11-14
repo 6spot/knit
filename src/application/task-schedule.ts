@@ -7,7 +7,8 @@ import { readWithVersion } from "../infrastructure/atomic.js";
 import { join } from "node:path";
 import { dependencyBlockers, priorityOrDefault, type DependencyBlocker, type ScheduleEntry } from "../domain/schedule.js";
 import { parseTaskDocument } from "./task-document.js";
-import { listTaskDirectories, tasksRootOf } from "./task-service.js";
+import type { TaskBinding } from "../contracts/metadata.js";
+import { listTaskDirectories, tasksRootOf, taskListOverviewSummaries } from "./task-service.js";
 
 const TASK_FILE = "task.md";
 
@@ -44,8 +45,15 @@ export function scheduleIndexOf(root: string): Map<string, ScheduleEntry> {
 }
 
 /** 指定任务未满足的前置依赖；任务不存在时返回空（调用方先行核对存在性）。 */
-export function dependencyBlockersOf(root: string, taskId: string): DependencyBlocker[] {
+export function dependencyBlockersOf(root: string, taskId: string, bindings: readonly TaskBinding[] = []): DependencyBlocker[] {
   const index = scheduleIndexOf(root);
+  if (bindings.some((binding) => binding.worktree?.active)) {
+    for (const binding of bindings) if (binding.worktree?.active) index.delete(binding.taskId);
+    const summaries = taskListOverviewSummaries(root, bindings);
+    for (const task of [...summaries.active, ...summaries.archived]) {
+      index.set(task.taskId, { ...task, status: task.status as ScheduleEntry["status"], outcome: task.outcome as ScheduleEntry["outcome"] });
+    }
+  }
   const entry = index.get(taskId);
   return entry === undefined ? [] : dependencyBlockers(entry, index);
 }
