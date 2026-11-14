@@ -1,0 +1,31 @@
+ 【Agent代输的验收输入，不是真人授权】另一个明确事项：创建正式任务，目标是将来给 CHANGES.md 加一行验收说明        [jump]
+                                                                                                                        
+ 任务                                                                                                                   
+ - ID：k-916f9cf97906，标题「CHANGES.md 增补一行验收说明」                                                              
+ - 位置：.knit/tasks/11-14-changes-md-acceptance-note/task.md                                                           
+ - verification: self，status: open，stage: start，分支 refs/heads/main                                                 
+                                                                                                                        
+ 写入的内容                                                                                                             
+ - 目标：将来在 CHANGES.md 增加一行验收说明；范围仅此一行，不改其它记录。                                               
+ - 完成条件：留待需求确认后补写（已注明 verification=self，故未强行写场景）。                                           
+ - 待澄清：- [blocking] 措辞／位置／用途（记录既成事实 vs 待确认标记）未定 → 这一条会让 task ready 被拒，符合“不要      
+   ready”。                                                                                                             
+                                                                                                                        
+ 边界核对                                                                                                               
+ - 未执行 task ready、未派发 run、未改源码。                                                                            
+ - CHANGES.md 当前不存在于此仓库；将来若要落这一行，需先决定是新建文件还是挂在别的记录文件上——这也是待澄清项的一部分，  
+   不影响本次登记。                                                                                                     
+ - git diff --stat 仅显示先前已存在的 .knit/standards/index.md 改动；本次只新增任务目录，无源码变更。                   
+                                                                                                                        
+ 说明：task new 的 body 未落盘（写入的仍是模板），已改用 task update --kind change 落定内容，属同一任务的输入更新，不影 
+ 响阶段。                                                                                                               
+                                                                                                                        
+ 授权界定：本输入仅用于测试登记，不构成真实项目提交、推送或交付授权；后续实施、提交均需另行确认。                       
+
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ 普通 中文 空格 | main                                                           1%/1.0M | $0.00 | max · group/deepseek 
+
+

@@ -1,0 +1,422 @@
+{
+  "project": "/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+  "taskId": "k-d7b23bf7c326",
+  "worktree": {
+    "protocolVersion": 1,
+    "requestId": "worktree-status-1794631992070-5s0se7",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-d7b23bf7c326",
+      "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+      "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+      "state": "worktree",
+      "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+      "branch": "refs/heads/knit/11-14-bridge-route",
+      "layout": "project",
+      "prepared": true,
+      "active": true,
+      "problem": null
+    }
+  },
+  "mainStatus": {
+    "protocolVersion": 1,
+    "requestId": "status-1794631992242",
+    "outcome": "blocked",
+    "data": {
+      "error": "任务不存在: k-d7b23bf7c326"
+    },
+    "reasonCode": "io_error"
+  },
+  "direct": {
+    "protocolVersion": 1,
+    "requestId": "status-1794631992350",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-d7b23bf7c326",
+      "title": "主桥接 Worktree 路由",
+      "status": "open",
+      "stage": "implement",
+      "stageName": "实现",
+      "outcome": null,
+      "branch": "refs/heads/main",
+      "relativePath": ".knit/tasks/11-14-bridge-route/task.md",
+      "archived": false,
+      "createdAt": "2026-11-14T04:53:10.553Z",
+      "binding": {
+        "taskId": "k-d7b23bf7c326",
+        "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+        "relativePath": "tasks/11-14-bridge-route/task.md",
+        "branch": "refs/heads/knit/11-14-bridge-route",
+        "lastRunIds": [],
+        "lastCheckRunId": null,
+        "repairCycleId": null,
+        "repairRounds": null,
+        "stopReason": null,
+        "confirmedInputsDigest": "4dcfaa4889b7419a712e51c10dad58cbb7c4a95f498a2d038977dd87475eb99a",
+        "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+        "pendingDraft": null,
+        "stageVisits": {
+          "implement": 1
+        },
+        "worktree": {
+          "layout": "project",
+          "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+          "branch": "refs/heads/knit/11-14-bridge-route",
+          "baseline": "0fbd1e266e55717e29992c3756837ab8b41565c9",
+          "createdAt": "2026-11-14T04:53:11.265Z",
+          "registeredAt": "2026-11-14T04:53:11.265Z",
+          "relativePath": ".knit/worktrees/11-14-bridge-route",
+          "active": true,
+          "handoffAt": "2026-11-14T04:53:11.555Z",
+          "lastHandoffOp": "op-c1ac6befe669",
+          "preparedAt": "2026-11-14T04:53:11.988Z",
+          "lastPrepareOp": "op-912d74123720"
+        }
+      },
+      "pendingDraft": null,
+      "scopeCount": 0,
+      "verification": "self",
+      "parent": null,
+      "children": [],
+      "priority": "P2",
+      "dependsOn": [],
+      "blocked": [],
+      "clarify": {
+        "blocking": 0,
+        "assumed": 0
+      },
+      "lastCheckRunId": null,
+      "verificationLabel": "self",
+      "lastCheckChangedPaths": [],
+      "completion": null,
+      "runs": [],
+      "latestRun": null,
+      "activeRuns": 0,
+      "nextAction": {
+        "kind": "stage",
+        "summary": "当前阶段 implement：派发本阶段 run",
+        "commands": [
+          "knit run prepare --task k-d7b23bf7c326 --stage implement",
+          "knit run start <run-id>"
+        ],
+        "runId": null
+      }
+    }
+  },
+  "results": [
+    {
+      "label": "new",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "主桥接 Worktree 路由",
+        "--slug",
+        "bridge-route",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794631990335-j15opm",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "relativePath": "tasks/11-14-bridge-route/task.md",
+          "title": "主桥接 Worktree 路由",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:10.577Z"
+    },
+    {
+      "label": "update",
+      "args": [
+        "task",
+        "update",
+        "k-d7b23bf7c326",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/bridge-route-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794631990648-5h1o63",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "4dcfaa4889b7419a712e51c10dad58cbb7c4a95f498a2d038977dd87475eb99a",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:10.819Z"
+    },
+    {
+      "label": "ready",
+      "args": [
+        "task",
+        "ready",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794631990883-g8tku3",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "stage": "implement",
+          "confirmedInputsDigest": "4dcfaa4889b7419a712e51c10dad58cbb7c4a95f498a2d038977dd87475eb99a",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:11.100Z"
+    },
+    {
+      "label": "create",
+      "args": [
+        "worktree",
+        "create",
+        "--task",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-create-1794631991197-u0hby8",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "created": true,
+          "registered": true,
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+            "branch": "refs/heads/knit/11-14-bridge-route",
+            "baseline": "0fbd1e266e55717e29992c3756837ab8b41565c9",
+            "createdAt": "2026-11-14T04:53:11.265Z",
+            "registeredAt": "2026-11-14T04:53:11.265Z",
+            "relativePath": ".knit/worktrees/11-14-bridge-route"
+          },
+          "gitignore": {
+            "updated": false,
+            "file": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.gitignore"
+          },
+          "naming": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:11.416Z"
+    },
+    {
+      "label": "handoff",
+      "args": [
+        "worktree",
+        "handoff",
+        "--task",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-handoff-1794631991523-tnl1sc",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "opId": "op-c1ac6befe669",
+          "mode": "completed",
+          "sourceDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/tasks/11-14-bridge-route",
+          "targetTaskDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route/.knit/tasks/11-14-bridge-route",
+          "worktreePath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+          "branch": "refs/heads/knit/11-14-bridge-route",
+          "bindingBranchSwitched": true,
+          "sourceDisposition": "moved_untracked",
+          "files": 1,
+          "deleted": 0,
+          "untracked": 1
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:11.709Z"
+    },
+    {
+      "label": "prepare",
+      "args": [
+        "worktree",
+        "prepare",
+        "--task",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-prepare-1794631991807-vg01i3",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "opId": "op-912d74123720",
+          "mode": "no_op",
+          "worktreePath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+          "branch": "refs/heads/knit/11-14-bridge-route",
+          "copied": 0,
+          "skipped": 0,
+          "steps": [],
+          "finishedAt": "2026-11-14T04:53:11.988Z"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:12.001Z"
+    },
+    {
+      "label": "worktree-status",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631992070-5s0se7",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+          "branch": "refs/heads/knit/11-14-bridge-route",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:12.171Z"
+    },
+    {
+      "label": "main-status",
+      "args": [
+        "status",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631992242",
+        "outcome": "blocked",
+        "data": {
+          "error": "任务不存在: k-d7b23bf7c326"
+        },
+        "reasonCode": "io_error"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:12.282Z"
+    },
+    {
+      "label": "task-in-worktree",
+      "args": [
+        "status",
+        "k-d7b23bf7c326"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631992350",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-d7b23bf7c326",
+          "title": "主桥接 Worktree 路由",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-bridge-route/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T04:53:10.553Z",
+          "binding": {
+            "taskId": "k-d7b23bf7c326",
+            "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+            "relativePath": "tasks/11-14-bridge-route/task.md",
+            "branch": "refs/heads/knit/11-14-bridge-route",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "4dcfaa4889b7419a712e51c10dad58cbb7c4a95f498a2d038977dd87475eb99a",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            },
+            "worktree": {
+              "layout": "project",
+              "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+              "branch": "refs/heads/knit/11-14-bridge-route",
+              "baseline": "0fbd1e266e55717e29992c3756837ab8b41565c9",
+              "createdAt": "2026-11-14T04:53:11.265Z",
+              "registeredAt": "2026-11-14T04:53:11.265Z",
+              "relativePath": ".knit/worktrees/11-14-bridge-route",
+              "active": true,
+              "handoffAt": "2026-11-14T04:53:11.555Z",
+              "lastHandoffOp": "op-c1ac6befe669",
+              "preparedAt": "2026-11-14T04:53:11.988Z",
+              "lastPrepareOp": "op-912d74123720"
+            }
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "self",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "self",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-d7b23bf7c326 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:53:12.474Z"
+    }
+  ]
+}

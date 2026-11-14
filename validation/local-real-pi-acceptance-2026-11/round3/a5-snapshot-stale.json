@@ -1,0 +1,2214 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+  "snapshotRun": "run-7f48a89b911f",
+  "stale": {
+    "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+    "taskId": "k-08affa4b028c",
+    "runId": "run-e20851360f75",
+    "state": {
+      "runId": "run-e20851360f75",
+      "taskId": "k-08affa4b028c",
+      "phase": "implement",
+      "workflowMode": "config",
+      "presentation": "local",
+      "presentationSource": "explicit",
+      "presentationFallbackReason": null,
+      "branch": "refs/heads/main",
+      "initiator": {
+        "client": "cli",
+        "knitSessionId": null,
+        "nativeSessionId": null,
+        "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+      },
+      "createdAt": "2026-11-14T08:13:36.481Z",
+      "updatedAt": "2026-11-14T08:14:33.663Z",
+      "launchState": "confirmed",
+      "attempts": 1,
+      "state": "failed",
+      "prepared": true,
+      "snapshot": {
+        "state": "ready",
+        "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+        "entries": 24,
+        "reason": null
+      },
+      "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+      "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+      "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+      "reason": "acceptance_stale_input",
+      "handle": {
+        "pid": 88695,
+        "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+        "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+        "hostname": "MacBook-Pro.local",
+        "recordedAt": "2026-11-14T08:13:36.702Z"
+      },
+      "workerVerdict": "not_alive",
+      "events": 14,
+      "lastEventAt": "2026-11-14T08:14:33.662Z",
+      "lastEvent": "acceptance",
+      "cancelRequestedAt": null,
+      "cancelReason": null,
+      "stageProcess": {
+        "schemaVersion": 1,
+        "runId": "run-e20851360f75",
+        "taskId": "k-08affa4b028c",
+        "phase": "implement",
+        "state": "exited",
+        "workerPid": 88695,
+        "piPid": 89093,
+        "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+        "procStartTicks": null,
+        "hostname": "MacBook-Pro.local",
+        "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+        "knitSessionId": "s-1fa119f50352",
+        "startedAt": "2026-11-14T08:13:37.107Z",
+        "recordedAt": "2026-11-14T08:14:33.570Z"
+      },
+      "stageProcessVerdict": "not_alive",
+      "result": {
+        "schemaVersion": 1,
+        "runId": "run-e20851360f75",
+        "taskId": "k-08affa4b028c",
+        "phase": "implement",
+        "state": "completed",
+        "report": {
+          "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+          "validation": [
+            "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+            "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+            "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+            "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+          ],
+          "blockers": [],
+          "changedPaths": [
+            "stale.txt"
+          ],
+          "unverified": []
+        },
+        "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+        "nativeEntries": {
+          "startEntryId": "48167d92",
+          "leafEntryId": "d59b7cc3"
+        },
+        "usage": {
+          "inputTokens": 22916,
+          "outputTokens": 948
+        },
+        "session": {
+          "knitSessionId": "s-1fa119f50352",
+          "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+          "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+          "role": "implement",
+          "status": "available",
+          "resumeAction": "create_new",
+          "resumeReason": "no_previous_session",
+          "nativeReadable": true
+        },
+        "actualChangedPaths": [
+          "stale.txt"
+        ],
+        "actualEntries": [
+          {
+            "path": "stale.txt",
+            "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+            "absent": false,
+            "factsKind": "file",
+            "mode": "100644"
+          }
+        ],
+        "acceptanceOperationId": "accept-da0b2630c0e3",
+        "recordedAt": "2026-11-14T08:14:33.421Z",
+        "failureReason": null,
+        "branch": "refs/heads/main",
+        "workflowMode": "config",
+        "baseline": {
+          "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "symbolicRef": "refs/heads/main",
+          "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+          "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+          "capturedAt": "2026-11-14T08:13:37.227Z"
+        },
+        "boundary": {
+          "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "symbolicRef": "refs/heads/main",
+          "headMoved": false,
+          "commits": [],
+          "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+          "indexChanged": false,
+          "protectedPaths": []
+        },
+        "ignoredChanges": [],
+        "attribution": {
+          "source": "native_session",
+          "toolPaths": [
+            "stale.txt"
+          ],
+          "claimedPaths": [
+            "stale.txt"
+          ],
+          "attributedPaths": [
+            "stale.txt"
+          ],
+          "unattributedPaths": [],
+          "inheritedPaths": []
+        },
+        "externalChanges": [],
+        "reportRetries": 0
+      },
+      "acceptance": {
+        "operationId": "accept-da0b2630c0e3",
+        "state": "needs_attention",
+        "reason": "stale_input"
+      },
+      "taskTitle": "活动输入更新",
+      "taskSlug": "stale",
+      "stageName": "实现",
+      "elapsedMs": 57182,
+      "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+      "lastActivityAt": "2026-11-14T08:14:33.663Z",
+      "heartbeat": null,
+      "startupDiagnostics": null,
+      "rexDiagnostics": null,
+      "nextActions": [
+        "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+        "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+      ],
+      "noOutputNotice": null,
+      "checkerChangedPaths": [],
+      "verificationLabel": null
+    },
+    "task": {
+      "taskId": "k-08affa4b028c",
+      "title": "活动输入更新",
+      "status": "open",
+      "stage": "implement",
+      "stageName": "实现",
+      "outcome": null,
+      "branch": "refs/heads/main",
+      "relativePath": ".knit/tasks/11-14-stale/task.md",
+      "archived": false,
+      "createdAt": "2026-11-14T07:23:46.380Z",
+      "binding": {
+        "taskId": "k-08affa4b028c",
+        "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+        "relativePath": "tasks/11-14-stale/task.md",
+        "branch": "refs/heads/main",
+        "lastRunIds": [],
+        "lastCheckRunId": null,
+        "repairCycleId": null,
+        "repairRounds": null,
+        "stopReason": null,
+        "confirmedInputsDigest": "67f28217e2226a6f97db2cec460952d0fdcaadc15d9701c1ccbdb55c972a3a3f",
+        "confirmedStandardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+        "pendingDraft": null,
+        "stageVisits": {
+          "implement": 1
+        }
+      },
+      "pendingDraft": null,
+      "scopeCount": 0,
+      "verification": "self",
+      "parent": null,
+      "children": [],
+      "priority": "P2",
+      "dependsOn": [],
+      "blocked": [],
+      "clarify": {
+        "blocking": 0,
+        "assumed": 0
+      },
+      "lastCheckRunId": null,
+      "verificationLabel": "self",
+      "lastCheckChangedPaths": [],
+      "completion": null,
+      "runs": [
+        {
+          "runId": "run-e20851360f75",
+          "taskId": "k-08affa4b028c",
+          "phase": "implement",
+          "workflowMode": "config",
+          "presentation": "local",
+          "presentationSource": "explicit",
+          "presentationFallbackReason": null,
+          "branch": "refs/heads/main",
+          "initiator": {
+            "client": "cli",
+            "knitSessionId": null,
+            "nativeSessionId": null,
+            "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+          },
+          "createdAt": "2026-11-14T08:13:36.481Z",
+          "updatedAt": "2026-11-14T08:14:33.663Z",
+          "launchState": "confirmed",
+          "attempts": 1,
+          "state": "failed",
+          "prepared": true,
+          "snapshot": {
+            "state": "ready",
+            "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+            "entries": 24,
+            "reason": null
+          },
+          "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+          "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+          "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+          "reason": "acceptance_stale_input",
+          "handle": {
+            "pid": 88695,
+            "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+            "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+            "hostname": "MacBook-Pro.local",
+            "recordedAt": "2026-11-14T08:13:36.702Z"
+          },
+          "workerVerdict": "not_alive",
+          "events": 14,
+          "lastEventAt": "2026-11-14T08:14:33.662Z",
+          "lastEvent": "acceptance",
+          "cancelRequestedAt": null,
+          "cancelReason": null,
+          "stageProcess": {
+            "schemaVersion": 1,
+            "runId": "run-e20851360f75",
+            "taskId": "k-08affa4b028c",
+            "phase": "implement",
+            "state": "exited",
+            "workerPid": 88695,
+            "piPid": 89093,
+            "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+            "procStartTicks": null,
+            "hostname": "MacBook-Pro.local",
+            "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+            "knitSessionId": "s-1fa119f50352",
+            "startedAt": "2026-11-14T08:13:37.107Z",
+            "recordedAt": "2026-11-14T08:14:33.570Z"
+          },
+          "stageProcessVerdict": "not_alive",
+          "result": {
+            "schemaVersion": 1,
+            "runId": "run-e20851360f75",
+            "taskId": "k-08affa4b028c",
+            "phase": "implement",
+            "state": "completed",
+            "report": {
+              "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+              "validation": [
+                "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+                "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+                "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+                "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+              ],
+              "blockers": [],
+              "changedPaths": [
+                "stale.txt"
+              ],
+              "unverified": []
+            },
+            "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+            "nativeEntries": {
+              "startEntryId": "48167d92",
+              "leafEntryId": "d59b7cc3"
+            },
+            "usage": {
+              "inputTokens": 22916,
+              "outputTokens": 948
+            },
+            "session": {
+              "knitSessionId": "s-1fa119f50352",
+              "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+              "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+              "role": "implement",
+              "status": "available",
+              "resumeAction": "create_new",
+              "resumeReason": "no_previous_session",
+              "nativeReadable": true
+            },
+            "actualChangedPaths": [
+              "stale.txt"
+            ],
+            "actualEntries": [
+              {
+                "path": "stale.txt",
+                "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+                "absent": false,
+                "factsKind": "file",
+                "mode": "100644"
+              }
+            ],
+            "acceptanceOperationId": "accept-da0b2630c0e3",
+            "recordedAt": "2026-11-14T08:14:33.421Z",
+            "failureReason": null,
+            "branch": "refs/heads/main",
+            "workflowMode": "config",
+            "baseline": {
+              "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+              "symbolicRef": "refs/heads/main",
+              "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+              "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+              "capturedAt": "2026-11-14T08:13:37.227Z"
+            },
+            "boundary": {
+              "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+              "symbolicRef": "refs/heads/main",
+              "headMoved": false,
+              "commits": [],
+              "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+              "indexChanged": false,
+              "protectedPaths": []
+            },
+            "ignoredChanges": [],
+            "attribution": {
+              "source": "native_session",
+              "toolPaths": [
+                "stale.txt"
+              ],
+              "claimedPaths": [
+                "stale.txt"
+              ],
+              "attributedPaths": [
+                "stale.txt"
+              ],
+              "unattributedPaths": [],
+              "inheritedPaths": []
+            },
+            "externalChanges": [],
+            "reportRetries": 0
+          },
+          "acceptance": {
+            "operationId": "accept-da0b2630c0e3",
+            "state": "needs_attention",
+            "reason": "stale_input"
+          },
+          "taskTitle": "活动输入更新",
+          "taskSlug": "stale",
+          "stageName": "实现",
+          "elapsedMs": 57182,
+          "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "lastActivityAt": "2026-11-14T08:14:33.663Z",
+          "heartbeat": null,
+          "startupDiagnostics": null,
+          "rexDiagnostics": null,
+          "nextActions": [
+            "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+            "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+          ],
+          "noOutputNotice": null,
+          "checkerChangedPaths": [],
+          "verificationLabel": null
+        }
+      ],
+      "latestRun": {
+        "runId": "run-e20851360f75",
+        "taskId": "k-08affa4b028c",
+        "phase": "implement",
+        "workflowMode": "config",
+        "presentation": "local",
+        "presentationSource": "explicit",
+        "presentationFallbackReason": null,
+        "branch": "refs/heads/main",
+        "initiator": {
+          "client": "cli",
+          "knitSessionId": null,
+          "nativeSessionId": null,
+          "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+        },
+        "createdAt": "2026-11-14T08:13:36.481Z",
+        "updatedAt": "2026-11-14T08:14:33.663Z",
+        "launchState": "confirmed",
+        "attempts": 1,
+        "state": "failed",
+        "prepared": true,
+        "snapshot": {
+          "state": "ready",
+          "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+          "entries": 24,
+          "reason": null
+        },
+        "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+        "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+        "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+        "reason": "acceptance_stale_input",
+        "handle": {
+          "pid": 88695,
+          "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+          "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+          "hostname": "MacBook-Pro.local",
+          "recordedAt": "2026-11-14T08:13:36.702Z"
+        },
+        "workerVerdict": "not_alive",
+        "events": 14,
+        "lastEventAt": "2026-11-14T08:14:33.662Z",
+        "lastEvent": "acceptance",
+        "cancelRequestedAt": null,
+        "cancelReason": null,
+        "stageProcess": {
+          "schemaVersion": 1,
+          "runId": "run-e20851360f75",
+          "taskId": "k-08affa4b028c",
+          "phase": "implement",
+          "state": "exited",
+          "workerPid": 88695,
+          "piPid": 89093,
+          "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+          "procStartTicks": null,
+          "hostname": "MacBook-Pro.local",
+          "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+          "knitSessionId": "s-1fa119f50352",
+          "startedAt": "2026-11-14T08:13:37.107Z",
+          "recordedAt": "2026-11-14T08:14:33.570Z"
+        },
+        "stageProcessVerdict": "not_alive",
+        "result": {
+          "schemaVersion": 1,
+          "runId": "run-e20851360f75",
+          "taskId": "k-08affa4b028c",
+          "phase": "implement",
+          "state": "completed",
+          "report": {
+            "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+            "validation": [
+              "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+              "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+              "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+              "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+            ],
+            "blockers": [],
+            "changedPaths": [
+              "stale.txt"
+            ],
+            "unverified": []
+          },
+          "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+          "nativeEntries": {
+            "startEntryId": "48167d92",
+            "leafEntryId": "d59b7cc3"
+          },
+          "usage": {
+            "inputTokens": 22916,
+            "outputTokens": 948
+          },
+          "session": {
+            "knitSessionId": "s-1fa119f50352",
+            "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+            "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+            "role": "implement",
+            "status": "available",
+            "resumeAction": "create_new",
+            "resumeReason": "no_previous_session",
+            "nativeReadable": true
+          },
+          "actualChangedPaths": [
+            "stale.txt"
+          ],
+          "actualEntries": [
+            {
+              "path": "stale.txt",
+              "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+              "absent": false,
+              "factsKind": "file",
+              "mode": "100644"
+            }
+          ],
+          "acceptanceOperationId": "accept-da0b2630c0e3",
+          "recordedAt": "2026-11-14T08:14:33.421Z",
+          "failureReason": null,
+          "branch": "refs/heads/main",
+          "workflowMode": "config",
+          "baseline": {
+            "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+            "symbolicRef": "refs/heads/main",
+            "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+            "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+            "capturedAt": "2026-11-14T08:13:37.227Z"
+          },
+          "boundary": {
+            "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+            "symbolicRef": "refs/heads/main",
+            "headMoved": false,
+            "commits": [],
+            "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+            "indexChanged": false,
+            "protectedPaths": []
+          },
+          "ignoredChanges": [],
+          "attribution": {
+            "source": "native_session",
+            "toolPaths": [
+              "stale.txt"
+            ],
+            "claimedPaths": [
+              "stale.txt"
+            ],
+            "attributedPaths": [
+              "stale.txt"
+            ],
+            "unattributedPaths": [],
+            "inheritedPaths": []
+          },
+          "externalChanges": [],
+          "reportRetries": 0
+        },
+        "acceptance": {
+          "operationId": "accept-da0b2630c0e3",
+          "state": "needs_attention",
+          "reason": "stale_input"
+        },
+        "taskTitle": "活动输入更新",
+        "taskSlug": "stale",
+        "stageName": "实现",
+        "elapsedMs": 57182,
+        "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+        "lastActivityAt": "2026-11-14T08:14:33.663Z",
+        "heartbeat": null,
+        "startupDiagnostics": null,
+        "rexDiagnostics": null,
+        "nextActions": [
+          "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+          "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+        ],
+        "noOutputNotice": null,
+        "checkerChangedPaths": [],
+        "verificationLabel": null
+      },
+      "activeRuns": 0,
+      "nextAction": {
+        "kind": "inputs_changed",
+        "summary": "当前阶段 implement任务输入与已确认摘要不一致（run run-e20851360f75 收尾判 stale_input，结果不计为当前规格的成果）；补充说明用 clarify（deliver 时回到需要证据的阶段），目标／范围变化用 change（回到 start）",
+        "commands": [
+          "knit task update k-08affa4b028c --kind clarify --reason <原因> --file <当前输入区文件>",
+          "knit task update k-08affa4b028c --kind change --reason <原因> --file <当前输入区文件>"
+        ],
+        "runId": "run-e20851360f75"
+      }
+    }
+  },
+  "checks": {
+    "previewUnchanged": true,
+    "wrongExpectUnchanged": true,
+    "originalRestored": true,
+    "correctRestoreCompleted": true,
+    "createdKeptWithoutFlag": true,
+    "createdRemovedWithFlag": true,
+    "unselectedUnchanged": true,
+    "outsideRejected": true,
+    "outsideBytesUnchanged": true,
+    "indexRestored": true,
+    "staleStageResultCompleted": true,
+    "staleCoreFailed": true,
+    "staleAcceptanceNeedsAttention": true,
+    "staleReason": "stale_input",
+    "staleBytesExact": true,
+    "staleScopeZero": true
+  },
+  "results": [
+    {
+      "label": "stale-terminal",
+      "args": [
+        "status",
+        "--run",
+        "run-e20851360f75"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794644247479",
+        "outcome": "completed",
+        "data": {
+          "runId": "run-e20851360f75",
+          "taskId": "k-08affa4b028c",
+          "phase": "implement",
+          "workflowMode": "config",
+          "presentation": "local",
+          "presentationSource": "explicit",
+          "presentationFallbackReason": null,
+          "branch": "refs/heads/main",
+          "initiator": {
+            "client": "cli",
+            "knitSessionId": null,
+            "nativeSessionId": null,
+            "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+          },
+          "createdAt": "2026-11-14T08:13:36.481Z",
+          "updatedAt": "2026-11-14T08:14:33.663Z",
+          "launchState": "confirmed",
+          "attempts": 1,
+          "state": "failed",
+          "prepared": true,
+          "snapshot": {
+            "state": "ready",
+            "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+            "entries": 24,
+            "reason": null
+          },
+          "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+          "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+          "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+          "reason": "acceptance_stale_input",
+          "handle": {
+            "pid": 88695,
+            "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+            "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+            "hostname": "MacBook-Pro.local",
+            "recordedAt": "2026-11-14T08:13:36.702Z"
+          },
+          "workerVerdict": "not_alive",
+          "events": 14,
+          "lastEventAt": "2026-11-14T08:14:33.662Z",
+          "lastEvent": "acceptance",
+          "cancelRequestedAt": null,
+          "cancelReason": null,
+          "stageProcess": {
+            "schemaVersion": 1,
+            "runId": "run-e20851360f75",
+            "taskId": "k-08affa4b028c",
+            "phase": "implement",
+            "state": "exited",
+            "workerPid": 88695,
+            "piPid": 89093,
+            "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+            "procStartTicks": null,
+            "hostname": "MacBook-Pro.local",
+            "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+            "knitSessionId": "s-1fa119f50352",
+            "startedAt": "2026-11-14T08:13:37.107Z",
+            "recordedAt": "2026-11-14T08:14:33.570Z"
+          },
+          "stageProcessVerdict": "not_alive",
+          "result": {
+            "schemaVersion": 1,
+            "runId": "run-e20851360f75",
+            "taskId": "k-08affa4b028c",
+            "phase": "implement",
+            "state": "completed",
+            "report": {
+              "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+              "validation": [
+                "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+                "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+                "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+                "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+              ],
+              "blockers": [],
+              "changedPaths": [
+                "stale.txt"
+              ],
+              "unverified": []
+            },
+            "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+            "nativeEntries": {
+              "startEntryId": "48167d92",
+              "leafEntryId": "d59b7cc3"
+            },
+            "usage": {
+              "inputTokens": 22916,
+              "outputTokens": 948
+            },
+            "session": {
+              "knitSessionId": "s-1fa119f50352",
+              "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+              "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+              "role": "implement",
+              "status": "available",
+              "resumeAction": "create_new",
+              "resumeReason": "no_previous_session",
+              "nativeReadable": true
+            },
+            "actualChangedPaths": [
+              "stale.txt"
+            ],
+            "actualEntries": [
+              {
+                "path": "stale.txt",
+                "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+                "absent": false,
+                "factsKind": "file",
+                "mode": "100644"
+              }
+            ],
+            "acceptanceOperationId": "accept-da0b2630c0e3",
+            "recordedAt": "2026-11-14T08:14:33.421Z",
+            "failureReason": null,
+            "branch": "refs/heads/main",
+            "workflowMode": "config",
+            "baseline": {
+              "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+              "symbolicRef": "refs/heads/main",
+              "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+              "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+              "capturedAt": "2026-11-14T08:13:37.227Z"
+            },
+            "boundary": {
+              "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+              "symbolicRef": "refs/heads/main",
+              "headMoved": false,
+              "commits": [],
+              "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+              "indexChanged": false,
+              "protectedPaths": []
+            },
+            "ignoredChanges": [],
+            "attribution": {
+              "source": "native_session",
+              "toolPaths": [
+                "stale.txt"
+              ],
+              "claimedPaths": [
+                "stale.txt"
+              ],
+              "attributedPaths": [
+                "stale.txt"
+              ],
+              "unattributedPaths": [],
+              "inheritedPaths": []
+            },
+            "externalChanges": [],
+            "reportRetries": 0
+          },
+          "acceptance": {
+            "operationId": "accept-da0b2630c0e3",
+            "state": "needs_attention",
+            "reason": "stale_input"
+          },
+          "taskTitle": "活动输入更新",
+          "taskSlug": "stale",
+          "stageName": "实现",
+          "elapsedMs": 57182,
+          "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "lastActivityAt": "2026-11-14T08:14:33.663Z",
+          "heartbeat": null,
+          "startupDiagnostics": null,
+          "rexDiagnostics": null,
+          "nextActions": [
+            "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+            "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+          ],
+          "noOutputNotice": null,
+          "checkerChangedPaths": [],
+          "verificationLabel": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:27.710Z"
+    },
+    {
+      "label": "stale-task",
+      "args": [
+        "status",
+        "k-08affa4b028c"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794644247787",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-08affa4b028c",
+          "title": "活动输入更新",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-stale/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T07:23:46.380Z",
+          "binding": {
+            "taskId": "k-08affa4b028c",
+            "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-stale/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "67f28217e2226a6f97db2cec460952d0fdcaadc15d9701c1ccbdb55c972a3a3f",
+            "confirmedStandardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "self",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "self",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [
+            {
+              "runId": "run-e20851360f75",
+              "taskId": "k-08affa4b028c",
+              "phase": "implement",
+              "workflowMode": "config",
+              "presentation": "local",
+              "presentationSource": "explicit",
+              "presentationFallbackReason": null,
+              "branch": "refs/heads/main",
+              "initiator": {
+                "client": "cli",
+                "knitSessionId": null,
+                "nativeSessionId": null,
+                "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+              },
+              "createdAt": "2026-11-14T08:13:36.481Z",
+              "updatedAt": "2026-11-14T08:14:33.663Z",
+              "launchState": "confirmed",
+              "attempts": 1,
+              "state": "failed",
+              "prepared": true,
+              "snapshot": {
+                "state": "ready",
+                "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+                "entries": 24,
+                "reason": null
+              },
+              "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+              "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+              "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+              "reason": "acceptance_stale_input",
+              "handle": {
+                "pid": 88695,
+                "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+                "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+                "hostname": "MacBook-Pro.local",
+                "recordedAt": "2026-11-14T08:13:36.702Z"
+              },
+              "workerVerdict": "not_alive",
+              "events": 14,
+              "lastEventAt": "2026-11-14T08:14:33.662Z",
+              "lastEvent": "acceptance",
+              "cancelRequestedAt": null,
+              "cancelReason": null,
+              "stageProcess": {
+                "schemaVersion": 1,
+                "runId": "run-e20851360f75",
+                "taskId": "k-08affa4b028c",
+                "phase": "implement",
+                "state": "exited",
+                "workerPid": 88695,
+                "piPid": 89093,
+                "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+                "procStartTicks": null,
+                "hostname": "MacBook-Pro.local",
+                "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+                "knitSessionId": "s-1fa119f50352",
+                "startedAt": "2026-11-14T08:13:37.107Z",
+                "recordedAt": "2026-11-14T08:14:33.570Z"
+              },
+              "stageProcessVerdict": "not_alive",
+              "result": {
+                "schemaVersion": 1,
+                "runId": "run-e20851360f75",
+                "taskId": "k-08affa4b028c",
+                "phase": "implement",
+                "state": "completed",
+                "report": {
+                  "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+                  "validation": [
+                    "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+                    "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+                    "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+                    "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+                  ],
+                  "blockers": [],
+                  "changedPaths": [
+                    "stale.txt"
+                  ],
+                  "unverified": []
+                },
+                "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+                "nativeEntries": {
+                  "startEntryId": "48167d92",
+                  "leafEntryId": "d59b7cc3"
+                },
+                "usage": {
+                  "inputTokens": 22916,
+                  "outputTokens": 948
+                },
+                "session": {
+                  "knitSessionId": "s-1fa119f50352",
+                  "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+                  "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+                  "role": "implement",
+                  "status": "available",
+                  "resumeAction": "create_new",
+                  "resumeReason": "no_previous_session",
+                  "nativeReadable": true
+                },
+                "actualChangedPaths": [
+                  "stale.txt"
+                ],
+                "actualEntries": [
+                  {
+                    "path": "stale.txt",
+                    "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+                    "absent": false,
+                    "factsKind": "file",
+                    "mode": "100644"
+                  }
+                ],
+                "acceptanceOperationId": "accept-da0b2630c0e3",
+                "recordedAt": "2026-11-14T08:14:33.421Z",
+                "failureReason": null,
+                "branch": "refs/heads/main",
+                "workflowMode": "config",
+                "baseline": {
+                  "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+                  "symbolicRef": "refs/heads/main",
+                  "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+                  "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+                  "capturedAt": "2026-11-14T08:13:37.227Z"
+                },
+                "boundary": {
+                  "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+                  "symbolicRef": "refs/heads/main",
+                  "headMoved": false,
+                  "commits": [],
+                  "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+                  "indexChanged": false,
+                  "protectedPaths": []
+                },
+                "ignoredChanges": [],
+                "attribution": {
+                  "source": "native_session",
+                  "toolPaths": [
+                    "stale.txt"
+                  ],
+                  "claimedPaths": [
+                    "stale.txt"
+                  ],
+                  "attributedPaths": [
+                    "stale.txt"
+                  ],
+                  "unattributedPaths": [],
+                  "inheritedPaths": []
+                },
+                "externalChanges": [],
+                "reportRetries": 0
+              },
+              "acceptance": {
+                "operationId": "accept-da0b2630c0e3",
+                "state": "needs_attention",
+                "reason": "stale_input"
+              },
+              "taskTitle": "活动输入更新",
+              "taskSlug": "stale",
+              "stageName": "实现",
+              "elapsedMs": 57182,
+              "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+              "lastActivityAt": "2026-11-14T08:14:33.663Z",
+              "heartbeat": null,
+              "startupDiagnostics": null,
+              "rexDiagnostics": null,
+              "nextActions": [
+                "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+                "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+              ],
+              "noOutputNotice": null,
+              "checkerChangedPaths": [],
+              "verificationLabel": null
+            }
+          ],
+          "latestRun": {
+            "runId": "run-e20851360f75",
+            "taskId": "k-08affa4b028c",
+            "phase": "implement",
+            "workflowMode": "config",
+            "presentation": "local",
+            "presentationSource": "explicit",
+            "presentationFallbackReason": null,
+            "branch": "refs/heads/main",
+            "initiator": {
+              "client": "cli",
+              "knitSessionId": null,
+              "nativeSessionId": null,
+              "cwd": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格"
+            },
+            "createdAt": "2026-11-14T08:13:36.481Z",
+            "updatedAt": "2026-11-14T08:14:33.663Z",
+            "launchState": "confirmed",
+            "attempts": 1,
+            "state": "failed",
+            "prepared": true,
+            "snapshot": {
+              "state": "ready",
+              "digest": "29716898346af9b0a550cd55f82642c3550c418a7c91c3c372a17d8d7b78c592",
+              "entries": 24,
+              "reason": null
+            },
+            "inputsDigest": "0dda6fbe26ceca16cf4d4094230fd5ded1396792653f6566a6428964405bb0b0",
+            "effectiveInputsDigest": "7afefc55568dae9ff4f298c71956f01bfe3c917071d4262e43c764a9f673eba8",
+            "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+            "reason": "acceptance_stale_input",
+            "handle": {
+              "pid": 88695,
+              "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+              "procStartTicks": "Sat Nov 14 16:13:36 2026|/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+              "hostname": "MacBook-Pro.local",
+              "recordedAt": "2026-11-14T08:13:36.702Z"
+            },
+            "workerVerdict": "not_alive",
+            "events": 14,
+            "lastEventAt": "2026-11-14T08:14:33.662Z",
+            "lastEvent": "acceptance",
+            "cancelRequestedAt": null,
+            "cancelReason": null,
+            "stageProcess": {
+              "schemaVersion": 1,
+              "runId": "run-e20851360f75",
+              "taskId": "k-08affa4b028c",
+              "phase": "implement",
+              "state": "exited",
+              "workerPid": 88695,
+              "piPid": 89093,
+              "bootId": "46673C7D-3A32-4ED6-8576-60BAA321B530",
+              "procStartTicks": null,
+              "hostname": "MacBook-Pro.local",
+              "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+              "knitSessionId": "s-1fa119f50352",
+              "startedAt": "2026-11-14T08:13:37.107Z",
+              "recordedAt": "2026-11-14T08:14:33.570Z"
+            },
+            "stageProcessVerdict": "not_alive",
+            "result": {
+              "schemaVersion": 1,
+              "runId": "run-e20851360f75",
+              "taskId": "k-08affa4b028c",
+              "phase": "implement",
+              "state": "completed",
+              "report": {
+                "summary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+                "validation": [
+                  "方法：首条命令 bash sleep 45（timeout 70s）；结果：pass；证据：sleep 45 后输出 slept-45-done",
+                  "方法：write 创建项目相对路径 stale.txt，内容 \"recovered\\n\"；结果：pass；证据：工具返回 Successfully wrote to stale.txt",
+                  "方法：wc -c 与 od -An -c 逐字节核对 stale.txt；结果：pass；证据：10 字节，字节序列为 r e c o v e r e d \\n，仅单个结尾换行",
+                  "方法：git status --porcelain 核对改动范围；结果：pass；证据：工作区仅新增 stale.txt（?? stale.txt），其余 fresh.txt／hello.txt／native-retry.txt／.knit 条目均为本 run 之前已存在的未跟踪内容，非本 run 改动"
+                ],
+                "blockers": [],
+                "changedPaths": [
+                  "stale.txt"
+                ],
+                "unverified": []
+              },
+              "reportSummary": "首次工具调用为 bash sleep 45，随后仅用 write 创建 stale.txt，内容为 recovered 加单个换行；逐字节校验为 10 字节 r e c o v e r e d \\n，未改动其它文件、任务资料、配置或 Git。",
+              "nativeEntries": {
+                "startEntryId": "48167d92",
+                "leafEntryId": "d59b7cc3"
+              },
+              "usage": {
+                "inputTokens": 22916,
+                "outputTokens": 948
+              },
+              "session": {
+                "knitSessionId": "s-1fa119f50352",
+                "nativeSessionId": "80d256c2-056e-418a-874e-e8e42667b172",
+                "sessionFile": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格/.knit/.runtime/pi-sessions/2026-11-14T08-13-37-428Z_80d256c2-056e-418a-874e-e8e42667b172.jsonl",
+                "role": "implement",
+                "status": "available",
+                "resumeAction": "create_new",
+                "resumeReason": "no_previous_session",
+                "nativeReadable": true
+              },
+              "actualChangedPaths": [
+                "stale.txt"
+              ],
+              "actualEntries": [
+                {
+                  "path": "stale.txt",
+                  "digest": "e209f13d112294680541219a291f2607710e7a2f61768cca9496b23a17e2201e",
+                  "absent": false,
+                  "factsKind": "file",
+                  "mode": "100644"
+                }
+              ],
+              "acceptanceOperationId": "accept-da0b2630c0e3",
+              "recordedAt": "2026-11-14T08:14:33.421Z",
+              "failureReason": null,
+              "branch": "refs/heads/main",
+              "workflowMode": "config",
+              "baseline": {
+                "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+                "symbolicRef": "refs/heads/main",
+                "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+                "worktreeDigest": "065343763521574ed22aa18d244942b003f2389cf51f816ac2a1e20efc3e0c30",
+                "capturedAt": "2026-11-14T08:13:37.227Z"
+              },
+              "boundary": {
+                "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+                "symbolicRef": "refs/heads/main",
+                "headMoved": false,
+                "commits": [],
+                "indexDigest": "6baec0e890b145ff7c45a1e735475c008332f89e6884b72c1b5cdc33a2010f74",
+                "indexChanged": false,
+                "protectedPaths": []
+              },
+              "ignoredChanges": [],
+              "attribution": {
+                "source": "native_session",
+                "toolPaths": [
+                  "stale.txt"
+                ],
+                "claimedPaths": [
+                  "stale.txt"
+                ],
+                "attributedPaths": [
+                  "stale.txt"
+                ],
+                "unattributedPaths": [],
+                "inheritedPaths": []
+              },
+              "externalChanges": [],
+              "reportRetries": 0
+            },
+            "acceptance": {
+              "operationId": "accept-da0b2630c0e3",
+              "state": "needs_attention",
+              "reason": "stale_input"
+            },
+            "taskTitle": "活动输入更新",
+            "taskSlug": "stale",
+            "stageName": "实现",
+            "elapsedMs": 57182,
+            "executionDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "lastActivityAt": "2026-11-14T08:14:33.663Z",
+            "heartbeat": null,
+            "startupDiagnostics": null,
+            "rexDiagnostics": null,
+            "nextActions": [
+              "运行期间输入已变：结果与工作区已保留，不计为当前规格的成果；核对差异用 git diff 或 knit snapshot show run-e20851360f75",
+              "按当前输入派发新 run：knit run prepare --task k-08affa4b028c --stage implement，再 knit run start <run-id>"
+            ],
+            "noOutputNotice": null,
+            "checkerChangedPaths": [],
+            "verificationLabel": null
+          },
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "inputs_changed",
+            "summary": "当前阶段 implement任务输入与已确认摘要不一致（run run-e20851360f75 收尾判 stale_input，结果不计为当前规格的成果）；补充说明用 clarify（deliver 时回到需要证据的阶段），目标／范围变化用 change（回到 start）",
+            "commands": [
+              "knit task update k-08affa4b028c --kind clarify --reason <原因> --file <当前输入区文件>",
+              "knit task update k-08affa4b028c --kind change --reason <原因> --file <当前输入区文件>"
+            ],
+            "runId": "run-e20851360f75"
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:28.084Z"
+    },
+    {
+      "label": "snapshot-show",
+      "args": [
+        "snapshot",
+        "show",
+        "run-7f48a89b911f"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-show-1794644248164-dd81nx",
+        "outcome": "completed",
+        "data": {
+          "runId": "run-7f48a89b911f",
+          "manifest": {
+            "schemaVersion": 2,
+            "runId": "run-7f48a89b911f",
+            "state": "ready",
+            "createdAt": "2026-11-14T08:04:46.645Z",
+            "maxBytes": 67108864,
+            "base": {
+              "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+              "branch": "main",
+              "absent": false
+            },
+            "coverage": {
+              "tracked": true,
+              "index": true,
+              "untracked": true,
+              "worktree": true
+            },
+            "entries": [
+              {
+                "path": ".knit/.gitignore",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 10,
+                "digest": "c740db8c5771bc53deca3faf16465ffd78a57c5bc6df70143f0a8f422fb469ab",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "cc177394775ebd522a3b6695318e9dcefeb6c864",
+                "source": "head",
+                "headOid": "cc177394775ebd522a3b6695318e9dcefeb6c864",
+                "indexDigest": "c740db8c5771bc53deca3faf16465ffd78a57c5bc6df70143f0a8f422fb469ab",
+                "indexSource": "head",
+                "indexHeadOid": "cc177394775ebd522a3b6695318e9dcefeb6c864"
+              },
+              {
+                "path": ".knit/agents/check.md",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 4391,
+                "digest": "d418c11e3f276f701b04fb18e72882ce36991202341076dafb1f9c5e2c881c3f",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2",
+                "source": "head",
+                "headOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2",
+                "indexDigest": "d418c11e3f276f701b04fb18e72882ce36991202341076dafb1f9c5e2c881c3f",
+                "indexSource": "head",
+                "indexHeadOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2"
+              },
+              {
+                "path": ".knit/agents/implement.md",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 4289,
+                "digest": "af88a501c9c96174be8f636ccd1f6d5ff793ec31de6e34ee368b4615bed44bad",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4",
+                "source": "head",
+                "headOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4",
+                "indexDigest": "af88a501c9c96174be8f636ccd1f6d5ff793ec31de6e34ee368b4615bed44bad",
+                "indexSource": "head",
+                "indexHeadOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4"
+              },
+              {
+                "path": ".knit/agents/runtimes/pi.md",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 3046,
+                "digest": "4f987d7a4c1dc4821f9522f380bdd927b30411b1f297db45dae49852a800174b",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "1b51bb43c57891b6bec784757f2457c8b8faa389",
+                "source": "head",
+                "headOid": "1b51bb43c57891b6bec784757f2457c8b8faa389",
+                "indexDigest": "4f987d7a4c1dc4821f9522f380bdd927b30411b1f297db45dae49852a800174b",
+                "indexSource": "head",
+                "indexHeadOid": "1b51bb43c57891b6bec784757f2457c8b8faa389"
+              },
+              {
+                "path": ".knit/config.json",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 591,
+                "digest": "3142297d1db3d7cff79c9ebb198d8db291c942b40513e75402977fd3ff2e9ae4",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc",
+                "source": "head",
+                "headOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc",
+                "indexDigest": "3142297d1db3d7cff79c9ebb198d8db291c942b40513e75402977fd3ff2e9ae4",
+                "indexSource": "head",
+                "indexHeadOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc"
+              },
+              {
+                "path": ".knit/standards/candidates.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 366,
+                "digest": "fd3f4ec3a121dcc91b1439ba0eab8679d5dc831ce192d1ddbbcfab783c875329",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/standards/fixtures.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 213,
+                "digest": "2ad5293a69e7bc582a24da72ef95f63500a6b8ce9a3bab4a8448b4c7b2b80531",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/standards/index.md",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 553,
+                "digest": "1c5763b21e96ecba9dc7238db620fad4e7c8e9b799221a0d6456fdb9c3c0738e",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "4606365c5fc68596b180fe3be85cc9336a567c29",
+                "indexDigest": "5370f4ac1f2a21a564e66c16bc68e92950ae1a1b8b4cbb42831827d0f3232802",
+                "indexSource": "head",
+                "indexHeadOid": "4606365c5fc68596b180fe3be85cc9336a567c29"
+              },
+              {
+                "path": ".knit/tasks/11-14-changes-md-acceptance-note/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 882,
+                "digest": "01cf68209443aef3e7a9e759171651edf5f22e66d6dca67ad6797dd93689fb5a",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-fresh/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 1023,
+                "digest": "0c342be4d80e45a8469d0f4a258806bf6f358060f78c2fe179fa93f5a20bcae9",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-gate-renamed/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 823,
+                "digest": "fa8b9885a782b473525d0da3dc3e7b2ce47b9f48f1ab4deff7b2aa8d80309432",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-native-retry/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 888,
+                "digest": "9758f5713ec3b52111c17dfdcc53255542765d1b6c689ca3970328ce397e7a79",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-native/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 930,
+                "digest": "338e974400b3104c5b424e2f9109144721eeb62942c43207d6c19e27037d0429",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-order-a/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 515,
+                "digest": "548a7d340ad4248e4f3701983ec770f2b98a8f0330d6a9d7f3957bf08088668a",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-order-b/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 531,
+                "digest": "3ef05a631bf93550be85ce7d855ad563b7125c9ed97e5b97f713761fa96c74db",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-order-c/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 517,
+                "digest": "2de9af184d5ef4efe55a100beb3b9366c1471ff7415287402f791beed813ce72",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-real-mini/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 860,
+                "digest": "dea0b22d7febe20ce0a8d65d81cbc43eed568716dd658ca5ab8dfcc21f7faf1e",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/tasks/11-14-stale/task.md",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 860,
+                "digest": "afaa6b33e0c5afca01012e0c44cf454d0f6a84e1ba6b5afe36231b4cdd06b63a",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              },
+              {
+                "path": ".knit/workflow.yaml",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 3684,
+                "digest": "e18682e5169fc9b96d0992fee7cc7d0b66bc0f1be671f6a8d2b91cff5ea83a0a",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "1ae6a71947c051e47519e91d3a766f36828773e4",
+                "source": "head",
+                "headOid": "1ae6a71947c051e47519e91d3a766f36828773e4",
+                "indexDigest": "e18682e5169fc9b96d0992fee7cc7d0b66bc0f1be671f6a8d2b91cff5ea83a0a",
+                "indexSource": "head",
+                "indexHeadOid": "1ae6a71947c051e47519e91d3a766f36828773e4"
+              },
+              {
+                "path": ".pi/extensions/knit.ts",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 109793,
+                "digest": "dceee6662d89eafe561a4925ee36f38bd684636d5cd9904ec34448434e6376db",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c",
+                "source": "head",
+                "headOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c",
+                "indexDigest": "dceee6662d89eafe561a4925ee36f38bd684636d5cd9904ec34448434e6376db",
+                "indexSource": "head",
+                "indexHeadOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c"
+              },
+              {
+                "path": "AGENTS.md",
+                "layer": "tracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 6174,
+                "digest": "4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": "fabb1330667972183b21a740a71ceff9161e2714",
+                "source": "head",
+                "headOid": "fabb1330667972183b21a740a71ceff9161e2714",
+                "indexDigest": "4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5",
+                "indexSource": "head",
+                "indexHeadOid": "fabb1330667972183b21a740a71ceff9161e2714"
+              },
+              {
+                "path": "hello.txt",
+                "layer": "untracked",
+                "kind": "file",
+                "mode": 33188,
+                "size": 19,
+                "digest": "f3564165a33d7510924e5ecc4699de50aa95b19085f06bd01664fc9144d730a0",
+                "linkTarget": null,
+                "absent": false,
+                "indexOid": null,
+                "indexDigest": null
+              }
+            ],
+            "counts": {
+              "tracked": 9,
+              "untracked": 13,
+              "absent": 0
+            },
+            "bytes": 8980,
+            "savedBytes": 132439,
+            "digest": "2997db4b26491f7fdea78395c4cbbfad2b6f9a4b1a6ada90de73af6c12c9988d",
+            "reason": null
+          },
+          "entries": [
+            {
+              "path": ".knit/.gitignore",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 10,
+              "digest": "c740db8c5771bc53deca3faf16465ffd78a57c5bc6df70143f0a8f422fb469ab",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "cc177394775ebd522a3b6695318e9dcefeb6c864",
+              "source": "head",
+              "headOid": "cc177394775ebd522a3b6695318e9dcefeb6c864",
+              "indexDigest": "c740db8c5771bc53deca3faf16465ffd78a57c5bc6df70143f0a8f422fb469ab",
+              "indexSource": "head",
+              "indexHeadOid": "cc177394775ebd522a3b6695318e9dcefeb6c864"
+            },
+            {
+              "path": ".knit/agents/check.md",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 4391,
+              "digest": "d418c11e3f276f701b04fb18e72882ce36991202341076dafb1f9c5e2c881c3f",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2",
+              "source": "head",
+              "headOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2",
+              "indexDigest": "d418c11e3f276f701b04fb18e72882ce36991202341076dafb1f9c5e2c881c3f",
+              "indexSource": "head",
+              "indexHeadOid": "0f590661f1c55a094b31ce776a3b180a9d2d6ab2"
+            },
+            {
+              "path": ".knit/agents/implement.md",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 4289,
+              "digest": "af88a501c9c96174be8f636ccd1f6d5ff793ec31de6e34ee368b4615bed44bad",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4",
+              "source": "head",
+              "headOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4",
+              "indexDigest": "af88a501c9c96174be8f636ccd1f6d5ff793ec31de6e34ee368b4615bed44bad",
+              "indexSource": "head",
+              "indexHeadOid": "c6eebae02545b3aeacf5d94f4f9953552a2cc8a4"
+            },
+            {
+              "path": ".knit/agents/runtimes/pi.md",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 3046,
+              "digest": "4f987d7a4c1dc4821f9522f380bdd927b30411b1f297db45dae49852a800174b",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "1b51bb43c57891b6bec784757f2457c8b8faa389",
+              "source": "head",
+              "headOid": "1b51bb43c57891b6bec784757f2457c8b8faa389",
+              "indexDigest": "4f987d7a4c1dc4821f9522f380bdd927b30411b1f297db45dae49852a800174b",
+              "indexSource": "head",
+              "indexHeadOid": "1b51bb43c57891b6bec784757f2457c8b8faa389"
+            },
+            {
+              "path": ".knit/config.json",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 591,
+              "digest": "3142297d1db3d7cff79c9ebb198d8db291c942b40513e75402977fd3ff2e9ae4",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc",
+              "source": "head",
+              "headOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc",
+              "indexDigest": "3142297d1db3d7cff79c9ebb198d8db291c942b40513e75402977fd3ff2e9ae4",
+              "indexSource": "head",
+              "indexHeadOid": "7ee20f4858d8a405de82e05aeb59daad84a119dc"
+            },
+            {
+              "path": ".knit/standards/candidates.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 366,
+              "digest": "fd3f4ec3a121dcc91b1439ba0eab8679d5dc831ce192d1ddbbcfab783c875329",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/standards/fixtures.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 213,
+              "digest": "2ad5293a69e7bc582a24da72ef95f63500a6b8ce9a3bab4a8448b4c7b2b80531",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/standards/index.md",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 553,
+              "digest": "1c5763b21e96ecba9dc7238db620fad4e7c8e9b799221a0d6456fdb9c3c0738e",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "4606365c5fc68596b180fe3be85cc9336a567c29",
+              "indexDigest": "5370f4ac1f2a21a564e66c16bc68e92950ae1a1b8b4cbb42831827d0f3232802",
+              "indexSource": "head",
+              "indexHeadOid": "4606365c5fc68596b180fe3be85cc9336a567c29"
+            },
+            {
+              "path": ".knit/tasks/11-14-changes-md-acceptance-note/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 882,
+              "digest": "01cf68209443aef3e7a9e759171651edf5f22e66d6dca67ad6797dd93689fb5a",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-fresh/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 1023,
+              "digest": "0c342be4d80e45a8469d0f4a258806bf6f358060f78c2fe179fa93f5a20bcae9",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-gate-renamed/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 823,
+              "digest": "fa8b9885a782b473525d0da3dc3e7b2ce47b9f48f1ab4deff7b2aa8d80309432",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-native-retry/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 888,
+              "digest": "9758f5713ec3b52111c17dfdcc53255542765d1b6c689ca3970328ce397e7a79",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-native/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 930,
+              "digest": "338e974400b3104c5b424e2f9109144721eeb62942c43207d6c19e27037d0429",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-order-a/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 515,
+              "digest": "548a7d340ad4248e4f3701983ec770f2b98a8f0330d6a9d7f3957bf08088668a",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-order-b/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 531,
+              "digest": "3ef05a631bf93550be85ce7d855ad563b7125c9ed97e5b97f713761fa96c74db",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-order-c/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 517,
+              "digest": "2de9af184d5ef4efe55a100beb3b9366c1471ff7415287402f791beed813ce72",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-real-mini/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 860,
+              "digest": "dea0b22d7febe20ce0a8d65d81cbc43eed568716dd658ca5ab8dfcc21f7faf1e",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/tasks/11-14-stale/task.md",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 860,
+              "digest": "afaa6b33e0c5afca01012e0c44cf454d0f6a84e1ba6b5afe36231b4cdd06b63a",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            },
+            {
+              "path": ".knit/workflow.yaml",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 3684,
+              "digest": "e18682e5169fc9b96d0992fee7cc7d0b66bc0f1be671f6a8d2b91cff5ea83a0a",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "1ae6a71947c051e47519e91d3a766f36828773e4",
+              "source": "head",
+              "headOid": "1ae6a71947c051e47519e91d3a766f36828773e4",
+              "indexDigest": "e18682e5169fc9b96d0992fee7cc7d0b66bc0f1be671f6a8d2b91cff5ea83a0a",
+              "indexSource": "head",
+              "indexHeadOid": "1ae6a71947c051e47519e91d3a766f36828773e4"
+            },
+            {
+              "path": ".pi/extensions/knit.ts",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 109793,
+              "digest": "dceee6662d89eafe561a4925ee36f38bd684636d5cd9904ec34448434e6376db",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c",
+              "source": "head",
+              "headOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c",
+              "indexDigest": "dceee6662d89eafe561a4925ee36f38bd684636d5cd9904ec34448434e6376db",
+              "indexSource": "head",
+              "indexHeadOid": "b5c703e0a426bdf65f1baad6318bd3bda4cb641c"
+            },
+            {
+              "path": "AGENTS.md",
+              "layer": "tracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 6174,
+              "digest": "4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": "fabb1330667972183b21a740a71ceff9161e2714",
+              "source": "head",
+              "headOid": "fabb1330667972183b21a740a71ceff9161e2714",
+              "indexDigest": "4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5",
+              "indexSource": "head",
+              "indexHeadOid": "fabb1330667972183b21a740a71ceff9161e2714"
+            },
+            {
+              "path": "hello.txt",
+              "layer": "untracked",
+              "kind": "file",
+              "mode": 33188,
+              "size": 19,
+              "digest": "f3564165a33d7510924e5ecc4699de50aa95b19085f06bd01664fc9144d730a0",
+              "linkTarget": null,
+              "absent": false,
+              "indexOid": null,
+              "indexDigest": null
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:28.169Z"
+    },
+    {
+      "label": "preview-no-expect",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "AGENTS.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644248233-x2o852",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-7f48a89b911f",
+            "taskId": "k-bb3d81794def",
+            "branch": "main",
+            "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+            "snapshotDigest": "2997db4b26491f7fdea78395c4cbbfad2b6f9a4b1a6ada90de73af6c12c9988d",
+            "plans": [
+              {
+                "path": "AGENTS.md",
+                "snapshot": {
+                  "kind": "file",
+                  "fingerprint": "file:4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5:33188",
+                  "mode": 33188,
+                  "size": 6174
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:90e5ed7c67626b5631884ce6b6e41b2324f6a492e37f537ab23083a9b158c297:33188",
+                  "mode": 33188,
+                  "size": 6213
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "8d244c77d8b41c15f699bc85376919725e661ee1"
+                },
+                "snapshotIndex": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "fabb1330667972183b21a740a71ceff9161e2714"
+                },
+                "action": "restore",
+                "indexAction": "ignored",
+                "guard": null,
+                "reason": null
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:28.360Z"
+    },
+    {
+      "label": "wrong-expect",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "AGENTS.md",
+        "--expect",
+        "AGENTS.md=file:0000000000000000000000000000000000000000000000000000000000000000:100644",
+        "--index"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644248423-js3kxf",
+        "outcome": "error",
+        "data": {
+          "error": "当前指纹不匹配 AGENTS.md: 期望 file:0000000000000000000000000000000000000000000000000000000000000000:100644，实际 file:90e5ed7c67626b5631884ce6b6e41b2324f6a492e37f537ab23083a9b158c297:33188"
+        },
+        "reasonCode": "stale_input"
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:28.539Z"
+    },
+    {
+      "label": "restore-correct",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "AGENTS.md",
+        "--expect",
+        "AGENTS.md=file:90e5ed7c67626b5631884ce6b6e41b2324f6a492e37f537ab23083a9b158c297:33188",
+        "--index"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644248604-72kvin",
+        "outcome": "completed",
+        "data": {
+          "operationId": "restore-a48ab0d4ce6b",
+          "runId": "run-7f48a89b911f",
+          "taskId": "k-bb3d81794def",
+          "state": "completed",
+          "plans": [
+            {
+              "path": "AGENTS.md",
+              "snapshot": {
+                "kind": "file",
+                "fingerprint": "file:4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5:33188",
+                "mode": 33188,
+                "size": 6174
+              },
+              "current": {
+                "kind": "file",
+                "fingerprint": "file:90e5ed7c67626b5631884ce6b6e41b2324f6a492e37f537ab23083a9b158c297:33188",
+                "mode": 33188,
+                "size": 6213
+              },
+              "index": {
+                "present": true,
+                "mode": 33188,
+                "oid": "8d244c77d8b41c15f699bc85376919725e661ee1"
+              },
+              "snapshotIndex": {
+                "present": true,
+                "mode": 33188,
+                "oid": "fabb1330667972183b21a740a71ceff9161e2714"
+              },
+              "action": "restore",
+              "indexAction": "set",
+              "guard": null,
+              "reason": null
+            }
+          ],
+          "results": [
+            {
+              "path": "AGENTS.md",
+              "status": "done",
+              "after": {
+                "kind": "file",
+                "fingerprint": "file:4c15186da0a5177622ff7700a5da89d44c9fdf0837d00e97136ca051ec802df5:33188",
+                "mode": 33188,
+                "size": 6174
+              },
+              "indexAfter": {
+                "present": true,
+                "mode": 33188,
+                "oid": "fabb1330667972183b21a740a71ceff9161e2714"
+              },
+              "reason": null
+            }
+          ],
+          "branch": "main",
+          "headBefore": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "headAfter": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "checkInvalidated": true,
+          "taskInputUpdated": false,
+          "recordPath": ".knit/.runtime/restores/restore-a48ab0d4ce6b.json"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:28.921Z"
+    },
+    {
+      "label": "preview-created",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "snapshot-created.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644248988-w5yp9l",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-7f48a89b911f",
+            "taskId": "k-bb3d81794def",
+            "branch": "main",
+            "head": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+            "snapshotDigest": "2997db4b26491f7fdea78395c4cbbfad2b6f9a4b1a6ada90de73af6c12c9988d",
+            "plans": [
+              {
+                "path": "snapshot-created.txt",
+                "snapshot": {
+                  "kind": "absent",
+                  "fingerprint": "absent",
+                  "mode": null,
+                  "size": null
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:0d56df2fcbe3d84e73608c1e522df4e91330a4f4f023859cac7c2b223ea37377:33188",
+                  "mode": 33188,
+                  "size": 27
+                },
+                "index": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "delete",
+                "indexAction": "ignored",
+                "guard": "remove_created_required",
+                "reason": "快照没有该路径；删除当前文件需 --remove-created"
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:29.116Z"
+    },
+    {
+      "label": "created-without-remove",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=file:0d56df2fcbe3d84e73608c1e522df4e91330a4f4f023859cac7c2b223ea37377:33188"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644249181-rmz1d2",
+        "outcome": "error",
+        "data": {
+          "error": "快照中不存在 snapshot-created.txt；删除后来新建路径需 --remove-created"
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:29.296Z"
+    },
+    {
+      "label": "created-remove",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=file:0d56df2fcbe3d84e73608c1e522df4e91330a4f4f023859cac7c2b223ea37377:33188",
+        "--remove-created",
+        "--index"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644249362-lftltm",
+        "outcome": "completed",
+        "data": {
+          "operationId": "restore-c72830df531c",
+          "runId": "run-7f48a89b911f",
+          "taskId": "k-bb3d81794def",
+          "state": "completed",
+          "plans": [
+            {
+              "path": "snapshot-created.txt",
+              "snapshot": {
+                "kind": "absent",
+                "fingerprint": "absent",
+                "mode": null,
+                "size": null
+              },
+              "current": {
+                "kind": "file",
+                "fingerprint": "file:0d56df2fcbe3d84e73608c1e522df4e91330a4f4f023859cac7c2b223ea37377:33188",
+                "mode": 33188,
+                "size": 27
+              },
+              "index": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "snapshotIndex": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "action": "delete",
+              "indexAction": "unchanged",
+              "guard": "remove_created_required",
+              "reason": "快照没有该路径；删除当前文件需 --remove-created"
+            }
+          ],
+          "results": [
+            {
+              "path": "snapshot-created.txt",
+              "status": "done",
+              "after": {
+                "kind": "absent",
+                "fingerprint": "absent",
+                "mode": null,
+                "size": null
+              },
+              "indexAfter": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "reason": null
+            }
+          ],
+          "branch": "main",
+          "headBefore": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "headAfter": "a64909722b59cd7f5051cfe358c4f42893c44a9d",
+          "checkInvalidated": true,
+          "taskInputUpdated": false,
+          "recordPath": ".knit/.runtime/restores/restore-c72830df531c.json"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:29.612Z"
+    },
+    {
+      "label": "outside-scope",
+      "args": [
+        "snapshot",
+        "restore",
+        "run-7f48a89b911f",
+        "--path",
+        "../snapshot-external-sentinel.txt"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794644249675-47lxz1",
+        "outcome": "error",
+        "data": {
+          "error": "恢复路径越界: ../snapshot-external-sentinel.txt"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T08:17:29.773Z"
+    }
+  ]
+}

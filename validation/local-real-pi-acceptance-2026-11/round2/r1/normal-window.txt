@@ -1,0 +1,1 @@
+beforeWindowIds=26762;newWindowId=26766;tty=/dev/ttys002

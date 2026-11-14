@@ -1,0 +1,83 @@
+{
+  "kind": "rex-tests",
+  "taskId": "k-b9019179b424",
+  "mode": "verification",
+  "preparedBy": "P0 worker run-8d8e0996ecbf",
+  "ok": true,
+  "verificationStatus": "pass",
+  "startedAt": "2026-11-14T07:13:57Z",
+  "finishedAt": "2026-11-14T07:18:21Z",
+  "exitCode": 0,
+  "failureReason": null,
+  "isolationRoot": "/private/tmp/knit-self-acceptance3.kFgIO0",
+  "runDir": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T071357Z--rex-tests",
+  "source": {
+    "repo": "/Users/me/IdeaProjects/knit",
+    "commit": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "packageVersion": "0.1.0",
+    "archiveSha256": "80db0d5d7e60c72fdee73562fad6359185664d37000918b6a3a8eff31d4fada2",
+    "exportManifest": "export-manifest.json",
+    "exportFileCount": 830,
+    "exportContentDigest": "sha256:ae5fadfafaa65a3de330300eb7a656434d188e157d5664b1eb02c32d9e66f841"
+  },
+  "environment": {
+    "nodeVersion": "v26.3.0",
+    "nodePath": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+    "npmVersion": "11.16.0",
+    "npmPath": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/npm",
+    "piVersion": "1.5.2",
+    "piPath": "/Users/me/.pi/agent/bin/pi",
+    "rexBin": "/Users/me/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
+    "rexAppVersion": "0.1.0",
+    "rexAppBuild": "1913"
+  },
+  "authenticity": {
+    "tty": "/dev/ttys019",
+    "termProgram": "rex",
+    "termProgramVersion": "0.1.0-preview.14",
+    "normalTerminal": false,
+    "rexSession": "session:01a1d8e3-8210-7c92-be63-f6c39fd1135e",
+    "rexBlock": "block:01a1d8e3-8210-7d3a-bde6-e2c9858d84f1",
+    "rexServer": "unix:///Users/me/Library/Application%20Support/rex/server.sock"
+  },
+  "repo": {
+    "headBefore": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "headAfter": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "statusSha256Before": "4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb",
+    "statusSha256After": "4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb",
+    "statusLinesBefore": 4,
+    "statusLinesAfter": 4,
+    "unchangedDuringRun": true
+  },
+  "steps": [
+    {
+      "name": "00-export-verify",
+      "exitCode": 0,
+      "seconds": 1,
+      "command": "do_export"
+    },
+    {
+      "name": "01-npm-ci",
+      "exitCode": 0,
+      "seconds": 0,
+      "command": "npm ci --include=dev --no-audit --no-fund"
+    },
+    {
+      "name": "02-npm-test",
+      "exitCode": 0,
+      "seconds": 263,
+      "command": "npm test"
+    }
+  ],
+  "tests": {
+    "tests": 798,
+    "suites": 0,
+    "pass": 798,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 258980.885208
+  },
+  "packInstall": null
+}

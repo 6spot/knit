@@ -1,0 +1,360 @@
+{
+  "restoredOriginal": true,
+  "noDeletionWithoutFlag": true,
+  "removedWithExplicitFlag": true,
+  "index": "",
+  "results": [
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "unrelated-sentinel.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516322813-htv9sf",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-71173384afd7",
+            "taskId": "k-3810e59ca5e0",
+            "branch": "main",
+            "head": "0671319d023a6a8b4d9123912daa7af130d512a9",
+            "snapshotDigest": "0d2e10f720189fc832ae679112d1b935db431c5c29ca869321c79add4c7359c8",
+            "plans": [
+              {
+                "path": "unrelated-sentinel.txt",
+                "snapshot": {
+                  "kind": "file",
+                  "fingerprint": "file:bd70e8ff2b2b4e0ad0aa36345417548c26bb8b420a2ed07bc0fa4b9b6ad776e5:33188",
+                  "mode": 33188,
+                  "size": 37
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188",
+                  "mode": 33188,
+                  "size": 32
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "9227f2a6a8d63bfd093307fb4ffacaa8984ed527"
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "restore",
+                "indexAction": "ignored",
+                "guard": null,
+                "reason": null
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "unrelated-sentinel.txt",
+        "--expect",
+        "unrelated-sentinel.txt=file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188",
+        "--index"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516323018-h8gvn1",
+        "outcome": "completed",
+        "data": {
+          "operationId": "restore-a1e0966ee540",
+          "runId": "run-71173384afd7",
+          "taskId": "k-3810e59ca5e0",
+          "state": "completed",
+          "plans": [
+            {
+              "path": "unrelated-sentinel.txt",
+              "snapshot": {
+                "kind": "file",
+                "fingerprint": "file:bd70e8ff2b2b4e0ad0aa36345417548c26bb8b420a2ed07bc0fa4b9b6ad776e5:33188",
+                "mode": 33188,
+                "size": 37
+              },
+              "current": {
+                "kind": "file",
+                "fingerprint": "file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188",
+                "mode": 33188,
+                "size": 32
+              },
+              "index": {
+                "present": true,
+                "mode": 33188,
+                "oid": "9227f2a6a8d63bfd093307fb4ffacaa8984ed527"
+              },
+              "snapshotIndex": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "action": "restore",
+              "indexAction": "remove",
+              "guard": null,
+              "reason": null
+            }
+          ],
+          "results": [
+            {
+              "path": "unrelated-sentinel.txt",
+              "status": "done",
+              "after": {
+                "kind": "file",
+                "fingerprint": "file:bd70e8ff2b2b4e0ad0aa36345417548c26bb8b420a2ed07bc0fa4b9b6ad776e5:33188",
+                "mode": 33188,
+                "size": 37
+              },
+              "indexAfter": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "reason": null
+            }
+          ],
+          "branch": "main",
+          "headBefore": "0671319d023a6a8b4d9123912daa7af130d512a9",
+          "headAfter": "0671319d023a6a8b4d9123912daa7af130d512a9",
+          "checkInvalidated": true,
+          "taskInputUpdated": false,
+          "recordPath": ".knit/.runtime/restores/restore-a1e0966ee540.json"
+        }
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516323381-g0n13v",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-71173384afd7",
+            "taskId": "k-3810e59ca5e0",
+            "branch": "main",
+            "head": "0671319d023a6a8b4d9123912daa7af130d512a9",
+            "snapshotDigest": "0d2e10f720189fc832ae679112d1b935db431c5c29ca869321c79add4c7359c8",
+            "plans": [
+              {
+                "path": "snapshot-created.txt",
+                "snapshot": {
+                  "kind": "absent",
+                  "fingerprint": "absent",
+                  "mode": null,
+                  "size": null
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188",
+                  "mode": 33188,
+                  "size": 17
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "257329e8f052a34b13cd4e918fd9b6421476d8ab"
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "delete",
+                "indexAction": "ignored",
+                "guard": "remove_created_required",
+                "reason": "快照没有该路径；删除当前文件需 --remove-created"
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516323564-d33y32",
+        "outcome": "error",
+        "data": {
+          "error": "快照中不存在 snapshot-created.txt；删除后来新建路径需 --remove-created"
+        },
+        "reasonCode": "needs_review"
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516323740-e9jogq",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-71173384afd7",
+            "taskId": "k-3810e59ca5e0",
+            "branch": "main",
+            "head": "0671319d023a6a8b4d9123912daa7af130d512a9",
+            "snapshotDigest": "0d2e10f720189fc832ae679112d1b935db431c5c29ca869321c79add4c7359c8",
+            "plans": [
+              {
+                "path": "snapshot-created.txt",
+                "snapshot": {
+                  "kind": "absent",
+                  "fingerprint": "absent",
+                  "mode": null,
+                  "size": null
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188",
+                  "mode": 33188,
+                  "size": 17
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "257329e8f052a34b13cd4e918fd9b6421476d8ab"
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "delete",
+                "indexAction": "ignored",
+                "guard": "remove_created_required",
+                "reason": "快照没有该路径；删除当前文件需 --remove-created"
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188",
+        "--index",
+        "--remove-created"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516323926-rdarag",
+        "outcome": "completed",
+        "data": {
+          "operationId": "restore-ffe69bf541d8",
+          "runId": "run-71173384afd7",
+          "taskId": "k-3810e59ca5e0",
+          "state": "completed",
+          "plans": [
+            {
+              "path": "snapshot-created.txt",
+              "snapshot": {
+                "kind": "absent",
+                "fingerprint": "absent",
+                "mode": null,
+                "size": null
+              },
+              "current": {
+                "kind": "file",
+                "fingerprint": "file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188",
+                "mode": 33188,
+                "size": 17
+              },
+              "index": {
+                "present": true,
+                "mode": 33188,
+                "oid": "257329e8f052a34b13cd4e918fd9b6421476d8ab"
+              },
+              "snapshotIndex": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "action": "delete",
+              "indexAction": "remove",
+              "guard": "remove_created_required",
+              "reason": "快照没有该路径；删除当前文件需 --remove-created"
+            }
+          ],
+          "results": [
+            {
+              "path": "snapshot-created.txt",
+              "status": "done",
+              "after": {
+                "kind": "absent",
+                "fingerprint": "absent",
+                "mode": null,
+                "size": null
+              },
+              "indexAfter": {
+                "present": false,
+                "mode": null,
+                "oid": null
+              },
+              "reason": null
+            }
+          ],
+          "branch": "main",
+          "headBefore": "0671319d023a6a8b4d9123912daa7af130d512a9",
+          "headAfter": "0671319d023a6a8b4d9123912daa7af130d512a9",
+          "checkInvalidated": true,
+          "taskInputUpdated": false,
+          "recordPath": ".knit/.runtime/restores/restore-ffe69bf541d8.json"
+        }
+      }
+    }
+  ],
+  "previousHarnessError": "a5-snapshot passed bare digest, but expected syntax is the exact file:digest:mode fingerprint from preview; refusals were correct, not product failures."
+}

@@ -1,0 +1,1007 @@
+{
+  "project": "/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+  "clone": "/tmp/knit-self-acceptance2.JyPWM8/projects/clone 副本",
+  "taskId": "k-0640b95c7083",
+  "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+  "rejectedPreview": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794631654460-9p16p7",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+      "taskId": "k-0640b95c7083",
+      "apply": false,
+      "status": "noop",
+      "reason": "任务没有 worktree",
+      "opId": null,
+      "receiptPath": null,
+      "journalPath": null,
+      "authorizationRef": null,
+      "authorization": null,
+      "taskStatus": null,
+      "taskOutcome": null,
+      "source": null,
+      "target": null,
+      "beforeHead": null,
+      "afterHead": null,
+      "mergeCommit": null,
+      "mergeKind": null,
+      "mergeRequired": false,
+      "material": null,
+      "document": null,
+      "binding": null,
+      "dirty": null,
+      "resumed": false
+    }
+  },
+  "rejectedApply": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794631654631-72xhom",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+      "taskId": "k-0640b95c7083",
+      "apply": true,
+      "status": "noop",
+      "reason": "任务没有 worktree",
+      "opId": null,
+      "receiptPath": null,
+      "journalPath": null,
+      "authorizationRef": "user:387707d9",
+      "authorization": {
+        "kind": "user_reference",
+        "ref": "user:387707d9",
+        "path": null,
+        "section": null,
+        "digest": null,
+        "verified": false
+      },
+      "taskStatus": null,
+      "taskOutcome": null,
+      "source": null,
+      "target": null,
+      "beforeHead": null,
+      "afterHead": null,
+      "mergeCommit": null,
+      "mergeKind": null,
+      "mergeRequired": false,
+      "material": null,
+      "document": null,
+      "binding": null,
+      "dirty": null,
+      "resumed": false
+    }
+  },
+  "merged": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794631654861-lt61s2",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+      "taskId": "k-0640b95c7083",
+      "apply": true,
+      "status": "noop",
+      "reason": "任务没有 worktree",
+      "opId": null,
+      "receiptPath": null,
+      "journalPath": null,
+      "authorizationRef": "user:387707d9",
+      "authorization": {
+        "kind": "user_reference",
+        "ref": "user:387707d9",
+        "path": null,
+        "section": null,
+        "digest": null,
+        "verified": false
+      },
+      "taskStatus": null,
+      "taskOutcome": null,
+      "source": null,
+      "target": null,
+      "beforeHead": null,
+      "afterHead": null,
+      "mergeCommit": null,
+      "mergeKind": null,
+      "mergeRequired": false,
+      "material": null,
+      "document": null,
+      "binding": null,
+      "dirty": null,
+      "resumed": false
+    }
+  },
+  "before": {
+    "head": "ec14a572fb852fc031f5407b3910a119dc2fdf28",
+    "index": "f3a2d5ec1a7d77230a8b953d8b93549493a52203"
+  },
+  "after": {
+    "head": "ec14a572fb852fc031f5407b3910a119dc2fdf28",
+    "index": "f3a2d5ec1a7d77230a8b953d8b93549493a52203"
+  },
+  "status": {
+    "protocolVersion": 1,
+    "requestId": "status-1794631655064",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-0640b95c7083",
+      "title": "合入 index 守卫",
+      "status": "closed",
+      "stage": "deliver",
+      "stageName": "收尾",
+      "outcome": "completed",
+      "branch": "refs/heads/main",
+      "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+      "archived": false,
+      "createdAt": "2026-11-14T04:47:32.880Z",
+      "binding": {
+        "taskId": "k-0640b95c7083",
+        "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+        "relativePath": "tasks/11-14-index-guard/task.md",
+        "branch": "refs/heads/main",
+        "lastRunIds": [],
+        "lastCheckRunId": null,
+        "repairCycleId": null,
+        "repairRounds": null,
+        "stopReason": null,
+        "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+        "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+        "pendingDraft": null,
+        "stageVisits": {
+          "implement": 1
+        },
+        "scope": [
+          {
+            "path": "guard.txt",
+            "digest": "c036167f99ac50adc006c060e1bcb4d1430702d870106d7035e3d2e0ce7bd4ba",
+            "absent": false,
+            "factsKind": "file",
+            "mode": "100644",
+            "source": "main-session-implementation"
+          }
+        ],
+        "scopeRunIds": []
+      },
+      "pendingDraft": null,
+      "scopeCount": 1,
+      "verification": "self",
+      "parent": null,
+      "children": [],
+      "priority": "P2",
+      "dependsOn": [],
+      "blocked": [],
+      "clarify": {
+        "blocking": 0,
+        "assumed": 0
+      },
+      "lastCheckRunId": null,
+      "verificationLabel": "self",
+      "lastCheckChangedPaths": [],
+      "completion": {
+        "schemaVersion": 1,
+        "taskId": "k-0640b95c7083",
+        "verification": "self",
+        "inputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+        "scopeDigest": "aac9b591e2c3379c483124d2d029f5d13324beb401720fec359eacebeab95100",
+        "implementedBy": "record",
+        "implementRunId": null,
+        "checkRunId": null,
+        "unverified": [],
+        "forced": false,
+        "forcedReason": null,
+        "reason": "本隔离夹具主会话真实实施并核对",
+        "completedAt": "2026-11-14T04:47:34.307Z"
+      },
+      "runs": [],
+      "latestRun": null,
+      "activeRuns": 0,
+      "nextAction": null
+    }
+  },
+  "cloneBefore": {
+    "protocolVersion": 1,
+    "requestId": "status-1794631655292",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-0640b95c7083",
+      "title": "合入 index 守卫",
+      "status": "closed",
+      "stage": "deliver",
+      "stageName": "收尾",
+      "outcome": "completed",
+      "branch": "refs/heads/main",
+      "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+      "archived": false,
+      "createdAt": "2026-11-14T04:47:32.880Z",
+      "binding": null,
+      "pendingDraft": null,
+      "scopeCount": 0,
+      "verification": "self",
+      "parent": null,
+      "children": [],
+      "priority": "P2",
+      "dependsOn": [],
+      "blocked": [],
+      "clarify": {
+        "blocking": 0,
+        "assumed": 0
+      },
+      "lastCheckRunId": null,
+      "verificationLabel": "self",
+      "lastCheckChangedPaths": [],
+      "completion": null,
+      "runs": [],
+      "latestRun": null,
+      "activeRuns": 0,
+      "nextAction": {
+        "kind": "binding_missing",
+        "summary": "任务在本机没有可用绑定（确认摘要、scope 与凭据是本机事实）；常见于 clone／换机后，先按 task.md 重建绑定与证据落点",
+        "commands": [
+          "knit task rebind k-0640b95c7083"
+        ],
+        "runId": null
+      }
+    }
+  },
+  "rebind": {
+    "protocolVersion": 1,
+    "requestId": "task-rebind-1794631655437-o71p8i",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-0640b95c7083",
+      "rebound": true,
+      "branch": "refs/heads/main",
+      "originalStage": "deliver",
+      "stage": "implement",
+      "originalStatus": "closed",
+      "status": "open",
+      "reason": "verification=self 无独立检查：回到首个工作阶段 implement，用实施记录重建完成资格",
+      "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67"
+    }
+  },
+  "cloneAfter": {
+    "protocolVersion": 1,
+    "requestId": "status-1794631655656",
+    "outcome": "completed",
+    "data": {
+      "taskId": "k-0640b95c7083",
+      "title": "合入 index 守卫",
+      "status": "open",
+      "stage": "implement",
+      "stageName": "实现",
+      "outcome": null,
+      "branch": "refs/heads/main",
+      "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+      "archived": false,
+      "createdAt": "2026-11-14T04:47:32.880Z",
+      "binding": {
+        "taskId": "k-0640b95c7083",
+        "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/clone 副本",
+        "relativePath": "tasks/11-14-index-guard/task.md",
+        "branch": "refs/heads/main",
+        "lastRunIds": [],
+        "lastCheckRunId": null,
+        "repairCycleId": null,
+        "repairRounds": null,
+        "stopReason": null,
+        "stageVisits": {},
+        "lastImplement": null,
+        "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+        "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+        "pendingDraft": null
+      },
+      "pendingDraft": null,
+      "scopeCount": 0,
+      "verification": "self",
+      "parent": null,
+      "children": [],
+      "priority": "P2",
+      "dependsOn": [],
+      "blocked": [],
+      "clarify": {
+        "blocking": 0,
+        "assumed": 0
+      },
+      "lastCheckRunId": null,
+      "verificationLabel": "self",
+      "lastCheckChangedPaths": [],
+      "completion": null,
+      "runs": [],
+      "latestRun": null,
+      "activeRuns": 0,
+      "nextAction": {
+        "kind": "stage",
+        "summary": "当前阶段 implement：派发本阶段 run",
+        "commands": [
+          "knit run prepare --task k-0640b95c7083 --stage implement",
+          "knit run start <run-id>"
+        ],
+        "runId": null
+      }
+    }
+  },
+  "closeRejected": {
+    "protocolVersion": 1,
+    "requestId": "task-close-1794631655804-3ywclt",
+    "outcome": "error",
+    "data": {
+      "error": "任务不能完成: phase_mismatch"
+    },
+    "reasonCode": "invalid_request"
+  },
+  "checks": {
+    "stagedTargetRejectedWithoutEffects": false,
+    "sourceHasCompletion": true,
+    "cloneHasNoCompletion": true,
+    "cloneCloseRejected": true,
+    "cloneBytes": "guard\n"
+  },
+  "results": [
+    {
+      "label": "init",
+      "args": [
+        "init"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "init-1794631652276-mfoa66",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "manifestState": "ready",
+          "created": [
+            ".knit/.gitignore",
+            ".knit/.runtime/installation.json",
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/check.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md",
+            "AGENTS.md",
+            ".pi/extensions/knit.ts"
+          ],
+          "kept": [],
+          "updated": [],
+          "conflicts": [],
+          "failed": [],
+          "ready": true,
+          "bridgeReady": true,
+          "overwritten": [],
+          "overwriteCount": 0,
+          "backupRoot": null,
+          "backups": [],
+          "alreadyCurrent": [],
+          "orphans": [],
+          "gitWarning": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:32.577Z"
+    },
+    {
+      "label": "new",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "合入 index 守卫",
+        "--slug",
+        "index-guard",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794631652684-dkykpv",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "relativePath": "tasks/11-14-index-guard/task.md",
+          "title": "合入 index 守卫",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:32.897Z"
+    },
+    {
+      "label": "update",
+      "args": [
+        "task",
+        "update",
+        "k-0640b95c7083",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/index-guard-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794631652962-4m2f4u",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:33.134Z"
+    },
+    {
+      "label": "ready",
+      "args": [
+        "task",
+        "ready",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794631653197-b7araq",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "stage": "implement",
+          "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:33.419Z"
+    },
+    {
+      "label": "prepare-worktree",
+      "args": [
+        "worktree",
+        "prepare",
+        "--task",
+        "k-0640b95c7083"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-prepare-1794631653516-trjmu5",
+        "outcome": "error",
+        "data": {
+          "error": "任务未登记 worktree，先执行 knit worktree create 或 connect: k-0640b95c7083"
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:33.610Z"
+    },
+    {
+      "label": "worktree-status",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631653676-n0eai6",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "state": "main",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "branch": "refs/heads/main",
+          "layout": "main",
+          "prepared": false,
+          "active": false,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:33.740Z"
+    },
+    {
+      "label": "main-session-implement",
+      "args": [
+        "task",
+        "implement",
+        "k-0640b95c7083",
+        "--by",
+        "main-session",
+        "--path",
+        "guard.txt",
+        "--validation",
+        "逐字节实测 guard.txt 为 guard 加换行",
+        "--summary",
+        "仅用于合入 index 负例，无真实模型调用"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-implement-1794631653804-xve9co",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "executor": "main-session",
+          "paths": [
+            "guard.txt"
+          ],
+          "validations": 1,
+          "inputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+          "scopeDigest": "aac9b591e2c3379c483124d2d029f5d13324beb401720fec359eacebeab95100",
+          "stage": "implement",
+          "enteredCheck": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:34.086Z"
+    },
+    {
+      "label": "close",
+      "args": [
+        "task",
+        "close",
+        "k-0640b95c7083",
+        "--outcome",
+        "completed",
+        "--reason",
+        "本隔离夹具主会话真实实施并核对"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794631654150-ok4vo3",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "status": "closed",
+          "outcome": "completed",
+          "stage": "deliver",
+          "pendingWithdrawn": false,
+          "verification": "self",
+          "implementRunId": null,
+          "checkRunId": null,
+          "forced": false,
+          "unverified": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:34.329Z"
+    },
+    {
+      "label": "staged-target-preview",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-0640b95c7083",
+        "--into",
+        "refs/heads/main"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794631654460-9p16p7",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "taskId": "k-0640b95c7083",
+          "apply": false,
+          "status": "noop",
+          "reason": "任务没有 worktree",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "authorization": null,
+          "taskStatus": null,
+          "taskOutcome": null,
+          "source": null,
+          "target": null,
+          "beforeHead": null,
+          "afterHead": null,
+          "mergeCommit": null,
+          "mergeKind": null,
+          "mergeRequired": false,
+          "material": null,
+          "document": null,
+          "binding": null,
+          "dirty": null,
+          "resumed": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:34.564Z"
+    },
+    {
+      "label": "staged-target-apply",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-0640b95c7083",
+        "--into",
+        "refs/heads/main",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794631654631-72xhom",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "taskId": "k-0640b95c7083",
+          "apply": true,
+          "status": "noop",
+          "reason": "任务没有 worktree",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": "user:387707d9",
+          "authorization": {
+            "kind": "user_reference",
+            "ref": "user:387707d9",
+            "path": null,
+            "section": null,
+            "digest": null,
+            "verified": false
+          },
+          "taskStatus": null,
+          "taskOutcome": null,
+          "source": null,
+          "target": null,
+          "beforeHead": null,
+          "afterHead": null,
+          "mergeCommit": null,
+          "mergeKind": null,
+          "mergeRequired": false,
+          "material": null,
+          "document": null,
+          "binding": null,
+          "dirty": null,
+          "resumed": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:34.764Z"
+    },
+    {
+      "label": "clean-target-merge",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-0640b95c7083",
+        "--into",
+        "refs/heads/main",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794631654861-lt61s2",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+          "taskId": "k-0640b95c7083",
+          "apply": true,
+          "status": "noop",
+          "reason": "任务没有 worktree",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": "user:387707d9",
+          "authorization": {
+            "kind": "user_reference",
+            "ref": "user:387707d9",
+            "path": null,
+            "section": null,
+            "digest": null,
+            "verified": false
+          },
+          "taskStatus": null,
+          "taskOutcome": null,
+          "source": null,
+          "target": null,
+          "beforeHead": null,
+          "afterHead": null,
+          "mergeCommit": null,
+          "mergeKind": null,
+          "mergeRequired": false,
+          "material": null,
+          "document": null,
+          "binding": null,
+          "dirty": null,
+          "resumed": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:34.992Z"
+    },
+    {
+      "label": "source-status",
+      "args": [
+        "status",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631655064",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "title": "合入 index 守卫",
+          "status": "closed",
+          "stage": "deliver",
+          "stageName": "收尾",
+          "outcome": "completed",
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T04:47:32.880Z",
+          "binding": {
+            "taskId": "k-0640b95c7083",
+            "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/目标 index 与 clone",
+            "relativePath": "tasks/11-14-index-guard/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            },
+            "scope": [
+              {
+                "path": "guard.txt",
+                "digest": "c036167f99ac50adc006c060e1bcb4d1430702d870106d7035e3d2e0ce7bd4ba",
+                "absent": false,
+                "factsKind": "file",
+                "mode": "100644",
+                "source": "main-session-implementation"
+              }
+            ],
+            "scopeRunIds": []
+          },
+          "pendingDraft": null,
+          "scopeCount": 1,
+          "verification": "self",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "self",
+          "lastCheckChangedPaths": [],
+          "completion": {
+            "schemaVersion": 1,
+            "taskId": "k-0640b95c7083",
+            "verification": "self",
+            "inputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+            "scopeDigest": "aac9b591e2c3379c483124d2d029f5d13324beb401720fec359eacebeab95100",
+            "implementedBy": "record",
+            "implementRunId": null,
+            "checkRunId": null,
+            "unverified": [],
+            "forced": false,
+            "forcedReason": null,
+            "reason": "本隔离夹具主会话真实实施并核对",
+            "completedAt": "2026-11-14T04:47:34.307Z"
+          },
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:35.150Z"
+    },
+    {
+      "label": "clone-before-rebind",
+      "args": [
+        "status",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631655292",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "title": "合入 index 守卫",
+          "status": "closed",
+          "stage": "deliver",
+          "stageName": "收尾",
+          "outcome": "completed",
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T04:47:32.880Z",
+          "binding": null,
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "self",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "self",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "binding_missing",
+            "summary": "任务在本机没有可用绑定（确认摘要、scope 与凭据是本机事实）；常见于 clone／换机后，先按 task.md 重建绑定与证据落点",
+            "commands": [
+              "knit task rebind k-0640b95c7083"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:35.375Z"
+    },
+    {
+      "label": "clone-rebind",
+      "args": [
+        "task",
+        "rebind",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-rebind-1794631655437-o71p8i",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "rebound": true,
+          "branch": "refs/heads/main",
+          "originalStage": "deliver",
+          "stage": "implement",
+          "originalStatus": "closed",
+          "status": "open",
+          "reason": "verification=self 无独立检查：回到首个工作阶段 implement，用实施记录重建完成资格",
+          "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:35.588Z"
+    },
+    {
+      "label": "clone-after-rebind",
+      "args": [
+        "status",
+        "k-0640b95c7083"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631655656",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-0640b95c7083",
+          "title": "合入 index 守卫",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-index-guard/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T04:47:32.880Z",
+          "binding": {
+            "taskId": "k-0640b95c7083",
+            "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/clone 副本",
+            "relativePath": "tasks/11-14-index-guard/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "stageVisits": {},
+            "lastImplement": null,
+            "confirmedInputsDigest": "47d2e01fce1a3fbdda8578b36a97c19b5bdde94a97231bd84e529f2ef625ec67",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "self",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "self",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-0640b95c7083 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:35.741Z"
+    },
+    {
+      "label": "clone-close-without-local-evidence",
+      "args": [
+        "task",
+        "close",
+        "k-0640b95c7083",
+        "--outcome",
+        "completed",
+        "--reason",
+        "验收负例：clone 不得沿用源机完成凭据"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794631655804-3ywclt",
+        "outcome": "error",
+        "data": {
+          "error": "任务不能完成: phase_mismatch"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:47:35.961Z"
+    }
+  ]
+}

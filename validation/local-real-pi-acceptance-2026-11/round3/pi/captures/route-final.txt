@@ -1,0 +1,31 @@
+ 【Agent代输的验收输入，不是真人授权】reload后的同一选择只读核对：仅调用 knit_context taskId=k-e0352f74131b       [jump]
+   是一回事，摘要按 worktree 路径计算已印证这一点。                                                                     
+
+                                                                                                                        
+ 【Agent代输的验收输入，不是真人授权】最后只调用 knit_task action=clear，然后停止。不要建任务、不要实施、不要提交。     
+                                                                                                                        
+
+ ✓ Tool · knit_task · 201ms · Expand
+   {"action":"clear"}
+   {"protocolVersion":1,"requestId":"task-clear-1794645721365-skvfed","outcome":"completed","dat
+   a":{"knitSessionId":"s-04fbb36e0cc5","selection":{"taskId":null,"branch":"refs/heads/main","e
+   ntryRef":"b75670c6","operationId":"sel-mwg5q4z6","recordedAt":"2026-11-14T08:42:01.449Z","per
+   sisted":true,"pendingReason":null},"effectiveTaskId":null}}
+
+ 已调用 knit_task action=clear，真实结果：                                                                              
+                                                                                                                        
+ - outcome: completed                                                                                                   
+ - selection.taskId: null，effectiveTaskId: null（选择已清除）                                                          
+ - selection.branch: refs/heads/main（主检出记录保留），entryRef: b75670c6                                              
+ - persisted: true，pendingReason: null                                                                                 
+ - 会话：s-04fbb36e0cc5，operationId: sel-mwg5q4z6                                                                      
+                                                                                                                        
+ 停止于此：未建任务、未实施、未提交、未派 run，也未修改任何文件。                                                       
+
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ 目标 index 与 clone | main                                                      1%/1.0M | $0.01 | max · group/deepseek 
+
+

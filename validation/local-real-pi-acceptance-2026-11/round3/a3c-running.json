@@ -1,0 +1,643 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+  "gate": "k-1edb26f92db5",
+  "results": [
+    {
+      "label": "status-before",
+      "args": [
+        "status",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794640834117",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "title": "隔离准备门",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-gate-renamed/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T07:16:06.999Z",
+          "binding": {
+            "taskId": "k-1edb26f92db5",
+            "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-gate-renamed/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": {
+              "kind": "clarify",
+              "reason": "",
+              "content": "# 隔离准备门\n\n## 目标\n只测试准备门，不启动模型。本轮草案第一版。\n\n## 完成条件\n### Requirement: 门\n#### Scenario: 合法门\n- GIVEN 本次真实持续授权\n- WHEN 准备\n- THEN 可继续\n- AND 新增一条约束\n\n## 记录\n",
+              "baselineDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+              "digest": "7aff6e4f74ad84dde722bc2449163cc9c3f86264a73414ce9c8ec8dd7c0760e1",
+              "createdAt": "2026-11-14T07:18:46.687Z"
+            },
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": {
+            "kind": "clarify",
+            "reason": "",
+            "content": "# 隔离准备门\n\n## 目标\n只测试准备门，不启动模型。本轮草案第一版。\n\n## 完成条件\n### Requirement: 门\n#### Scenario: 合法门\n- GIVEN 本次真实持续授权\n- WHEN 准备\n- THEN 可继续\n- AND 新增一条约束\n\n## 记录\n",
+            "baselineDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+            "digest": "7aff6e4f74ad84dde722bc2449163cc9c3f86264a73414ce9c8ec8dd7c0760e1",
+            "createdAt": "2026-11-14T07:18:46.687Z"
+          },
+          "scopeCount": 0,
+          "verification": "independent",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "independent",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "pending_draft",
+            "summary": "有待应用的 clarify 草案；应用或撤回后再推进",
+            "commands": [
+              "knit task update k-1edb26f92db5 --apply-pending --expect-pending 7aff6e4f74ad84dde722bc2449163cc9c3f86264a73414ce9c8ec8dd7c0760e1",
+              "knit task update k-1edb26f92db5 --withdraw-pending --expect-pending 7aff6e4f74ad84dde722bc2449163cc9c3f86264a73414ce9c8ec8dd7c0760e1 --reason <原因>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:34.290Z"
+    },
+    {
+      "label": "withdraw-existing-helper-draft",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--withdraw-pending",
+        "--expect-pending",
+        "7aff6e4f74ad84dde722bc2449163cc9c3f86264a73414ce9c8ec8dd7c0760e1",
+        "--reason",
+        "重新执行夹具草案验证，公开撤回前次辅助脚本留下的草案"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640834362-ywtzwv",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_withdrawn",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:34.499Z"
+    },
+    {
+      "label": "pending-save-first",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-new-draft.md",
+        "--pending"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640834568-dfjlwj",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_saved",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": "1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:34.696Z"
+    },
+    {
+      "label": "status-pending-first",
+      "args": [
+        "status",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794640834767",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "title": "隔离准备门",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-gate-renamed/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T07:16:06.999Z",
+          "binding": {
+            "taskId": "k-1edb26f92db5",
+            "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-gate-renamed/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": {
+              "kind": "clarify",
+              "reason": "",
+              "content": "# 隔离准备门\n\n## 目标\n只测试准备门，不启动模型。本轮草案第一版。\n\n## 完成条件\n### Requirement: 门\n#### Scenario: 合法门\n- GIVEN 本次真实持续授权\n- WHEN 准备\n- THEN 可继续\n- AND 新增一条约束\n\n## 记录\n",
+              "baselineDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+              "digest": "1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a",
+              "createdAt": "2026-11-14T07:20:34.692Z"
+            },
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": {
+            "kind": "clarify",
+            "reason": "",
+            "content": "# 隔离准备门\n\n## 目标\n只测试准备门，不启动模型。本轮草案第一版。\n\n## 完成条件\n### Requirement: 门\n#### Scenario: 合法门\n- GIVEN 本次真实持续授权\n- WHEN 准备\n- THEN 可继续\n- AND 新增一条约束\n\n## 记录\n",
+            "baselineDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+            "digest": "1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a",
+            "createdAt": "2026-11-14T07:20:34.692Z"
+          },
+          "scopeCount": 0,
+          "verification": "independent",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "independent",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "pending_draft",
+            "summary": "有待应用的 clarify 草案；应用或撤回后再推进",
+            "commands": [
+              "knit task update k-1edb26f92db5 --apply-pending --expect-pending 1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a",
+              "knit task update k-1edb26f92db5 --withdraw-pending --expect-pending 1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a --reason <原因>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:34.916Z"
+    },
+    {
+      "label": "pending-replace-without-expect",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-new-draft.md",
+        "--pending"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640834981-4sy4en",
+        "outcome": "error",
+        "data": {
+          "error": "已有待应用草案；先 apply 或 withdraw"
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:35.108Z"
+    },
+    {
+      "label": "pending-withdraw-first",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--withdraw-pending",
+        "--expect-pending",
+        "1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a",
+        "--reason",
+        "登记第二版前先撤回第一版草案"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640835176-bdkej1",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_withdrawn",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:35.306Z"
+    },
+    {
+      "label": "pending-save-second",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-new-draft.md",
+        "--pending"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640835373-mk1ko8",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_saved",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": "de63e8ef13a33a57c055caffe20fc03bc8002b724f30b08385ea42087aad47b9"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:35.501Z"
+    },
+    {
+      "label": "pending-apply-old-draft",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--apply-pending",
+        "--expect-pending",
+        "1d9ed9d219595c82eb2a99e422a4029134b88319ece37317d5b3fb8fb46e876a"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640835572-e04qf8",
+        "outcome": "error",
+        "data": {
+          "error": "草案版本摘要不匹配（stale_input）；不作用于后来草案"
+        },
+        "reasonCode": "incompatible_version"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:35.708Z"
+    },
+    {
+      "label": "pending-withdraw-wrong",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--withdraw-pending",
+        "--expect-pending",
+        "bad"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640835778-8xbz8z",
+        "outcome": "error",
+        "data": {
+          "error": "草案版本摘要不匹配；不作用于后来草案"
+        },
+        "reasonCode": "incompatible_version"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:35.901Z"
+    },
+    {
+      "label": "pending-withdraw-current",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--withdraw-pending",
+        "--expect-pending",
+        "de63e8ef13a33a57c055caffe20fc03bc8002b724f30b08385ea42087aad47b9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640835965-70l0of",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_withdrawn",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:36.085Z"
+    },
+    {
+      "label": "status-after-withdraw",
+      "args": [
+        "status",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794640836153",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "title": "隔离准备门",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-gate-renamed/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T07:16:06.999Z",
+          "binding": {
+            "taskId": "k-1edb26f92db5",
+            "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-gate-renamed/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "independent",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "independent",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-1edb26f92db5 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:36.289Z"
+    },
+    {
+      "label": "pending-save-again",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-new-draft.md",
+        "--pending"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640836351-2bexvd",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_saved",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6e4694a0c563e89d9b94722e30926eced89ff84d443c70f7319e3bf4389328c2",
+          "digestChanged": false,
+          "pendingDraftDigest": "7e34150eb698a2182bc5c1a500b3f3c0acf0687cf32f48abd2b63991d6fd14e2"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:36.472Z"
+    },
+    {
+      "label": "pending-apply-current",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--apply-pending",
+        "--expect-pending",
+        "7e34150eb698a2182bc5c1a500b3f3c0acf0687cf32f48abd2b63991d6fd14e2"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640836536-n25gk6",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "pending_applied",
+          "stage": "implement",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "490fa9cb9ab044c9ca3e9495d16d6d31a9878093614c94f069f7c7ba5801846a",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:36.760Z"
+    },
+    {
+      "label": "status-after-apply",
+      "args": [
+        "status",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794640836827",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "title": "隔离准备门",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-gate-renamed/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T07:16:06.999Z",
+          "binding": {
+            "taskId": "k-1edb26f92db5",
+            "repoRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-gate-renamed/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "490fa9cb9ab044c9ca3e9495d16d6d31a9878093614c94f069f7c7ba5801846a",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "independent",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "independent",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-1edb26f92db5 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:36.964Z"
+    },
+    {
+      "label": "standards-apply-repeat",
+      "args": [
+        "standards",
+        "apply",
+        "--candidate",
+        "c-8e8c62ddedc6",
+        "--target",
+        ".knit/standards/fixtures.md",
+        "--task",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "standards-apply",
+        "outcome": "completed",
+        "data": {
+          "sourceTaskId": "k-1edb26f92db5",
+          "candidateId": "c-8e8c62ddedc6",
+          "target": ".knit/standards/fixtures.md",
+          "applied": false,
+          "alreadyApplied": true,
+          "indexUpdated": false,
+          "standardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+          "affectedTasks": [
+            "k-1cb61b760737",
+            "k-1edb26f92db5",
+            "k-545179fd4178",
+            "k-63bf59028ace",
+            "k-c357c8ec4de6"
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:20:37.124Z"
+    }
+  ]
+}

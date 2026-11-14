@@ -1,0 +1,121 @@
+{
+  "project": "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格",
+  "results": [
+    {
+      "force": false,
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "init-1794512042372-ttiuup",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格",
+          "manifestState": "ready",
+          "created": [],
+          "kept": [
+            ".knit/.gitignore",
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/check.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md",
+            "AGENTS.md",
+            ".pi/extensions/knit.ts"
+          ],
+          "updated": [
+            ".knit/.runtime/installation.json"
+          ],
+          "conflicts": [],
+          "failed": [],
+          "ready": true,
+          "bridgeReady": true,
+          "overwritten": [],
+          "overwriteCount": 0,
+          "backupRoot": null,
+          "backups": [],
+          "alreadyCurrent": [],
+          "orphans": [],
+          "gitWarning": null
+        }
+      },
+      "unchangedEdited": true
+    },
+    {
+      "force": true,
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "init-1794512042656-l4uzp2",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格",
+          "manifestState": "ready",
+          "created": [],
+          "kept": [
+            ".knit/.gitignore",
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md",
+            "AGENTS.md",
+            ".pi/extensions/knit.ts"
+          ],
+          "updated": [
+            ".knit/.runtime/installation.json",
+            ".knit/agents/check.md"
+          ],
+          "conflicts": [],
+          "failed": [],
+          "ready": true,
+          "bridgeReady": true,
+          "overwritten": [
+            ".knit/agents/check.md"
+          ],
+          "overwriteCount": 1,
+          "backupRoot": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格/.knit/.runtime/init-backup/2026-11-12T19-34-02-740Z",
+          "backups": [
+            {
+              "path": ".knit/agents/check.md",
+              "backupPath": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格/.knit/.runtime/init-backup/2026-11-12T19-34-02-740Z/.knit/agents/check.md"
+            }
+          ],
+          "alreadyCurrent": [
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md"
+          ],
+          "orphans": [],
+          "gitWarning": null
+        }
+      },
+      "unchangedEdited": false
+    }
+  ],
+  "backupChecks": [
+    {
+      "entry": {
+        "path": ".knit/agents/check.md",
+        "backupPath": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格/.knit/.runtime/init-backup/2026-11-12T19-34-02-740Z/.knit/agents/check.md"
+      },
+      "matchesEdited": false
+    }
+  ],
+  "seedCommit": "7932c4800c2e770f279dcb9ab0529ed789028f3a",
+  "committedPaths": [
+    ".knit/.gitignore",
+    ".knit/agents/check.md",
+    ".knit/agents/implement.md",
+    ".knit/agents/runtimes/pi.md",
+    ".knit/config.json",
+    ".knit/standards/index.md",
+    ".knit/workflow.yaml",
+    ".pi/extensions/knit.ts",
+    "AGENTS.md"
+  ],
+  "onlyLocalIdentity": true,
+  "productionRepoUntouched": true
+}

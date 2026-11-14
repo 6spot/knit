@@ -1,0 +1,589 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+  "gateTask": "k-1edb26f92db5",
+  "realTask": "k-c357c8ec4de6",
+  "results": [
+    {
+      "label": "new-gate",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "隔离准备门",
+        "--slug",
+        "gate",
+        "--verification",
+        "independent"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794640566625-y492b8",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-gate/task.md",
+          "title": "隔离准备门",
+          "branch": "refs/heads/main",
+          "verification": "independent",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:07.069Z"
+    },
+    {
+      "label": "update-blocking",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-inputs.md",
+        "--reason",
+        "持续授权内的准备门负例"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640567153-w1n2cl",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "c02c997296e7c569879f95f2d6a175cb3218375d201549154bd9889debf2d4d4",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:07.514Z"
+    },
+    {
+      "label": "ready-blocking",
+      "args": [
+        "task",
+        "ready",
+        "k-1edb26f92db5"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794640567593-e97gej",
+        "outcome": "error",
+        "data": {
+          "error": "「待澄清」仍有 1 项 [blocking] 未决，需用户取舍：「这是可控的未决夹具输入。」。先与用户确认并折入目标与完成条件，或删除已解决项"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:07.876Z"
+    },
+    {
+      "label": "update-malformed",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640567953-8gnmvl",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "41e231813d5d2342450338f8d9deb0decb32c722e10ffb4da9958f649854f814",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:08.297Z"
+    },
+    {
+      "label": "ready-malformed",
+      "args": [
+        "task",
+        "ready",
+        "k-1edb26f92db5"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794640568373-wipa2e",
+        "outcome": "error",
+        "data": {
+          "error": "「完成条件」的行为场景有 1 处结构问题：Scenario「坏门」（Requirement「门」）缺少 THEN。按下面的格式改正后再 task ready：\n### Requirement: 名称\n一句话说明必须具备的行为。\n\n#### Scenario: 名称\n- GIVEN 前置条件（可选）\n- WHEN 触发动作\n- THEN 期望结果\n- AND 补充结果（可选）"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:08.756Z"
+    },
+    {
+      "label": "update-valid",
+      "args": [
+        "task",
+        "update",
+        "k-1edb26f92db5",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640568836-3vwvqj",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "38172e30201bfe4b60c31d1a42466215d93108a7d82d381e869eb82145b220a9",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:09.201Z"
+    },
+    {
+      "label": "ready-valid",
+      "args": [
+        "task",
+        "ready",
+        "k-1edb26f92db5"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794640569285-owqqza",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "stage": "implement",
+          "confirmedInputsDigest": "38172e30201bfe4b60c31d1a42466215d93108a7d82d381e869eb82145b220a9",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 1
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:09.678Z"
+    },
+    {
+      "label": "record",
+      "args": [
+        "task",
+        "record",
+        "k-1edb26f92db5",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/gate-record.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-record-1794640569758-hk4w1x",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "saved": true
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:09.946Z"
+    },
+    {
+      "label": "rename",
+      "args": [
+        "task",
+        "rename",
+        "k-1edb26f92db5",
+        "gate-renamed"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-rename-1794640570019-rbzh5p",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1edb26f92db5",
+          "from": "11-14-gate",
+          "to": "11-14-gate-renamed",
+          "equivalent": true
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:10.215Z"
+    },
+    {
+      "label": "list",
+      "args": [
+        "task",
+        "list"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-list-1794640570289-utxja9",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "scope": "active",
+          "active": [
+            {
+              "taskId": "k-1edb26f92db5",
+              "title": "隔离准备门",
+              "status": "open",
+              "stage": "implement",
+              "outcome": null,
+              "branch": "refs/heads/main",
+              "verification": "independent",
+              "relativePath": "tasks/11-14-gate-renamed",
+              "archived": false,
+              "history": null,
+              "createdAt": "2026-11-14T07:16:06.999Z",
+              "parent": null,
+              "children": [],
+              "openChildren": [],
+              "priority": "P2",
+              "dependsOn": [],
+              "order": null,
+              "blocked": []
+            }
+          ],
+          "archivedCount": 0,
+          "bindingMissing": [],
+          "problems": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:10.390Z"
+    },
+    {
+      "label": "workflow-validate",
+      "args": [
+        "workflow",
+        "validate"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "workflow-validate",
+        "outcome": "completed",
+        "data": {
+          "path": ".knit/workflow.yaml",
+          "exists": true,
+          "ok": true,
+          "mode": "config",
+          "workflow": {
+            "version": 1,
+            "anchors": [
+              "start",
+              "deliver"
+            ],
+            "stages": [
+              {
+                "id": "implement",
+                "name": "实现",
+                "description": "按 task.md 完成产出并运行范围验证",
+                "prompt": ".knit/agents/implement.md",
+                "tools": [
+                  "read",
+                  "write",
+                  "exec"
+                ],
+                "report": {
+                  "changedPaths": "paths",
+                  "unverified": "string[]"
+                },
+                "onVerdict": {},
+                "maxVisits": 2
+              },
+              {
+                "id": "check",
+                "name": "检查",
+                "description": "独立核对完成条件与实现成果",
+                "prompt": ".knit/agents/check.md",
+                "tools": [
+                  "read",
+                  "exec"
+                ],
+                "report": {
+                  "verdict": [
+                    "pass",
+                    "changes_requested",
+                    "blocked"
+                  ],
+                  "coverage": "string[]",
+                  "changedPaths": "paths",
+                  "selfVerified": "bool",
+                  "findings": "string[]",
+                  "unverified": "string[]",
+                  "scenarios": "string[]"
+                },
+                "onVerdict": {
+                  "changes_requested": "implement",
+                  "blocked": "check"
+                },
+                "maxVisits": 2
+              }
+            ],
+            "defaultMaxVisits": 2
+          },
+          "validation": {
+            "ok": true,
+            "issues": [],
+            "reason": null
+          },
+          "summary": {
+            "chain": "准备 → 实现 → 检查 → 收尾",
+            "stages": [
+              {
+                "id": "implement",
+                "name": "实现",
+                "next": "检查"
+              },
+              {
+                "id": "check",
+                "name": "检查",
+                "next": "收尾"
+              }
+            ],
+            "fallbackReason": null
+          },
+          "issues": [],
+          "reason": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:10.516Z"
+    },
+    {
+      "label": "context",
+      "args": [
+        "context",
+        "--task",
+        "k-1edb26f92db5",
+        "--stage",
+        "implement"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "context-1794640570596-5r654x",
+        "outcome": "completed",
+        "data": {
+          "planId": "ctx-d78c54b2733f",
+          "taskId": "k-1edb26f92db5",
+          "role": "implement",
+          "stageBrief": "流程：准备 → 实现 → 检查 → 收尾 ｜ 当前：实现\n本步目标：按 task.md 完成产出并运行范围验证\n完成条件：完成后 → 检查",
+          "inputsDigest": "38172e30201bfe4b60c31d1a42466215d93108a7d82d381e869eb82145b220a9",
+          "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "effectiveInputsDigest": "82373656b81899474cb18532a950225b3c682ca696445b133b631e34f6139573",
+          "taskDocumentDigest": "c84dec5bbd9b2b6bcb1df481329c0cb4a6597f17debe086671b3a865cefb4cbb",
+          "sections": [
+            {
+              "sourceId": "task-inputs:k-1edb26f92db5",
+              "kind": "task-inputs",
+              "path": ".knit/tasks/11-14-gate-renamed/task.md",
+              "digest": "d1fc42af169db27f47f4fa573232f83e706f4be1d8fef1d130dc7c1d740d818c",
+              "bytes": 442,
+              "required": true,
+              "background": false,
+              "countsTowardInputs": true,
+              "priority": 10,
+              "mode": "system"
+            },
+            {
+              "sourceId": "role:implement",
+              "kind": "role",
+              "path": ".knit/agents/implement.md",
+              "digest": "af88a501c9c96174be8f636ccd1f6d5ff793ec31de6e34ee368b4615bed44bad",
+              "bytes": 4289,
+              "required": true,
+              "background": false,
+              "countsTowardInputs": true,
+              "priority": 30,
+              "mode": "system"
+            },
+            {
+              "sourceId": "runtime:pi",
+              "kind": "runtime",
+              "path": ".knit/agents/runtimes/pi.md",
+              "digest": "4f987d7a4c1dc4821f9522f380bdd927b30411b1f297db45dae49852a800174b",
+              "bytes": 3046,
+              "required": false,
+              "background": false,
+              "countsTowardInputs": true,
+              "priority": 40,
+              "mode": "resource"
+            },
+            {
+              "sourceId": "standard:index.md",
+              "kind": "standard",
+              "path": ".knit/standards/index.md",
+              "digest": "5370f4ac1f2a21a564e66c16bc68e92950ae1a1b8b4cbb42831827d0f3232802",
+              "bytes": 461,
+              "required": true,
+              "background": false,
+              "countsTowardInputs": true,
+              "priority": 50,
+              "mode": "resource"
+            },
+            {
+              "sourceId": "progress:k-1edb26f92db5",
+              "kind": "progress",
+              "path": ".knit/tasks/11-14-gate-renamed/task.md",
+              "digest": "1a4653e2d8534c52189760c0c865ce5eda369e77f18e98b767089246c41b1ad9",
+              "bytes": 157,
+              "required": false,
+              "background": true,
+              "countsTowardInputs": false,
+              "priority": 90,
+              "mode": "resource"
+            }
+          ],
+          "excluded": [],
+          "createdAt": "2026-11-14T07:16:10.654Z",
+          "ready": true,
+          "blockers": [],
+          "toolPolicy": {
+            "mode": "write",
+            "allow": [
+              "read",
+              "grep",
+              "find",
+              "ls",
+              "write",
+              "edit",
+              "bash"
+            ],
+            "deny": [],
+            "capabilities": [
+              "read",
+              "write",
+              "exec"
+            ]
+          },
+          "authorizedStandardOutputs": [],
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-1edb26f92db5 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:10.772Z"
+    },
+    {
+      "label": "new-real",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "真实极小闭环",
+        "--slug",
+        "real-mini",
+        "--verification",
+        "independent"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794640570845-kks3s8",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c357c8ec4de6",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-real-mini/task.md",
+          "title": "真实极小闭环",
+          "branch": "refs/heads/main",
+          "verification": "independent",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:11.194Z"
+    },
+    {
+      "label": "update-real",
+      "args": [
+        "task",
+        "update",
+        "k-c357c8ec4de6",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/real-mini-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794640571271-838r2k",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c357c8ec4de6",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "997baf5eef5b9c85668c581f1186ec27fa024f7f9d76f4106b2309adc4af64a7",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:11.690Z"
+    },
+    {
+      "label": "ready-real",
+      "args": [
+        "task",
+        "ready",
+        "k-c357c8ec4de6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794640571766-74sdtu",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c357c8ec4de6",
+          "stage": "implement",
+          "confirmedInputsDigest": "997baf5eef5b9c85668c581f1186ec27fa024f7f9d76f4106b2309adc4af64a7",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 1
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:16:12.154Z"
+    }
+  ]
+}

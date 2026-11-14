@@ -1,0 +1,835 @@
+{
+  "project": "/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+  "reports": [
+    {
+      "task": {
+        "id": "k-6a8a7f50de25",
+        "name": "one"
+      },
+      "preserved": [
+        {
+          "path": ".knit/tasks/11-14-wt-one/plan.md",
+          "backup": "/tmp/knit-self-acceptance2.JyPWM8/preserved-worktree/one/.knit/tasks/11-14-wt-one/plan.md",
+          "sha256": "768ba47b8433cdba61ac74bae17734466917aefdb79bd645c6acd3b0b1afdb02",
+          "bytes": 114
+        },
+        {
+          "path": ".knit/tasks/11-14-wt-one/task.md",
+          "backup": "/tmp/knit-self-acceptance2.JyPWM8/preserved-worktree/one/.knit/tasks/11-14-wt-one/task.md",
+          "sha256": "8fd5471e1bedde2ad378bad611ce69ff1f022a8490c5c0b01aecfc77788a2c1e",
+          "bytes": 774
+        }
+      ],
+      "clear": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631590297-na8ayr",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-6a8a7f50de25",
+          "apply": false,
+          "status": "removable",
+          "reason": null,
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "relativePath": ".knit/worktrees/11-14-wt-one",
+            "baseline": "acb8646a692957611ef2f43d930a33a88fc49b7e"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-451672b3db13",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement",
+              "taskId": "k-6a8a7f50de25",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": false
+            }
+          ]
+        }
+      },
+      "cleanup": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631590524-181qrw",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-6a8a7f50de25",
+          "apply": true,
+          "status": "removed",
+          "reason": null,
+          "opId": "op-d509fdb14a04",
+          "receiptPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-d509fdb14a04/receipt.json",
+          "journalPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-d509fdb14a04/journal.jsonl",
+          "authorizationRef": "user:387707d9",
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "relativePath": ".knit/worktrees/11-14-wt-one",
+            "baseline": "acb8646a692957611ef2f43d930a33a88fc49b7e"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-451672b3db13",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement",
+              "taskId": "k-6a8a7f50de25",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": true
+            }
+          ]
+        }
+      },
+      "sessions": {
+        "protocolVersion": 1,
+        "requestId": "session-list-1794631590941-5aol16",
+        "outcome": "completed",
+        "data": [
+          {
+            "knitSessionId": "s-451672b3db13",
+            "protocolVersion": 1,
+            "ref": {
+              "client": "pi",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement"
+            },
+            "kind": "sub",
+            "status": "available",
+            "sessionFile": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+            "parentSessionId": null,
+            "source": {
+              "kind": "attach",
+              "fromSessionId": null,
+              "reason": null
+            },
+            "taskId": "k-6a8a7f50de25",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "runId": "run-a7e494c1c7c6",
+            "cwd": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+            "checkpoint": null,
+            "selection": null,
+            "reason": null,
+            "lastVerifiedAt": "2026-11-14T04:37:29.202Z",
+            "nativeReadable": true,
+            "relatedRunState": null,
+            "recordedAt": "2026-11-14T04:36:48.664Z"
+          }
+        ]
+      },
+      "checks": {
+        "directoryRemoved": true,
+        "archivedMaterialReadable": true,
+        "branchRetained": true,
+        "nativeFilesReadable": true
+      }
+    },
+    {
+      "task": {
+        "id": "k-7c0163f817e6",
+        "name": "two"
+      },
+      "preserved": [
+        {
+          "path": ".knit/tasks/11-14-wt-two/plan.md",
+          "backup": "/tmp/knit-self-acceptance2.JyPWM8/preserved-worktree/two/.knit/tasks/11-14-wt-two/plan.md",
+          "sha256": "001b467a8f09b46e3d37f68034192426a2588e1d22f42df7dd04fefef0515245",
+          "bytes": 114
+        },
+        {
+          "path": ".knit/tasks/11-14-wt-two/task.md",
+          "backup": "/tmp/knit-self-acceptance2.JyPWM8/preserved-worktree/two/.knit/tasks/11-14-wt-two/task.md",
+          "sha256": "f797888ea2a545a0da114687e20cd42903da1b34f9b70114ac0aabe6eefc7964",
+          "bytes": 774
+        }
+      ],
+      "clear": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631591512-5i60ub",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-7c0163f817e6",
+          "apply": false,
+          "status": "removable",
+          "reason": null,
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "relativePath": ".knit/worktrees/11-14-wt-two",
+            "baseline": "ec9c7e5acfa44bd71f1b465ba7b05263b4257189"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-36348b9825ad",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement",
+              "taskId": "k-7c0163f817e6",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": false
+            }
+          ]
+        }
+      },
+      "cleanup": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631591756-z34rco",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-7c0163f817e6",
+          "apply": true,
+          "status": "removed",
+          "reason": null,
+          "opId": "op-9aadeab6254c",
+          "receiptPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-9aadeab6254c/receipt.json",
+          "journalPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-9aadeab6254c/journal.jsonl",
+          "authorizationRef": "user:387707d9",
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "relativePath": ".knit/worktrees/11-14-wt-two",
+            "baseline": "ec9c7e5acfa44bd71f1b465ba7b05263b4257189"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-36348b9825ad",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement",
+              "taskId": "k-7c0163f817e6",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": true
+            }
+          ]
+        }
+      },
+      "sessions": {
+        "protocolVersion": 1,
+        "requestId": "session-list-1794631592179-gsfy63",
+        "outcome": "completed",
+        "data": [
+          {
+            "knitSessionId": "s-36348b9825ad",
+            "protocolVersion": 1,
+            "ref": {
+              "client": "pi",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement"
+            },
+            "kind": "sub",
+            "status": "available",
+            "sessionFile": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+            "parentSessionId": null,
+            "source": {
+              "kind": "attach",
+              "fromSessionId": null,
+              "reason": null
+            },
+            "taskId": "k-7c0163f817e6",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "runId": "run-a2e1ae56d032",
+            "cwd": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+            "checkpoint": null,
+            "selection": null,
+            "reason": null,
+            "lastVerifiedAt": "2026-11-14T04:40:32.009Z",
+            "nativeReadable": true,
+            "relatedRunState": null,
+            "recordedAt": "2026-11-14T04:38:52.990Z"
+          }
+        ]
+      },
+      "checks": {
+        "directoryRemoved": true,
+        "archivedMaterialReadable": true,
+        "branchRetained": true,
+        "nativeFilesReadable": true
+      }
+    }
+  ],
+  "results": [
+    {
+      "label": "status-one",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631589943-4jyn4e",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-6a8a7f50de25",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "state": "main",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "branch": "refs/heads/main",
+          "layout": "main",
+          "prepared": false,
+          "active": false,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:30.004Z"
+    },
+    {
+      "label": "preview-one",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631590071-0hh875",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-6a8a7f50de25",
+          "apply": false,
+          "status": "blocked_dirty",
+          "reason": "worktree 含 2 项未提交／未跟踪／忽略内容；确认丢弃需 --discard-changes",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "relativePath": ".knit/worktrees/11-14-wt-one",
+            "baseline": "acb8646a692957611ef2f43d930a33a88fc49b7e"
+          },
+          "dirty": {
+            "entries": 2,
+            "sample": [
+              ".knit/tasks/11-14-wt-one/plan.md",
+              ".knit/tasks/11-14-wt-one/task.md"
+            ]
+          },
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:30.229Z"
+    },
+    {
+      "label": "clean-preview-one",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631590297-na8ayr",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-6a8a7f50de25",
+          "apply": false,
+          "status": "removable",
+          "reason": null,
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "relativePath": ".knit/worktrees/11-14-wt-one",
+            "baseline": "acb8646a692957611ef2f43d930a33a88fc49b7e"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-451672b3db13",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement",
+              "taskId": "k-6a8a7f50de25",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": false
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:30.457Z"
+    },
+    {
+      "label": "cleanup-one",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-6a8a7f50de25",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631590524-181qrw",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-6a8a7f50de25",
+          "apply": true,
+          "status": "removed",
+          "reason": null,
+          "opId": "op-d509fdb14a04",
+          "receiptPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-d509fdb14a04/receipt.json",
+          "journalPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-d509fdb14a04/journal.jsonl",
+          "authorizationRef": "user:387707d9",
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "relativePath": ".knit/worktrees/11-14-wt-one",
+            "baseline": "acb8646a692957611ef2f43d930a33a88fc49b7e"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-451672b3db13",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement",
+              "taskId": "k-6a8a7f50de25",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-one",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": true
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:30.866Z"
+    },
+    {
+      "label": "sessions-one",
+      "args": [
+        "session",
+        "list",
+        "--task",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "session-list-1794631590941-5aol16",
+        "outcome": "completed",
+        "data": [
+          {
+            "knitSessionId": "s-451672b3db13",
+            "protocolVersion": 1,
+            "ref": {
+              "client": "pi",
+              "nativeSessionId": "50d92ad8-65a2-420b-86a0-7407a1a4c49a",
+              "role": "implement"
+            },
+            "kind": "sub",
+            "status": "available",
+            "sessionFile": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-36-49-472Z_50d92ad8-65a2-420b-86a0-7407a1a4c49a.jsonl",
+            "parentSessionId": null,
+            "source": {
+              "kind": "attach",
+              "fromSessionId": null,
+              "reason": null
+            },
+            "taskId": "k-6a8a7f50de25",
+            "branch": "refs/heads/knit/11-14-wt-one",
+            "runId": "run-a7e494c1c7c6",
+            "cwd": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+            "checkpoint": null,
+            "selection": null,
+            "reason": null,
+            "lastVerifiedAt": "2026-11-14T04:37:29.202Z",
+            "nativeReadable": true,
+            "relatedRunState": null,
+            "recordedAt": "2026-11-14T04:36:48.664Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:31.025Z"
+    },
+    {
+      "label": "status-two",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-7c0163f817e6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631591110-qjxmbm",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-7c0163f817e6",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "state": "main",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "branch": "refs/heads/main",
+          "layout": "main",
+          "prepared": false,
+          "active": false,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:31.183Z"
+    },
+    {
+      "label": "preview-two",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-7c0163f817e6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631591253-e30dyc",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-7c0163f817e6",
+          "apply": false,
+          "status": "blocked_dirty",
+          "reason": "worktree 含 2 项未提交／未跟踪／忽略内容；确认丢弃需 --discard-changes",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "relativePath": ".knit/worktrees/11-14-wt-two",
+            "baseline": "ec9c7e5acfa44bd71f1b465ba7b05263b4257189"
+          },
+          "dirty": {
+            "entries": 2,
+            "sample": [
+              ".knit/tasks/11-14-wt-two/plan.md",
+              ".knit/tasks/11-14-wt-two/task.md"
+            ]
+          },
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:31.440Z"
+    },
+    {
+      "label": "clean-preview-two",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-7c0163f817e6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631591512-5i60ub",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-7c0163f817e6",
+          "apply": false,
+          "status": "removable",
+          "reason": null,
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "relativePath": ".knit/worktrees/11-14-wt-two",
+            "baseline": "ec9c7e5acfa44bd71f1b465ba7b05263b4257189"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-36348b9825ad",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement",
+              "taskId": "k-7c0163f817e6",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": false
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:31.689Z"
+    },
+    {
+      "label": "cleanup-two",
+      "args": [
+        "worktree",
+        "cleanup",
+        "--task",
+        "k-7c0163f817e6",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-cleanup-1794631591756-z34rco",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+          "taskId": "k-7c0163f817e6",
+          "apply": true,
+          "status": "removed",
+          "reason": null,
+          "opId": "op-9aadeab6254c",
+          "receiptPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-9aadeab6254c/receipt.json",
+          "journalPath": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/worktree-cleanup/op-9aadeab6254c/journal.jsonl",
+          "authorizationRef": "user:387707d9",
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "relativePath": ".knit/worktrees/11-14-wt-two",
+            "baseline": "ec9c7e5acfa44bd71f1b465ba7b05263b4257189"
+          },
+          "dirty": null,
+          "branch": null,
+          "preserved": {
+            "taskMaterialDir": null,
+            "taskMaterialFiles": 0,
+            "taskMaterialBytes": 0,
+            "sessionFiles": 0
+          },
+          "sessions": [
+            {
+              "knitSessionId": "s-36348b9825ad",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement",
+              "taskId": "k-7c0163f817e6",
+              "cwdBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/worktrees/11-14-wt-two",
+              "cwdAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+              "sessionFileBefore": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "sessionFileAfter": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+              "action": "cwd_only",
+              "copiedTo": null,
+              "sha256": null,
+              "applied": true
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:32.107Z"
+    },
+    {
+      "label": "sessions-two",
+      "args": [
+        "session",
+        "list",
+        "--task",
+        "k-7c0163f817e6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "session-list-1794631592179-gsfy63",
+        "outcome": "completed",
+        "data": [
+          {
+            "knitSessionId": "s-36348b9825ad",
+            "protocolVersion": 1,
+            "ref": {
+              "client": "pi",
+              "nativeSessionId": "3f6e839e-a1b0-4d46-92bd-32f2fc699259",
+              "role": "implement"
+            },
+            "kind": "sub",
+            "status": "available",
+            "sessionFile": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动/.knit/.runtime/pi-sessions/2026-11-14T04-38-53-535Z_3f6e839e-a1b0-4d46-92bd-32f2fc699259.jsonl",
+            "parentSessionId": null,
+            "source": {
+              "kind": "attach",
+              "fromSessionId": null,
+              "reason": null
+            },
+            "taskId": "k-7c0163f817e6",
+            "branch": "refs/heads/knit/11-14-wt-two",
+            "runId": "run-a2e1ae56d032",
+            "cwd": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文 已移动",
+            "checkpoint": null,
+            "selection": null,
+            "reason": null,
+            "lastVerifiedAt": "2026-11-14T04:40:32.009Z",
+            "nativeReadable": true,
+            "relatedRunState": null,
+            "recordedAt": "2026-11-14T04:38:52.990Z"
+          }
+        ]
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:46:32.253Z"
+    }
+  ]
+}

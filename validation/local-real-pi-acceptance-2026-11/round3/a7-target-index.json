@@ -1,0 +1,691 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+  "taskId": "k-365419a56eb6",
+  "dir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+  "before": {
+    "head": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+    "index": "75a9e3db60fad4bcde8c2d0f680c021a3a32f059"
+  },
+  "after": {
+    "head": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+    "index": "75a9e3db60fad4bcde8c2d0f680c021a3a32f059"
+  },
+  "preview": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794641106283-g794nu",
+    "outcome": "needs_attention",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+      "taskId": "k-365419a56eb6",
+      "apply": false,
+      "status": "blocked_target",
+      "reason": "目标 index 已有暂存内容: AGENTS.md",
+      "opId": null,
+      "receiptPath": null,
+      "journalPath": null,
+      "authorizationRef": null,
+      "authorization": null,
+      "taskStatus": "closed",
+      "taskOutcome": "completed",
+      "source": {
+        "layout": "project",
+        "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+        "branch": "refs/heads/knit/11-14-target-index",
+        "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+        "relativePath": ".knit/worktrees/11-14-target-index",
+        "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+      },
+      "target": {
+        "ref": "refs/heads/main",
+        "branch": "refs/heads/main",
+        "currentBranch": "refs/heads/main",
+        "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+      },
+      "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+      "afterHead": null,
+      "mergeCommit": null,
+      "mergeKind": null,
+      "mergeRequired": false,
+      "material": null,
+      "document": null,
+      "binding": null,
+      "dirty": null,
+      "resumed": false
+    },
+    "reasonCode": "needs_review"
+  },
+  "rejected": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794641106544-5r663x",
+    "outcome": "needs_attention",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+      "taskId": "k-365419a56eb6",
+      "apply": true,
+      "status": "blocked_target",
+      "reason": "目标 index 已有暂存内容: AGENTS.md",
+      "opId": null,
+      "receiptPath": null,
+      "journalPath": null,
+      "authorizationRef": "user:387707d9",
+      "authorization": {
+        "kind": "user_reference",
+        "ref": "user:387707d9",
+        "path": null,
+        "section": null,
+        "digest": null,
+        "verified": false
+      },
+      "taskStatus": "closed",
+      "taskOutcome": "completed",
+      "source": {
+        "layout": "project",
+        "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+        "branch": "refs/heads/knit/11-14-target-index",
+        "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+        "relativePath": ".knit/worktrees/11-14-target-index",
+        "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+      },
+      "target": {
+        "ref": "refs/heads/main",
+        "branch": "refs/heads/main",
+        "currentBranch": "refs/heads/main",
+        "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+      },
+      "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+      "afterHead": null,
+      "mergeCommit": null,
+      "mergeKind": null,
+      "mergeRequired": false,
+      "material": null,
+      "document": null,
+      "binding": null,
+      "dirty": null,
+      "resumed": false
+    },
+    "reasonCode": "needs_review"
+  },
+  "merged": {
+    "protocolVersion": 1,
+    "requestId": "worktree-merge-1794641106863-2pikyg",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+      "taskId": "k-365419a56eb6",
+      "apply": true,
+      "status": "merged",
+      "reason": null,
+      "opId": "op-ae4fa057959e",
+      "receiptPath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/.runtime/worktree-merge/op-ae4fa057959e/receipt.json",
+      "journalPath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/.runtime/worktree-merge/op-ae4fa057959e/journal.jsonl",
+      "authorizationRef": "user:387707d9",
+      "authorization": {
+        "kind": "user_reference",
+        "ref": "user:387707d9",
+        "path": null,
+        "section": null,
+        "digest": null,
+        "verified": false
+      },
+      "taskStatus": "closed",
+      "taskOutcome": "completed",
+      "source": {
+        "layout": "project",
+        "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+        "branch": "refs/heads/knit/11-14-target-index",
+        "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+        "relativePath": ".knit/worktrees/11-14-target-index",
+        "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+      },
+      "target": {
+        "ref": "refs/heads/main",
+        "branch": "refs/heads/main",
+        "currentBranch": "refs/heads/main",
+        "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+      },
+      "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+      "afterHead": "8f5347d55b5bea62ca70818d4f491cc2cebd8492",
+      "mergeCommit": "8f5347d55b5bea62ca70818d4f491cc2cebd8492",
+      "mergeKind": "merge",
+      "mergeRequired": true,
+      "material": {
+        "sourceDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index",
+        "targetDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/tasks/11-14-target-index",
+        "disposition": "copied",
+        "entries": [
+          {
+            "path": "task.md",
+            "kind": "file",
+            "size": 560,
+            "sha256": "b13faf1253db634e58162a3437fdb4a77a124970bb6b57d46e569c44ba7d5448",
+            "linkTarget": null
+          }
+        ],
+        "totalBytes": 560,
+        "digest": "b69b88067b94fef85c719bacb7bebcf2b4be7d0d952c8e5ab4de73fb262ab71d"
+      },
+      "document": {
+        "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/tasks/11-14-target-index/task.md",
+        "branchBefore": "refs/heads/main",
+        "branchAfter": "refs/heads/main",
+        "changed": false
+      },
+      "binding": {
+        "branchBefore": "refs/heads/knit/11-14-target-index",
+        "branchAfter": "refs/heads/main",
+        "activeBefore": true,
+        "activeAfter": false,
+        "mergedAt": "2026-11-14T07:25:07.120Z",
+        "lastMergeOp": "op-ae4fa057959e"
+      },
+      "dirty": null,
+      "resumed": false
+    }
+  },
+  "checks": {
+    "headAndIndexUnchangedOnReject": true,
+    "rejectedStatus": "blocked_target",
+    "rejectedReason": "目标 index 已有暂存内容: AGENTS.md",
+    "mergedStatus": "merged",
+    "mainBytes": "index\n"
+  },
+  "results": [
+    {
+      "label": "new",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "真实目标 index 负例",
+        "--slug",
+        "target-index",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794641103060-dklfu3",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "relativePath": "tasks/11-14-target-index/task.md",
+          "title": "真实目标 index 负例",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:03.277Z"
+    },
+    {
+      "label": "update",
+      "args": [
+        "task",
+        "update",
+        "k-365419a56eb6",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/target-index-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794641103344-fa8qga",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "56b33de40a15d6300895690273d764c6b08d2513bf6b53441552b060fc185eec",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:03.571Z"
+    },
+    {
+      "label": "ready",
+      "args": [
+        "task",
+        "ready",
+        "k-365419a56eb6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794641103639-p0y7hh",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "stage": "implement",
+          "confirmedInputsDigest": "56b33de40a15d6300895690273d764c6b08d2513bf6b53441552b060fc185eec",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:03.926Z"
+    },
+    {
+      "label": "create-worktree",
+      "args": [
+        "worktree",
+        "create",
+        "--task",
+        "k-365419a56eb6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-create-1794641104020-qnlyj0",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "created": true,
+          "registered": true,
+          "worktree": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+            "branch": "refs/heads/knit/11-14-target-index",
+            "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+            "createdAt": "2026-11-14T07:25:04.084Z",
+            "registeredAt": "2026-11-14T07:25:04.084Z",
+            "relativePath": ".knit/worktrees/11-14-target-index"
+          },
+          "gitignore": {
+            "updated": false,
+            "file": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.gitignore"
+          },
+          "naming": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:04.229Z"
+    },
+    {
+      "label": "handoff-worktree",
+      "args": [
+        "worktree",
+        "handoff",
+        "--task",
+        "k-365419a56eb6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-handoff-1794641104331-9nomk0",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "opId": "op-c86c8df8203a",
+          "mode": "completed",
+          "sourceDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/tasks/11-14-target-index",
+          "targetTaskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index",
+          "worktreePath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+          "branch": "refs/heads/knit/11-14-target-index",
+          "bindingBranchSwitched": true,
+          "sourceDisposition": "moved_untracked",
+          "files": 1,
+          "deleted": 0,
+          "untracked": 1
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:04.517Z"
+    },
+    {
+      "label": "prepare-worktree",
+      "args": [
+        "worktree",
+        "prepare",
+        "--task",
+        "k-365419a56eb6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-prepare-1794641104613-lp2dyj",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "opId": "op-b8d25e0f64da",
+          "mode": "no_op",
+          "worktreePath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+          "branch": "refs/heads/knit/11-14-target-index",
+          "copied": 0,
+          "skipped": 0,
+          "steps": [],
+          "finishedAt": "2026-11-14T07:25:04.797Z"
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:04.812Z"
+    },
+    {
+      "label": "worktree-status",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-365419a56eb6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794641104879-s3nryb",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "startDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+          "branch": "refs/heads/knit/11-14-target-index",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:04.988Z"
+    },
+    {
+      "label": "implement",
+      "args": [
+        "task",
+        "implement",
+        "k-365419a56eb6",
+        "--by",
+        "main-session",
+        "--path",
+        "index.txt",
+        "--validation",
+        "逐字节核对 index.txt",
+        "--summary",
+        "实际 Worktree 负例主会话实施"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-implement-1794641105054-dmvime",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "executor": "main-session",
+          "paths": [
+            "index.txt"
+          ],
+          "validations": 1,
+          "inputsDigest": "56b33de40a15d6300895690273d764c6b08d2513bf6b53441552b060fc185eec",
+          "scopeDigest": "e2f58ad7c8ec58e07068a66c8e4a23adc379dbf72be22061a5ee575e0bcdcb85",
+          "stage": "implement",
+          "enteredCheck": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:05.587Z"
+    },
+    {
+      "label": "close",
+      "args": [
+        "task",
+        "close",
+        "k-365419a56eb6",
+        "--outcome",
+        "completed",
+        "--reason",
+        "本轮隔离夹具逐字节核对"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-close-1794641105651-o6p78a",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-365419a56eb6",
+          "status": "closed",
+          "outcome": "completed",
+          "stage": "deliver",
+          "pendingWithdrawn": false,
+          "verification": "self",
+          "implementRunId": null,
+          "checkRunId": null,
+          "forced": false,
+          "unverified": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:06.158Z"
+    },
+    {
+      "label": "staged-target-preview",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-365419a56eb6",
+        "--into",
+        "refs/heads/main"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794641106283-g794nu",
+        "outcome": "needs_attention",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "taskId": "k-365419a56eb6",
+          "apply": false,
+          "status": "blocked_target",
+          "reason": "目标 index 已有暂存内容: AGENTS.md",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": null,
+          "authorization": null,
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "source": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+            "branch": "refs/heads/knit/11-14-target-index",
+            "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+            "relativePath": ".knit/worktrees/11-14-target-index",
+            "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+          },
+          "target": {
+            "ref": "refs/heads/main",
+            "branch": "refs/heads/main",
+            "currentBranch": "refs/heads/main",
+            "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+          },
+          "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+          "afterHead": null,
+          "mergeCommit": null,
+          "mergeKind": null,
+          "mergeRequired": false,
+          "material": null,
+          "document": null,
+          "binding": null,
+          "dirty": null,
+          "resumed": false
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:06.478Z"
+    },
+    {
+      "label": "staged-target-apply",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-365419a56eb6",
+        "--into",
+        "refs/heads/main",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794641106544-5r663x",
+        "outcome": "needs_attention",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "taskId": "k-365419a56eb6",
+          "apply": true,
+          "status": "blocked_target",
+          "reason": "目标 index 已有暂存内容: AGENTS.md",
+          "opId": null,
+          "receiptPath": null,
+          "journalPath": null,
+          "authorizationRef": "user:387707d9",
+          "authorization": {
+            "kind": "user_reference",
+            "ref": "user:387707d9",
+            "path": null,
+            "section": null,
+            "digest": null,
+            "verified": false
+          },
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "source": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+            "branch": "refs/heads/knit/11-14-target-index",
+            "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+            "relativePath": ".knit/worktrees/11-14-target-index",
+            "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+          },
+          "target": {
+            "ref": "refs/heads/main",
+            "branch": "refs/heads/main",
+            "currentBranch": "refs/heads/main",
+            "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+          },
+          "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+          "afterHead": null,
+          "mergeCommit": null,
+          "mergeKind": null,
+          "mergeRequired": false,
+          "material": null,
+          "document": null,
+          "binding": null,
+          "dirty": null,
+          "resumed": false
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:06.767Z"
+    },
+    {
+      "label": "clean-target-merge",
+      "args": [
+        "worktree",
+        "merge",
+        "--task",
+        "k-365419a56eb6",
+        "--into",
+        "refs/heads/main",
+        "--apply",
+        "--authorization-ref",
+        "user:387707d9"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-merge-1794641106863-2pikyg",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+          "taskId": "k-365419a56eb6",
+          "apply": true,
+          "status": "merged",
+          "reason": null,
+          "opId": "op-ae4fa057959e",
+          "receiptPath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/.runtime/worktree-merge/op-ae4fa057959e/receipt.json",
+          "journalPath": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/.runtime/worktree-merge/op-ae4fa057959e/journal.jsonl",
+          "authorizationRef": "user:387707d9",
+          "authorization": {
+            "kind": "user_reference",
+            "ref": "user:387707d9",
+            "path": null,
+            "section": null,
+            "digest": null,
+            "verified": false
+          },
+          "taskStatus": "closed",
+          "taskOutcome": "completed",
+          "source": {
+            "layout": "project",
+            "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index",
+            "branch": "refs/heads/knit/11-14-target-index",
+            "baseline": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+            "relativePath": ".knit/worktrees/11-14-target-index",
+            "taskDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index"
+          },
+          "target": {
+            "ref": "refs/heads/main",
+            "branch": "refs/heads/main",
+            "currentBranch": "refs/heads/main",
+            "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db"
+          },
+          "beforeHead": "29ac3ea062dd1363ca074e006ee0178ead0196db",
+          "afterHead": "8f5347d55b5bea62ca70818d4f491cc2cebd8492",
+          "mergeCommit": "8f5347d55b5bea62ca70818d4f491cc2cebd8492",
+          "mergeKind": "merge",
+          "mergeRequired": true,
+          "material": {
+            "sourceDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-target-index/.knit/tasks/11-14-target-index",
+            "targetDir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/tasks/11-14-target-index",
+            "disposition": "copied",
+            "entries": [
+              {
+                "path": "task.md",
+                "kind": "file",
+                "size": 560,
+                "sha256": "b13faf1253db634e58162a3437fdb4a77a124970bb6b57d46e569c44ba7d5448",
+                "linkTarget": null
+              }
+            ],
+            "totalBytes": 560,
+            "digest": "b69b88067b94fef85c719bacb7bebcf2b4be7d0d952c8e5ab4de73fb262ab71d"
+          },
+          "document": {
+            "path": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/tasks/11-14-target-index/task.md",
+            "branchBefore": "refs/heads/main",
+            "branchAfter": "refs/heads/main",
+            "changed": false
+          },
+          "binding": {
+            "branchBefore": "refs/heads/knit/11-14-target-index",
+            "branchAfter": "refs/heads/main",
+            "activeBefore": true,
+            "activeAfter": false,
+            "mergedAt": "2026-11-14T07:25:07.120Z",
+            "lastMergeOp": "op-ae4fa057959e"
+          },
+          "dirty": null,
+          "resumed": false
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:25:07.414Z"
+    }
+  ]
+}

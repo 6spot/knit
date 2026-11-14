@@ -1,0 +1,187 @@
+{
+  "project": "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格",
+  "runId": "run-71173384afd7",
+  "previewUnchanged": true,
+  "wrongExpectUnchanged": true,
+  "restoredOriginal": false,
+  "noDeletionWithoutFlag": true,
+  "removedWithExplicitFlag": false,
+  "index": "snapshot-created.txt\nunrelated-sentinel.txt",
+  "results": [
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "unrelated-sentinel.txt",
+        "--path",
+        "snapshot-created.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516221449-kdz0rs",
+        "outcome": "completed",
+        "data": {
+          "preview": {
+            "runId": "run-71173384afd7",
+            "taskId": "k-3810e59ca5e0",
+            "branch": "main",
+            "head": "0671319d023a6a8b4d9123912daa7af130d512a9",
+            "snapshotDigest": "0d2e10f720189fc832ae679112d1b935db431c5c29ca869321c79add4c7359c8",
+            "plans": [
+              {
+                "path": "unrelated-sentinel.txt",
+                "snapshot": {
+                  "kind": "file",
+                  "fingerprint": "file:bd70e8ff2b2b4e0ad0aa36345417548c26bb8b420a2ed07bc0fa4b9b6ad776e5:33188",
+                  "mode": 33188,
+                  "size": 37
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188",
+                  "mode": 33188,
+                  "size": 32
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "9227f2a6a8d63bfd093307fb4ffacaa8984ed527"
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "restore",
+                "indexAction": "ignored",
+                "guard": null,
+                "reason": null
+              },
+              {
+                "path": "snapshot-created.txt",
+                "snapshot": {
+                  "kind": "absent",
+                  "fingerprint": "absent",
+                  "mode": null,
+                  "size": null
+                },
+                "current": {
+                  "kind": "file",
+                  "fingerprint": "file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188",
+                  "mode": 33188,
+                  "size": 17
+                },
+                "index": {
+                  "present": true,
+                  "mode": 33188,
+                  "oid": "257329e8f052a34b13cd4e918fd9b6421476d8ab"
+                },
+                "snapshotIndex": {
+                  "present": false,
+                  "mode": null,
+                  "oid": null
+                },
+                "action": "delete",
+                "indexAction": "ignored",
+                "guard": "remove_created_required",
+                "reason": "快照没有该路径；删除当前文件需 --remove-created"
+              }
+            ],
+            "index": false,
+            "removeCreated": false
+          }
+        }
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "unrelated-sentinel.txt",
+        "--expect",
+        "unrelated-sentinel.txt=0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516221660-pbtn7d",
+        "outcome": "error",
+        "data": {
+          "error": "当前指纹不匹配 unrelated-sentinel.txt: 期望 0000000000000000000000000000000000000000000000000000000000000000，实际 file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188"
+        },
+        "reasonCode": "stale_input"
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "unrelated-sentinel.txt",
+        "--expect",
+        "unrelated-sentinel.txt=fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a",
+        "--index"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516221841-baogan",
+        "outcome": "error",
+        "data": {
+          "error": "当前指纹不匹配 unrelated-sentinel.txt: 期望 fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a，实际 file:fd8564f31de45c0fba26101384b64ab02ce27e7cdd3055aa6f03abf7e2a9134a:33188"
+        },
+        "reasonCode": "stale_input"
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516222025-4w1c4q",
+        "outcome": "error",
+        "data": {
+          "error": "当前指纹不匹配 snapshot-created.txt: 期望 45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e，实际 file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188"
+        },
+        "reasonCode": "stale_input"
+      }
+    },
+    {
+      "args": [
+        "snapshot",
+        "restore",
+        "run-71173384afd7",
+        "--path",
+        "snapshot-created.txt",
+        "--expect",
+        "snapshot-created.txt=45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e",
+        "--index",
+        "--remove-created"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "snapshot-restore-1794516222204-cm2gzm",
+        "outcome": "error",
+        "data": {
+          "error": "当前指纹不匹配 snapshot-created.txt: 期望 45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e，实际 file:45a88dccbacf1239edbae5e1e4018c9950d0aeb45d504dca6efca0e68edd1c8e:33188"
+        },
+        "reasonCode": "stale_input"
+      }
+    }
+  ]
+}

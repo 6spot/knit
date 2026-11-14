@@ -1,0 +1,93 @@
+{
+  "round": 2,
+  "recordedAt": "2026-11-14T00:23:54Z",
+  "machine": {
+    "productVersion": "27.2.1",
+    "build": "26B131",
+    "arch": "arm64"
+  },
+  "node": {
+    "version": "v26.3.0",
+    "realpath": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/node"
+  },
+  "npm": "11.16.0",
+  "pi": {
+    "version": "1.5.2",
+    "path": "/Users/me/.pi/agent/bin/pi"
+  },
+  "rex": {
+    "termProgramVersion": "0.1.0-preview.14",
+    "appClient": "Rex Beta 0.1.0 (1970)",
+    "cli": "/Users/me/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
+    "functionalAppClient": "Rex Beta 0.1.0 (1972)",
+    "functionalClientId": "client:01a1d77a-2bfa-745d-ae99-4dab94e99b3c"
+  },
+  "git": {
+    "head": "2a2f6a0af69457d10bab18443a327261576dd434",
+    "originMain": "f68c6c398696841974f48368c17a1eb80183fa28",
+    "aheadOfOrigin": "3",
+    "statusPorcelain": [
+      " M .knit/config.json",
+      "?? .knit/tasks/11-12-local-real-pi-acceptance/",
+      "?? .pi/agents/deepseek-reviewer.md",
+      "?? validation/local-real-pi-acceptance-2026-11/"
+    ],
+    "statusSha256": "4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb"
+  },
+  "isolationRoot": "/tmp/knit-self-acceptance2.JyPWM8",
+  "isolationRootRealpath": "/private/tmp/knit-self-acceptance2.JyPWM8",
+  "export": {
+    "manifest": "validation/local-real-pi-acceptance-2026-11/round2/export-manifest.json",
+    "commit": "2a2f6a0af69457d10bab18443a327261576dd434",
+    "fileCount": 828,
+    "contentDigest": "sha256:69a03479f6b554987d033a9b2e55785fdd27c5f6ad769098b836b2d0da25cbf3",
+    "archiveSha256": "31849415a39873c4bc0ed0b2b2ab525dd1c218f256751c6c229266876a4e52cb"
+  },
+  "normalTerminal": {
+    "windowId": 26766,
+    "tty": "/dev/ttys002",
+    "termProgram": "Apple_Terminal",
+    "tests": {
+      "tests": 782,
+      "suites": 0,
+      "pass": 782,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "duration_ms": 246480.884833
+    },
+    "ok": true,
+    "packInstall": {
+      "prefix": "/private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering/install-prefix",
+      "tarball": "/private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering/src/knit-0.1.0.tgz",
+      "tarballSha256": "27f41ec8138677ac387b474b11c118d39139a2ac2a34d08e364197a1cb3170a0",
+      "entry": "/private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering/install-prefix/bin/knit",
+      "entryRealpath": "/private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js",
+      "shebang": "#!/usr/bin/env node",
+      "version": "0.1.0"
+    },
+    "runDir": "/private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering"
+  },
+  "rexTerminal": {
+    "session": "session:01a1d764-9166-7ad9-9699-a39ca617c291",
+    "block": "block:01a1d764-9166-7b90-8148-cca9870e0e1e",
+    "tty": "/dev/ttys008",
+    "termProgram": "rex",
+    "tests": {
+      "tests": 782,
+      "suites": 0,
+      "pass": 782,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "duration_ms": 243593.290833
+    },
+    "ok": true
+  },
+  "notes": [
+    "第一次打开的 Terminal 窗口 26757 继承了 REX_* 环境变量（Terminal.app 进程 72098 是 11-13 从 Rex 会话内被 osascript 拉起的），工程脚本守卫拒绝运行，未产生证据；主会话退出该 Terminal.app（当时只有两个空闲窗口，均为主会话早先所开）并经 Finder 重新启动，新窗口 26766 环境无 REX_*、SHLVL=1。",
+    "两次 npm test 先后执行，不并行。"
+  ]
+}

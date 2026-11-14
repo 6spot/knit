@@ -1,0 +1,387 @@
+{
+  "project": "/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文",
+  "tasks": [
+    {
+      "name": "one",
+      "id": "k-c54ad46f83b7"
+    },
+    {
+      "name": "two",
+      "id": "k-5973fe1927c2"
+    }
+  ],
+  "results": [
+    {
+      "args": [
+        "init"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "init-1794522201207-6hi34b",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文",
+          "manifestState": "ready",
+          "created": [
+            ".knit/.gitignore",
+            ".knit/.runtime/installation.json",
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/check.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md",
+            "AGENTS.md",
+            ".pi/extensions/knit.ts"
+          ],
+          "kept": [],
+          "updated": [],
+          "conflicts": [],
+          "failed": [],
+          "ready": true,
+          "bridgeReady": true,
+          "overwritten": [],
+          "overwriteCount": 0,
+          "backupRoot": null,
+          "backups": [],
+          "alreadyCurrent": [],
+          "orphans": [],
+          "gitWarning": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:21.521Z"
+    },
+    {
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "工作树调度 one",
+        "--slug",
+        "wt-one",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794522201638-gkcuus",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c54ad46f83b7",
+          "root": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文",
+          "relativePath": "tasks/11-13-wt-one/task.md",
+          "title": "工作树调度 one",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:21.868Z"
+    },
+    {
+      "args": [
+        "task",
+        "update",
+        "k-c54ad46f83b7",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance.l9v2Ka/wt-one-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794522201940-beztep",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c54ad46f83b7",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "5eeaf69f3b2dd325fff2d8b778a6724e6c80c905404fad9a4f01d241caaacad6",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:22.132Z"
+    },
+    {
+      "args": [
+        "task",
+        "ready",
+        "k-c54ad46f83b7"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794522202199-nhoxaz",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c54ad46f83b7",
+          "stage": "implement",
+          "confirmedInputsDigest": "5eeaf69f3b2dd325fff2d8b778a6724e6c80c905404fad9a4f01d241caaacad6",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:22.438Z"
+    },
+    {
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "工作树调度 two",
+        "--slug",
+        "wt-two",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794522202504-zerdki",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5973fe1927c2",
+          "root": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文",
+          "relativePath": "tasks/11-13-wt-two/task.md",
+          "title": "工作树调度 two",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:22.746Z"
+    },
+    {
+      "args": [
+        "task",
+        "update",
+        "k-5973fe1927c2",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance.l9v2Ka/wt-two-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794522202817-dgfbbm",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5973fe1927c2",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "575ad5b64c71b596f6d45c1e247b97c9b0c688dd0556905f0d000ff13de0172f",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:22.996Z"
+    },
+    {
+      "args": [
+        "task",
+        "ready",
+        "k-5973fe1927c2"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794522203062-hn7a4i",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5973fe1927c2",
+          "stage": "implement",
+          "confirmedInputsDigest": "575ad5b64c71b596f6d45c1e247b97c9b0c688dd0556905f0d000ff13de0172f",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:23.300Z"
+    },
+    {
+      "args": [
+        "run",
+        "schedule",
+        "--once",
+        "--max",
+        "2"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "run-schedule",
+        "outcome": "completed",
+        "data": {
+          "mode": "once",
+          "gate": "enabled",
+          "message": null,
+          "limits": {
+            "maxConcurrent": 2,
+            "maxAttempts": 1
+          },
+          "interrupted": false,
+          "events": [
+            {
+              "at": "2026-11-12T22:23:23.501Z",
+              "action": "scheduler_start",
+              "reason": "gate=on; maxConcurrent=2; mode=once",
+              "authorization": "config:.knit/config.json@da41fcf3e792f7cee934a1a3a819771d3250f6f4169cdd86c941dfb7453f047e"
+            },
+            {
+              "at": "2026-11-12T22:23:23.515Z",
+              "action": "ready",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "implement"
+            },
+            {
+              "at": "2026-11-12T22:23:24.741Z",
+              "action": "dispatch",
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-e9da2c815f05",
+              "stage": "implement"
+            },
+            {
+              "at": "2026-11-12T22:23:24.741Z",
+              "action": "skip",
+              "taskId": "k-5973fe1927c2",
+              "stage": "implement",
+              "reason": "unknown_impact_active"
+            },
+            {
+              "at": "2026-11-12T22:23:24.742Z",
+              "action": "scheduler_stop",
+              "reason": "idle; active=1"
+            }
+          ],
+          "ready": [
+            "k-c54ad46f83b7"
+          ],
+          "skipped": [
+            {
+              "taskId": "k-5973fe1927c2",
+              "reason": "unknown_impact_active"
+            }
+          ],
+          "dispatched": [
+            {
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-e9da2c815f05",
+              "stage": "implement"
+            }
+          ],
+          "accepted": [],
+          "closed": [],
+          "delivered": [],
+          "pendingDelivery": [],
+          "needsAttention": [],
+          "active": [
+            {
+              "runId": "run-e9da2c815f05",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "implement",
+              "state": "running"
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-12T22:23:24.749Z"
+    }
+  ],
+  "schedule": {
+    "protocolVersion": 1,
+    "requestId": "run-schedule",
+    "outcome": "completed",
+    "data": {
+      "mode": "once",
+      "gate": "enabled",
+      "message": null,
+      "limits": {
+        "maxConcurrent": 2,
+        "maxAttempts": 1
+      },
+      "interrupted": false,
+      "events": [
+        {
+          "at": "2026-11-12T22:23:23.501Z",
+          "action": "scheduler_start",
+          "reason": "gate=on; maxConcurrent=2; mode=once",
+          "authorization": "config:.knit/config.json@da41fcf3e792f7cee934a1a3a819771d3250f6f4169cdd86c941dfb7453f047e"
+        },
+        {
+          "at": "2026-11-12T22:23:23.515Z",
+          "action": "ready",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "implement"
+        },
+        {
+          "at": "2026-11-12T22:23:24.741Z",
+          "action": "dispatch",
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-e9da2c815f05",
+          "stage": "implement"
+        },
+        {
+          "at": "2026-11-12T22:23:24.741Z",
+          "action": "skip",
+          "taskId": "k-5973fe1927c2",
+          "stage": "implement",
+          "reason": "unknown_impact_active"
+        },
+        {
+          "at": "2026-11-12T22:23:24.742Z",
+          "action": "scheduler_stop",
+          "reason": "idle; active=1"
+        }
+      ],
+      "ready": [
+        "k-c54ad46f83b7"
+      ],
+      "skipped": [
+        {
+          "taskId": "k-5973fe1927c2",
+          "reason": "unknown_impact_active"
+        }
+      ],
+      "dispatched": [
+        {
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-e9da2c815f05",
+          "stage": "implement"
+        }
+      ],
+      "accepted": [],
+      "closed": [],
+      "delivered": [],
+      "pendingDelivery": [],
+      "needsAttention": [],
+      "active": [
+        {
+          "runId": "run-e9da2c815f05",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "implement",
+          "state": "running"
+        }
+      ]
+    }
+  }
+}

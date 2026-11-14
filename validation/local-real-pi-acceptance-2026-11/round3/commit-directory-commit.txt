@@ -1,0 +1,7 @@
+test: deliver the acceptance directory fixture
+
+Submit only the selected directory fixture produced during local acceptance.
+Keep the unrelated sentinel outside the artifact commit.
+
+Source: user:387707d9 (isolated acceptance)
+Validation: exact fixture file bytes and selected commit paths

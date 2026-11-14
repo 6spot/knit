@@ -1,0 +1,5 @@
+__CFBundleIdentifier=com.apple.Terminal
+TERM_PROGRAM=Apple_Terminal
+TERM_PROGRAM_VERSION=488.9
+SHLVL=1
+/dev/ttys002

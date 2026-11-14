@@ -1,0 +1,51 @@
+kind	normal-engineering
+taskId	k-b9019179b424
+isolationRoot	/private/tmp/knit-self-acceptance3.kFgIO0
+repo	/Users/me/IdeaProjects/knit
+frozenTree	ff318899a985ea2ba14f1619aa94479a40ce7298
+startedAt	2026-11-14T07:09:11Z
+mode	verification
+baselineManifest	/Users/me/IdeaProjects/knit/validation/local-real-pi-acceptance-2026-11/round3/export-manifest.json
+headBefore	ff318899a985ea2ba14f1619aa94479a40ce7298
+statusLinesBefore	4
+statusShaBefore	4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb
+nodeVersion	v26.3.0
+nodePath	/Users/me/.local/share/mise/installs/node/26.3.0/bin/node
+npmVersion	11.16.0
+npmPath	/Users/me/.local/share/mise/installs/node/26.3.0/bin/npm
+piVersion	1.5.2
+piPath	/Users/me/.pi/agent/bin/pi
+rexBin	
+rexAppVersion	
+rexAppBuild	
+tty	/dev/ttys018
+termProgram	Apple_Terminal
+termProgramVersion	488.9
+normalTerminal	true
+rexSession	
+rexBlock	
+rexServer	
+packageVersion	0.1.0
+archiveSha256	80db0d5d7e60c72fdee73562fad6359185664d37000918b6a3a8eff31d4fada2
+exportFileCount	830
+exportContentDigest	sha256:ae5fadfafaa65a3de330300eb7a656434d188e157d5664b1eb02c32d9e66f841
+installPrefix	/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix
+tarballPath	/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/src/knit-0.1.0.tgz
+tarballSha256	3b41207a522e331f8d0459248e354358919b72e2380fbc7e7795e402d7b5aba8
+installedEntry	/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix/bin/knit
+installedEntryReal	/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js
+installedShebang	#!/usr/bin/env node
+installedVersion	0.1.0
+testsTotal	798
+testsPass	798
+testsFail	0
+testsSkipped	0
+testsDurationMs	264259.363208
+headAfter	ff318899a985ea2ba14f1619aa94479a40ce7298
+statusLinesAfter	4
+statusShaAfter	4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb
+repoUnchanged	true
+finishedAt	2026-11-14T07:13:54Z
+ok	true
+exitCode	0
+failureReason	

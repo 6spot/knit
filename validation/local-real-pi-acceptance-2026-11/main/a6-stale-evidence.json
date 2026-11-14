@@ -1,0 +1,79 @@
+[
+  {
+    "taskId": "k-c54ad46f83b7",
+    "runId": "run-a231d1f9762a",
+    "requestExpected": {
+      "branch": "refs/heads/knit/11-13-wt-one",
+      "executionDir": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文/.knit/worktrees/11-13-wt-one",
+      "inputsDigest": "5eeaf69f3b2dd325fff2d8b778a6724e6c80c905404fad9a4f01d241caaacad6",
+      "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+      "effectiveInputsDigest": "548eb02cd505cc75b997f03dfa5dd685a54fb3ff58945f0c28ca6258cfcf9407",
+      "planId": "ctx-7533b404d589",
+      "scopeDigest": null,
+      "authorizedStandardOutputs": []
+    },
+    "implementation": null,
+    "resultSummary": {
+      "summary": "在自有 Worktree 根创建 one.txt（4 字节，内容 one 加换行），用 od 逐字节核对为 6f 6e 65 0a，未改其它项目文件、配置或 Git 状态（HEAD 保持 5a13c437），主检出无 one.txt。",
+      "validation": [
+        "方法：`ls -l one.txt` 与 `wc -c` 核对大小；结果：pass；证据：4 字节，权限 -rw-r--r--。",
+        "方法：`od -An -tx1 -c one.txt` 逐字节核对内容；结果：pass；证据：`6f 6e 65 0a`（o n e \\n），无多余字节。",
+        "方法：`git status --porcelain=v1 -uall` 与本 Worktree 的 `git diff` 核对改动范围；结果：pass；证据：仅 `?? one.txt` 与任务资料 `?? .knit/tasks/11-13-wt-one/task.md`，tracked 文件无 diff。",
+        "方法：`git rev-parse HEAD` 阶段前后对比；结果：pass；证据：前后均为 5a13c437ff58b29358a08483319d16d44cc53f19，无提交。",
+        "方法：在主检出目录检查 `one.txt` 是否存在并查看其 git status；结果：pass；证据：主检出 one.txt ABSENT，无本任务成果变更（主检出存在与本次无关的既有改动 .knit/config.json、.gitignore、11-13-wt-two）。",
+        "方法：`knit task record` 写回实施证据后核对输入区；结果：pass；证据：仅记录区追加证据，目标／影响路径／完成条件未变。",
+        "方法：范围验证（文件是否只落在本 Worktree）；结果：pass；证据：one.txt 仅存在于 .knit/worktrees/11-13-wt-one 根，未写入主检出。",
+        "方法：检查 .git 敏感区是否被改动；结果：pass；证据：未修改 .git/hooks、.git/config、.git/info，未触碰 .knit/.runtime 受管资料（仅读取）。"
+      ],
+      "blockers": [],
+      "changedPaths": [
+        "one.txt"
+      ],
+      "unverified": [
+        "核心对本 run 结果的接收与合法性判定（含主检出最终状态比对）由核心收尾执行，本阶段仅报告实际核对结果。"
+      ]
+    },
+    "actualValue": "one\n",
+    "valueCorrect": true,
+    "mainHead": "5a13c437ff58b29358a08483319d16d44cc53f19",
+    "worktreeHead": "5a13c437ff58b29358a08483319d16d44cc53f19",
+    "taskText": "---\nid: k-c54ad46f83b7\nstatus: open\nstage: deliver\noutcome: null\nbranch: refs/heads/main\nverification: self\nparent: null\npriority: P2\ndependsOn: []\norder: null\ncreatedAt: 2026-11-12T22:23:21.852Z\ntitle: 工作树调度 one\n---\n\n# 工作树调度 one\n\n## 目标\n只在此自有Worktree根创建 one.txt，精确内容 one 加换行；不得改其它文件、配置或Git。工具写后逐字节核对并报告真实结果。\n\n## 影响路径\n- one.txt\n\n## 完成条件\n- 文件精确且合法接收，主检出没有直接成果变更。\n\n## 记录\n\n<!-- knit:progress:start -->\n## 当前位置\n\n任务已创建，待讨论。\n\n## 关键经过\n\n## 结果与验证\n\n## 运行引用\n\n### 实施证据（run run-a231d1f9762a）\n\n- 在 Worktree 根创建 one.txt：`od -An -tx1 -c one.txt` → `6f 6e 65 0a`（o n e \\n），4 字节。\n- `git status --porcelain` 仅新增 one.txt；HEAD 保持 5a13c43，未做任何 Git 操作。\n- 主检出检查：`one.txt` 不存在，主检出无本任务成果。\n\n<!-- knit:progress:end -->\n"
+  },
+  {
+    "taskId": "k-5973fe1927c2",
+    "runId": "run-513382f12249",
+    "requestExpected": {
+      "branch": "refs/heads/knit/11-13-wt-two",
+      "executionDir": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文/.knit/worktrees/11-13-wt-two",
+      "inputsDigest": "575ad5b64c71b596f6d45c1e247b97c9b0c688dd0556905f0d000ff13de0172f",
+      "standardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+      "effectiveInputsDigest": "d33a183a8d7a9d51d139879d4bdadb20e1a6e5035b34011f2d898ec40c07da86",
+      "planId": "ctx-a2f79d3aaba5",
+      "scopeDigest": null,
+      "authorizedStandardOutputs": []
+    },
+    "implementation": null,
+    "resultSummary": {
+      "summary": "在自有 worktree 根创建 two.txt，内容为精确的 two 加单个换行（4 字节 74 77 6f 0a，sha256 27dd8ed44a83ff94d557f9fd0412ed5a8cbca69ea04922d88c01184a07300a5a）；未改动其它文件、配置或 Git 状态，主检出无该文件。",
+      "validation": [
+        "方法：write 创建 two.txt 后执行 xxd/od、wc -c、shasum 逐字节核对；结果：pass；证据：od 输出 `t w o \\n`，大小 4 字节，仅 1 行，无 BOM 与多余空白",
+        "方法：worktree 内 `git status --porcelain --untracked-files=all` 与 `git diff --stat HEAD` 检查改动范围；结果：pass；证据：仅 `?? two.txt` 为本阶段新增，tracked 文件 diff 为空",
+        "方法：主检出 `git status` 与 `test -e two.txt` 检查是否产生直接成果变更；结果：pass；证据：主检出无 two.txt（NO），仅存在阶段外既有 ` M .knit/config.json`、`?? .gitignore`",
+        "方法：`git worktree list` 与 `git rev-parse HEAD` 前后比对确认未提交；结果：pass；证据：main 与 knit/11-13-wt-two 均为 5a13c437ff58b29358a08483319d16d44cc53f19，HEAD 未移动",
+        "方法：检查 `.git/config`、`.git/hooks`、`.git/info` 与 ignored 状态；结果：pass；证据：三者 mtime 均为 13 Nov 06:23（早于本阶段 07:40），`git status --ignored` 无 ignored 变化"
+      ],
+      "blockers": [],
+      "changedPaths": [
+        "two.txt"
+      ],
+      "unverified": [
+        "文件提交与『合法接收』由 Knit 核心在阶段收尾判定；本阶段按规范不执行 git commit/push，未自行验证接收结论"
+      ]
+    },
+    "actualValue": "two\n",
+    "valueCorrect": true,
+    "mainHead": "5a13c437ff58b29358a08483319d16d44cc53f19",
+    "worktreeHead": "5a13c437ff58b29358a08483319d16d44cc53f19",
+    "taskText": "---\nid: k-5973fe1927c2\nstatus: open\nstage: deliver\noutcome: null\nbranch: refs/heads/main\nverification: self\nparent: null\npriority: P2\ndependsOn: []\norder: null\ncreatedAt: 2026-11-12T22:23:22.726Z\ntitle: 工作树调度 two\n---\n\n# 工作树调度 two\n\n## 目标\n只在此自有Worktree根创建 two.txt，精确内容 two 加换行；不得改其它文件、配置或Git。工具写后逐字节核对并报告真实结果。\n\n## 影响路径\n- two.txt\n\n## 完成条件\n- 文件精确且合法接收，主检出没有直接成果变更。\n\n## 记录\n\n<!-- knit:progress:start -->\n## 当前位置\n\n任务已创建，待讨论。\n\n## 关键经过\n\n## 结果与验证\n\n## 运行引用\n\n<!-- knit:progress:end -->\n"
+  }
+]

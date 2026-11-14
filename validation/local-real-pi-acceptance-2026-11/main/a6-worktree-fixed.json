@@ -1,0 +1,312 @@
+{
+  "project": "/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文",
+  "priorHarnessErrors": "config phases.model requires provider/model combined; impact comes from plan.md, not task.md; original unknown provider/group and unknown_impact guard were expected responses",
+  "results": [
+    {
+      "args": [
+        "task",
+        "material",
+        "save",
+        "k-c54ad46f83b7",
+        "plan.md",
+        "--file",
+        "/tmp/knit-self-acceptance.l9v2Ka/wt-one-plan.md"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-material-save-1794525918126-te41gq",
+        "outcome": "blocked",
+        "data": {
+          "error": "任务不存在: k-c54ad46f83b7"
+        },
+        "reasonCode": "io_error"
+      },
+      "stderr": ""
+    },
+    {
+      "args": [
+        "task",
+        "material",
+        "save",
+        "k-5973fe1927c2",
+        "plan.md",
+        "--file",
+        "/tmp/knit-self-acceptance.l9v2Ka/wt-two-plan.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-material-save-1794525918333-3k38gg",
+        "outcome": "completed",
+        "data": {
+          "path": "plan.md",
+          "digest": "ca9aab0df40414a944495d8ddee1ef17a4190d44d28a4b37a1805bb050331d48",
+          "created": true
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "args": [
+        "worktree",
+        "prepare",
+        "--task",
+        "k-c54ad46f83b7"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-prepare-1794525918571-dy8htx",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-c54ad46f83b7",
+          "opId": "op-41f7b6d6f43f",
+          "mode": "no_op",
+          "worktreePath": "/private/tmp/knit-self-acceptance.l9v2Ka/projects/工作树 调度 中文/.knit/worktrees/11-13-wt-one",
+          "branch": "refs/heads/knit/11-13-wt-one",
+          "copied": 0,
+          "skipped": 0,
+          "steps": [],
+          "finishedAt": "2026-11-12T22:23:24.027Z"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "args": [
+        "run",
+        "schedule",
+        "--until-idle",
+        "--max",
+        "2"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "run-schedule",
+        "outcome": "completed",
+        "data": {
+          "mode": "until-idle",
+          "gate": "enabled",
+          "message": null,
+          "limits": {
+            "maxConcurrent": 2,
+            "maxAttempts": 1
+          },
+          "interrupted": false,
+          "events": [
+            {
+              "at": "2026-11-12T23:25:18.936Z",
+              "action": "scheduler_start",
+              "reason": "gate=on; maxConcurrent=2; mode=until-idle",
+              "authorization": "config:.knit/config.json@efe1c3e785fc5a6d5799540f05f993991b761e76c0a8ed6636b2e7bd62694aff"
+            },
+            {
+              "at": "2026-11-12T23:25:18.954Z",
+              "action": "ready",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "implement"
+            },
+            {
+              "at": "2026-11-12T23:25:19.739Z",
+              "action": "dispatch",
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-a231d1f9762a",
+              "stage": "implement"
+            },
+            {
+              "at": "2026-11-12T23:25:19.739Z",
+              "action": "skip",
+              "taskId": "k-5973fe1927c2",
+              "stage": "implement",
+              "reason": "unknown_impact_block:k-c54ad46f83b7"
+            },
+            {
+              "at": "2026-11-12T23:25:21.862Z",
+              "action": "skip",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "implement",
+              "reason": "max_attempts"
+            },
+            {
+              "at": "2026-11-12T23:26:04.747Z",
+              "action": "accepted",
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-a231d1f9762a",
+              "stage": "deliver",
+              "reason": "implementation_accepted"
+            },
+            {
+              "at": "2026-11-12T23:26:04.747Z",
+              "action": "advanced",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "deliver",
+              "reason": "from implement"
+            },
+            {
+              "at": "2026-11-12T23:26:04.749Z",
+              "action": "awaiting_authorization",
+              "taskId": "k-c54ad46f83b7",
+              "stage": "deliver",
+              "reason": "delivery_authorization_required"
+            },
+            {
+              "at": "2026-11-12T23:26:04.751Z",
+              "action": "scheduler_stop",
+              "reason": "idle; active=0"
+            }
+          ],
+          "ready": [
+            "k-c54ad46f83b7"
+          ],
+          "skipped": [
+            {
+              "taskId": "k-5973fe1927c2",
+              "reason": "unknown_impact_block:k-c54ad46f83b7"
+            },
+            {
+              "taskId": "k-c54ad46f83b7",
+              "reason": "max_attempts"
+            }
+          ],
+          "dispatched": [
+            {
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-a231d1f9762a",
+              "stage": "implement"
+            }
+          ],
+          "accepted": [
+            {
+              "taskId": "k-c54ad46f83b7",
+              "runId": "run-a231d1f9762a",
+              "stage": "deliver",
+              "verdict": null
+            }
+          ],
+          "closed": [],
+          "delivered": [],
+          "pendingDelivery": [
+            "k-c54ad46f83b7"
+          ],
+          "needsAttention": [],
+          "active": []
+        }
+      },
+      "stderr": ""
+    }
+  ],
+  "schedule": {
+    "protocolVersion": 1,
+    "requestId": "run-schedule",
+    "outcome": "completed",
+    "data": {
+      "mode": "until-idle",
+      "gate": "enabled",
+      "message": null,
+      "limits": {
+        "maxConcurrent": 2,
+        "maxAttempts": 1
+      },
+      "interrupted": false,
+      "events": [
+        {
+          "at": "2026-11-12T23:25:18.936Z",
+          "action": "scheduler_start",
+          "reason": "gate=on; maxConcurrent=2; mode=until-idle",
+          "authorization": "config:.knit/config.json@efe1c3e785fc5a6d5799540f05f993991b761e76c0a8ed6636b2e7bd62694aff"
+        },
+        {
+          "at": "2026-11-12T23:25:18.954Z",
+          "action": "ready",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "implement"
+        },
+        {
+          "at": "2026-11-12T23:25:19.739Z",
+          "action": "dispatch",
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-a231d1f9762a",
+          "stage": "implement"
+        },
+        {
+          "at": "2026-11-12T23:25:19.739Z",
+          "action": "skip",
+          "taskId": "k-5973fe1927c2",
+          "stage": "implement",
+          "reason": "unknown_impact_block:k-c54ad46f83b7"
+        },
+        {
+          "at": "2026-11-12T23:25:21.862Z",
+          "action": "skip",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "implement",
+          "reason": "max_attempts"
+        },
+        {
+          "at": "2026-11-12T23:26:04.747Z",
+          "action": "accepted",
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-a231d1f9762a",
+          "stage": "deliver",
+          "reason": "implementation_accepted"
+        },
+        {
+          "at": "2026-11-12T23:26:04.747Z",
+          "action": "advanced",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "deliver",
+          "reason": "from implement"
+        },
+        {
+          "at": "2026-11-12T23:26:04.749Z",
+          "action": "awaiting_authorization",
+          "taskId": "k-c54ad46f83b7",
+          "stage": "deliver",
+          "reason": "delivery_authorization_required"
+        },
+        {
+          "at": "2026-11-12T23:26:04.751Z",
+          "action": "scheduler_stop",
+          "reason": "idle; active=0"
+        }
+      ],
+      "ready": [
+        "k-c54ad46f83b7"
+      ],
+      "skipped": [
+        {
+          "taskId": "k-5973fe1927c2",
+          "reason": "unknown_impact_block:k-c54ad46f83b7"
+        },
+        {
+          "taskId": "k-c54ad46f83b7",
+          "reason": "max_attempts"
+        }
+      ],
+      "dispatched": [
+        {
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-a231d1f9762a",
+          "stage": "implement"
+        }
+      ],
+      "accepted": [
+        {
+          "taskId": "k-c54ad46f83b7",
+          "runId": "run-a231d1f9762a",
+          "stage": "deliver",
+          "verdict": null
+        }
+      ],
+      "closed": [],
+      "delivered": [],
+      "pendingDelivery": [
+        "k-c54ad46f83b7"
+      ],
+      "needsAttention": [],
+      "active": []
+    }
+  }
+}

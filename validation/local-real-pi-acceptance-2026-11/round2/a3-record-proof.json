@@ -1,0 +1,143 @@
+{
+  "checks": {
+    "sameConfirmedInputDigest": true,
+    "taskIdStable": true,
+    "renamedPath": ".knit/tasks/11-14-gate-renamed/task.md"
+  },
+  "results": [
+    {
+      "label": "ready-before-record",
+      "args": [
+        "task",
+        "ready",
+        "k-323a8c67eab3"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794631797455-3lk771",
+        "outcome": "error",
+        "data": {
+          "error": "task ready被拒绝: phase_mismatch"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:49:57.671Z"
+    },
+    {
+      "label": "record",
+      "args": [
+        "task",
+        "record",
+        "k-323a8c67eab3",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/record-proof.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-record-1794631797735-f4a4jc",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-323a8c67eab3",
+          "saved": true
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:49:57.871Z"
+    },
+    {
+      "label": "ready-after-record",
+      "args": [
+        "task",
+        "ready",
+        "k-323a8c67eab3"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794631797935-a3j1pr",
+        "outcome": "error",
+        "data": {
+          "error": "task ready被拒绝: phase_mismatch"
+        },
+        "reasonCode": "invalid_request"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:49:58.148Z"
+    },
+    {
+      "label": "status",
+      "args": [
+        "status",
+        "k-323a8c67eab3"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631798218",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-323a8c67eab3",
+          "title": "隔离准备门",
+          "status": "open",
+          "stage": "implement",
+          "stageName": "实现",
+          "outcome": null,
+          "branch": "refs/heads/main",
+          "relativePath": ".knit/tasks/11-14-gate-renamed/task.md",
+          "archived": false,
+          "createdAt": "2026-11-14T00:39:56.957Z",
+          "binding": {
+            "taskId": "k-323a8c67eab3",
+            "repoRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格",
+            "relativePath": "tasks/11-14-gate-renamed/task.md",
+            "branch": "refs/heads/main",
+            "lastRunIds": [],
+            "lastCheckRunId": null,
+            "repairCycleId": null,
+            "repairRounds": null,
+            "stopReason": null,
+            "confirmedInputsDigest": "2721515d1d551988a024e2da1f0c395217a2d25eed29e55b0348bb5ede4e321f",
+            "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+            "pendingDraft": null,
+            "stageVisits": {
+              "implement": 1
+            }
+          },
+          "pendingDraft": null,
+          "scopeCount": 0,
+          "verification": "independent",
+          "parent": null,
+          "children": [],
+          "priority": "P2",
+          "dependsOn": [],
+          "blocked": [],
+          "clarify": {
+            "blocking": 0,
+            "assumed": 0
+          },
+          "lastCheckRunId": null,
+          "verificationLabel": "independent",
+          "lastCheckChangedPaths": [],
+          "completion": null,
+          "runs": [],
+          "latestRun": null,
+          "activeRuns": 0,
+          "nextAction": {
+            "kind": "stage",
+            "summary": "当前阶段 implement：派发本阶段 run",
+            "commands": [
+              "knit run prepare --task k-323a8c67eab3 --stage implement",
+              "knit run start <run-id>"
+            ],
+            "runId": null
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:49:58.307Z"
+    }
+  ]
+}

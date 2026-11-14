@@ -1,0 +1,90 @@
+{
+  "protocolVersion": 1,
+  "requestId": "run-schedule",
+  "outcome": "completed",
+  "data": {
+    "mode": "once",
+    "gate": "enabled",
+    "message": null,
+    "limits": {
+      "maxConcurrent": 2,
+      "maxAttempts": 1
+    },
+    "interrupted": false,
+    "events": [
+      {
+        "at": "2026-11-14T07:27:31.218Z",
+        "action": "scheduler_start",
+        "reason": "gate=on; maxConcurrent=2; mode=once",
+        "authorization": "config:.knit/config.json@765f602f540d0513d4197fc7f9424093aea815fcbe70c6d1e5f9031638e548e3"
+      },
+      {
+        "at": "2026-11-14T07:27:31.232Z",
+        "action": "ready",
+        "taskId": "k-5a075a040c6b",
+        "stage": "implement"
+      },
+      {
+        "at": "2026-11-14T07:27:32.815Z",
+        "action": "dispatch",
+        "taskId": "k-5a075a040c6b",
+        "runId": "run-172d56dedcb8",
+        "stage": "implement"
+      },
+      {
+        "at": "2026-11-14T07:27:32.815Z",
+        "action": "ready",
+        "taskId": "k-4c0fb22b6385",
+        "stage": "implement"
+      },
+      {
+        "at": "2026-11-14T07:27:34.540Z",
+        "action": "dispatch",
+        "taskId": "k-4c0fb22b6385",
+        "runId": "run-74486ec226e5",
+        "stage": "implement"
+      },
+      {
+        "at": "2026-11-14T07:27:34.541Z",
+        "action": "scheduler_stop",
+        "reason": "idle; active=2"
+      }
+    ],
+    "ready": [
+      "k-5a075a040c6b",
+      "k-4c0fb22b6385"
+    ],
+    "skipped": [],
+    "dispatched": [
+      {
+        "taskId": "k-5a075a040c6b",
+        "runId": "run-172d56dedcb8",
+        "stage": "implement"
+      },
+      {
+        "taskId": "k-4c0fb22b6385",
+        "runId": "run-74486ec226e5",
+        "stage": "implement"
+      }
+    ],
+    "accepted": [],
+    "closed": [],
+    "delivered": [],
+    "pendingDelivery": [],
+    "needsAttention": [],
+    "active": [
+      {
+        "runId": "run-172d56dedcb8",
+        "taskId": "k-5a075a040c6b",
+        "stage": "implement",
+        "state": "running"
+      },
+      {
+        "runId": "run-74486ec226e5",
+        "taskId": "k-4c0fb22b6385",
+        "stage": "implement",
+        "state": "running"
+      }
+    ]
+  }
+}

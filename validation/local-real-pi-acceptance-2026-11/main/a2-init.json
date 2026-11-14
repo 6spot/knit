@@ -1,0 +1,123 @@
+{
+  "project": "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格",
+  "cli": "/tmp/knit-self-acceptance.l9v2Ka/runs/20261112T191918Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js",
+  "node": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+  "startedFromPackageSha256": "6ade10a63db8d5644d6d2bea64a49d1c037f1091bb5fcbc309b33f247dd81764",
+  "results": [
+    {
+      "label": "version",
+      "args": [
+        "--version"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "0.1.0\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:45.903Z"
+    },
+    {
+      "label": "init",
+      "args": [
+        "init",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511785951-8ny4he\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"manifestState\": \"ready\",\n    \"created\": [\n      \".knit/.gitignore\",\n      \".knit/.runtime/installation.json\",\n      \".knit/config.json\",\n      \".knit/workflow.yaml\",\n      \".knit/agents/implement.md\",\n      \".knit/agents/check.md\",\n      \".knit/agents/runtimes/pi.md\",\n      \".knit/standards/index.md\",\n      \".pi/extensions/knit.ts\"\n    ],\n    \"kept\": [],\n    \"updated\": [\n      \"AGENTS.md\"\n    ],\n    \"conflicts\": [],\n    \"failed\": [],\n    \"ready\": true,\n    \"bridgeReady\": true,\n    \"overwritten\": [],\n    \"overwriteCount\": 0,\n    \"backupRoot\": null,\n    \"backups\": [],\n    \"alreadyCurrent\": [],\n    \"orphans\": [],\n    \"gitWarning\": null\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:46.256Z"
+    },
+    {
+      "label": "check",
+      "args": [
+        "init",
+        "--check",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511786303-xh33kb\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"isGitRepo\": true,\n    \"resolvedFrom\": \"/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"gitWarning\": null,\n    \"items\": [\n      {\n        \"path\": \".knit/config.json\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/workflow.yaml\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/implement.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/check.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/runtimes/pi.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/standards/index.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".pi/extensions/knit.ts\",\n        \"ownership\": \"managed\",\n        \"action\": \"keep\",\n        \"reason\": \"已与当前模板一致\"\n      },\n      {\n        \"path\": \"AGENTS.md\",\n        \"ownership\": \"managed\",\n        \"action\": \"keep\",\n        \"reason\": \"受管标记块已存在（执行时按块内容逐字核对）\"\n      }\n    ],\n    \"force\": false,\n    \"overwriteCount\": 0,\n    \"orphans\": [],\n    \"agentsHasManagedBlock\": true\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:46.384Z"
+    },
+    {
+      "label": "repeat",
+      "args": [
+        "init",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511786431-2aeq7u\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"manifestState\": \"ready\",\n    \"created\": [],\n    \"kept\": [\n      \".knit/.gitignore\",\n      \".knit/config.json\",\n      \".knit/workflow.yaml\",\n      \".knit/agents/implement.md\",\n      \".knit/agents/check.md\",\n      \".knit/agents/runtimes/pi.md\",\n      \".knit/standards/index.md\",\n      \"AGENTS.md\",\n      \".pi/extensions/knit.ts\"\n    ],\n    \"updated\": [\n      \".knit/.runtime/installation.json\"\n    ],\n    \"conflicts\": [],\n    \"failed\": [],\n    \"ready\": true,\n    \"bridgeReady\": true,\n    \"overwritten\": [],\n    \"overwriteCount\": 0,\n    \"backupRoot\": null,\n    \"backups\": [],\n    \"alreadyCurrent\": [],\n    \"orphans\": [],\n    \"gitWarning\": null\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:46.648Z"
+    },
+    {
+      "label": "mismatch",
+      "args": [
+        "init",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511786695-si14de\",\n  \"outcome\": \"needs_attention\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"manifestState\": \"failed\",\n    \"created\": [],\n    \"kept\": [\n      \".knit/.gitignore\",\n      \".knit/config.json\",\n      \".knit/workflow.yaml\",\n      \".knit/agents/implement.md\",\n      \".knit/agents/check.md\",\n      \".knit/agents/runtimes/pi.md\",\n      \".knit/standards/index.md\",\n      \".pi/extensions/knit.ts\"\n    ],\n    \"updated\": [\n      \".knit/.runtime/installation.json\"\n    ],\n    \"conflicts\": [\n      \"AGENTS.md\"\n    ],\n    \"failed\": [],\n    \"ready\": false,\n    \"bridgeReady\": false,\n    \"overwritten\": [],\n    \"overwriteCount\": 0,\n    \"backupRoot\": null,\n    \"backups\": [],\n    \"alreadyCurrent\": [],\n    \"orphans\": [],\n    \"gitWarning\": null\n  },\n  \"reasonCode\": \"needs_review\"\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:46.914Z"
+    },
+    {
+      "label": "mismatch-check",
+      "args": [
+        "init",
+        "--check",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511786959-ujz8my\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"isGitRepo\": true,\n    \"resolvedFrom\": \"/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"gitWarning\": null,\n    \"items\": [\n      {\n        \"path\": \".knit/config.json\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/workflow.yaml\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/implement.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/check.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/agents/runtimes/pi.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".knit/standards/index.md\",\n        \"ownership\": \"project\",\n        \"action\": \"keep\",\n        \"reason\": \"项目资料只补缺，已存在则沿用\"\n      },\n      {\n        \"path\": \".pi/extensions/knit.ts\",\n        \"ownership\": \"managed\",\n        \"action\": \"keep\",\n        \"reason\": \"已与当前模板一致\"\n      },\n      {\n        \"path\": \"AGENTS.md\",\n        \"ownership\": \"managed\",\n        \"action\": \"keep\",\n        \"reason\": \"受管标记块已存在（执行时按块内容逐字核对）\"\n      }\n    ],\n    \"force\": false,\n    \"overwriteCount\": 0,\n    \"orphans\": [],\n    \"agentsHasManagedBlock\": true\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:47.036Z"
+    },
+    {
+      "label": "force",
+      "args": [
+        "init",
+        "--force",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"init-1794511787082-kta7bo\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"root\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"manifestState\": \"ready\",\n    \"created\": [],\n    \"kept\": [\n      \".knit/.gitignore\",\n      \".knit/config.json\",\n      \".knit/workflow.yaml\",\n      \".knit/agents/implement.md\",\n      \".knit/agents/check.md\",\n      \".knit/agents/runtimes/pi.md\",\n      \".knit/standards/index.md\",\n      \".pi/extensions/knit.ts\"\n    ],\n    \"updated\": [\n      \".knit/.runtime/installation.json\",\n      \"AGENTS.md\"\n    ],\n    \"conflicts\": [],\n    \"failed\": [],\n    \"ready\": true,\n    \"bridgeReady\": true,\n    \"overwritten\": [],\n    \"overwriteCount\": 0,\n    \"backupRoot\": null,\n    \"backups\": [],\n    \"alreadyCurrent\": [\n      \".knit/config.json\",\n      \".knit/workflow.yaml\",\n      \".knit/agents/implement.md\",\n      \".knit/agents/check.md\",\n      \".knit/agents/runtimes/pi.md\",\n      \".knit/standards/index.md\"\n    ],\n    \"orphans\": [],\n    \"gitWarning\": null\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:47.311Z"
+    },
+    {
+      "label": "doctor",
+      "args": [
+        "doctor",
+        "--dir",
+        "/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格"
+      ],
+      "exit": 0,
+      "signal": null,
+      "stdout": "{\n  \"protocolVersion\": 1,\n  \"requestId\": \"doctor-1794511787388\",\n  \"outcome\": \"completed\",\n  \"data\": {\n    \"ok\": true,\n    \"projectRoot\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格\",\n    \"protocolVersion\": 1,\n    \"checks\": [\n      {\n        \"name\": \"config\",\n        \"status\": \"ok\",\n        \"detail\": \"config.json 可解析\"\n      },\n      {\n        \"name\": \"scheduler\",\n        \"status\": \"ok\",\n        \"detail\": \"maxConcurrent=1；maxAttempts=1；worktree.default=off\"\n      },\n      {\n        \"name\": \"workflow\",\n        \"status\": \"ok\",\n        \"detail\": \".knit/workflow.yaml；准备 → 实现 → 检查 → 收尾\"\n      },\n      {\n        \"name\": \"init-manifest\",\n        \"status\": \"ok\",\n        \"detail\": \"state=ready\"\n      },\n      {\n        \"name\": \"installation\",\n        \"status\": \"ok\",\n        \"detail\": \"/private/tmp/knit-self-acceptance.l9v2Ka/runs/20261112T191918Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js\"\n      },\n      {\n        \"name\": \"installation-version\",\n        \"status\": \"ok\",\n        \"detail\": \"安装 CLI 0.1.0（/private/tmp/knit-self-acceptance.l9v2Ka/runs/20261112T191918Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js）\"\n      },\n      {\n        \"name\": \"bridge\",\n        \"status\": \"ok\",\n        \"detail\": \"/private/tmp/knit-self-acceptance.l9v2Ka/projects/普通 中文 空格/.pi/extensions/knit.ts\"\n      },\n      {\n        \"name\": \"worker\",\n        \"status\": \"ok\",\n        \"detail\": \"/private/tmp/knit-self-acceptance.l9v2Ka/runs/20261112T191918Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/worker/knit-worker.js\"\n      },\n      {\n        \"name\": \"bridge-schema\",\n        \"status\": \"ok\",\n        \"detail\": \"/private/tmp/knit-self-acceptance.l9v2Ka/runs/20261112T191918Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/contracts/bridge-tools.json\"\n      },\n      {\n        \"name\": \"metadata\",\n        \"status\": \"warn\",\n        \"detail\": \"元数据库尚未创建（首次写操作会创建）\"\n      },\n      {\n        \"name\": \"git\",\n        \"status\": \"warn\",\n        \"detail\": \"无可用 HEAD（正式代码阶段与交付需要）\"\n      },\n      {\n        \"name\": \"branch\",\n        \"status\": \"ok\",\n        \"detail\": \"refs/heads/main\"\n      },\n      {\n        \"name\": \"filesystem\",\n        \"status\": \"ok\",\n        \"detail\": \"项目根文件系统可本地核实\"\n      },\n      {\n        \"name\": \"cloud-sync\",\n        \"status\": \"ok\",\n        \"detail\": \"未命中已知云同步根\"\n      },\n      {\n        \"name\": \"pi\",\n        \"status\": \"ok\",\n        \"detail\": \"1.5.2\"\n      },\n      {\n        \"name\": \"protocol\",\n        \"status\": \"ok\",\n        \"detail\": \"protocol=1；package=0.1.0\"\n      },\n      {\n        \"name\": \"locks\",\n        \"status\": \"ok\",\n        \"detail\": \"/Users/me/.knit/locks（无锁记录）\"\n      },\n      {\n        \"name\": \"completion-evidence\",\n        \"status\": \"ok\",\n        \"detail\": \"未归档已完成任务均有完成凭据\"\n      }\n    ]\n  }\n}\n",
+      "stderr": "",
+      "at": "2026-11-12T19:29:47.609Z"
+    }
+  ],
+  "checks": {
+    "initialCheckReadOnly": true,
+    "defaultPreserved": true,
+    "mismatchCheckUnchanged": true,
+    "userRulesPreserved": true,
+    "managedDifferenceReplacedByExplicitForce": true,
+    "backupEntries": [],
+    "hasNodeModules": false,
+    "hasUserPiSession": false
+  }
+}

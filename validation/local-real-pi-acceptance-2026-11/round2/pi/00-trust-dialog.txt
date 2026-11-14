@@ -1,0 +1,13 @@
+# 真实信任对话框（Terminal 窗口 ��/dev/ttys011，2026-11-14 09:56 +08）
+# 来源：osascript 读取的终端文本；当时窗口不在前台，screencapture -l 失败，没有该对话框的截图。
+# 主会话操作：下移两次后回车，选中「Trust (this session only)」。
+ Trust project folder?
+ /private/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格
+
+ This allows pi to load .pi settings and resources, install missing project packages, and execute project extensions.
+ → Trust
+   Trust parent folder (/private/tmp/knit-self-acceptance2.JyPWM8/projects)
+   Trust (this session only)
+   Do not trust
+   Do not trust (this session only)
+ ↑↓ navigate  enter select  escape/ctrl+c cancel

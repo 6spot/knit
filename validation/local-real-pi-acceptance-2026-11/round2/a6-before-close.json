@@ -1,0 +1,215 @@
+{
+  "project": "/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+  "statuses": [
+    {
+      "task": {
+        "id": "k-6a8a7f50de25",
+        "name": "one"
+      },
+      "status": {
+        "error": "任务不存在: k-6a8a7f50de25"
+      },
+      "wt": {
+        "taskId": "k-6a8a7f50de25",
+        "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+        "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+        "state": "worktree",
+        "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-one",
+        "branch": "refs/heads/knit/11-14-wt-one",
+        "layout": "project",
+        "prepared": true,
+        "active": true,
+        "problem": null
+      }
+    },
+    {
+      "task": {
+        "id": "k-7c0163f817e6",
+        "name": "two"
+      },
+      "status": {
+        "error": "任务不存在: k-7c0163f817e6"
+      },
+      "wt": {
+        "taskId": "k-7c0163f817e6",
+        "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+        "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+        "state": "worktree",
+        "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-two",
+        "branch": "refs/heads/knit/11-14-wt-two",
+        "layout": "project",
+        "prepared": true,
+        "active": true,
+        "problem": null
+      }
+    }
+  ],
+  "results": [
+    {
+      "label": "status-one",
+      "args": [
+        "status",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631305348",
+        "outcome": "blocked",
+        "data": {
+          "error": "任务不存在: k-6a8a7f50de25"
+        },
+        "reasonCode": "io_error"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:41:45.386Z"
+    },
+    {
+      "label": "worktree-status-one",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-6a8a7f50de25"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631305457-69b9dv",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-6a8a7f50de25",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-one",
+          "branch": "refs/heads/knit/11-14-wt-one",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:41:45.572Z"
+    },
+    {
+      "label": "status-two",
+      "args": [
+        "status",
+        "k-7c0163f817e6"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "status-1794631305639",
+        "outcome": "blocked",
+        "data": {
+          "error": "任务不存在: k-7c0163f817e6"
+        },
+        "reasonCode": "io_error"
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:41:45.673Z"
+    },
+    {
+      "label": "worktree-status-two",
+      "args": [
+        "worktree",
+        "status",
+        "--task",
+        "k-7c0163f817e6"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-status-1794631305738-89d1ng",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-7c0163f817e6",
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+          "startDir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-two",
+          "branch": "refs/heads/knit/11-14-wt-two",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:41:45.838Z"
+    },
+    {
+      "label": "worktree-list",
+      "args": [
+        "worktree",
+        "list"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-list-1794631305903-l04a3h",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+          "entries": [
+            {
+              "taskId": "k-6a8a7f50de25",
+              "state": "worktree",
+              "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-one",
+              "branch": "refs/heads/knit/11-14-wt-one",
+              "layout": "project",
+              "prepared": true,
+              "active": true,
+              "problem": null
+            },
+            {
+              "taskId": "k-7c0163f817e6",
+              "state": "worktree",
+              "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-two",
+              "branch": "refs/heads/knit/11-14-wt-two",
+              "layout": "project",
+              "prepared": true,
+              "active": true,
+              "problem": null
+            }
+          ]
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:41:46.065Z"
+    }
+  ],
+  "list": {
+    "protocolVersion": 1,
+    "requestId": "worktree-list-1794631305903-l04a3h",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文",
+      "entries": [
+        {
+          "taskId": "k-6a8a7f50de25",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-one",
+          "branch": "refs/heads/knit/11-14-wt-one",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        },
+        {
+          "taskId": "k-7c0163f817e6",
+          "state": "worktree",
+          "dir": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/工作树 调度 中文/.knit/worktrees/11-14-wt-two",
+          "branch": "refs/heads/knit/11-14-wt-two",
+          "layout": "project",
+          "prepared": true,
+          "active": true,
+          "problem": null
+        }
+      ]
+    }
+  }
+}

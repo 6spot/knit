@@ -1,0 +1,7 @@
+00-export-verify	0	1	do_export
+01-npm-ci	0	0	npm ci --include=dev --no-audit --no-fund
+02-typecheck	0	2	npm run typecheck
+03-build	0	2	npm run build
+04-test	0	250	npm test
+05-pack-check	0	5	npm run pack:check
+06-pack-install	0	4	npm run pack:install -- --prefix /private/tmp/knit-self-acceptance2.JyPWM8/runs/20261114T000949Z--normal-engineering/install-prefix

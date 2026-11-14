@@ -1,0 +1,26 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+  "tasks": {
+    "native": {
+      "taskId": "k-bb3d81794def",
+      "file": "native-retry.txt",
+      "tag": "native-retry"
+    },
+    "fresh": {
+      "taskId": "k-8e83bbf0f257",
+      "file": "fresh.txt",
+      "input": "/tmp/knit-self-acceptance3.kFgIO0/fresh-inputs.md"
+    },
+    "stale": {
+      "taskId": "k-08affa4b028c",
+      "file": "stale.txt",
+      "input": "/tmp/knit-self-acceptance3.kFgIO0/stale-inputs.md"
+    },
+    "originalNative": {
+      "taskId": "k-cfc059c66684",
+      "file": "native.txt",
+      "input": "/tmp/knit-self-acceptance3.kFgIO0/native-inputs.md",
+      "runId": "run-26efdb38b47b"
+    }
+  }
+}

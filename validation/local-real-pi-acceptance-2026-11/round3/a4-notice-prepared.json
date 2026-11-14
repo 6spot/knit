@@ -1,0 +1,185 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+  "tasks": {
+    "passive-card": {
+      "taskId": "k-97bddd37ea69",
+      "file": "passive.txt"
+    },
+    "notice-cancel": {
+      "taskId": "k-34fcf8e07eaf",
+      "file": "cancel.txt"
+    }
+  },
+  "results": [
+    {
+      "label": "new-passive-card",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "被动通知卡片",
+        "--slug",
+        "passive-card",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794647452099-henovs",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-97bddd37ea69",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-passive-card/task.md",
+          "title": "被动通知卡片",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:52.396Z"
+    },
+    {
+      "label": "update-passive-card",
+      "args": [
+        "task",
+        "update",
+        "k-97bddd37ea69",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/passive-card-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794647452471-txta45",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-97bddd37ea69",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "cb7424ecf8a6f519eb369f6431c67adbda0a8e192cdadad31c77aca2cfc56fc1",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:52.761Z"
+    },
+    {
+      "label": "ready-passive-card",
+      "args": [
+        "task",
+        "ready",
+        "k-97bddd37ea69"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794647452833-dclx23",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-97bddd37ea69",
+          "stage": "implement",
+          "confirmedInputsDigest": "cb7424ecf8a6f519eb369f6431c67adbda0a8e192cdadad31c77aca2cfc56fc1",
+          "confirmedStandardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:53.209Z"
+    },
+    {
+      "label": "new-notice-cancel",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "取消通知唤醒",
+        "--slug",
+        "notice-cancel",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794647453281-874lll",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-34fcf8e07eaf",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-notice-cancel/task.md",
+          "title": "取消通知唤醒",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:53.568Z"
+    },
+    {
+      "label": "update-notice-cancel",
+      "args": [
+        "task",
+        "update",
+        "k-34fcf8e07eaf",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/notice-cancel-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794647453641-9x2ohx",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-34fcf8e07eaf",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "139d77e1e563fa05f7e1bcf3d147f541c28919cc42f68378d7e7410afd7d2bd1",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:53.920Z"
+    },
+    {
+      "label": "ready-notice-cancel",
+      "args": [
+        "task",
+        "ready",
+        "k-34fcf8e07eaf"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794647453989-ksdllf",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-34fcf8e07eaf",
+          "stage": "implement",
+          "confirmedInputsDigest": "139d77e1e563fa05f7e1bcf3d147f541c28919cc42f68378d7e7410afd7d2bd1",
+          "confirmedStandardsDigest": "bb6b43aa9a5b195736484e89b83c2ac726d098f8219484945d70c584a0546f57",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:10:54.358Z"
+    }
+  ]
+}

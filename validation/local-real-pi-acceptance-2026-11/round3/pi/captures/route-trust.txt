@@ -1,0 +1,31 @@
+Last login: Sat Nov 14 15:22:01 on ttys020
+bash /tmp/knit-accept3/launch-pi-route.sh
+me@MacBook-Pro ~ % bash /tmp/knit-accept3/launch-pi-route.sh
+Agent-driven route acceptance; interactive session-only trust.
+TERM_PROGRAM=Apple_Terminal REX_SESSION= REX_BLOCK=
+/dev/ttys023
+v26.3.0
+0.1.0
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ Trust project folder?                                                                                                  
+ /private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone                                                 
+                                                                                                                        
+ This allows pi to load .pi settings and resources, install missing project packages, and execute project extensions.   
+
+ → Trust                                                                                                                
+   Trust parent folder (/private/tmp/knit-self-acceptance3.kFgIO0/projects)                                             
+   Trust (this session only)                                                                                            
+   Do not trust                                                                                                         
+   Do not trust (this session only)                                                                                     
+
+ ↑↓ navigate  enter select  escape/ctrl+c cancel                                                                        
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+

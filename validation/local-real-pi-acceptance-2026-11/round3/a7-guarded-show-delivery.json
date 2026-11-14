@@ -1,0 +1,230 @@
+{
+  "messageShownBeforeDelivery": true,
+  "shownInHostEntry": {
+    "id": "cd766ea0",
+    "timestamp": "2026-11-14T12:41:38.776Z"
+  },
+  "hostSession": "/Users/me/.pi/agent/sessions/--Users-me-IdeaProjects-knit--/2026-11-13T13-32-03-730Z_01a1d51b-af12-7708-a6a7-2322630d5525.jsonl",
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/交付 守卫展示 中文",
+  "taskId": "k-c091536e563f",
+  "preparedAt": "2026-11-14T12:22:02.304Z",
+  "deliveryStartedAt": "2026-11-14T12:44:33.647Z",
+  "operationId": "op-56bf564046be",
+  "workCommit": "b5d35b239379af3bcc4f1c9ceba161e6fa681e72",
+  "log": [
+    "863daf0c14ce97836962eaa1374971d281753991 chore(task): archive 11-14-guarded-show (k-c091536e563f)",
+    "d293bfdf893686e4972d992d1c162a363dfe4b70 chore(task): 先展示文案再交付 (k-c091536e563f)",
+    "b5d35b239379af3bcc4f1c9ceba161e6fa681e72 test: deliver the acceptance guarded-show fixture",
+    "3feca5d4978afd4440bc60aff089d3a3bddf09b3 test: seed isolated delivery fixture"
+  ],
+  "checks": {
+    "untouchedBeforeDelivery": true,
+    "delivered": true,
+    "authorizationVerified": true,
+    "artifactPathsExact": true,
+    "messageBodyKept": true,
+    "threeSeparateCommits": true,
+    "sentinelUncommitted": true,
+    "archivedListed": true,
+    "notInActive": true,
+    "historySearchable": true
+  },
+  "results": [
+    {
+      "label": "deliver",
+      "args": [
+        "deliver",
+        "k-c091536e563f",
+        "--branch",
+        "refs/heads/main",
+        "--caller",
+        "agent",
+        "--session-file",
+        "/Users/me/.pi/agent/sessions/--Users-me-IdeaProjects-knit--/2026-11-13T13-32-03-730Z_01a1d51b-af12-7708-a6a7-2322630d5525.jsonl",
+        "--authorization-ref",
+        "user:387707d9",
+        "--message-file",
+        "/tmp/knit-self-acceptance3.kFgIO0/guarded-show-commit.txt"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "deliver-1794660273723",
+        "outcome": "completed",
+        "data": {
+          "operationId": "op-56bf564046be",
+          "taskId": "k-c091536e563f",
+          "mode": "deliver",
+          "state": "completed",
+          "reason": null,
+          "branch": "refs/heads/main",
+          "workCommit": "b5d35b239379af3bcc4f1c9ceba161e6fa681e72",
+          "metadataCommit": "d293bfdf893686e4972d992d1c162a363dfe4b70",
+          "archiveCommit": "863daf0c14ce97836962eaa1374971d281753991",
+          "archivePath": ".knit/tasks/archive/2026-11/11-14-guarded-show",
+          "defaultBranch": {
+            "ref": null,
+            "source": "unknown",
+            "exists": false
+          },
+          "authorization": {
+            "kind": "user_reference",
+            "ref": "user:387707d9",
+            "path": "/Users/me/.pi/agent/sessions/--Users-me-IdeaProjects-knit--/2026-11-13T13-32-03-730Z_01a1d51b-af12-7708-a6a7-2322630d5525.jsonl",
+            "section": "387707d9",
+            "digest": "427c5dd0bab6b2dc8429a3afe6f8a0e88d57086af5a4364a7a1f93ed53b91d6d",
+            "verified": true
+          },
+          "caller": "bridge",
+          "worktree": null,
+          "needsAttention": false,
+          "messages": {
+            "artifact": {
+              "source": "agent",
+              "subject": "test: deliver the acceptance guarded-show fixture"
+            },
+            "metadata": {
+              "source": "template",
+              "subject": "chore(task): 先展示文案再交付 (k-c091536e563f)"
+            },
+            "archive": {
+              "source": "template",
+              "subject": "chore(task): archive 11-14-guarded-show (k-c091536e563f)"
+            }
+          },
+          "noArtifactCommit": false,
+          "noArtifactReason": null,
+          "noArtifactNotice": null,
+          "hooks": {
+            "mode": "skip",
+            "dir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/交付 守卫展示 中文/.git/hooks",
+            "baseline": "none",
+            "changes": []
+          }
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T12:44:34.955Z"
+    },
+    {
+      "label": "list-archive",
+      "args": [
+        "task",
+        "list",
+        "--archive"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-list-1794660275044-7mqhd7",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/交付 守卫展示 中文",
+          "scope": "archive",
+          "archived": [
+            {
+              "taskId": "k-c091536e563f",
+              "title": "先展示文案再交付",
+              "status": "closed",
+              "stage": "deliver",
+              "outcome": "completed",
+              "branch": "refs/heads/main",
+              "verification": "self",
+              "relativePath": "tasks/archive/2026-11/11-14-guarded-show",
+              "archived": true,
+              "history": {
+                "kind": "git-history",
+                "problems": []
+              },
+              "createdAt": "2026-11-14T12:22:00.943Z",
+              "parent": null,
+              "children": [],
+              "openChildren": [],
+              "priority": "P2",
+              "dependsOn": [],
+              "order": null,
+              "blocked": []
+            }
+          ],
+          "archivedCount": 1,
+          "problems": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T12:44:35.153Z"
+    },
+    {
+      "label": "list-active",
+      "args": [
+        "task",
+        "list"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-list-1794660275222-2wlnlt",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/交付 守卫展示 中文",
+          "scope": "active",
+          "active": [],
+          "archivedCount": 1,
+          "bindingMissing": [],
+          "problems": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T12:44:35.326Z"
+    },
+    {
+      "label": "search",
+      "args": [
+        "task",
+        "search",
+        "k-c091536e563f"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-search-1794660275397-bh0913",
+        "outcome": "completed",
+        "data": [
+          {
+            "kind": "archive",
+            "taskId": "k-c091536e563f",
+            "path": ".knit/tasks/archive/2026-11/11-14-guarded-show/task.md",
+            "line": 2,
+            "snippet": "id: k-c091536e563f",
+            "ref": ".knit/tasks/archive/2026-11/11-14-guarded-show/task.md:2"
+          },
+          {
+            "kind": "git",
+            "taskId": null,
+            "path": "git",
+            "line": 1,
+            "snippet": "chore(task): archive 11-14-guarded-show (k-c091536e563f)",
+            "ref": "commit:863daf0c14ce97836962eaa1374971d281753991"
+          },
+          {
+            "kind": "git",
+            "taskId": null,
+            "path": "git",
+            "line": 1,
+            "snippet": "chore(task): 先展示文案再交付 (k-c091536e563f)",
+            "ref": "commit:d293bfdf893686e4972d992d1c162a363dfe4b70"
+          },
+          {
+            "kind": "git",
+            "taskId": null,
+            "path": "git",
+            "line": 10,
+            "snippet": "Knit-Task: k-c091536e563f",
+            "ref": "commit:b5d35b239379af3bcc4f1c9ceba161e6fa681e72"
+          }
+        ]
+      },
+      "stderr": "",
+      "at": "2026-11-14T12:44:35.419Z"
+    }
+  ]
+}

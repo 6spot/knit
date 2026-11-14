@@ -1,0 +1,307 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+  "tasks": [
+    {
+      "id": "k-5a075a040c6b",
+      "name": "one"
+    },
+    {
+      "id": "k-4c0fb22b6385",
+      "name": "two"
+    }
+  ],
+  "results": [
+    {
+      "label": "init",
+      "args": [
+        "init"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "init-1794641183001-utq28i",
+        "outcome": "completed",
+        "data": {
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+          "manifestState": "ready",
+          "created": [
+            ".knit/.gitignore",
+            ".knit/.runtime/installation.json",
+            ".knit/config.json",
+            ".knit/workflow.yaml",
+            ".knit/agents/implement.md",
+            ".knit/agents/check.md",
+            ".knit/agents/runtimes/pi.md",
+            ".knit/standards/index.md",
+            ".pi/extensions/knit.ts"
+          ],
+          "kept": [],
+          "updated": [
+            "AGENTS.md"
+          ],
+          "conflicts": [],
+          "failed": [],
+          "ready": true,
+          "bridgeReady": true,
+          "overwritten": [],
+          "overwriteCount": 0,
+          "backupRoot": null,
+          "backups": [],
+          "alreadyCurrent": [],
+          "orphans": [],
+          "gitWarning": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:23.325Z"
+    },
+    {
+      "label": "new-one",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "工作树调度 one",
+        "--slug",
+        "wt-one",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794641183447-n89twp",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5a075a040c6b",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+          "relativePath": "tasks/11-14-wt-one/task.md",
+          "title": "工作树调度 one",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:23.713Z"
+    },
+    {
+      "label": "update-one",
+      "args": [
+        "task",
+        "update",
+        "k-5a075a040c6b",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/wt-one-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794641183782-zopcbe",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5a075a040c6b",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "6a097c17c83bd89d4d27d04bca1569a32f1fe70983d1fe44e7434e5543f07b66",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:24.040Z"
+    },
+    {
+      "label": "plan-one",
+      "args": [
+        "task",
+        "material",
+        "save",
+        "k-5a075a040c6b",
+        "plan.md",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/wt-one-plan.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-material-save-1794641184108-1wsvkn",
+        "outcome": "completed",
+        "data": {
+          "path": "plan.md",
+          "digest": "768ba47b8433cdba61ac74bae17734466917aefdb79bd645c6acd3b0b1afdb02",
+          "created": true
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:24.245Z"
+    },
+    {
+      "label": "ready-one",
+      "args": [
+        "task",
+        "ready",
+        "k-5a075a040c6b"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794641184316-fefr45",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-5a075a040c6b",
+          "stage": "implement",
+          "confirmedInputsDigest": "6a097c17c83bd89d4d27d04bca1569a32f1fe70983d1fe44e7434e5543f07b66",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:24.651Z"
+    },
+    {
+      "label": "new-two",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "工作树调度 two",
+        "--slug",
+        "wt-two",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794641184721-dih5mg",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-4c0fb22b6385",
+          "root": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+          "relativePath": "tasks/11-14-wt-two/task.md",
+          "title": "工作树调度 two",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:24.981Z"
+    },
+    {
+      "label": "update-two",
+      "args": [
+        "task",
+        "update",
+        "k-4c0fb22b6385",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/wt-two-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794641185049-006b8g",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-4c0fb22b6385",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "1d386a8b2ac1cd0f91a10b27d9dc1d3c3ad3742dd8037b0ec521e5adbc3a93e9",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:25.301Z"
+    },
+    {
+      "label": "plan-two",
+      "args": [
+        "task",
+        "material",
+        "save",
+        "k-4c0fb22b6385",
+        "plan.md",
+        "--file",
+        "/tmp/knit-self-acceptance3.kFgIO0/wt-two-plan.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-material-save-1794641185373-74byxv",
+        "outcome": "completed",
+        "data": {
+          "path": "plan.md",
+          "digest": "001b467a8f09b46e3d37f68034192426a2588e1d22f42df7dd04fefef0515245",
+          "created": true
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:25.505Z"
+    },
+    {
+      "label": "ready-two",
+      "args": [
+        "task",
+        "ready",
+        "k-4c0fb22b6385"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794641185576-fjoq38",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-4c0fb22b6385",
+          "stage": "implement",
+          "confirmedInputsDigest": "1d386a8b2ac1cd0f91a10b27d9dc1d3c3ad3742dd8037b0ec521e5adbc3a93e9",
+          "confirmedStandardsDigest": "3fed2bfbf0f1e625fe50f03a484e27d650e725d1aa89c62b4122107e0032545b",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:25.903Z"
+    },
+    {
+      "label": "worktree-list-before",
+      "args": [
+        "worktree",
+        "list"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "worktree-list-1794641185974-x4gy99",
+        "outcome": "completed",
+        "data": {
+          "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+          "entries": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T07:26:26.046Z"
+    }
+  ],
+  "status": {
+    "protocolVersion": 1,
+    "requestId": "worktree-list-1794641185974-x4gy99",
+    "outcome": "completed",
+    "data": {
+      "mainRoot": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/工作树 调度 中文",
+      "entries": []
+    }
+  }
+}

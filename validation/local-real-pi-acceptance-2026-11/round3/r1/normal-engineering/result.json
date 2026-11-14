@@ -1,0 +1,115 @@
+{
+  "kind": "normal-engineering",
+  "taskId": "k-b9019179b424",
+  "mode": "verification",
+  "preparedBy": "P0 worker run-8d8e0996ecbf",
+  "ok": true,
+  "verificationStatus": "pass",
+  "startedAt": "2026-11-14T07:09:11Z",
+  "finishedAt": "2026-11-14T07:13:54Z",
+  "exitCode": 0,
+  "failureReason": null,
+  "isolationRoot": "/private/tmp/knit-self-acceptance3.kFgIO0",
+  "runDir": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering",
+  "source": {
+    "repo": "/Users/me/IdeaProjects/knit",
+    "commit": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "packageVersion": "0.1.0",
+    "archiveSha256": "80db0d5d7e60c72fdee73562fad6359185664d37000918b6a3a8eff31d4fada2",
+    "exportManifest": "export-manifest.json",
+    "exportFileCount": 830,
+    "exportContentDigest": "sha256:ae5fadfafaa65a3de330300eb7a656434d188e157d5664b1eb02c32d9e66f841"
+  },
+  "environment": {
+    "nodeVersion": "v26.3.0",
+    "nodePath": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/node",
+    "npmVersion": "11.16.0",
+    "npmPath": "/Users/me/.local/share/mise/installs/node/26.3.0/bin/npm",
+    "piVersion": "1.5.2",
+    "piPath": "/Users/me/.pi/agent/bin/pi",
+    "rexBin": "",
+    "rexAppVersion": "",
+    "rexAppBuild": ""
+  },
+  "authenticity": {
+    "tty": "/dev/ttys018",
+    "termProgram": "Apple_Terminal",
+    "termProgramVersion": "488.9",
+    "normalTerminal": true,
+    "rexSession": null,
+    "rexBlock": null,
+    "rexServer": null
+  },
+  "repo": {
+    "headBefore": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "headAfter": "ff318899a985ea2ba14f1619aa94479a40ce7298",
+    "statusSha256Before": "4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb",
+    "statusSha256After": "4ad8367fa31b5029b5667f5ac35f0e59b6141ccd56cb2573faa79cf2cb381fbb",
+    "statusLinesBefore": 4,
+    "statusLinesAfter": 4,
+    "unchangedDuringRun": true
+  },
+  "steps": [
+    {
+      "name": "00-export-verify",
+      "exitCode": 0,
+      "seconds": 1,
+      "command": "do_export"
+    },
+    {
+      "name": "01-npm-ci",
+      "exitCode": 0,
+      "seconds": 0,
+      "command": "npm ci --include=dev --no-audit --no-fund"
+    },
+    {
+      "name": "02-typecheck",
+      "exitCode": 0,
+      "seconds": 2,
+      "command": "npm run typecheck"
+    },
+    {
+      "name": "03-build",
+      "exitCode": 0,
+      "seconds": 2,
+      "command": "npm run build"
+    },
+    {
+      "name": "04-test",
+      "exitCode": 0,
+      "seconds": 268,
+      "command": "npm test"
+    },
+    {
+      "name": "05-pack-check",
+      "exitCode": 0,
+      "seconds": 5,
+      "command": "npm run pack:check"
+    },
+    {
+      "name": "06-pack-install",
+      "exitCode": 0,
+      "seconds": 4,
+      "command": "npm run pack:install -- --prefix /private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix"
+    }
+  ],
+  "tests": {
+    "tests": 798,
+    "suites": 0,
+    "pass": 798,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 264259.363208
+  },
+  "packInstall": {
+    "prefix": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix",
+    "tarball": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/src/knit-0.1.0.tgz",
+    "tarballSha256": "3b41207a522e331f8d0459248e354358919b72e2380fbc7e7795e402d7b5aba8",
+    "entry": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix/bin/knit",
+    "entryRealpath": "/private/tmp/knit-self-acceptance3.kFgIO0/runs/20261114T070911Z--normal-engineering/install-prefix/lib/node_modules/knit/dist/cli/knit.js",
+    "shebang": "#!/usr/bin/env node",
+    "version": "0.1.0"
+  }
+}

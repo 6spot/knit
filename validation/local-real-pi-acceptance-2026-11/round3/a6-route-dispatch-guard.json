@@ -1,0 +1,41 @@
+{
+  "project": "/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone",
+  "taskId": "k-e0352f74131b",
+  "dir": "/private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route",
+  "checks": {
+    "rejected": true,
+    "noRunCreated": true,
+    "message": "execution_dir_mismatch: 任务资料与执行目录在 /private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route，当前 /private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone；请 cd 到实际执行目录后重试",
+    "reasonCode": "needs_review"
+  },
+  "results": [
+    {
+      "label": "prepare-from-main",
+      "args": [
+        "run",
+        "prepare",
+        "--task",
+        "k-e0352f74131b",
+        "--stage",
+        "implement",
+        "--local",
+        "--provider",
+        "magpie",
+        "--model",
+        "group/deepseek"
+      ],
+      "exit": 1,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "run-prepare",
+        "outcome": "error",
+        "data": {
+          "error": "execution_dir_mismatch: 任务资料与执行目录在 /private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone/.knit/worktrees/11-14-bridge-route，当前 /private/tmp/knit-self-acceptance3.kFgIO0/projects/目标 index 与 clone；请 cd 到实际执行目录后重试"
+        },
+        "reasonCode": "needs_review"
+      },
+      "stderr": "",
+      "at": "2026-11-14T09:39:11.114Z"
+    }
+  ]
+}

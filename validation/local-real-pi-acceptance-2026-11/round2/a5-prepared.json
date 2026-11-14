@@ -1,0 +1,277 @@
+{
+  "project": "/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格",
+  "tasks": {
+    "native": {
+      "taskId": "k-a4d018c9be91",
+      "file": "native.txt",
+      "input": "/tmp/knit-self-acceptance2.JyPWM8/native-inputs.md"
+    },
+    "fresh": {
+      "taskId": "k-1ab637131c02",
+      "file": "fresh.txt",
+      "input": "/tmp/knit-self-acceptance2.JyPWM8/fresh-inputs.md"
+    },
+    "stale": {
+      "taskId": "k-3624fa80b4da",
+      "file": "stale.txt",
+      "input": "/tmp/knit-self-acceptance2.JyPWM8/stale-inputs.md"
+    }
+  },
+  "results": [
+    {
+      "label": "new-native",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "取消后原生续接",
+        "--slug",
+        "native",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794630815586-1vuf39",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-a4d018c9be91",
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-native/task.md",
+          "title": "取消后原生续接",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:35.848Z"
+    },
+    {
+      "label": "update-native",
+      "args": [
+        "task",
+        "update",
+        "k-a4d018c9be91",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/native-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794630815918-r8uohl",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-a4d018c9be91",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "ab1baeeb1e0fe259b7ab97d13025776473698eb69d863017d0357aa512c4f8b6",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:36.107Z"
+    },
+    {
+      "label": "ready-native",
+      "args": [
+        "task",
+        "ready",
+        "k-a4d018c9be91"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794630816177-c0un91",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-a4d018c9be91",
+          "stage": "implement",
+          "confirmedInputsDigest": "ab1baeeb1e0fe259b7ab97d13025776473698eb69d863017d0357aa512c4f8b6",
+          "confirmedStandardsDigest": "6bbfba562ae5ac68ca170722d99998e8e929a43e226bf6fb6400ae12d5acdde0",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:36.424Z"
+    },
+    {
+      "label": "new-fresh",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "原生缺失自动新会话",
+        "--slug",
+        "fresh",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794630816491-utl5kx",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1ab637131c02",
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-fresh/task.md",
+          "title": "原生缺失自动新会话",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:36.723Z"
+    },
+    {
+      "label": "update-fresh",
+      "args": [
+        "task",
+        "update",
+        "k-1ab637131c02",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/fresh-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794630816789-tq8fsf",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1ab637131c02",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "32d1a6fe571a7f5876761f9cae0df804325d0ab678d4befecae1a3a93141a972",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:36.963Z"
+    },
+    {
+      "label": "ready-fresh",
+      "args": [
+        "task",
+        "ready",
+        "k-1ab637131c02"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794630817030-o7e7z5",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-1ab637131c02",
+          "stage": "implement",
+          "confirmedInputsDigest": "32d1a6fe571a7f5876761f9cae0df804325d0ab678d4befecae1a3a93141a972",
+          "confirmedStandardsDigest": "6bbfba562ae5ac68ca170722d99998e8e929a43e226bf6fb6400ae12d5acdde0",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:37.272Z"
+    },
+    {
+      "label": "new-stale",
+      "args": [
+        "task",
+        "new",
+        "--title",
+        "活动输入更新",
+        "--slug",
+        "stale",
+        "--verification",
+        "self"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-new-1794630817338-op6y1l",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-3624fa80b4da",
+          "root": "/private/tmp/knit-self-acceptance2.JyPWM8/projects/普通 中文 空格",
+          "relativePath": "tasks/11-14-stale/task.md",
+          "title": "活动输入更新",
+          "branch": "refs/heads/main",
+          "verification": "self",
+          "parent": null,
+          "priority": "P2",
+          "dependsOn": []
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:37.552Z"
+    },
+    {
+      "label": "update-stale",
+      "args": [
+        "task",
+        "update",
+        "k-3624fa80b4da",
+        "--kind",
+        "clarify",
+        "--file",
+        "/tmp/knit-self-acceptance2.JyPWM8/stale-inputs.md"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-update-1794630817614-5b1h79",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-3624fa80b4da",
+          "applied": "direct",
+          "stage": "start",
+          "status": "open",
+          "outcome": null,
+          "inputsDigest": "366b747b5174dc249511df88a5ffa6b3857f58bdd93cccfe730c9769e9f91c9a",
+          "digestChanged": true,
+          "pendingDraftDigest": null
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:37.785Z"
+    },
+    {
+      "label": "ready-stale",
+      "args": [
+        "task",
+        "ready",
+        "k-3624fa80b4da"
+      ],
+      "exit": 0,
+      "response": {
+        "protocolVersion": 1,
+        "requestId": "task-ready-1794630817848-6k55mh",
+        "outcome": "completed",
+        "data": {
+          "taskId": "k-3624fa80b4da",
+          "stage": "implement",
+          "confirmedInputsDigest": "366b747b5174dc249511df88a5ffa6b3857f58bdd93cccfe730c9769e9f91c9a",
+          "confirmedStandardsDigest": "6bbfba562ae5ac68ca170722d99998e8e929a43e226bf6fb6400ae12d5acdde0",
+          "scenarios": 0
+        }
+      },
+      "stderr": "",
+      "at": "2026-11-14T04:33:38.077Z"
+    }
+  ]
+}
