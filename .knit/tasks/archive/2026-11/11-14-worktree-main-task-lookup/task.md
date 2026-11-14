@@ -148,4 +148,10 @@ title: Worktree：主检出按绑定查找任务、选择与上下文
 - 结果: 正常交付；检查 run-4844d766c52b 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-14-worktree-main-task-lookup
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-54081d4a3158 -->
+- 任务资料提交: 3cfac13752378459ff033bff26bd2a74daafa228
+- 归档目标: .knit/tasks/archive/2026-11/11-14-worktree-main-task-lookup
+
 <!-- knit:progress:end -->
