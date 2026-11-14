@@ -265,4 +265,10 @@ DeepSeek只读诊断已落盘research/worktree-close-routing-diagnosis.md：两�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-12-local-real-pi-acceptance
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-5084d5c02be3 -->
+- 任务资料提交: 29295e220f2907b8d8239ada5a8579ba7d69e35c
+- 归档目标: .knit/tasks/archive/2026-11/11-12-local-real-pi-acceptance
+
 <!-- knit:progress:end -->
