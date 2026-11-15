@@ -1,8 +1,8 @@
 ---
 id: k-d5b1b45edf09
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -17,7 +17,10 @@ title: C1 任务文档：解析和写回 task.md、record.json
 
 ## 目标与范围
 
-背景：本仓库正在把 Knit 重写成一个小核心，新代码在 `next/`，旧代码不动。小核心里一个任务是 `.knit/tasks/<目录>/` 下的两个文件：`task.md` 放需求、状态和结果，人和程序都读；`record.json` 放人不需要读的运行记录；两个文件的内容不重复（`.knit/tasks/11-14-slim-refactor/design.md` 第 3 节）。新格式和旧代码用的不一样：旧的 `task.md` 用 `status: open|closed` 加 `outcome`，正文里有 `<!-- knit:progress:start -->` 记录区，新的都没有。所以本任务是新写，不搬 `src/application/task-document.ts`。
+背景：本仓库正在把 Knit 重写成一个小核心，新代码在 `next/`，旧代码不动。小核心里一个任务是 `.knit/tasks/<目录>/` 下的两个文件：`task.md` 放需求、状态和结果，人和程序都读；`record.json` 放人不需要读的运行记录；两个文件的内容不重复（`.knit/tasks/11-14-slim-refactor/design.md` 第 3 节）。新格式和旧代码用的不一样：旧的 `task.md` 用 `status: open|closed` 加 `outcome`，正文里有 `
+
+<!-- knit:progress:start -->
+` 记录区，新的都没有。所以本任务是新写，不搬 `src/application/task-document.ts`。
 
 做完之后的不同：`next/` 里有了把 `task.md`、`record.json` 的文本解析成数据、再写回文本的函数，以及算“需求部分的摘要”和“任务现在的状态”的函数。只处理文本，不读写文件（读写文件在 C3）。
 
@@ -171,5 +174,17 @@ createdAt: 2026-11-14T13:36:56.000Z
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-ffd9afdb3162 -->
+- 操作: op-ffd9afdb3162
+- 时间: 2026-11-15T09:06:40.973Z
+- 分支: refs/heads/main
+- 授权来源: user:0f1c5bab
+- 调用: bridge
+- 工作提交: 7fd8feca3761c455d860ae3fc9fc5b9364d89d9f
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c1-task-document
 
 <!-- knit:progress:end -->
