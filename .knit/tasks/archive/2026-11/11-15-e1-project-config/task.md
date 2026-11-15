@@ -142,4 +142,10 @@ title: E1 读取项目配置 config.json
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e1-project-config
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-93b926038de9 -->
+- 任务资料提交: 0fb2860619b3a518e2f7e5f1c605f4c3641a90e6
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e1-project-config
+
 <!-- knit:progress:end -->
