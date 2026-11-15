@@ -142,4 +142,10 @@ title: D2 next 的 knit standards list：列出规范
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d2-standards-list
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-e7050dabf05c -->
+- 任务资料提交: ef0453657abc5fbe6f0b4160b3e2f7d5f689f32c
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d2-standards-list
+
 <!-- knit:progress:end -->
