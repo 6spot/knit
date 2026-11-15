@@ -93,4 +93,10 @@ title: A1 固定安装版：桥接改用仓库外的 Knit
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-a1-pin-installed-cli
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a7de18870b47 -->
+- 任务资料提交: e278772e09f5ea413fc5a5387620c5c2dbc003e7
+- 归档目标: .knit/tasks/archive/2026-11/11-15-a1-pin-installed-cli
+
 <!-- knit:progress:end -->
