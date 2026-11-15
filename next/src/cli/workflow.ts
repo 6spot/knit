@@ -34,6 +34,7 @@ function stageLines(stage: WorkflowStage, index: number): string[] {
     `  ${index + 1}. ${stage.id}（${stage.name}）`,
     ...(stage.description === null ? [] : [`     说明: ${stage.description}`]),
     `     角色文件: ${stage.prompt ?? "（没有指定）"}`,
+    `     模型: ${stage.model ?? "（没有指定，派发时加 --model）"}`,
     `     工具: ${tools}`,
     ...(report.length === 0 ? [] : [`     报告字段: ${report.join("、")}`]),
     ...(jumps.length === 0 ? [] : [`     按结论跳转: ${jumps.join("；")}`]),

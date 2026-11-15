@@ -42,6 +42,8 @@ export interface WorkflowStage {
   name: string;
   /** 本步说明；缺省 null。 */
   description: string | null;
+  /** 这个环节生效的模型：环节自己写的，否则顶层的；都没写是 null，派发时要另外指定。 */
+  model: string | null;
   /** 项目相对提示词路径；缺省 null，表示用核心默认 agent 指令。 */
   prompt: string | null;
   /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
@@ -60,8 +62,8 @@ export interface WorkflowDefinition {
   anchors: readonly WorkflowAnchor[];
   /** 有序阶段；顺序即流转顺序。 */
   stages: readonly WorkflowStage[];
-  /** 阶段缺省访问上限；null 表示调用方没有给出有效 config.workflow.maxRepairRounds。 */
-  defaultMaxVisits: number | null;
+  /** 阶段缺省访问上限：文件顶层的 maxRepairRounds，没写时是 DEFAULT_MAX_REPAIR_ROUNDS。 */
+  defaultMaxVisits: number;
 }
 
 /** 内置锚点显示名；配置阶段仍用各自声明的 name。 */
@@ -76,14 +78,6 @@ export function workflowStageDisplayName(workflow: WorkflowDefinition, stage: st
   return workflow.stages.find((entry) => entry.id === stage)?.name ?? stage;
 }
 
-export interface ParseWorkflowOptions {
-  /**
-   * config.workflow.maxRepairRounds 的当前值，作为阶段 maxVisits 的缺省。
-   * 缺省用 DEFAULT_MAX_REPAIR_ROUNDS；传入负数或非整数视为没有有效缺省（null）。
-   */
-  maxRepairRounds?: number;
-}
-
 export interface WorkflowLoadResult {
   /** 流程定义；配置有问题时为 null，问题见 validation.issues。 */
   workflow: WorkflowDefinition | null;
@@ -94,8 +88,7 @@ export interface WorkflowLoadResult {
  * 解析并校验配置；配置有问题时 workflow 为 null，不抛异常。
  * `source` 为空、缺字段、类型错误、语义冲突均按 validation.issues 说明。
  */
-export function parseWorkflow(source: string, options: ParseWorkflowOptions = {}): WorkflowLoadResult {
-  const defaultMaxVisits = resolveDefaultMaxVisits(options.maxRepairRounds);
+export function parseWorkflow(source: string): WorkflowLoadResult {
   const lineCounter = new LineCounter();
   let document;
   try {
@@ -157,13 +150,13 @@ export function parseWorkflow(source: string, options: ParseWorkflowOptions = {}
   }
 
   const config = raw as unknown as WorkflowConfig;
-  const semanticProblems = validateSemantics(config, defaultMaxVisits, positions);
+  const semanticProblems = validateSemantics(config, positions);
   if (semanticProblems.length > 0) {
     return invalidResult(semanticProblems);
   }
 
   return {
-    workflow: workflowFromConfig(config, defaultMaxVisits),
+    workflow: workflowFromConfig(config),
     validation: { ok: true, issues: [], reason: null },
   };
 }
@@ -219,11 +212,7 @@ class SourcePositions {
   }
 }
 
-function validateSemantics(
-  config: WorkflowConfig,
-  defaultMaxVisits: number | null,
-  positions: SourcePositions,
-): WorkflowIssue[] {
+function validateSemantics(config: WorkflowConfig, positions: SourcePositions): WorkflowIssue[] {
   const issues: WorkflowIssue[] = [];
   const stageIndexById = new Map<string, number>();
   const duplicateIds = new Set<string>();
@@ -329,24 +318,16 @@ function validateSemantics(
 
   if (duplicateIds.size === 0) {
     // 只有“无上限”阶段之间成环才真正无法停止；环上只要有一个有限上限节点，
-    // 转移层到点后会停下。这样不把“环上某个阶段显式 null、其他阶段有默认上限”误判为坏配置。
-    const unlimited = new Set<string>();
-    config.stages.forEach((stage) => {
-      const effectiveLimit = stage.maxVisits === undefined ? defaultMaxVisits : stage.maxVisits;
-      if (effectiveLimit === null) unlimited.add(stage.id);
-    });
+    // 转移层到点后会停下。没写 maxVisits 的环节用返工上限，总是有限的。
+    const unlimited = new Set(config.stages.filter((stage) => stage.maxVisits === null).map((stage) => stage.id));
     for (const id of cyclicStageIds(config.stages, unlimited)) {
-      const index = stageIndexById.get(id);
-      if (index === undefined) continue;
-      const stage = config.stages[index];
-      if (stage === undefined) continue;
-      const pointer = stage.maxVisits === undefined ? `/stages/${index}` : `/stages/${index}/maxVisits`;
+      const pointer = `/stages/${stageIndexById.get(id)}/maxVisits`;
       issues.push(
         makeIssue(
           "unbounded_repair_cycle",
           positions.at(pointer),
           pointer,
-          `阶段 "${id}" 所在回退环没有任何有限访问上限（maxVisits 与 workflow.maxRepairRounds 均为 null）`,
+          `阶段 "${id}" 所在回退环上每个环节的 maxVisits 都是 null，返工停不下来`,
         ),
       );
     }
@@ -419,20 +400,22 @@ function cyclicStageIds(
   return cyclic;
 }
 
-function workflowFromConfig(config: WorkflowConfig, defaultMaxVisits: number | null): WorkflowDefinition {
+function workflowFromConfig(config: WorkflowConfig): WorkflowDefinition {
+  const defaultMaxVisits = config.maxRepairRounds ?? DEFAULT_MAX_REPAIR_ROUNDS;
   return {
     version: WORKFLOW_CONFIG_VERSION,
     anchors: WORKFLOW_ANCHORS,
-    stages: config.stages.map((stage) => normalizeStage(stage, defaultMaxVisits)),
+    stages: config.stages.map((stage) => normalizeStage(stage, config.model ?? null, defaultMaxVisits)),
     defaultMaxVisits,
   };
 }
 
-function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number | null): WorkflowStage {
+function normalizeStage(stage: WorkflowStageConfig, defaultModel: string | null, defaultMaxVisits: number): WorkflowStage {
   return {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
+    model: stage.model ?? defaultModel,
     prompt: stage.prompt ?? null,
     tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
@@ -519,10 +502,14 @@ function schemaIssue(error: ValidationError, positions: SourcePositions, raw: un
 function schemaIssueCode(pointer: string): WorkflowIssueCode {
   const segments = pointerSegments(pointer);
   if (segments[0] === "version") return "unsupported_version";
+  if (segments[0] === "model") return "invalid_model";
+  if (segments[0] === "maxRepairRounds") return "invalid_max_repair_rounds";
   if (segments[0] === "stages" && segments.length >= 3) {
     switch (segments[2]) {
       case "id":
         return "invalid_stage_id";
+      case "model":
+        return "invalid_model";
       case "tools":
         return "invalid_tools";
       case "report":
@@ -550,6 +537,10 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
       return `${path} 的跳转目标必须是非空字符串`;
     case "invalid_max_visits":
       return `${path} 必须是非负整数或 null`;
+    case "invalid_model":
+      return `${path} 要写成 provider/模型`;
+    case "invalid_max_repair_rounds":
+      return "maxRepairRounds 必须是非负整数";
     case "unsupported_version":
       return `version 只支持 ${WORKFLOW_CONFIG_VERSION}`;
     default:
@@ -578,11 +569,6 @@ function valueAtPointer(raw: unknown, pointer: string): unknown {
     else return undefined;
   }
   return current;
-}
-
-function resolveDefaultMaxVisits(value: number | undefined): number | null {
-  if (value === undefined) return DEFAULT_MAX_REPAIR_ROUNDS;
-  return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

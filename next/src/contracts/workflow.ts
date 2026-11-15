@@ -77,11 +77,16 @@ export function isReportEnum(type: ReportFieldType): type is string[] {
 export const WORKFLOW_STAGE_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
 export const WORKFLOW_STAGE_ID_REGEX = /^[a-z][a-z0-9-]{0,31}$/;
 
+/** 执行者的模型：`provider/模型`，第一个 `/` 的前后都不为空。 */
+export const WORKFLOW_MODEL_PATTERN = "^[^/]+/.+$";
+
 /** 单个阶段；未知字段视为拼写错误，整体判为非法配置。 */
 export const WorkflowStageConfigSchema = obj({
   id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
   name: opt(str()),
   description: opt(str()),
+  /** 这个环节的执行者用的模型；不写用顶层的 model。 */
+  model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
   /** 项目相对路径；文件是否存在不在这里判断。 */
   prompt: opt(str({ minLength: 1 })),
   /** 不写或 `all` = 全部放开；`[]` = 全部禁用；非空数组 = 白名单。 */
@@ -89,7 +94,7 @@ export const WorkflowStageConfigSchema = obj({
   report: opt(map(ReportFieldTypeSchema)),
   /** 报告值 → 阶段 id 或 deliver；语义目标存在性由 domain 校验。 */
   onVerdict: opt(map(str({ minLength: 1 }))),
-  /** 回退环访问上限；缺省用 config.workflow.maxRepairRounds，null 表示无上限。 */
+  /** 回退环访问上限；缺省用顶层的 maxRepairRounds，null 表示无上限。 */
   maxVisits: opt(union([int({ minimum: 0 }), lit(null)])),
 });
 export type WorkflowStageConfig = Static<typeof WorkflowStageConfigSchema>;
@@ -97,6 +102,10 @@ export type WorkflowStageConfig = Static<typeof WorkflowStageConfigSchema>;
 /** 完整配置文件；version 先由 domain 预检，能用更稳定的原因码区分版本问题。 */
 export const WorkflowConfigSchema = obj({
   version: lit(WORKFLOW_CONFIG_VERSION),
+  /** 所有环节的执行者缺省用的模型。 */
+  model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
+  /** 返工上限：没写 maxVisits 的环节用它；不写是 DEFAULT_MAX_REPAIR_ROUNDS。 */
+  maxRepairRounds: opt(int({ minimum: 0 })),
   stages: arr(WorkflowStageConfigSchema, { minItems: 1 }),
 });
 export type WorkflowConfig = Static<typeof WorkflowConfigSchema>;
@@ -118,6 +127,8 @@ export const WORKFLOW_ISSUE_CODES = [
   "invalid_report",
   "invalid_on_verdict",
   "invalid_max_visits",
+  "invalid_model",
+  "invalid_max_repair_rounds",
   "duplicate_report_enum",
   "undeclared_verdict_value",
   "unknown_on_verdict_target",

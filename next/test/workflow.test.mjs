@@ -31,15 +31,15 @@ stages:
       blocked: review
 `;
 
-function assertValid(source, options) {
-  const result = parseWorkflow(source, options);
+function assertValid(source) {
+  const result = parseWorkflow(source);
   assert.notEqual(result.workflow, null, JSON.stringify(result.validation.issues));
   assert.deepEqual(result.validation, { ok: true, issues: [], reason: null });
   return result.workflow;
 }
 
-function assertInvalid(source, reason, options) {
-  const result = parseWorkflow(source, options);
+function assertInvalid(source, reason) {
+  const result = parseWorkflow(source);
   assert.equal(result.workflow, null, "配置有问题时没有流程定义");
   assert.equal(result.validation.ok, false);
   assert.equal(result.validation.reason, reason);
@@ -68,6 +68,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
     id: "implement",
     name: "实现",
     description: null,
+    model: null,
     prompt: ".knit/agents/implement.md",
     tools: ["read", "write", "exec"],
     report: {},
@@ -78,6 +79,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
     id: "review",
     name: "审查",
     description: null,
+    model: null,
     prompt: ".knit/agents/review.md",
     tools: ["read", "write", "exec"],
     report: { verdict: ["pass", "changes_requested", "blocked"] },
@@ -92,6 +94,7 @@ test("最简阶段使用 id 作为显示名，其余字段取安全缺省", () =
     id: "implement",
     name: "implement",
     description: null,
+    model: null,
     prompt: null,
     tools: null,
     report: {},
@@ -102,11 +105,10 @@ test("最简阶段使用 id 作为显示名，其余字段取安全缺省", () =
 
 test("maxRepairRounds 作为阶段缺省，显式 maxVisits 覆盖它", () => {
   const workflow = assertValid(
-    "version: 1\nstages:\n  - id: implement\n  - id: check\n    maxVisits: 7\n",
-    { maxRepairRounds: 5 },
+    "version: 1\nmaxRepairRounds: 4\nstages:\n  - id: implement\n  - id: check\n    maxVisits: 7\n",
   );
-  assert.equal(workflow.defaultMaxVisits, 5);
-  assert.equal(workflow.stages[0].maxVisits, 5);
+  assert.equal(workflow.defaultMaxVisits, 4);
+  assert.equal(workflow.stages[0].maxVisits, 4);
   assert.equal(workflow.stages[1].maxVisits, 7);
 });
 
@@ -202,6 +204,7 @@ test("有限上限的回退边可解析，默认上限来自 maxRepairRounds", (
   const workflow = assertValid(
     [
       "version: 1",
+      "maxRepairRounds: 3",
       "stages:",
       "  - id: implement",
       "  - id: check",
@@ -211,7 +214,6 @@ test("有限上限的回退边可解析，默认上限来自 maxRepairRounds", (
       "      changes_requested: implement",
       "",
     ].join("\n"),
-    { maxRepairRounds: 3 },
   );
   assert.equal(workflow.stages[0].maxVisits, 3);
   assert.equal(workflow.stages[1].maxVisits, 3);
@@ -487,10 +489,11 @@ test("无上限自环按回退环处理", () => {
   assert.equal(result.validation.issues[0].line, 4);
 });
 
-test("缺省上限无效时，无显式 maxVisits 的环被拒绝", () => {
+test("文件里的返工上限无效时被拒绝", () => {
   const result = assertInvalid(
     [
       "version: 1",
+      "maxRepairRounds: -1",
       "stages:",
       "  - id: implement",
       "    report:",
@@ -499,10 +502,9 @@ test("缺省上限无效时，无显式 maxVisits 的环被拒绝", () => {
       "      again: implement",
       "",
     ].join("\n"),
-    "unbounded_repair_cycle",
-    { maxRepairRounds: -1 },
+    "invalid_max_repair_rounds",
   );
-  assert.equal(result.validation.issues[0].line, 3);
+  assert.equal(result.validation.issues[0].line, 2);
 });
 
 test("未知阶段字段与未知根字段被拒绝", () => {
