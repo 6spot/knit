@@ -1,8 +1,8 @@
 ---
 id: k-e75083172b7d
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -114,5 +114,17 @@ title: E2 执行记录里记下失败原因
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-8d29b2170b8a -->
+- 操作: op-8d29b2170b8a
+- 时间: 2026-11-15T23:03:09.511Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: 3170a50839f00a063addf58fdf62c3176fc977d7
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e2-run-failure-field
 
 <!-- knit:progress:end -->
