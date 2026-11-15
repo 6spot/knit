@@ -1,8 +1,8 @@
 ---
 id: k-a8ee3812cd7b
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -126,5 +126,17 @@ title: B6 搬 Pi 连接到 next/，执行者照常读 AGENTS.md
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-ffc9f367d954 -->
+- 操作: op-ffc9f367d954
+- 时间: 2026-11-15T06:46:56.204Z
+- 分支: refs/heads/main
+- 授权来源: user:1f7f9eea
+- 调用: bridge
+- 工作提交: 6992a851c3cba5e309a4e77f0c8b57e4412f735a
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b6-move-pi-connection
 
 <!-- knit:progress:end -->
