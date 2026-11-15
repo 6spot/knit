@@ -113,4 +113,10 @@ title: B2 搬路径、原子写和文件指纹到 next/
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b2-move-paths-atomic
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-54ba7724c20e -->
+- 任务资料提交: 593c93747e2b23dd267ab6f2f181eb7e231002d0
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b2-move-paths-atomic
+
 <!-- knit:progress:end -->
