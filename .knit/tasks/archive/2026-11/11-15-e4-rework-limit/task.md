@@ -140,4 +140,10 @@ title: E4 数环节的进入次数，到返工上限时不再往下走
 - 结果: 正常交付；检查 run-2284d2e1f181 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e4-rework-limit
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-f16d4672af18 -->
+- 任务资料提交: f77bf7f3e28d59c03ce2caa263efd2beb2404479
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e4-rework-limit
+
 <!-- knit:progress:end -->
