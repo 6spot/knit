@@ -12,6 +12,7 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from "../contracts/task.js";
+import { headingsOf } from "./markdown.js";
 
 export const RESULT_HEADING = "## 结果";
 
@@ -93,20 +94,5 @@ function trimSection(text: string): string {
 
 /** `## 结果` 所在的行；写在代码围栏里的不算。没有时是 -1。 */
 function resultHeadingLine(lines: readonly string[]): number {
-  return lines.reduce(
-    (state, line, index) => {
-      if (state.heading >= 0) return state;
-      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (state.fence !== null) {
-        const closes =
-          marker !== null &&
-          (marker[1] ?? "").startsWith(state.fence) &&
-          (marker[2] ?? "").trim() === "";
-        return closes ? { fence: null, heading: -1 } : state;
-      }
-      if (marker !== null) return { fence: marker[1] ?? null, heading: -1 };
-      return line.trimEnd() === RESULT_HEADING ? { fence: null, heading: index } : state;
-    },
-    { fence: null as string | null, heading: -1 },
-  ).heading;
+  return headingsOf(lines).find((heading) => lines[heading.line]?.trimEnd() === RESULT_HEADING)?.line ?? -1;
 }
