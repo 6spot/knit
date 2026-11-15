@@ -1,8 +1,8 @@
 ---
 id: k-97f21437a364
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -147,5 +147,17 @@ stages:
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-a8897dcb585b -->
+- 操作: op-a8897dcb585b
+- 时间: 2026-11-15T06:45:07.713Z
+- 分支: refs/heads/main
+- 授权来源: user:1f7f9eea
+- 调用: bridge
+- 工作提交: e64b0f5e0f44e7a92f62182fa2bfe4196e3d7271
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b4-move-workflow-parse
 
 <!-- knit:progress:end -->
