@@ -369,10 +369,10 @@ knit workflow show | validate
 | --- | --- | --- |
 | `src/adapters/pi/connection.ts` | 320 | Pi 进程连接，只依赖 31 行的帧定义 |
 | `src/adapters/pi/runtime.ts` | 402 | 启动参数与对话，改掉 `--no-context-files` |
-| `src/adapters/pi/native-file.ts`、`resume.ts` | 181 | 会话文件定位 |
+| `src/adapters/pi/native-file.ts` | 124 | 会话文件定位。`resume.ts`（续用旧会话）和 `native-entries.ts`（按会话记录判定改动来源）不搬，见第 11 节 |
 | `src/infrastructure/paths.ts`、`atomic.ts`、`fingerprint.ts`、`errors.ts` | 284 | 路径规范化（含 macOS 别名）、带版本核对的原子写 |
-| `src/infrastructure/process.ts` | 350 | 进程启动与清理，要去掉对锁的依赖 |
-| `src/domain/workflow.ts`、`src/contracts/workflow.ts` | 878 | 流程文件的解析与校验，去掉降级部分 |
+| `src/infrastructure/process.ts` | 350 | 进程启动、进程树清理和同步的 Git 调用；锁的持有者身份和 Git hook 隔离不搬 |
+| `src/domain/workflow.ts`、`src/contracts/workflow.ts` | 878 | 流程文件的解析与校验；去掉降级、`task` 能力和内置的默认流程文本 |
 | `src/contracts/task-inputs.ts` 里的场景与待澄清解析 | 约 250 | 抽出两个函数 |
 | `src/domain/report.ts` 里的报告解析 | 部分 | 抽出解析部分 |
 | `src/application/history-search.ts` | 354 | 检索，稍后搬 |
