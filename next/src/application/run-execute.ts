@@ -76,15 +76,43 @@ async function runStage(runtime: PiAgentRuntime, stage: WorkflowStage, dir: stri
   const failed = (failure: string): Outcome => ({ verdict: null, failure });
   const started = await runtime.start();
   if (!started.ok) return failed(`执行者启动失败：${started.detail}`);
-  const settled = await runtime.prompt(readFileSync(join(dir, "message.md"), "utf8"));
+  const first = await askForReport(runtime, stage, dir, readFileSync(join(dir, "message.md"), "utf8"));
+  if (first.outcome !== null) return first.outcome;
+  // 活已经干完了，只是报告的格式不对：在同一个会话里补报一次，不重做。
+  const second = await askForReport(
+    runtime,
+    stage,
+    dir,
+    [
+      "上一条消息里的报告读不出来：",
+      ...first.problems.map((problem) => `- ${problem}`),
+      "请只重新输出完整的报告，结尾带上 json 代码块。不要修改文件，不要重新做一遍。",
+    ].join("\n"),
+  );
+  return second.outcome ?? failed(`报告读不出来：${second.problems.join("；")}`);
+}
+
+/**
+ * 发一条消息，等执行者做完，把它的最后一条消息存成 report.md 再读。
+ * `outcome` 是 null 表示报告读不出来，`problems` 里是原因。
+ */
+async function askForReport(
+  runtime: PiAgentRuntime,
+  stage: WorkflowStage,
+  dir: string,
+  message: string,
+): Promise<{ readonly outcome: Outcome | null; readonly problems: readonly string[] }> {
+  const failed = (failure: string) => ({ outcome: { verdict: null, failure }, problems: [] });
+  const settled = await runtime.prompt(message);
   if (!settled.settled) return failed("执行者中途退出");
   if (settled.aborted) return failed("执行者被中止");
   const report = await runtime.getLastAssistantText();
   writeFileSync(join(dir, "report.md"), report);
   if (report.trim() === "") return failed("执行者没有给出报告");
   const read = readReport(stage.report, report);
-  if (read.fields === null) return failed(`报告读不出来：${read.problems.join("；")}`);
-  return { verdict: typeof read.fields.verdict === "string" ? read.fields.verdict : null, failure: null };
+  if (read.fields === null) return { outcome: null, problems: read.problems };
+  const verdict = typeof read.fields.verdict === "string" ? read.fields.verdict : null;
+  return { outcome: { verdict, failure: null }, problems: [] };
 }
 
 /** 环节的 tools 换成 PiAgentRuntime 的工具参数。 */
