@@ -1,8 +1,8 @@
 ---
 id: k-b288b073f0c0
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -129,5 +129,17 @@ title: D2 next 的 knit standards list：列出规范
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-e7050dabf05c -->
+- 操作: op-e7050dabf05c
+- 时间: 2026-11-15T11:01:39.870Z
+- 分支: refs/heads/main
+- 授权来源: user:5c30905e
+- 调用: bridge
+- 工作提交: a4d23638ce8028593effda6f25c39e3583071adc
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d2-standards-list
 
 <!-- knit:progress:end -->
