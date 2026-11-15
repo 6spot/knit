@@ -138,4 +138,10 @@ title: E12 报告读不出来时要求执行者补报一次
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e12-report-retry
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-f0dd4feaecea -->
+- 任务资料提交: 34e5e2ac6e89116ab7f688f8c3b9042c3b531476
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e12-report-retry
+
 <!-- knit:progress:end -->
