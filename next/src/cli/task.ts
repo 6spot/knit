@@ -1,8 +1,14 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 import { Option, type Command } from "commander";
 import { createTask, findTask, saveTask, scanTasks, type StoredTask } from "../application/task-store.js";
-import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
+import {
+  TASK_PRIORITIES,
+  TASK_VERIFICATIONS,
+  type TaskFrontmatter,
+  type TaskRecord,
+  type TaskStatus,
+} from "../contracts/task.js";
 import { currentStatus, requirementDigest, type TaskDocument } from "../domain/task-document.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRoot } from "./root.js";
@@ -64,6 +70,14 @@ function readyProblems(document: TaskDocument): string[] {
       : []),
     ...(scenarios.issues.length > 0 || unwritten ? ["场景的写法：", SCENARIO_FORMAT_EXAMPLE] : []),
   ];
+}
+
+/** 这个状态的任务为什么不能记为完成，以及下一步；可以完成时是 null。 */
+function closeRefusal(status: TaskStatus, id: string): string | null {
+  if (status === "ready" || status === "active") return null;
+  if (status === "draft") return `需求还没有确认，或确认之后改过；先运行 knit task ready ${id}`;
+  if (status === "done") return "任务已经完成；要改总结直接编辑 task.md 的「结果」";
+  return `任务已经结束（${status}），不能再记为完成`;
 }
 
 /** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
@@ -204,5 +218,45 @@ export function registerTaskCommands(program: Command): void {
         `已确认 ${id}：${scenarioStateOf(loaded.document.requirement).scenarios.length} 个场景\n` +
           (assumed > 0 ? `还有 ${assumed} 项 [assumed] 没有得到用户确认\n` : ""),
       );
+    });
+
+  task
+    .command("close <id>")
+    .description("把一个任务记为完成，并写下结果")
+    .requiredOption("--result <总结>", "做成了什么、完成条件是否都满足、怎么验证的")
+    // 占位名用拉丁字母：commander 靠 `\w...>` 认出“可以给多个”，中文占位名认不出来。
+    .option("--paths <path...>", "主会话自己改动的文件", [])
+    .option("--reason <理由>", "独立审查的任务没有审查通过的记录时，直接完成的理由")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action((id: string, options: { result: string; paths: string[]; reason?: string; dir: string }) => {
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const result = options.result.trim();
+      if (result === "") return fail(["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"]);
+      const refusal = closeRefusal(currentStatus(loaded.document, loaded.record), id);
+      if (refusal !== null) return fail([refusal]);
+      const unreviewed =
+        loaded.document.frontmatter.verification === "independent" &&
+        loaded.record.runs.filter((run) => run.verdict !== null).at(-1)?.verdict !== "pass";
+      if (unreviewed && options.reason === undefined) {
+        return fail(["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"]);
+      }
+      const paths = options.paths.map((path) => posix.normalize(path));
+      const outside = options.paths.filter(
+        (path, index) => isAbsolute(path) || paths[index] === ".." || paths[index]?.startsWith("../"),
+      );
+      if (outside.length > 0) return fail(outside.map((path) => `--paths 要写项目内的相对路径：${path}`));
+      const conflicts = saveTask(
+        loaded.root,
+        loaded.stored,
+        {
+          frontmatter: { ...loaded.document.frontmatter, status: "done", stage: null },
+          requirement: loaded.document.requirement,
+          result: unreviewed ? `${result}\n\n没有经过独立审查，直接完成：${options.reason}` : result,
+        },
+        { ...loaded.record, changedPaths: [...new Set([...loaded.record.changedPaths, ...paths])].sort() },
+      );
+      if (conflicts.length > 0) return fail(conflicts);
+      process.stdout.write(`已完成 ${id}\n`);
     });
 }
