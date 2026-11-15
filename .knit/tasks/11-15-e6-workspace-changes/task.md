@@ -1,8 +1,8 @@
 ---
 id: k-1720b3176696
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-19c962be9fb8
@@ -133,5 +133,17 @@ title: E6 对比工作区得出改动文件，认出提交和受保护的路径
 
 - 时间: 2026-11-15T15:02:40.859Z
 - 方式: self → independent；理由: 状态推进、改动对比、受保护的路径属于正确性没法自证的改动
+
+### 交付记录
+
+<!-- knit:delivery:op-77c9a25ab806 -->
+- 操作: op-77c9a25ab806
+- 时间: 2026-11-15T23:03:31.749Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: f27c77a64fc0b83924978630b7329cf3097d7406
+- 结果: 正常交付；检查 run-ad9b8765a65d 通过；验证 independent
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e6-workspace-changes
 
 <!-- knit:progress:end -->
