@@ -1,8 +1,8 @@
 ---
 id: k-1a847b67af63
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -31,7 +31,7 @@ title: A4 任务拆分规范：写入 .knit/standards/task-splitting.md
   ```
 
 - 正文用中文，一条规则一到两句。整个文件不超过 4096 字节。
-- 文件会原样进入智能体的上下文，只写智能体做事时要用到的内容。来源、日期、编号、制定经过不写进文件，写在合并请求说明里。开头的声明之后直接写正文，不加重复的标题。
+- 文件会原样进入智能体的上下文，只写智能体做事时要用到的内容。来源、日期、编号、制定经过不写进文件，写在本任务目录的 `research/notes.md` 里。开头的声明之后直接写正文，不加重复的标题。
 - 每条规则要能用来判断“这个任务是否符合”，不写笼统的原则。
 - 只写怎么拆。一个任务的正文怎么写已经有规范（`.knit/standards/task-writing.md`），不重复它的内容。
 
@@ -45,7 +45,7 @@ title: A4 任务拆分规范：写入 .knit/standards/task-splitting.md
 
 步骤：
 
-1. 从最新的 `main` 开分支 `a4-task-splitting-standard`。
+1. 运行 `git status --short`，记下开始前的状态。
 2. 读「相关资料」里的文件。`plan.md` 是按这五条草案拆出来的 38 个子任务，可以用它检验每条规则是否好用。
 3. 写出规则，写入文件。
 4. 按「验证」核对，然后提交并交回。
@@ -54,32 +54,31 @@ title: A4 任务拆分规范：写入 .knit/standards/task-splitting.md
 
 - `AGENTS.md`、`src/`、`test/`、`assets/`、`docs/`：本任务只写规范，不改代码和文档。也不调整已经登记的任务。
 - `.knit/standards/` 下已有的文件：其它任务也在往这个目录加文件，改已有文件会互相冲突。
-- `.knit/workflow.yaml`、`.knit/config.json`、`.knit/agents/` 和 `.knit/tasks/` 下的所有文件：这些是流程和任务资料，由登记任务的主会话维护。
-- 不运行 `knit task …`、`knit run …`、`knit deliver`：任务状态存在主会话所在的机器上，在别处运行会得到错误的状态。
+- `.knit/workflow.yaml`、`.knit/config.json`、`.knit/agents/`，以及 `.knit/tasks/` 下其它任务的文件：这些是流程配置和别的任务的资料。
+- 不运行 `knit run …`、`knit deliver`，不提交、不推送：提交要等用户审阅并授权。
 
 验证：
 
 - 运行 `wc -c .knit/standards/task-splitting.md`，结果不超过 4096。
-- 运行 `git status --short`，除新增的文件外没有别的改动。
+- 运行 `git status --short`，和开始前相比只多出本任务的文件。
 - 环境里有 Node 24 以上并且能联网时，运行 `npm ci && npm run build && node dist/cli/knit.js standards list`。输出的“正式规范”里应有新文件，后面带“（索引未引用）”是预期的。`dist/` 和 `node_modules/` 已被 Git 忽略，不会进入提交。
-- 不具备上一条的环境时跳过它，并在合并请求说明里写明没有运行。
-- 同一条命令因同一原因失败两次就停下，在合并请求说明或回复里写出失败的命令和输出，不再重试。
+- 不具备上一条的环境时跳过它，并在汇报里写明没有运行。
+- 同一条命令因同一原因失败两次就停下，在汇报里写出失败的命令和输出，不再重试。
 
-提交与交回（用户把这个任务交给你执行，即同意你在这个分支上提交、推送并开合并请求；合并不在其内）：
+交回：
 
-- 提交一次，只含 `.knit/standards/task-splitting.md` 这一个文件。
-- 提交文案：首行 `docs: <英文摘要>`，不超过 72 个字符；空一行后用英文写正文，说明做了什么；末尾单独一行 `Task: k-1a847b67af63`。
-- 推送分支 `a4-task-splitting-standard`，开一个指向 `main` 的合并请求，说明里写上「完成条件」要求的内容。不合并，不直接改 `main`。
+- 改动留在工作区。把「完成条件」要求的说明写进本任务目录的 `research/notes.md`，然后汇报。
+- 提交时的文案：首行 `docs: <英文摘要>`，不超过 72 个字符；空一行后用英文写正文，说明做了什么；末尾单独一行 `Task: k-1a847b67af63`。
 
-做完之后：合并请求由用户审阅、合并。合并后由主会话在登记任务的机器上把本任务标记完成，并把 `.knit/tasks/11-14-slim-refactor/task.md` 里的五条草案换成指向这份文件。
+做完之后：用户审阅工作区里的文件，同意后由主会话收尾（`knit task ready`，`knit task implement` 登记改动文件和做过的验证，`knit task close`），提交另行授权，并把 `.knit/tasks/11-14-slim-refactor/task.md` 里的五条草案换成指向这份文件。
 
 说明：这份规范是给主会话的。现在的 Knit 不会把规范交给主会话，它从切换到小核心起自动生效。
 
 ## 完成条件
 
 - 文件存在，开头有 `title` 和 `stages`，不超过 4096 字节。
-- 合并请求说明里写明五条草案每条的结论和理由。
-- 提交里只有这一个文件。
+- `research/notes.md` 里写明五条草案每条的结论和理由。
+- 本任务新增的只有这个文件和 `research/notes.md`。
 
 ## 相关资料
 
@@ -98,5 +97,17 @@ title: A4 任务拆分规范：写入 .knit/standards/task-splitting.md
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-3441d37e5c05 -->
+- 操作: op-3441d37e5c05
+- 时间: 2026-11-15T02:57:46.893Z
+- 分支: refs/heads/main
+- 授权来源: user:28c6d6cf
+- 调用: bridge
+- 工作提交: a476bc4aaf874d90d3a854e777681ea033ecc20d
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-a4-task-splitting-standard
 
 <!-- knit:progress:end -->
