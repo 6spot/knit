@@ -1,8 +1,8 @@
 ---
 id: k-40f9896ebaef
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -113,5 +113,17 @@ title: C7 next 的 knit task cancel：取消任务
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-1fa56d508c0b -->
+- 操作: op-1fa56d508c0b
+- 时间: 2026-11-15T09:06:48.514Z
+- 分支: refs/heads/main
+- 授权来源: user:0f1c5bab
+- 调用: bridge
+- 工作提交: e3ec2b7a64c2722b0378b20a724670d98079d6b3
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c7-task-cancel
 
 <!-- knit:progress:end -->
