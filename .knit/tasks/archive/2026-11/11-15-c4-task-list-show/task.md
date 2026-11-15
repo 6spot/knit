@@ -148,4 +148,10 @@ ID: k-19c962be9fb8
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c4-task-list-show
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-5cc834e8603b -->
+- 任务资料提交: 7b1b0854b3f5b28b74e1b77c09de35ba176092a3
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c4-task-list-show
+
 <!-- knit:progress:end -->
