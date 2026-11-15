@@ -1,6 +1,6 @@
 # 子任务清单
 
-按 `design.md` 拆出的 42 个子任务，分 8 批；另有排在切换之后的任务（见「之后」）。用户已于 2026-11-15 确认清单，并决定分批登记：做到哪一批登记哪一批。A 批、B 批已完成并交付，C 批已登记（2026-11-15）。每个任务开始前仍要取得用户授权。
+按 `design.md` 拆出的 42 个子任务，分 8 批；另有排在切换之后的任务（见「之后」）。用户已于 2026-11-15 确认清单，并决定分批登记：做到哪一批登记哪一批。A 批、B 批、C 批已完成并交付（2026-11-15）。每个任务开始前仍要取得用户授权。
 
 ## 约定
 
@@ -67,6 +67,13 @@
 - 都只做人读的输出，不做 `--json`；桥接需要什么输出由 G3 定。
 - 留给后面的：`task show` 的提交号（等 F2 定了提交说明里的任务标记）；`task close`、`task cancel` 对“执行者还在跑”的检查（E1）；开始做之前对依赖任务的检查（E1）；`task use`（G4）；`task search`（切换之后）。
 - 用户已确认的三条决定（2026-11-15）：C5 确认之后改了需求、重新确认时回到 `ready` 从第一个环节重新开始；C6 主会话直接做的任务不设单独的开始和登记命令，确认之后直接 `task close`，改动文件在这时登记；C7 取消时立即归档、不提交。
+- 进度（2026-11-15）：七个任务都由主会话直接做完并交付，任务目录在 `.knit/tasks/archive/2026-11/`。产物提交依次是 C1 `7fd8fec`、C2 `83f0d71`、C3 `e51b1c0`、C4 `13ef019`、C5 `e71fd6c`、C6 `eda8949`、C7 `e3ec2b7`；`cli/task.ts` 和 `task-store.ts` 由几个任务先后改动，每个提交里是该任务做完时的样子。`npm run test:next` 共 92 个测试全部通过（macOS；B 批结束时 67 个，C1–C7 依次加 8、3、3、3、3、3、2 个）。新增 `next/src/contracts/task.ts`、`next/src/domain/task-{document,record,requirements}.ts`、`next/src/application/task-store.ts`、`next/src/cli/task.ts`、`next/test/helpers/cli.mjs` 和 7 个测试文件，改了 `next/src/cli/knit.ts`。
+- 做的时候定下、后面的任务要知道的：
+  - `saveTask` 在记录没有改动时不写 `record.json`，所以只取消过的任务没有这个文件。
+  - `task close --paths` 登记的路径会规整（去掉开头的 `./`）。
+  - commander 靠占位名里的 `\w...>` 认出“可以给多个”的选项，占位名要用拉丁字母（`<path...>`、`<id...>`），写成中文会被当成只收一个值。
+  - `loadTask`（`cli/task.ts` 里，按 id 读任务并报错）是 `show`、`ready`、`close`、`cancel` 共用的；E 批的命令也用它。
+- 没有验证、也没有处理的：CRLF 换行的 `task.md`；Windows 风格的路径；`task ready` 两次写之间中断；`task cancel` 写回成功而移动目录失败（任务会是 `cancelled` 却留在任务目录里，要手工移动）。
 
 ## D. 规范与交接
 
