@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
 import { Option, type Command } from "commander";
-import { createTask, findTask, saveTask, scanTasks, type StoredTask } from "../application/task-store.js";
+import {
+  archiveTask,
+  createTask,
+  findTask,
+  saveTask,
+  scanTasks,
+  type StoredTask,
+} from "../application/task-store.js";
 import {
   TASK_PRIORITIES,
   TASK_VERIFICATIONS,
@@ -258,5 +265,31 @@ export function registerTaskCommands(program: Command): void {
       );
       if (conflicts.length > 0) return fail(conflicts);
       process.stdout.write(`已完成 ${id}\n`);
+    });
+
+  task
+    .command("cancel <id>")
+    .description("取消一个任务并归档")
+    .requiredOption("--reason <原因>", "为什么不做了")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action((id: string, options: { reason: string; dir: string }) => {
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const reason = options.reason.trim();
+      if (reason === "") return fail(["--reason 不能为空：写为什么不做了"]);
+      const status = loaded.document.frontmatter.status;
+      if (status === "delivered" || status === "cancelled") return fail([`任务已经结束（${status}），不能取消`]);
+      const conflicts = saveTask(
+        loaded.root,
+        loaded.stored,
+        {
+          frontmatter: { ...loaded.document.frontmatter, status: "cancelled", stage: null },
+          requirement: loaded.document.requirement,
+          result: [...(loaded.document.result ? [loaded.document.result] : []), `已取消：${reason}`].join("\n\n"),
+        },
+        loaded.record,
+      );
+      if (conflicts.length > 0) return fail(conflicts);
+      process.stdout.write(`已取消 ${id}\n${archiveTask(loaded.root, loaded.stored)}\n`);
     });
 }

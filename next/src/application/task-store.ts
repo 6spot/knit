@@ -3,7 +3,7 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
 import { parseTaskDocument, renderTaskDocument, type TaskDocument } from "../domain/task-document.js";
@@ -124,12 +124,15 @@ export function saveTask(root: string, stored: StoredTask, document: TaskDocumen
     ...((readWithVersion(recordFile)?.sha256 ?? null) === stored.versions.record ? [] : [RECORD_FILE]),
   ];
   if (changed.length > 0) return changed.map((file) => `${stored.dir}/${file} 在读入之后被改过，没有写入；重新运行一次`);
-  atomicWrite({
-    path: recordFile,
-    data: Buffer.from(renderTaskRecord(record)),
-    expectedSha256: stored.versions.record,
-    mode: 0o644,
-  });
+  // 记录没有改动时不写：还没有内容要记的任务不会多出一个空的 record.json。
+  if (record !== stored.record) {
+    atomicWrite({
+      path: recordFile,
+      data: Buffer.from(renderTaskRecord(record)),
+      expectedSha256: stored.versions.record,
+      mode: 0o644,
+    });
+  }
   atomicWrite({
     path: taskFile,
     data: Buffer.from(renderTaskDocument(document)),
@@ -137,6 +140,16 @@ export function saveTask(root: string, stored: StoredTask, document: TaskDocumen
     mode: 0o644,
   });
   return [];
+}
+
+/** 把任务目录移到当月的归档目录，返回移动后的目录。不提交。 */
+export function archiveTask(root: string, stored: StoredTask): string {
+  const now = new Date();
+  const month = `${ARCHIVE_DIR}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const dir = `${month}/${basename(stored.dir)}`;
+  mkdirSync(join(root, month), { recursive: true });
+  renameSync(join(root, stored.dir), join(root, dir));
+  return dir;
 }
 
 function taskDirectories(root: string): { dir: string; archived: boolean }[] {
