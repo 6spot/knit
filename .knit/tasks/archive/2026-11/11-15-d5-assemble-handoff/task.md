@@ -185,4 +185,10 @@ title: D5 拼出交给环节执行者的内容
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d5-assemble-handoff
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-6689c60b39ef -->
+- 任务资料提交: fedbc3e966dd05d3ca31f1def899db1829bccf16
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d5-assemble-handoff
+
 <!-- knit:progress:end -->
