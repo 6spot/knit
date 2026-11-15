@@ -6,7 +6,7 @@ import { WORKFLOW_ANCHOR_NAMES, parseWorkflow, type WorkflowDefinition, type Wor
 import { projectRoot } from "./root.js";
 
 /** 读取并校验项目的流程文件；文件不存在或有问题时把原因写到标准错误，返回 null。 */
-function loadWorkflow(dir: string): WorkflowDefinition | null {
+export function loadWorkflow(dir: string): WorkflowDefinition | null {
   const file = join(projectRoot(dir), WORKFLOW_CONFIG_PATH);
   if (!existsSync(file)) {
     process.stderr.write(`${WORKFLOW_CONFIG_PATH} 不存在；运行 knit init 生成\n`);
