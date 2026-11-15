@@ -1,0 +1,146 @@
+import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { loadConfig } from "../dist/application/config.js";
+import { assembleHandoff } from "../dist/application/handoff.js";
+import { prepareRun, RUNS_DIR, unfinishedRun } from "../dist/application/run-prepare.js";
+import { takeSnapshot } from "../dist/application/workspace.js";
+import { parseTaskDocument, requirementDigest } from "../dist/domain/task-document.js";
+import { parseWorkflow } from "../dist/domain/workflow.js";
+import { knit } from "./helpers/cli.mjs";
+import { readyTask, runProject } from "./helpers/run.mjs";
+
+const workflowOf = (dir, edit = (text) => text) =>
+  parseWorkflow(edit(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8"))).workflow;
+const prepare = (dir, taskId, { model = null, workflow = workflowOf(dir) } = {}) =>
+  prepareRun({ root: dir, taskId, workflow, config: loadConfig(dir).config, model });
+const documentOf = (dir, task) => parseTaskDocument(readFileSync(join(dir, task.dir, "task.md"), "utf8")).document;
+const recordOf = (dir, task) => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8"));
+const filesOf = (dir, task) => ["task.md", "record.json"].map((file) => readFileSync(join(dir, task.dir, file), "utf8"));
+const runDirs = (dir) => (existsSync(join(dir, RUNS_DIR)) ? readdirSync(join(dir, RUNS_DIR)) : []);
+/** 直接改写执行记录里的最后一项，当作这次执行已经结束。 */
+function endLastRun(dir, task, fields) {
+  const record = recordOf(dir, task);
+  Object.assign(record.runs.at(-1), { endedAt: "2026-11-15T02:00:00.000Z", ...fields });
+  writeFileSync(join(dir, task.dir, "record.json"), `${JSON.stringify(record, null, 2)}\n`);
+}
+
+test("能派发时存好交接内容并登记", (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const workflow = workflowOf(dir);
+  const document = documentOf(dir, task);
+  const expected = assembleHandoff({
+    root: dir,
+    task: { dir: task.dir, document },
+    stage: workflow.stages[0],
+    previous: null,
+    limits: loadConfig(dir).config.handoff,
+  });
+  assert.deepEqual(expected.problems, []);
+
+  const { run, problems } = prepare(dir, task.id, { workflow });
+  assert.deepEqual(problems, []);
+  assert.match(run.id, /^r-[0-9a-f]{12}$/);
+  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], model: "fake/model" });
+  assert.deepEqual(readdirSync(join(dir, run.dir)).sort(), ["before.json", "message.md", "system.md"]);
+  assert.equal(readFileSync(join(dir, run.dir, "system.md"), "utf8"), expected.systemPrompt);
+  assert.equal(readFileSync(join(dir, run.dir, "message.md"), "utf8"), expected.firstMessage);
+  // before.json 是登记之后拍的：和现在的工作区没有差别
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, run.dir, "before.json"), "utf8")), takeSnapshot(dir));
+
+  const after = documentOf(dir, task);
+  assert.deepEqual(after, { ...document, frontmatter: { ...document.frontmatter, status: "active", stage: "implement" } });
+  const record = recordOf(dir, task);
+  assert.equal(record.runs.length, 1);
+  assert.deepEqual(record.runs[0], {
+    id: run.id,
+    stage: "implement",
+    startedAt: record.runs[0].startedAt,
+    endedAt: null,
+    verdict: null,
+    failure: null,
+    requirementDigest: requirementDigest(after),
+    changedPaths: [],
+    sessionFile: null,
+  });
+  assert.equal(record.runs[0].requirementDigest, record.confirmedDigest);
+  assert.deepEqual(unfinishedRun(dir), { taskId: task.id, runId: run.id });
+
+  // 失败的执行不算数：再准备还是实现环节；另外给了 model 时用给的
+  endLastRun(dir, task, { failure: "执行者中途退出" });
+  assert.equal(unfinishedRun(dir), null);
+  const again = prepare(dir, task.id, { model: "other/big-model" });
+  assert.deepEqual(again.problems, []);
+  assert.equal(again.run.stage.id, "implement");
+  assert.equal(again.run.model, "other/big-model");
+  assert.equal(recordOf(dir, task).runs.length, 2);
+});
+
+test("不能派发时说明原因，什么都不写", (t) => {
+  const dir = runProject(t);
+  const draft = knit(dir, "task", "new", "--title", "还没确认").stdout.split("\n")[0].replace("已创建 ", "");
+  const first = readyTask(dir);
+  const dependent = readyTask(dir, { dependsOn: [first.id] });
+  const second = readyTask(dir);
+  const noModel = workflowOf(dir, (text) => text.replace("model: fake/model\n", ""));
+  const before = [first, dependent, second].map((task) => filesOf(dir, task));
+
+  const refused = [
+    [prepare(dir, draft), `需求还没有确认，或确认之后改过；先运行 knit task ready ${draft}`],
+    [prepare(dir, dependent.id), `依赖的任务还没有完成：${first.id}（ready）`],
+    [
+      prepare(dir, first.id, { workflow: noModel }),
+      "没有指定执行者的模型：在 .knit/workflow.yaml 里写 model，或加 --model provider/模型",
+    ],
+    [prepare(dir, first.id, { model: "big-model" }), "--model 要写成 provider/模型：big-model"],
+    [prepare(dir, "k-000000000000"), "没有任务 k-000000000000；用 knit task list 查看现有任务"],
+  ];
+  for (const [result, problem] of refused) assert.deepEqual(result, { run: null, problems: [problem] });
+  assert.deepEqual(runDirs(dir), []);
+  assert.deepEqual([first, dependent, second].map((task) => filesOf(dir, task)), before);
+
+  // 另一个任务有一次没结束的执行
+  const { run } = prepare(dir, first.id);
+  const others = [second].map((task) => filesOf(dir, task));
+  assert.deepEqual(prepare(dir, second.id), {
+    run: null,
+    problems: [`任务 ${first.id} 的执行 ${run.id} 还没有结束；等它结束，或运行 knit run cancel ${first.id}`],
+  });
+  assert.deepEqual(runDirs(dir), [run.id]);
+  assert.deepEqual([second].map((task) => filesOf(dir, task)), others);
+});
+
+test("下一个环节拿到上一个环节的报告", (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const implement = prepare(dir, task.id).run;
+  endLastRun(dir, task, { changedPaths: ["src/greet.ts", "test/greet.test.ts"] });
+  writeFileSync(join(dir, implement.dir, "report.md"), "加了 greet()，测试通过。\n");
+
+  const review = prepare(dir, task.id).run;
+  assert.equal(review.stage.id, "review");
+  assert.equal(documentOf(dir, task).frontmatter.stage, "review");
+  const block = [
+    `<previous-report stage="implement" path="${implement.dir}/report.md">`,
+    "改动的文件：",
+    "- src/greet.ts",
+    "- test/greet.test.ts",
+    "",
+    "加了 greet()，测试通过。",
+    "</previous-report>",
+  ].join("\n");
+  assert.ok(readFileSync(join(dir, review.dir, "message.md"), "utf8").endsWith(block));
+
+  // 审查这一次失败了，再准备还是审查；上一份报告删掉之后用一句话代替
+  endLastRun(dir, task, { failure: "执行者中途退出" });
+  rmSync(join(dir, implement.dir, "report.md"));
+  const retry = prepare(dir, task.id).run;
+  assert.equal(retry.stage.id, "review");
+  assert.ok(
+    readFileSync(join(dir, retry.dir, "message.md"), "utf8").endsWith(
+      block.replace("加了 greet()，测试通过。", "报告原文不在这台机器上。"),
+    ),
+  );
+});
