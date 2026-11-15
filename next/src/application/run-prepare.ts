@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
 import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
+import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
@@ -128,7 +129,8 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
 
   const dir = `${RUNS_DIR}/${id}`;
   mkdirSync(join(root, dir), { recursive: true });
-  writeFileSync(join(root, dir, "system.md"), handoff.systemPrompt);
+  // 规则不计入交接的字节上限。
+  writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   // 在写回任务之后拍：任务自己的两个文件的变化不会算成执行者的改动。
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(root), null, 2)}\n`);
