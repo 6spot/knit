@@ -1,8 +1,8 @@
 ---
 id: k-527125c2184c
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -100,5 +100,17 @@ title: B2 搬路径、原子写和文件指纹到 next/
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-54ba7724c20e -->
+- 操作: op-54ba7724c20e
+- 时间: 2026-11-15T06:44:29.079Z
+- 分支: refs/heads/main
+- 授权来源: user:1f7f9eea
+- 调用: bridge
+- 工作提交: 86bf44d9c562a947d200da1fde3d3a12923d2254
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b2-move-paths-atomic
 
 <!-- knit:progress:end -->
