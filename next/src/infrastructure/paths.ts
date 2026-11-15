@@ -4,7 +4,7 @@
  * safeJoin 拒绝越界与经父级符号链接逃出项目。
  */
 import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { InfrastructureError } from "./errors.js";
 
@@ -75,4 +75,14 @@ export function safeJoin(root: string, relativePath: string): string {
   }
   // 重建尚未存在的相对尾段（不含符号链接：这些路径尚不存在）。
   return join(realAncestor, relative(existing, target));
+}
+
+/**
+ * 项目内的相对路径规整后的写法：用 `/` 分隔，去掉开头的 `./`。
+ * 绝对路径和跑出项目根的路径返回 null。只看写法，不看文件在不在。
+ */
+export function projectRelative(path: string): string | null {
+  if (isAbsolute(path)) return null;
+  const normalized = posix.normalize(path);
+  return normalized === ".." || normalized.startsWith("../") ? null : normalized;
 }

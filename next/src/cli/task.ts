@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, join, posix } from "node:path";
+import { join } from "node:path";
 import { Option, type Command } from "commander";
 import {
   archiveTask,
@@ -18,6 +18,7 @@ import {
 } from "../contracts/task.js";
 import { currentStatus, requirementDigest, type TaskDocument } from "../domain/task-document.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
+import { projectRelative } from "../infrastructure/paths.js";
 import { projectRoot } from "./root.js";
 
 function fail(problems: readonly string[]): void {
@@ -248,11 +249,9 @@ export function registerTaskCommands(program: Command): void {
       if (unreviewed && options.reason === undefined) {
         return fail(["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"]);
       }
-      const paths = options.paths.map((path) => posix.normalize(path));
-      const outside = options.paths.filter(
-        (path, index) => isAbsolute(path) || paths[index] === ".." || paths[index]?.startsWith("../"),
-      );
+      const outside = options.paths.filter((path) => projectRelative(path) === null);
       if (outside.length > 0) return fail(outside.map((path) => `--paths 要写项目内的相对路径：${path}`));
+      const paths = options.paths.flatMap((path) => projectRelative(path) ?? []);
       const conflicts = saveTask(
         loaded.root,
         loaded.stored,
