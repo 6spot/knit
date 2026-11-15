@@ -146,4 +146,10 @@ title: E14 到返工上限时列出各轮报告和可以走的路
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e14-limit-notice
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1fd72830ec3e -->
+- 任务资料提交: e45aa1402d4d30f12a06f14e6f16bd52a92cec41
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e14-limit-notice
+
 <!-- knit:progress:end -->
