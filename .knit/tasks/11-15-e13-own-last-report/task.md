@@ -1,8 +1,8 @@
 ---
 id: k-5a71e2a2fb37
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -139,5 +139,17 @@ title: E13 再次进入一个环节时带上它自己上一次的报告
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-caca2b2a2af8 -->
+- 操作: op-caca2b2a2af8
+- 时间: 2026-11-15T23:04:16.883Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: f4b37bed50c0f5ac52c5fba87bb1709754eb8dd2
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e13-own-last-report
 
 <!-- knit:progress:end -->
