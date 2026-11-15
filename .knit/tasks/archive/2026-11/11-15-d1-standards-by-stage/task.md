@@ -150,4 +150,10 @@ stages: [implement, review]
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d1-standards-by-stage
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-5ec737a49d4a -->
+- 任务资料提交: 0053c6ca6458510d8b2f97234437b5b4ed42ae78
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d1-standards-by-stage
+
 <!-- knit:progress:end -->
