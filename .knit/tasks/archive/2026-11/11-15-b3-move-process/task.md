@@ -126,4 +126,10 @@ title: B3 搬进程启动、清理和 Git 调用到 next/
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b3-move-process
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-9fe0e4b9d567 -->
+- 任务资料提交: 62a563e952951439e2f1e5a915025121b5b01866
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b3-move-process
+
 <!-- knit:progress:end -->
