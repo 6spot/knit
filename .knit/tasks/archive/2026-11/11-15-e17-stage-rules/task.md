@@ -142,4 +142,10 @@ title: E17 系统提示里加上对所有环节都成立的规则
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e17-stage-rules
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a4bd6344accc -->
+- 任务资料提交: 04b6f286e6474dd1a8c08bcaf6fb24a06a909f71
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e17-stage-rules
+
 <!-- knit:progress:end -->
