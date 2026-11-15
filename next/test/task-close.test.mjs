@@ -27,6 +27,7 @@ const runOf = (id, stage, verdict) => ({
   startedAt: "2026-11-15T01:00:00.000Z",
   endedAt: "2026-11-15T01:10:00.000Z",
   verdict,
+  failure: null,
   requirementDigest: "x",
   changedPaths: [],
   sessionFile: null,

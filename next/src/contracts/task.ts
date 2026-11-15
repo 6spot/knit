@@ -34,6 +34,8 @@ export const TaskRunSchema = obj({
   startedAt: str({ minLength: 1 }),
   endedAt: nullable(str({ minLength: 1 })),
   verdict: nullable(str({ minLength: 1 })),
+  /** 失败的原因；正在跑和正常结束时是 null。 */
+  failure: nullable(str({ minLength: 1 })),
   requirementDigest: str({ minLength: 1 }),
   changedPaths: arr(str({ minLength: 1 })),
   sessionFile: nullable(str({ minLength: 1 })),

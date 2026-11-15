@@ -91,6 +91,7 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
           startedAt: "2026-11-15T01:00:00.000Z",
           endedAt: null,
           verdict: null,
+          failure: null,
           requirementDigest: "x",
           changedPaths: ["next/src/a.ts"],
           sessionFile: null,
