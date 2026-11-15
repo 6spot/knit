@@ -1,8 +1,8 @@
 ---
 id: k-7d0b4cd7be3b
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -133,5 +133,17 @@ title: E14 到返工上限时列出各轮报告和可以走的路
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-1fd72830ec3e -->
+- 操作: op-1fd72830ec3e
+- 时间: 2026-11-15T23:04:25.072Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: 79956af4b7845006c50f8990f354ea7c2ca0f99f
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e14-limit-notice
 
 <!-- knit:progress:end -->
