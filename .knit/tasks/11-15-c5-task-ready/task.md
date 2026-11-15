@@ -1,8 +1,8 @@
 ---
 id: k-6ee0f30669c2
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -129,5 +129,17 @@ title: C5 next 的 knit task ready：确认需求
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-348172c96ffe -->
+- 操作: op-348172c96ffe
+- 时间: 2026-11-15T09:06:46.017Z
+- 分支: refs/heads/main
+- 授权来源: user:0f1c5bab
+- 调用: bridge
+- 工作提交: e71fd6c23bdc5eaa996ab9489701b212648223cc
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c5-task-ready
 
 <!-- knit:progress:end -->
