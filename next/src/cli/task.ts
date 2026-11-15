@@ -21,13 +21,13 @@ import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../dom
 import { projectRelative } from "../infrastructure/paths.js";
 import { projectRoot } from "./root.js";
 
-function fail(problems: readonly string[]): void {
+export function fail(problems: readonly string[]): void {
   process.stderr.write(problems.map((problem) => `${problem}\n`).join(""));
   process.exitCode = 1;
 }
 
 /** 有 `.knit/` 目录的项目根；没有时报错并返回 null。 */
-function knitRoot(dir: string): string | null {
+export function knitRoot(dir: string): string | null {
   const root = projectRoot(dir);
   if (existsSync(join(root, ".knit"))) return root;
   fail(["这个项目里没有 .knit/ 目录；运行 knit init 生成"]);
@@ -42,7 +42,7 @@ interface LoadedTask {
 }
 
 /** 按 id 读出一个任务；项目、任务不存在或文件有格式问题时报错并返回 null。 */
-function loadTask(dir: string, id: string): LoadedTask | null {
+export function loadTask(dir: string, id: string): LoadedTask | null {
   const root = knitRoot(dir);
   if (root === null) return null;
   const stored = findTask(root, id);
@@ -89,7 +89,7 @@ function closeRefusal(status: TaskStatus, id: string): string | null {
 }
 
 /** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
-function shownStatus(document: TaskDocument, record: TaskRecord): { text: string; stale: boolean } {
+export function shownStatus(document: TaskDocument, record: TaskRecord): { text: string; stale: boolean } {
   const status = currentStatus(document, record);
   return {
     text: status === "active" ? `active(${document.frontmatter.stage})` : status,
