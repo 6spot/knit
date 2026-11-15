@@ -120,4 +120,10 @@ title: A5 避坑清单：写入 .knit/standards/
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-a5-pitfalls
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-e0258d5f07ff -->
+- 任务资料提交: ab2cffa83768f4bca7e34ba4b43a47233d8c29a9
+- 归档目标: .knit/tasks/archive/2026-11/11-15-a5-pitfalls
+
 <!-- knit:progress:end -->
