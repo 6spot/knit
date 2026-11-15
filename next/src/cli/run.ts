@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
-import { prepareRun, RUNS_DIR } from "../application/run-prepare.js";
+import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
 import { liveWorker } from "../application/run-process.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
@@ -33,7 +33,7 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
     : [`正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`, `日志: ${dir}/worker.log`];
 }
 
-/** “下一步”那一行；任务已经结束时没有。 */
+/** “下一步”那一行，到返工上限时后面还跟着各轮的报告和可以走的路；任务已经结束时没有。 */
 function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: TaskRecord): string[] {
   const { id, verification } = document.frontmatter;
   const status = currentStatus(document, record);
@@ -41,7 +41,10 @@ function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: 
   if (status !== "ready" && status !== "active") return [];
   const step = nextStep(workflow, verification, record);
   if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
-  if (step.kind === "limit") return [`下一步: ${step.stage.name}环节已经进入 ${step.entries} 次，到了上限`];
+  if (step.kind === "limit") {
+    const [first, ...rest] = limitNotice(id, workflow, record, step);
+    return [`下一步: ${first}`, ...rest];
+  }
   return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
 }
 

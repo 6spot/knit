@@ -5,9 +5,9 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { TaskRun } from "../contracts/task.js";
+import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
-import { countedRuns, nextStep } from "../domain/progress.js";
+import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { currentStatus, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
@@ -79,7 +79,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   }
   const step = nextStep(input.workflow, document.frontmatter.verification, record);
   if (step.kind === "close") return refuse(`所有环节都做完了；核对之后运行 knit task close ${taskId}`);
-  if (step.kind === "limit") return refuse(`${step.stage.name}环节已经进入 ${step.entries} 次，到了上限，不再派发`);
+  if (step.kind === "limit") return refuse(...limitNotice(taskId, input.workflow, record, step));
   const stage = step.stage;
   const model = input.model ?? stage.model;
   if (model === null) {
@@ -133,6 +133,30 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   // 在写回任务之后拍：任务自己的两个文件的变化不会算成执行者的改动。
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(root), null, 2)}\n`);
   return { run: { id, dir, stage, model }, problems: [] };
+}
+
+/**
+ * 返工到了上限时交回主会话的话：各轮报告在哪里，可以走哪几条路。
+ * 不读报告的内容，不生成汇总。
+ */
+export function limitNotice(
+  taskId: string,
+  workflow: WorkflowDefinition,
+  record: TaskRecord,
+  step: Extract<NextStep, { kind: "limit" }>,
+): string[] {
+  const nameOf = (stageId: string) => workflow.stages.find((stage) => stage.id === stageId)?.name ?? stageId;
+  return [
+    `${step.stage.name}环节已经进入 ${step.entries} 次，到了上限，不再派发。各轮的报告：`,
+    ...countedRuns(record).map(
+      (run) => `  ${nameOf(run.stage)}（${run.id}）${run.verdict ?? ""}：${RUNS_DIR}/${run.id}/report.md`,
+    ),
+    "可以走的路：",
+    `  1. 主会话直接修，改完运行 knit task close ${taskId} --paths <改动的文件>`,
+    "  2. 拆成更小的任务",
+    `  3. 需求本身有问题就改需求，再运行 knit task ready ${taskId}；进入次数从头数`,
+    `  4. 用户决定带理由接受：knit task close ${taskId} --reason <理由>`,
+  ];
 }
 
 /** 一次执行的报告，交接时用。 */
