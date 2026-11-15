@@ -1,8 +1,8 @@
 ---
 id: k-efa866531ee9
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -109,5 +109,17 @@ title: E16 有执行者在跑时不能完成或取消任务
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-b8197526304c -->
+- 操作: op-b8197526304c
+- 时间: 2026-11-15T23:04:42.230Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: a6aae39b988643fc735897cdf99a5337657351fb
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e16-task-live-run
 
 <!-- knit:progress:end -->
