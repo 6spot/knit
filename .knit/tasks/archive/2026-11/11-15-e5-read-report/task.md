@@ -138,4 +138,10 @@ title: E5 从报告里读出环节声明的字段
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e5-read-report
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-694fd14e5941 -->
+- 任务资料提交: 256515a9804b40575179bbea67ca568adea34780
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e5-read-report
+
 <!-- knit:progress:end -->
