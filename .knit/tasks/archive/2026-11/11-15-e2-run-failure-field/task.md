@@ -127,4 +127,10 @@ title: E2 执行记录里记下失败原因
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e2-run-failure-field
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8d29b2170b8a -->
+- 任务资料提交: 4ba59322518cbc2a2814b3e6d35c3a1ad5e86991
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e2-run-failure-field
+
 <!-- knit:progress:end -->
