@@ -1,13 +1,49 @@
 import { spawn } from "node:child_process";
-import { closeSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
-import { prepareRun } from "../application/run-prepare.js";
+import { prepareRun, RUNS_DIR } from "../application/run-prepare.js";
+import { liveWorker } from "../application/run-process.js";
+import type { TaskRecord, TaskRun } from "../contracts/task.js";
+import { nextStep } from "../domain/progress.js";
+import { currentStatus, type TaskDocument } from "../domain/task-document.js";
+import type { WorkflowDefinition } from "../domain/workflow.js";
 import { procStartTicks } from "../infrastructure/process.js";
-import { fail, knitRoot } from "./task.js";
+import { fail, knitRoot, loadTask, shownStatus } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
+
+/** 一次执行的情况。 */
+function runLines(root: string, workflow: WorkflowDefinition, taskId: string, run: TaskRun | undefined): string[] {
+  if (run === undefined) return ["还没有派发过"];
+  const dir = `${RUNS_DIR}/${run.id}`;
+  // 执行记录里的环节已经不在流程里时用它的 id。
+  const stage = workflow.stages.find((item) => item.id === run.stage)?.name ?? run.stage;
+  if (run.endedAt !== null) {
+    return [
+      `上一次: ${stage}（${run.id}）`,
+      run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
+      ...(existsSync(join(root, dir, "report.md")) ? [`报告: ${dir}/report.md`] : []),
+      `改动文件: ${run.changedPaths.length} 个`,
+    ];
+  }
+  return liveWorker(root, run.id) === null
+    ? [`执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`]
+    : [`正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`, `日志: ${dir}/worker.log`];
+}
+
+/** “下一步”那一行；任务已经结束时没有。 */
+function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: TaskRecord): string[] {
+  const { id, verification } = document.frontmatter;
+  const status = currentStatus(document, record);
+  if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
+  if (status !== "ready" && status !== "active") return [];
+  const step = nextStep(workflow, verification, record);
+  if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
+  if (step.kind === "limit") return [`下一步: ${step.stage.name}环节已经进入 ${step.entries} 次，到了上限`];
+  return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
+}
 
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("派发环节的执行者");
@@ -42,6 +78,30 @@ export function registerRunCommands(program: Command): void {
       const identity = { pid: worker.pid, start: worker.pid === undefined ? null : procStartTicks(worker.pid) };
       writeFileSync(join(root, started.dir, "worker.json"), `${JSON.stringify(identity, null, 2)}\n`);
       process.stdout.write(`已派发 ${id}：${started.stage.name}（${started.id}）\n日志：${started.dir}/worker.log\n`);
+    });
+
+  run
+    .command("status <id>")
+    .description("显示任务上一次或正在跑的执行，以及下一步")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action((id: string, options: { dir: string }) => {
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const workflow = loadWorkflow(loaded.root);
+      if (workflow === null) {
+        process.exitCode = 1;
+        return;
+      }
+      const { root, document, record } = loaded;
+      const last = record.runs.at(-1);
+      const lines = [
+        `任务: ${document.frontmatter.title}（${document.frontmatter.id}）`,
+        `状态: ${shownStatus(document, record).text}`,
+        ...runLines(root, workflow, document.frontmatter.id, last),
+        // 有执行还没结束时不给下一步。
+        ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
+      ];
+      process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 
   run
