@@ -1,8 +1,8 @@
 ---
 id: k-6724429685d5
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -141,5 +141,17 @@ title: D4 读出任务「相关资料」点名的文件和章节
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-fe9709097b1c -->
+- 操作: op-fe9709097b1c
+- 时间: 2026-11-15T11:01:49.429Z
+- 分支: refs/heads/main
+- 授权来源: user:5c30905e
+- 调用: bridge
+- 工作提交: a70bea28cfba10338fa23f57de1721c59fef495c
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d4-task-materials
 
 <!-- knit:progress:end -->
