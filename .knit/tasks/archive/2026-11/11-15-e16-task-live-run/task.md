@@ -122,4 +122,10 @@ title: E16 有执行者在跑时不能完成或取消任务
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e16-task-live-run
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b8197526304c -->
+- 任务资料提交: a4c5d433d9e75b3c7cea5bd4b61910a700181563
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e16-task-live-run
+
 <!-- knit:progress:end -->
