@@ -1,8 +1,8 @@
 ---
 id: k-8ffe28f210d4
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -125,5 +125,17 @@ title: E5 从报告里读出环节声明的字段
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-694fd14e5941 -->
+- 操作: op-694fd14e5941
+- 时间: 2026-11-15T23:03:26.139Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: f1611368ce5b83d38854ab55dac1c214399bcfa1
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e5-read-report
 
 <!-- knit:progress:end -->
