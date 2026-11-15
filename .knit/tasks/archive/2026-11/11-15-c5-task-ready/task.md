@@ -142,4 +142,10 @@ title: C5 next 的 knit task ready：确认需求
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c5-task-ready
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-348172c96ffe -->
+- 任务资料提交: c607812e8c61868fa4daa70bc9cb99a9c7762bbe
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c5-task-ready
+
 <!-- knit:progress:end -->
