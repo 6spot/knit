@@ -1,8 +1,8 @@
 ---
 id: k-355b59a06e15
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -43,7 +43,10 @@ title: C2 搬完成条件场景和待澄清项的解析到 next/
 
 测试：
 
-- 从 `test/scenarios.test.mjs` 搬头两个测试（名字以 `R1.S1–S4 解析` 和 `R2.S1–S4 结构错误` 开头）以及它们用到的 `scenario`、`THREE`。名字里的编号前缀去掉。第一个测试里有一条断言用到 `<!-- knit:progress:start -->`，它测的是旧格式的记录区，删掉这一条。
+- 从 `test/scenarios.test.mjs` 搬头两个测试（名字以 `R1.S1–S4 解析` 和 `R2.S1–S4 结构错误` 开头）以及它们用到的 `scenario`、`THREE`。名字里的编号前缀去掉。第一个测试里有一条断言用到 `
+
+<!-- knit:progress:start -->
+`，它测的是旧格式的记录区，删掉这一条。
 - 那个文件里其余 7 个测试不搬：它们测的是报告、确认需求的服务、模板和桥接，不是这两个函数。
 - 旧测试里没有直接测 `clarifyStateOf` 的，新写一个：`[blocking]` 和 `[assumed]` 各自计数；`blockingItems` 最多 3 条、单条超过 120 个字符时截断并以省略号结尾；缩进的行和大小写不同的标记不算；区段到下一个一级或二级标题为止；没有「待澄清」区段时都是 0。
 
@@ -114,5 +117,17 @@ title: C2 搬完成条件场景和待澄清项的解析到 next/
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-85ee4c1ace60 -->
+- 操作: op-85ee4c1ace60
+- 时间: 2026-11-15T09:06:42.192Z
+- 分支: refs/heads/main
+- 授权来源: user:0f1c5bab
+- 调用: bridge
+- 工作提交: 83f0d71f26462621ef70b50c5a71f1a19d789a34
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c2-move-requirement-parsing
 
 <!-- knit:progress:end -->
