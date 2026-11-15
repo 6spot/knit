@@ -3,12 +3,12 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
 import { parseTaskDocument, renderTaskDocument, type TaskDocument } from "../domain/task-document.js";
-import { parseTaskRecord } from "../domain/task-record.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { parseTaskRecord, renderTaskRecord } from "../domain/task-record.js";
+import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 
 export const TASKS_DIR = ".knit/tasks";
 export const ARCHIVE_DIR = `${TASKS_DIR}/archive`;
@@ -23,6 +23,8 @@ export interface StoredTask {
   readonly document: TaskDocument | null;
   readonly record: TaskRecord | null;
   readonly problems: readonly string[];
+  /** 两个文件读入时的 SHA-256；record.json 还不存在时是 null。 */
+  readonly versions: { readonly task: string; readonly record: string | null };
 }
 
 export interface NewTask {
@@ -40,13 +42,14 @@ export type CreateTaskResult =
 
 /** 所有任务，含已归档的。写坏的任务也列出来，带着问题，不挡住其它任务。 */
 export function scanTasks(root: string): StoredTask[] {
-  return taskDirectories(root)
-    .filter((entry) => existsSync(join(root, entry.dir, TASK_FILE)))
-    .map((entry) => {
-      const recordFile = join(root, entry.dir, RECORD_FILE);
-      const document = parseTaskDocument(readFileSync(join(root, entry.dir, TASK_FILE), "utf8"));
-      const record = parseTaskRecord(existsSync(recordFile) ? readFileSync(recordFile, "utf8") : null);
-      return {
+  return taskDirectories(root).flatMap((entry) => {
+    const taskFile = readWithVersion(join(root, entry.dir, TASK_FILE));
+    if (taskFile === null) return [];
+    const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
+    const document = parseTaskDocument(taskFile.data.toString("utf8"));
+    const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
+    return [
+      {
         dir: entry.dir,
         archived: entry.archived,
         document: document.document,
@@ -55,8 +58,10 @@ export function scanTasks(root: string): StoredTask[] {
           ...document.problems.map((problem) => `${TASK_FILE}：${problem}`),
           ...record.problems.map((problem) => `${RECORD_FILE}：${problem}`),
         ],
-      };
-    });
+        versions: { task: taskFile.sha256, record: recordFile?.sha256 ?? null },
+      },
+    ];
+  });
 }
 
 export function findTask(root: string, id: string): StoredTask | null {
@@ -105,6 +110,33 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
     mode: 0o644,
   });
   return { created: { id, file: `${dir}/${TASK_FILE}` }, problems: [] };
+}
+
+/**
+ * 把改过的两个文件写回。读入之后有文件被别人改过时不写，返回是哪个文件。
+ * 先写 record.json 再写 task.md：中间断掉时状态和确认摘要对不上，任务按 draft 算，重新确认一次即可。
+ */
+export function saveTask(root: string, stored: StoredTask, document: TaskDocument, record: TaskRecord): string[] {
+  const taskFile = join(root, stored.dir, TASK_FILE);
+  const recordFile = join(root, stored.dir, RECORD_FILE);
+  const changed = [
+    ...(readWithVersion(taskFile)?.sha256 === stored.versions.task ? [] : [TASK_FILE]),
+    ...((readWithVersion(recordFile)?.sha256 ?? null) === stored.versions.record ? [] : [RECORD_FILE]),
+  ];
+  if (changed.length > 0) return changed.map((file) => `${stored.dir}/${file} 在读入之后被改过，没有写入；重新运行一次`);
+  atomicWrite({
+    path: recordFile,
+    data: Buffer.from(renderTaskRecord(record)),
+    expectedSha256: stored.versions.record,
+    mode: 0o644,
+  });
+  atomicWrite({
+    path: taskFile,
+    data: Buffer.from(renderTaskDocument(document)),
+    expectedSha256: stored.versions.task,
+    mode: 0o644,
+  });
+  return [];
 }
 
 function taskDirectories(root: string): { dir: string; archived: boolean }[] {

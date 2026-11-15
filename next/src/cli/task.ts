@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
-import { createTask, findTask, scanTasks } from "../application/task-store.js";
+import { createTask, findTask, saveTask, scanTasks, type StoredTask } from "../application/task-store.js";
 import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
-import { currentStatus, type TaskDocument } from "../domain/task-document.js";
-import { clarifyStateOf, scenarioStateOf } from "../domain/task-requirements.js";
+import { currentStatus, requirementDigest, type TaskDocument } from "../domain/task-document.js";
+import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRoot } from "./root.js";
 
 function fail(problems: readonly string[]): void {
@@ -18,6 +18,52 @@ function knitRoot(dir: string): string | null {
   if (existsSync(join(root, ".knit"))) return root;
   fail(["这个项目里没有 .knit/ 目录；运行 knit init 生成"]);
   return null;
+}
+
+interface LoadedTask {
+  readonly root: string;
+  readonly stored: StoredTask;
+  readonly document: TaskDocument;
+  readonly record: TaskRecord;
+}
+
+/** 按 id 读出一个任务；项目、任务不存在或文件有格式问题时报错并返回 null。 */
+function loadTask(dir: string, id: string): LoadedTask | null {
+  const root = knitRoot(dir);
+  if (root === null) return null;
+  const stored = findTask(root, id);
+  if (stored === null) {
+    fail([`没有任务 ${id}；用 knit task list 查看现有任务`]);
+    return null;
+  }
+  if (stored.document === null || stored.record === null) {
+    fail(stored.problems);
+    return null;
+  }
+  return { root, stored, document: stored.document, record: stored.record };
+}
+
+/** 需求部分里挡住确认的地方，每处后面跟着怎么改；没有时是空数组。 */
+function readyProblems(document: TaskDocument): string[] {
+  const clarify = clarifyStateOf(document.requirement);
+  const scenarios = scenarioStateOf(document.requirement);
+  const unwritten = document.frontmatter.verification === "independent" && scenarios.scenarios.length === 0;
+  return [
+    ...(clarify.blocking > 0
+      ? [
+          `「待澄清」里还有 ${clarify.blocking} 项 [blocking]：`,
+          ...clarify.blockingItems.map((item) => `  - ${item}`),
+          "  和用户定下来之后，把结论写进正文并删掉这一行。",
+        ]
+      : []),
+    ...(scenarios.issues.length > 0
+      ? [`「完成条件」的场景有 ${scenarios.issues.length} 处写法问题：`, ...scenarios.issues.map((issue) => `  - ${issue.message}`)]
+      : []),
+    ...(unwritten
+      ? ["独立审查的任务必须把完成条件写成场景；另一条路是把 task.md 开头的 verification 改成 self。"]
+      : []),
+    ...(scenarios.issues.length > 0 || unwritten ? ["场景的写法：", SCENARIO_FORMAT_EXAMPLE] : []),
+  ];
 }
 
 /** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
@@ -105,17 +151,14 @@ export function registerTaskCommands(program: Command): void {
     .description("显示一个任务的情况")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { dir: string }) => {
-      const root = knitRoot(options.dir);
-      if (root === null) return;
-      const stored = findTask(root, id);
-      if (stored === null) return fail([`没有任务 ${id}；用 knit task list 查看现有任务`]);
-      if (stored.document === null || stored.record === null) return fail(stored.problems);
-      const frontmatter = stored.document.frontmatter;
-      const status = shownStatus(stored.document, stored.record);
-      const scenarios = scenarioStateOf(stored.document.requirement);
-      const clarify = clarifyStateOf(stored.document.requirement);
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const frontmatter = loaded.document.frontmatter;
+      const status = shownStatus(loaded.document, loaded.record);
+      const scenarios = scenarioStateOf(loaded.document.requirement);
+      const clarify = clarifyStateOf(loaded.document.requirement);
       const changed = [
-        ...new Set([...stored.record.changedPaths, ...stored.record.runs.flatMap((run) => run.changedPaths)]),
+        ...new Set([...loaded.record.changedPaths, ...loaded.record.runs.flatMap((run) => run.changedPaths)]),
       ].sort();
       const lines = [
         `标题: ${frontmatter.title}`,
@@ -125,12 +168,41 @@ export function registerTaskCommands(program: Command): void {
         `优先级: ${frontmatter.priority}`,
         `父任务: ${frontmatter.parent ?? "无"}`,
         `依赖: ${frontmatter.dependsOn.join(", ") || "无"}`,
-        `目录: ${stored.dir}`,
+        `目录: ${loaded.stored.dir}`,
         `完成条件: ${scenarios.scenarios.length} 个场景` +
           (scenarios.issues.length > 0 ? `，${scenarios.issues.length} 处写法问题` : ""),
         `待澄清: ${clarify.blocking} 项 blocking，${clarify.assumed} 项 assumed`,
         ...(changed.length > 0 ? [`改动文件（${changed.length}）:`, ...changed.map((path) => `  ${path}`)] : []),
       ];
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
+    });
+
+  task
+    .command("ready <id>")
+    .description("确认一个任务的需求")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action((id: string, options: { dir: string }) => {
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const status = currentStatus(loaded.document, loaded.record);
+      if (status === "ready") return void process.stdout.write("已确认，需求没有变化\n");
+      if (status === "active") {
+        return fail([`任务正在 ${loaded.document.frontmatter.stage} 环节，需求没有变化，不需要重新确认`]);
+      }
+      if (status !== "draft") return fail([`任务已经结束（${status}）；要继续做就新建一个任务`]);
+      const problems = readyProblems(loaded.document);
+      if (problems.length > 0) return fail(problems);
+      const conflicts = saveTask(
+        loaded.root,
+        loaded.stored,
+        { ...loaded.document, frontmatter: { ...loaded.document.frontmatter, status: "ready", stage: null } },
+        { ...loaded.record, confirmedDigest: requirementDigest(loaded.document) },
+      );
+      if (conflicts.length > 0) return fail(conflicts);
+      const assumed = clarifyStateOf(loaded.document.requirement).assumed;
+      process.stdout.write(
+        `已确认 ${id}：${scenarioStateOf(loaded.document.requirement).scenarios.length} 个场景\n` +
+          (assumed > 0 ? `还有 ${assumed} 项 [assumed] 没有得到用户确认\n` : ""),
+      );
     });
 }
