@@ -1,8 +1,8 @@
 ---
 id: k-959c96d0b4ae
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -126,5 +126,17 @@ title: E15 run cancel：停掉正在跑的执行
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-9d288cf59bb6 -->
+- 操作: op-9d288cf59bb6
+- 时间: 2026-11-15T23:04:33.450Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: c98463ea2c30c887ab787ecebcd5b90fe9719bbf
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e15-run-cancel
 
 <!-- knit:progress:end -->
