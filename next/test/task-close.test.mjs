@@ -118,7 +118,10 @@ test("独立审查的任务要先审查通过，或给出直接完成的理由",
   assert.deepEqual(files(task), before);
 
   // 最后一条带结论的执行不是 pass：仍然拒绝。
-  const withRuns = (target, ...runs) => writeFileSync(target.record, renderTaskRecord({ ...record(target), runs }));
+  const withRuns = (target, ...runs) => {
+    const requirementDigest = record(target).confirmedDigest;
+    writeFileSync(target.record, renderTaskRecord({ ...record(target), runs: runs.map((run) => ({ ...run, requirementDigest })) }));
+  };
   withRuns(task, runOf("r-1", "review", "pass"), runOf("r-2", "review", "changes_requested"), runOf("r-3", "implement", null));
   assert.equal(knit(dir, "task", "close", task.id, "--result", "做完了").code, 1);
 

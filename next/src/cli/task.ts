@@ -16,6 +16,7 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from "../contracts/task.js";
+import { countedRuns } from "../domain/progress.js";
 import { currentStatus, requirementDigest, type TaskDocument } from "../domain/task-document.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRelative } from "../infrastructure/paths.js";
@@ -86,6 +87,14 @@ function closeRefusal(status: TaskStatus, id: string): string | null {
   if (status === "draft") return `需求还没有确认，或确认之后改过；先运行 knit task ready ${id}`;
   if (status === "done") return "任务已经完成；要改总结直接编辑 task.md 的「结果」";
   return `任务已经结束（${status}），不能再记为完成`;
+}
+
+/** 任务有执行还没结束时为什么不能完成或取消：执行者结束时要往任务里写结果。没有这样的执行时是 null。 */
+function unfinishedRunRefusal(record: TaskRecord, id: string): string | null {
+  const running = record.runs.find((run) => run.endedAt === null);
+  return running === undefined
+    ? null
+    : `任务 ${id} 的执行 ${running.id} 还没有结束；等它结束，或运行 knit run cancel ${id}`;
 }
 
 /** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
@@ -243,14 +252,17 @@ export function registerTaskCommands(program: Command): void {
       if (result === "") return fail(["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"]);
       const refusal = closeRefusal(currentStatus(loaded.document, loaded.record), id);
       if (refusal !== null) return fail([refusal]);
+      // 失败的执行、需求改之前的执行都不算数。
       const unreviewed =
         loaded.document.frontmatter.verification === "independent" &&
-        loaded.record.runs.filter((run) => run.verdict !== null).at(-1)?.verdict !== "pass";
+        countedRuns(loaded.record).findLast((run) => run.verdict !== null)?.verdict !== "pass";
       if (unreviewed && options.reason === undefined) {
         return fail(["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"]);
       }
       const outside = options.paths.filter((path) => projectRelative(path) === null);
       if (outside.length > 0) return fail(outside.map((path) => `--paths 要写项目内的相对路径：${path}`));
+      const running = unfinishedRunRefusal(loaded.record, id);
+      if (running !== null) return fail([running]);
       const paths = options.paths.flatMap((path) => projectRelative(path) ?? []);
       const conflicts = saveTask(
         loaded.root,
@@ -278,6 +290,8 @@ export function registerTaskCommands(program: Command): void {
       if (reason === "") return fail(["--reason 不能为空：写为什么不做了"]);
       const status = loaded.document.frontmatter.status;
       if (status === "delivered" || status === "cancelled") return fail([`任务已经结束（${status}），不能取消`]);
+      const running = unfinishedRunRefusal(loaded.record, id);
+      if (running !== null) return fail([running]);
       const conflicts = saveTask(
         loaded.root,
         loaded.stored,
