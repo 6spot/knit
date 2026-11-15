@@ -154,4 +154,10 @@ title: D4 读出任务「相关资料」点名的文件和章节
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d4-task-materials
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-fe9709097b1c -->
+- 任务资料提交: 113f5de5735e6db7b85a14638335f44ac663d490
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d4-task-materials
+
 <!-- knit:progress:end -->
