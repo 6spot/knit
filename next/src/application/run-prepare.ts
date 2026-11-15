@@ -5,13 +5,14 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { TaskRun } from "../contracts/task.js";
 import { WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
 import { countedRuns, nextStep } from "../domain/progress.js";
 import { currentStatus, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
-import { assembleHandoff } from "./handoff.js";
+import { assembleHandoff, type HandoffReport } from "./handoff.js";
 import { saveTask, scanTasks } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
 
@@ -86,23 +87,16 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   }
   if (!new RegExp(WORKFLOW_MODEL_PATTERN).test(model)) return refuse(`--model 要写成 provider/模型：${model}`);
 
-  const last = countedRuns(record).at(-1);
-  const lastReport = last === undefined ? null : `${RUNS_DIR}/${last.id}/report.md`;
+  const counted = countedRuns(record);
+  const last = counted.at(-1);
+  // 再次进入这个环节时带上它自己上一次的报告；留在原环节再做时那就是上一个环节的报告，不重复给。
+  const own = counted.findLast((run) => run.stage === stage.id);
   const handoff = assembleHandoff({
     root,
     task: { dir: stored.dir, document },
     stage,
-    previous:
-      last === undefined || lastReport === null
-        ? null
-        : {
-            stage: last.stage,
-            path: lastReport,
-            changedPaths: last.changedPaths,
-            text: existsSync(join(root, lastReport))
-              ? readFileSync(join(root, lastReport), "utf8")
-              : "报告原文不在这台机器上。",
-          },
+    previous: last === undefined ? null : reportOf(root, last),
+    own: own === undefined || own === last ? null : reportOf(root, own),
     limits: input.config.handoff,
   });
   if (handoff.problems.length > 0) return refuse(...handoff.problems);
@@ -139,4 +133,15 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   // 在写回任务之后拍：任务自己的两个文件的变化不会算成执行者的改动。
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(root), null, 2)}\n`);
   return { run: { id, dir, stage, model }, problems: [] };
+}
+
+/** 一次执行的报告，交接时用。 */
+function reportOf(root: string, run: TaskRun): HandoffReport {
+  const path = `${RUNS_DIR}/${run.id}/report.md`;
+  return {
+    stage: run.stage,
+    path,
+    changedPaths: run.changedPaths,
+    text: existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : "报告原文不在这台机器上。",
+  };
 }

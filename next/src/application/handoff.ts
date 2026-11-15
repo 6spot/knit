@@ -1,6 +1,7 @@
 /**
  * 交给环节执行者的内容：系统提示里是角色文件和规范，第一条消息里是需求部分、
- * 任务点名的资料、计划和上一个环节的报告。「结果」、record.json 和没有点名的资料不给。
+ * 任务点名的资料、计划、上一个环节的报告，再次进入一个环节时还有它自己上一次的报告。
+ * 「结果」、record.json 和没有点名的资料不给。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,20 +18,25 @@ export interface HandoffInput {
   readonly task: { readonly dir: string; readonly document: TaskDocument };
   /** 环节 id 和角色文件的路径（相对项目根）。 */
   readonly stage: { readonly id: string; readonly prompt: string | null };
-  readonly previous: {
-    readonly stage: string;
-    /** 报告原文的路径。 */
-    readonly path: string;
-    readonly changedPaths: readonly string[];
-    readonly text: string;
-  } | null;
+  /** 上一个环节的报告。 */
+  readonly previous: HandoffReport | null;
+  /** 再次进入这个环节时，它自己上一次的报告；不给和给 null 一样。 */
+  readonly own?: HandoffReport | null;
   /** 不给时用 DEFAULT_HANDOFF_LIMITS。 */
   readonly limits?: HandoffLimits;
 }
 
+export interface HandoffReport {
+  readonly stage: string;
+  /** 报告原文的路径。 */
+  readonly path: string;
+  readonly changedPaths: readonly string[];
+  readonly text: string;
+}
+
 /** 按内容的 UTF-8 字节数算，不算块外面的标记行。 */
 export interface HandoffLimits {
-  /** 点名的资料、计划、上一环节的报告，单独一块的上限。 */
+  /** 点名的资料、计划、每份报告，单独一块的上限。 */
   readonly fileBytes: number;
   /** 一次交接合计的上限；角色文件、规范和需求部分计入合计，但任何时候都全文给。 */
   readonly totalBytes: number;
@@ -89,19 +95,8 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       content: material.text === null ? null : trimBlankLines(material.text),
     })),
     ...(plan === null ? [] : [{ tag: "plan", attributes: { path: planPath }, content: trimBlankLines(plan) }]),
-    ...(input.previous === null
-      ? []
-      : [
-          {
-            tag: "previous-report",
-            attributes: { stage: input.previous.stage, path: input.previous.path },
-            content: `${
-              input.previous.changedPaths.length === 0
-                ? "改动的文件：无"
-                : `改动的文件：\n${input.previous.changedPaths.map((path) => `- ${path}`).join("\n")}`
-            }\n\n${trimBlankLines(input.previous.text)}`,
-          },
-        ]),
+    ...(input.previous === null ? [] : [reportBlock("previous-report", input.previous)]),
+    ...(input.own == null ? [] : [reportBlock("own-last-report", input.own)]),
   ];
   const fitted = attached.reduce(
     (state, part) => {
@@ -137,6 +132,19 @@ export function assembleHandoff(input: HandoffInput): Handoff {
         : []),
       ...materials.problems,
     ],
+  };
+}
+
+/** 一份报告：先是改动的文件，再是原文。 */
+function reportBlock(tag: string, report: HandoffReport): Block {
+  const changed =
+    report.changedPaths.length === 0
+      ? "改动的文件：无"
+      : `改动的文件：\n${report.changedPaths.map((path) => `- ${path}`).join("\n")}`;
+  return {
+    tag,
+    attributes: { stage: report.stage, path: report.path },
+    content: `${changed}\n\n${trimBlankLines(report.text)}`,
   };
 }
 
