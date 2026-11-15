@@ -130,4 +130,10 @@ title: C2 搬完成条件场景和待澄清项的解析到 next/
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c2-move-requirement-parsing
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-85ee4c1ace60 -->
+- 任务资料提交: 88bedd181a4e16625040a5a93973477883be9aea
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c2-move-requirement-parsing
+
 <!-- knit:progress:end -->
