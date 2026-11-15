@@ -126,4 +126,10 @@ title: B5 next 的 knit workflow show 和 validate 命令
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b5-workflow-cli
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-96edf4dc08e7 -->
+- 任务资料提交: cd50cd16ff1be524f07ca36127347a377c6f3db6
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b5-workflow-cli
+
 <!-- knit:progress:end -->
