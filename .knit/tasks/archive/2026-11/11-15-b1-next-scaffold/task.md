@@ -115,4 +115,10 @@ title: B1 脚手架：next/ 的构建、测试脚本和 knit --version
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b1-next-scaffold
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b3609ac5afe0 -->
+- 任务资料提交: d47dbc4a4373a82e9b0d7a75bff1281de1d44633
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b1-next-scaffold
+
 <!-- knit:progress:end -->
