@@ -110,4 +110,10 @@ title: A4 任务拆分规范：写入 .knit/standards/task-splitting.md
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-a4-task-splitting-standard
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3441d37e5c05 -->
+- 任务资料提交: 9601507ce3b6f3f84e1abd1b68ddad5e47db3c99
+- 归档目标: .knit/tasks/archive/2026-11/11-15-a4-task-splitting-standard
+
 <!-- knit:progress:end -->
