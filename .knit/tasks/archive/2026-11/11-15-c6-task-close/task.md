@@ -139,4 +139,10 @@ title: C6 next 的 knit task close：完成任务并写结果
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c6-task-close
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-bb97de2b4218 -->
+- 任务资料提交: be1290e2391914abdd886de1ff88350914d1d8f4
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c6-task-close
+
 <!-- knit:progress:end -->
