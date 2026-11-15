@@ -137,4 +137,10 @@ title: D3 按标题取 Markdown 文档的一节
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d3-markdown-section
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-06505ac33ea6 -->
+- 任务资料提交: 1c367c5d6332ec2e6f1117b30feed63f5b657014
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d3-markdown-section
+
 <!-- knit:progress:end -->
