@@ -134,4 +134,10 @@ title: D6 交接内容超出字节上限时只给路径
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-d6-handoff-limits
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-453ef649cd3f -->
+- 任务资料提交: 2f4e6c7bac46d1c8e8e6a7dfc1137d7d682cb0c1
+- 归档目标: .knit/tasks/archive/2026-11/11-15-d6-handoff-limits
+
 <!-- knit:progress:end -->
