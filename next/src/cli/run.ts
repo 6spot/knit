@@ -1,18 +1,29 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Command } from "commander";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
+import { finishRun } from "../application/run-finish.js";
 import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
 import { liveWorker } from "../application/run-process.js";
+import { findTask } from "../application/task-store.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { procStartTicks } from "../infrastructure/process.js";
+import { procStartTicks, processTreePids, signalProcessTree } from "../infrastructure/process.js";
 import { fail, knitRoot, loadTask, shownStatus } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
+
+/** 每 100 毫秒看一次，最多看 `checksLeft` 次；后台进程不在了返回 true。 */
+async function workerGone(root: string, runId: string, checksLeft: number): Promise<boolean> {
+  if (liveWorker(root, runId) === null) return true;
+  if (checksLeft === 0) return false;
+  await sleep(100);
+  return workerGone(root, runId, checksLeft - 1);
+}
 
 /** 一次执行的情况。 */
 function runLines(root: string, workflow: WorkflowDefinition, taskId: string, run: TaskRun | undefined): string[] {
@@ -105,6 +116,48 @@ export function registerRunCommands(program: Command): void {
         ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
       ];
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
+    });
+
+  run
+    .command("cancel <id>")
+    .description("停掉任务正在跑的执行，记为失败；后台进程已经不在的也用它记为失败")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action(async (id: string, options: { dir: string }) => {
+      const loaded = loadTask(options.dir, id);
+      if (loaded === null) return;
+      const workflow = loadWorkflow(loaded.root);
+      if (workflow === null) {
+        process.exitCode = 1;
+        return;
+      }
+      const { root } = loaded;
+      const taskId = loaded.document.frontmatter.id;
+      const running = loaded.record.runs.find((item) => item.endedAt === null);
+      if (running === undefined) return fail([`任务 ${taskId} 没有正在跑的执行`]);
+      const worker = liveWorker(root, running.id);
+      if (worker !== null) {
+        // 后台进程先退出的话就找不到它启动的 Pi 了，所以先把这一串进程号记下。
+        const pids = processTreePids(worker);
+        signalProcessTree(worker, "SIGTERM", pids);
+        if (!(await workerGone(root, running.id, 50))) {
+          signalProcessTree(worker, "SIGKILL", pids);
+          await workerGone(root, running.id, 50);
+        }
+      }
+      const problems = finishRun({
+        root,
+        taskId,
+        runId: running.id,
+        workflow,
+        verdict: null,
+        failure: worker === null ? "执行进程意外退出" : "已取消",
+        sessionFile: null,
+      });
+      if (problems.length > 0) return fail(problems);
+      const changed = findTask(root, taskId)?.record?.runs.find((item) => item.id === running.id)?.changedPaths ?? [];
+      const first =
+        worker === null ? `执行 ${running.id} 的进程已经不在了，已记为失败` : `已取消 ${taskId} 的执行 ${running.id}`;
+      process.stdout.write(`${first}\n改动文件: ${changed.length} 个\n`);
     });
 
   run
