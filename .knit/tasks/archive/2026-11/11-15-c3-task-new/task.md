@@ -132,4 +132,10 @@ title: C3 next 的 knit task new：创建任务
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c3-task-new
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-7764eea1fe2f -->
+- 任务资料提交: 285f5721f28a4948c1e1467c51d8bdf349bf6746
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c3-task-new
+
 <!-- knit:progress:end -->
