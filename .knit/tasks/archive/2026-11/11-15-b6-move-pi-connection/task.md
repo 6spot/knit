@@ -139,4 +139,10 @@ title: B6 搬 Pi 连接到 next/，执行者照常读 AGENTS.md
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b6-move-pi-connection
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-ffc9f367d954 -->
+- 任务资料提交: 341374b75315bc4a0acb8723d8921a362767bb7f
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b6-move-pi-connection
+
 <!-- knit:progress:end -->
