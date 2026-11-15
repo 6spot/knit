@@ -126,4 +126,10 @@ title: C7 next 的 knit task cancel：取消任务
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-c7-task-cancel
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1fa56d508c0b -->
+- 任务资料提交: b2c47cb1754a96e8b0c1799a370890cbecb31ebc
+- 归档目标: .knit/tasks/archive/2026-11/11-15-c7-task-cancel
+
 <!-- knit:progress:end -->
