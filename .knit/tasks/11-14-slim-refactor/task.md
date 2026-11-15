@@ -31,14 +31,15 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 
 - 开发规范、交付规范写进仓库并真正落地；频繁重复的错误要有避坑清单。
 - `AGENTS.md` 是项目自己的文件，Knit 不靠它承载规范，也不在里面写指向。规范正文放 `.knit/standards/`，由程序在对应环节注入给智能体。
-- 规范由用户按项目情况自己总结沉淀，内容参考 opencode 的 AGENTS.md，只取适用条目。
+- 项目自己的规范（开发规范、避坑清单）由用户按项目情况总结沉淀，内容参考 opencode 的 AGENTS.md，只取适用条目。
+- 通用的规范（任务编写、任务拆分、交付）由 Knit 自带：放进模板，`knit init` 时生成；初始化之后生成一个引导任务，带用户把规范补齐。这件事排在重构切换之后做（子任务 I1）。
 - 每份规范自己声明适用的环节，任务可以再点名追加。
 - 角色文件是 Knit 的固定模板，写这个角色在 Knit 里怎么工作，和项目规范没有关系。
 - 角色文件只放 `.knit/agents/` 一份，不生成到 `.pi/agents/` 或其它客户端的目录；以后接入别的客户端时共用这一份。
 
 任务与交接：
 
-- 任务拆细拆小。
+- 任务拆细拆小。已写成规范：`.knit/standards/task-splitting.md`。
 - 任务不按谁来做、在哪里做区分写法，都写到执行者只拿到仓库和 `task.md` 就能做完的程度。已写成规范：`.knit/standards/task-writing.md`。
 - `task.md` 人和程序都读，内容要方便人读：写需求和完成条件，完成时在末尾写「结果」。只给程序用的内容（编号、摘要、标记、运行引用）放别的文件。
 - 「结果」只写总结，不放明细；改动文件清单只记在 `record.json`。
@@ -69,22 +70,14 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 
 子任务：
 
-- `plan.md` 的清单已确认，分批登记：做到哪一批登记哪一批。A 批 5 个已登记。
-- A 批交给其它智能体执行，主会话继续和用户讨论后面的任务。
+- `plan.md` 的清单已确认，分批登记：做到哪一批登记哪一批。
+- A 批由主会话在本机直接做。进度见 `plan.md`。
 
 ## 完成条件
 
 - 待澄清清零。
 - 子任务按 `plan.md` 分批登记，并各自完成或由用户取消。
 - 主任务自身没有代码改动。
-
-## 拆分规范（草案，子任务 A4 定稿后换成指向 `.knit/standards/task-splitting.md`）
-
-- 一个任务只做一个行为变化，能单独完成、单独验证，完成后测试全绿。
-- 一个任务的验收不超过 3 个场景，超过就拆。
-- 会改同一批文件的任务用 `dependsOn` 排成先后，不并行。
-- 主任务不直接产出代码。
-- 同一操作因同一原因失败两次就停下报告，不再重试。
 
 ## 待澄清
 
@@ -93,10 +86,11 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 ## 相关资料
 
 - `design.md` — 小核心范围：保留什么、不做什么、布局、流程与角色文件、返工、完成与交付、命令、规范注入、自举、可搬代码、重写怎么进行
-- `plan.md` — 子任务清单：8 批 38 个，含已登记任务的 ID
+- `plan.md` — 子任务清单：8 批 38 个，加切换之后的任务；含已登记任务的 ID 和进度
 - `research/findings.md` — 调查结论与数据来源
 - `research/opencode-agents-excerpt.md` — opencode AGENTS.md 的摘录，固定在一个提交上
-- `.knit/standards/task-writing.md` — 任务编写规范
+- `.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md` — 任务编写规范、任务拆分规范：登记子任务时照这两份写
+- `.knit/standards/development.md`、`.knit/standards/delivery.md`、`.knit/standards/pitfalls-worker.md`、`.knit/standards/pitfalls-main.md` — 开发规范、交付规范、两份避坑清单
 - `docs/design/DESIGN.md` 第 3.3 节、第 8 节、第 15.1 节 — 现行的任务结构、规范与范围
 
 <!-- knit:progress:start -->
