@@ -1,8 +1,8 @@
 ---
 id: k-d8f1940a24df
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-19c962be9fb8
@@ -127,5 +127,17 @@ title: E4 数环节的进入次数，到返工上限时不再往下走
 
 - 时间: 2026-11-15T15:02:38.373Z
 - 方式: self → independent；理由: 状态推进、改动对比、受保护的路径属于正确性没法自证的改动
+
+### 交付记录
+
+<!-- knit:delivery:op-f16d4672af18 -->
+- 操作: op-f16d4672af18
+- 时间: 2026-11-15T23:03:20.631Z
+- 分支: refs/heads/main
+- 授权来源: user:1d2d626e
+- 调用: bridge
+- 工作提交: c868595549c69e86548506da5b30ff284436b48b
+- 结果: 正常交付；检查 run-2284d2e1f181 通过；验证 independent
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e4-rework-limit
 
 <!-- knit:progress:end -->
