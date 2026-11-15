@@ -160,4 +160,10 @@ stages:
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-b4-move-workflow-parse
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a8897dcb585b -->
+- 任务资料提交: 240fe4a722fba271a04b7d1ce96c06e2300d311d
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b4-move-workflow-parse
+
 <!-- knit:progress:end -->
