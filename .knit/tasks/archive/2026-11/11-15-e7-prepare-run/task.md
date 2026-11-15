@@ -160,4 +160,10 @@ title: E7 准备一次执行：派发前的检查和交接内容落盘
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e7-prepare-run
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-60da1dfccff6 -->
+- 任务资料提交: 0ff767064faa271c28088b47c2003624270575a8
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e7-prepare-run
+
 <!-- knit:progress:end -->
