@@ -1,8 +1,8 @@
 ---
 id: k-7c1fde35390f
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -113,5 +113,17 @@ title: B3 搬进程启动、清理和 Git 调用到 next/
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-9fe0e4b9d567 -->
+- 操作: op-9fe0e4b9d567
+- 时间: 2026-11-15T06:45:56.681Z
+- 分支: refs/heads/main
+- 授权来源: user:1f7f9eea
+- 调用: bridge
+- 工作提交: 6a620ae5fc9ebab47666901f086ab640a80f0a5c
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-15-b3-move-process
 
 <!-- knit:progress:end -->
