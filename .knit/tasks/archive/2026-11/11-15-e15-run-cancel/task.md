@@ -139,4 +139,10 @@ title: E15 run cancel：停掉正在跑的执行
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-15-e15-run-cancel
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-9d288cf59bb6 -->
+- 任务资料提交: 54220178b00e33734c2585f573aa3c61bdfb8d8a
+- 归档目标: .knit/tasks/archive/2026-11/11-15-e15-run-cancel
+
 <!-- knit:progress:end -->
