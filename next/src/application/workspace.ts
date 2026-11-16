@@ -12,7 +12,7 @@ import { CONFIG_PATH } from "./config.js";
 import { STANDARDS_DIR } from "./standards-store.js";
 
 /** 运行时资料所在的目录：执行过程中程序自己会写，不算改动。 */
-const RUNTIME_PREFIX = ".knit/.runtime/";
+export const RUNTIME_PREFIX = ".knit/.runtime/";
 
 /** 能直接用 JSON.stringify 存成文件再读回来用。 */
 export interface WorkspaceSnapshot {

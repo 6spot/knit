@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 import { Command } from "commander";
+import { registerDeliverCommand } from "./deliver.js";
 import { registerRunCommands } from "./run.js";
 import { registerStandardsCommands } from "./standards.js";
 import { registerTaskCommands } from "./task.js";
@@ -14,4 +15,5 @@ registerWorkflowCommands(program);
 registerTaskCommands(program);
 registerStandardsCommands(program);
 registerRunCommands(program);
+registerDeliverCommand(program);
 program.parse();

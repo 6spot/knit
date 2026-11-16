@@ -4,7 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
 import { parseTaskDocument, renderTaskDocument, type TaskDocument } from "../domain/task-document.js";
 import { parseTaskRecord, renderTaskRecord } from "../domain/task-record.js";
@@ -142,12 +142,16 @@ export function saveTask(root: string, stored: StoredTask, document: TaskDocumen
   return [];
 }
 
+/** 这个任务现在归档的话会在哪个目录：当月的归档目录加原目录名。 */
+export function archiveDirOf(stored: StoredTask): string {
+  const now = new Date();
+  return `${ARCHIVE_DIR}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}/${basename(stored.dir)}`;
+}
+
 /** 把任务目录移到当月的归档目录，返回移动后的目录。不提交。 */
 export function archiveTask(root: string, stored: StoredTask): string {
-  const now = new Date();
-  const month = `${ARCHIVE_DIR}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const dir = `${month}/${basename(stored.dir)}`;
-  mkdirSync(join(root, month), { recursive: true });
+  const dir = archiveDirOf(stored);
+  mkdirSync(dirname(join(root, dir)), { recursive: true });
   renameSync(join(root, stored.dir), join(root, dir));
   return dir;
 }
