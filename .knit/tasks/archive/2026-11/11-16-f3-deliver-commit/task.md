@@ -142,4 +142,10 @@ title: F3 交付：在 Git 仓库里提交
 - 结果: 正常交付；检查 run-b472d460140b 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-16-f3-deliver-commit
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-3d973a098f98 -->
+- 任务资料提交: 7c60ce6e9ca65fd34fc1fd4da421ad1b67883116
+- 归档目标: .knit/tasks/archive/2026-11/11-16-f3-deliver-commit
+
 <!-- knit:progress:end -->
