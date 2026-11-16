@@ -138,4 +138,10 @@ title: E18 run cancel：等执行者的进程都退出之后再记录
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-e18-cancel-waits-for-pi
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-b8448cfecf3a -->
+- 任务资料提交: 063598b4adc42baad3c32f662a2c4e50243859bb
+- 归档目标: .knit/tasks/archive/2026-11/11-16-e18-cancel-waits-for-pi
+
 <!-- knit:progress:end -->
