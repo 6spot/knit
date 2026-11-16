@@ -175,4 +175,10 @@ title: F1 交付预览：knit deliver --preview
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-f1-deliver-preview
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-73971fbae23c -->
+- 任务资料提交: a4e7e402444b4046167c61a3f1e8ff449d7d7b85
+- 归档目标: .knit/tasks/archive/2026-11/11-16-f1-deliver-preview
+
 <!-- knit:progress:end -->
