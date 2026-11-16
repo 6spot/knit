@@ -170,7 +170,7 @@ createdAt: 2026-11-14T13:36:56Z
 - 分块的单位有两级：任务本身按拆分规范保持小；大文档用 `#标题` 只取一节。
 - 字节上限的初始值：单个文件 16KB，一次交接合计 64KB。超出的只给路径和一句说明，由执行者自己读。受上限约束的是点名的资料、`plan.md`、上一个环节的报告和本环节上一次的报告；角色文件、规范和需求部分任何时候都全文给，只计入合计。
 - 执行者像普通智能体一样读取项目的 `AGENTS.md`（去掉现在的 `--no-context-files`），不加载项目扩展和技能（沿用现状）。
-- 主会话直接做某个环节时，每轮收到的是适用该环节的规范。
+- 主会话每轮收到哪个环节的规范，按任务的状态定：`draft` 是 `discuss`；`ready`、`active` 是正在跑的那次执行的环节，没有在跑的就是下一步要做的环节，所以主会话直接做某个环节时收到的是适用该环节的规范；环节都做完、等主会话核对和 `task close` 时，以及 `done`，是 `deliver`（核对成果只需要任务的需求和交付规范，不需要开发规范）；`delivered`、`cancelled` 没有规范。
 
 ### 5.2 放在哪里
 
@@ -305,7 +305,7 @@ stages:
 | 在 Git 仓库里，没有给提交文案或文案是空的 | 提示给出文案 |
 | Git 自己拒绝提交，例如 hook 失败 | 撤回：任务目录移回原处，状态改回 `done`，原样报告 Git 的错误 |
 
-授权写成 `--authorization <引用>`，说明用户是在哪条消息里同意的，记进 `record.json`。命令行只要求有，不核对；桥接在调用之前核对它对得上本会话里的一条用户消息。
+授权写成 `--authorization <引用>`，说明用户是在哪条消息里同意的，记进 `record.json`。命令行只要求有，不核对；桥接在调用之前核对它对得上本会话里的一条用户消息：`knit_deliver` 的 `authorization` 填用户同意交付的那条消息的原话，桥接在当前会话里找到这条用户消息才调用命令，记下的是消息的条目 ID 加原话。桥接只证明用户说过这句话，不判断这句话是不是针对这个任务说的。用户可以在任务开始的时候就给授权，交付时引用那一句。
 
 其它情况只在预览里提示，不拦：
 
@@ -336,8 +336,9 @@ stages:
 
 ```
 knit init
-knit task new | use | ready | close | cancel | list | show | search
-knit run start | status | cancel        都按任务 id
+knit task new | ready | close | cancel | list | show | search
+knit run start | status | wait | cancel 都按任务 id
+knit context <任务>                      主会话每轮收到的内容
 knit deliver <任务> --authorization <引用> [--message-file <文件>]
 knit deliver <任务> --preview [--message-file <文件>]
 knit standards list
@@ -353,17 +354,20 @@ knit workflow show | validate
 | `knit_deliver` | 预览、交付 |
 
 - 工具的声明不随流程配置变化。
+- 桥接只做转交：每个动作对应一条 `knit` 命令，工具的结果就是命令的输出。桥接运行的是 `PATH` 上的 `knit`，不记录安装位置。
+- 工具的每个动作都要写明任务 id，不从“当前任务”里取。`use` 只有工具有、命令行没有：选中的任务写在 Pi 会话记录里，只决定每轮注入显示哪个任务。用 `new` 建的任务不自动选中，选中哪个只由 `use` 决定：一次建一批任务时，选中的不会被新建的换掉。
+- 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>` 等它结束，把结束时的情况作为一条消息发给主会话并触发一轮。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
 - `task.md` 正文、`plan.md`、`design.md`、规范文件和 `workflow.yaml` 都是普通文本，主会话用普通的读写工具直接改；格式在 `task ready`、`standards list` 和 `workflow validate` 时校验。检索用命令行。
-- 每轮注入：任务标题、状态、下一步，加上第 5 节说的规范。没有选中任务时只有一行提示。当前任务的选择沿用现在的做法，写在 Pi 会话记录里。
+- 每轮注入：任务标题、状态、下一步，加上第 5 节说的规范，内容就是 `knit context <任务>` 的输出。没有选中任务时只有一行提示。当前任务的选择沿用现在的做法，写在 Pi 会话记录里。
 
 ## 10. 用 Knit 开发 Knit
 
 1. 管理本仓库的是安装版（`npm run pack:install` 装到全局），桥接调用安装版。工作区的 `dist` 可以随意重建。
 2. 升级安装版是显式的一步，在一个任务交付之后做。
-3. 模板只有一份来源：`assets/templates/`。本仓库的 `.knit/agents/`、`.knit/workflow.yaml` 和 `.pi/extensions/knit.ts` 是安装版 `knit init` 生成的副本。执行者改模板，不改副本；升级安装版后重新生成。
+3. 模板只有一份来源：`assets/templates/`（切换之前在 `next/assets/templates/`）。本仓库的 `.knit/agents/`、`.knit/workflow.yaml` 和 `.pi/extensions/knit.ts` 是安装版 `knit init` 生成的副本。执行者改模板，不改副本；升级安装版后重新生成。
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
-6. `knit init --force` 只重新生成桥接、`workflow.yaml` 和角色文件，覆盖前备份；`config.json`、`standards/` 和 `tasks/` 任何时候都不覆盖。强制覆盖就是恢复成初始内容：流程里改过的环节、模型和返工上限都回到模板的样子。
+6. `knit init` 不带 `--force` 时只补上没有的文件，已有的不动。`knit init --force` 只重新生成桥接、`workflow.yaml` 和角色文件，覆盖前把和模板不一样的备份到 `.knit/.runtime/backups/<时间>/`；`config.json`、`standards/` 和 `tasks/` 任何时候都不覆盖。强制覆盖就是恢复成初始内容：流程里改过的环节、模型和返工上限都回到模板的样子。
 
 ## 11. 不做与延后
 

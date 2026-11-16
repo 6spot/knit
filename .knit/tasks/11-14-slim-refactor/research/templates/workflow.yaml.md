@@ -1,0 +1,31 @@
+# Knit 的流程：讨论（主会话）→ 下面的环节 → 收尾（主会话）。
+# 手工改这个文件，改完运行 knit workflow validate。
+#
+# model            执行者用的模型，写成 provider/模型。环节里也可以写，只管那个环节。
+#                  哪里都没写时派发会被拒绝，除非用 knit run start --model 指定。
+# maxRepairRounds  返工上限，不写是 5。
+#
+# 每个环节可以写：
+#   id、name、description
+#   model      只管这个环节的模型
+#   prompt     角色文件
+#   tools      能力：read、write、exec、external、network；不写是全部
+#   report     报告结尾要给出的字段；带 verdict 的环节是审查环节
+#   onVerdict  按结论去哪个环节；没写的结论走顺序的下一个
+#   maxVisits  第一次之后最多再进入几次；不写用 maxRepairRounds
+version: 1
+# model: provider/模型
+stages:
+  - id: implement
+    name: 实现
+    prompt: .knit/agents/implement.md
+    tools: [read, write, exec]
+  - id: review
+    name: 审查
+    prompt: .knit/agents/review.md
+    tools: [read, write, exec]
+    report:
+      verdict: [pass, changes_requested, blocked]
+    onVerdict:
+      changes_requested: implement
+      blocked: review
