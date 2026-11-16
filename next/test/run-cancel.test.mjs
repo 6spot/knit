@@ -80,7 +80,8 @@ test("停掉正在跑的执行", async (t) => {
     { id: run.id, verdict: null, failure: "已取消", changedPaths: ["src/a.ts"] },
   );
   assert.equal(alive(pid), false);
-  await waitUntil(() => processesOf(run.id).length === 0, "假 Pi 退出");
+  // 命令返回时后台进程和假 Pi 都已经不在了，不需要再等。
+  assert.equal(processesOf(run.id).length, 0);
   assert.ok(existsSync(join(dir, "src/a.ts")));
 
   // 再派发时做的还是这个环节；这一次让它做完，不留后台进程。
@@ -93,6 +94,44 @@ test("停掉正在跑的执行", async (t) => {
   assert.notEqual(next.id, run.id);
   assert.deepEqual({ stage: next.stage, failure: next.failure }, { stage: "implement", failure: null });
   await waitUntil(() => processesOf(next.id).length === 0, "第二次的后台进程退出");
+});
+
+test("执行者不理会 SIGTERM 时等到它被结束", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const outside = mkdtempSync(join(tmpdir(), "knit-fake-pi-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  const script = join(outside, "script.json");
+  const log = join(outside, "log.jsonl");
+  const stuck = {
+    stubborn: true,
+    writes: [{ path: "src/a.ts", content: "export const a = 1;\n" }],
+    waitFor: join(outside, "never"),
+  };
+  writeFileSync(script, JSON.stringify(stuck));
+  const started = spawnSync(process.execPath, [CLI, "run", "start", task.id, "--dir", dir], {
+    encoding: "utf8",
+    env: { ...process.env, KNIT_PI_BIN: FAKE_PI, KNIT_FAKE_PI: script, KNIT_FAKE_PI_LOG: log },
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const run = lastRun(dir, task);
+  // 测试中途失败时，这个假 Pi 自己不会退出。
+  t.after(() => spawnSync("pkill", ["-9", "-f", run.id]));
+  await waitUntil(() => existsSync(join(dir, "src/a.ts")), "假 Pi 写出 src/a.ts");
+  assert.equal(processesOf(run.id).length, 2);
+
+  const cancelled = knit(dir, "run", "cancel", task.id);
+
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${run.id}\n改动文件: 1 个\n`);
+  const ended = lastRun(dir, task);
+  assert.deepEqual(
+    { id: ended.id, verdict: ended.verdict, failure: ended.failure, changedPaths: ended.changedPaths },
+    { id: run.id, verdict: null, failure: "已取消", changedPaths: ["src/a.ts"] },
+  );
+  assert.equal(processesOf(run.id).length, 0);
+  // 假 Pi 收到过 SIGTERM 而没有退出：它是被 SIGKILL 结束的。
+  assert.ok(readFileSync(log, "utf8").includes('{"signal":"SIGTERM"}'));
 });
 
 test("进程已经不在时记为失败", (t) => {

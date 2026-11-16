@@ -2,7 +2,8 @@
 /**
  * 测试用的假 Pi：照 `pi --mode rpc` 的样子一行一个 JSON 地收请求、给回答，不调用模型。
  * 做什么由环境变量 KNIT_FAKE_PI 指向的 JSON 文件决定，字段都可以不写：
- * failStart、exitOnPrompt、writes、commands、waitFor、texts。
+ * failStart、exitOnPrompt、writes、commands、waitFor、texts、stubborn。
+ * stubborn 为真时不理会 SIGTERM，输入关闭时也不退出，只有 SIGKILL 能结束它。
  */
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,6 +23,10 @@ let prompts = 0;
 let lastText = "";
 
 log({ args });
+if (script.stubborn) {
+  process.on("SIGTERM", () => log({ signal: "SIGTERM" }));
+  setInterval(() => {}, 1000);
+}
 
 async function onPrompt(id, message) {
   log({ message });
@@ -54,4 +59,6 @@ lines.on("line", (line) => {
     respond(id);
   }
 });
-lines.on("close", () => process.exit(0));
+lines.on("close", () => {
+  if (!script.stubborn) process.exit(0);
+});

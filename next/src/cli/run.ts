@@ -7,22 +7,22 @@ import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
 import { finishRun } from "../application/run-finish.js";
 import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
-import { liveWorker } from "../application/run-process.js";
+import { aliveAmong, liveWorker, type WorkerProcess, workerProcesses } from "../application/run-process.js";
 import { findTask } from "../application/task-store.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { procStartTicks, processTreePids, signalProcessTree } from "../infrastructure/process.js";
+import { procStartTicks, signalProcessTree } from "../infrastructure/process.js";
 import { fail, knitRoot, loadTask, shownStatus } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
 
-/** 每 100 毫秒看一次，最多看 `checksLeft` 次；后台进程不在了返回 true。 */
-async function workerGone(root: string, runId: string, checksLeft: number): Promise<boolean> {
-  if (liveWorker(root, runId) === null) return true;
-  if (checksLeft === 0) return false;
+/** 每 100 毫秒看一次，最多看到 `deadline`（毫秒时间戳），等到这些进程一个都不在；返回最后还在的。 */
+async function stillAlive(processes: readonly WorkerProcess[], deadline: number): Promise<WorkerProcess[]> {
+  const alive = aliveAmong(processes);
+  if (alive.length === 0 || Date.now() >= deadline) return alive;
   await sleep(100);
-  return workerGone(root, runId, checksLeft - 1);
+  return stillAlive(alive, deadline);
 }
 
 /** 一次执行的情况。 */
@@ -134,14 +134,25 @@ export function registerRunCommands(program: Command): void {
       const taskId = loaded.document.frontmatter.id;
       const running = loaded.record.runs.find((item) => item.endedAt === null);
       if (running === undefined) return fail([`任务 ${taskId} 没有正在跑的执行`]);
-      const worker = liveWorker(root, running.id);
-      if (worker !== null) {
-        // 后台进程先退出的话就找不到它启动的 Pi 了，所以先把这一串进程号记下。
-        const pids = processTreePids(worker);
-        signalProcessTree(worker, "SIGTERM", pids);
-        if (!(await workerGone(root, running.id, 50))) {
-          signalProcessTree(worker, "SIGKILL", pids);
-          await workerGone(root, running.id, 50);
+      // 发信号之前取：后台进程先退出的话就找不到它启动的 Pi 了。
+      const chain = workerProcesses(root, running.id);
+      const worker = chain[0];
+      if (worker !== undefined) {
+        signalProcessTree(
+          worker.pid,
+          "SIGTERM",
+          chain.map((item) => item.pid),
+        );
+        // Pi 还在的话会接着改工作区，所以等这一串都退出，再对比改动文件。
+        const stubborn = await stillAlive(chain, Date.now() + 5000);
+        if (stubborn[0] !== undefined) {
+          signalProcessTree(
+            stubborn[0].pid,
+            "SIGKILL",
+            stubborn.map((item) => item.pid),
+          );
+          // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，别的任务也派发不了。
+          await stillAlive(stubborn, Date.now() + 5000);
         }
       }
       const problems = finishRun({
@@ -150,13 +161,15 @@ export function registerRunCommands(program: Command): void {
         runId: running.id,
         workflow,
         verdict: null,
-        failure: worker === null ? "执行进程意外退出" : "已取消",
+        failure: worker === undefined ? "执行进程意外退出" : "已取消",
         sessionFile: null,
       });
       if (problems.length > 0) return fail(problems);
       const changed = findTask(root, taskId)?.record?.runs.find((item) => item.id === running.id)?.changedPaths ?? [];
       const first =
-        worker === null ? `执行 ${running.id} 的进程已经不在了，已记为失败` : `已取消 ${taskId} 的执行 ${running.id}`;
+        worker === undefined
+          ? `执行 ${running.id} 的进程已经不在了，已记为失败`
+          : `已取消 ${taskId} 的执行 ${running.id}`;
       process.stdout.write(`${first}\n改动文件: ${changed.length} 个\n`);
     });
 
