@@ -138,4 +138,10 @@ Git 拒绝（`git add` 或 `git commit` 的退出码不是 0）时，依次：
 - 结果: 正常交付；检查 run-7869846711d4 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-16-f4-deliver-problems
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-da8253e91ce3 -->
+- 任务资料提交: 1412821c7da7e4bd7f573d733efe048406a9f07f
+- 归档目标: .knit/tasks/archive/2026-11/11-16-f4-deliver-problems
+
 <!-- knit:progress:end -->
