@@ -119,7 +119,6 @@ test("不能交付的任务被拒绝", (t) => {
   const ready = readyTask(dir);
   const cancelled = readyTask(dir);
   assert.equal(knit(dir, "task", "cancel", cancelled.id, "--reason", "不做了").code, 0);
-  const done = doneTask(dir);
 
   assert.deepEqual(resultOf(knit(dir, "deliver", ready.id, "--preview")), {
     code: 1,
@@ -130,10 +129,5 @@ test("不能交付的任务被拒绝", (t) => {
     code: 1,
     stdout: "",
     stderr: `任务 ${cancelled.id} 已经结束（cancelled），不能交付\n`,
-  });
-  assert.deepEqual(resultOf(knit(dir, "deliver", done.id)), {
-    code: 1,
-    stdout: "",
-    stderr: "knit deliver 现在只能预览：加 --preview\n",
   });
 });

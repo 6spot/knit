@@ -1,11 +1,13 @@
 import { readFileSync, statSync } from "node:fs";
 import type { Command } from "commander";
-import { previewDelivery, type DeliveryPreview } from "../application/delivery.js";
+import { insideGit, previewDelivery, type DeliveryPreview } from "../application/delivery.js";
+import { archiveTask, saveTask } from "../application/task-store.js";
 import { currentStatus } from "../domain/task-document.js";
 import { fail, loadTask } from "./task.js";
 
 interface DeliverOptions {
   readonly preview?: true;
+  readonly authorization?: string;
   readonly messageFile?: string;
   readonly dir: string;
 }
@@ -41,6 +43,7 @@ export function registerDeliverCommand(program: Command): void {
     .command("deliver <id>")
     .description("交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次")
     .option("--preview", "只列出会做什么，什么都不改")
+    .option("--authorization <引用>", "用户是在哪条消息里同意交付的")
     .option("--message-file <文件>", "提交文案")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: DeliverOptions) => {
@@ -49,27 +52,47 @@ export function registerDeliverCommand(program: Command): void {
       const status = currentStatus(loaded.document, loaded.record);
       if (status === "delivered" || status === "cancelled") return fail([`任务 ${id} 已经结束（${status}），不能交付`]);
       if (status !== "done") return fail([`任务 ${id} 还没有完成（${status}）；完成之后再交付：knit task close ${id}`]);
-      if (options.preview !== true) return fail(["knit deliver 现在只能预览：加 --preview"]);
+      if (options.preview === true) return showPreview(loaded, options.messageFile);
 
-      const preview = previewDelivery(loaded.root, loaded.stored);
-      // 不在 Git 仓库里时没有提交，也就不读文案。
-      const file = preview.commit === null ? undefined : options.messageFile;
-      if (file !== undefined && statSync(file, { throwIfNoEntry: false })?.isFile() !== true) {
-        return fail([`读不到提交文案：${file}`]);
+      const authorization = options.authorization?.trim() ?? "";
+      if (authorization === "") {
+        return fail(["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"]);
       }
+      const conflicts = saveTask(
+        loaded.root,
+        loaded.stored,
+        { ...loaded.document, frontmatter: { ...loaded.document.frontmatter, status: "delivered" } },
+        { ...loaded.record, authorization },
+      );
+      if (conflicts.length > 0) return fail(conflicts);
       const lines = [
-        `任务: ${loaded.document.frontmatter.title}（${id}）`,
-        `归档: ${loaded.stored.dir} → ${preview.archiveDir}`,
-        ...fileLines(loaded.stored.dir, preview.commit),
-        ...hintLines(preview),
-        "结果:",
-        ...indented(loaded.document.result ?? ""),
-        ...(preview.commit === null
-          ? []
-          : file === undefined
-            ? ["提交文案: 没有给；交付时加 --message-file <文件>"]
-            : ["提交文案:", ...indented(readFileSync(file, "utf8").trim())]),
+        `已交付 ${id}`,
+        `归档: ${archiveTask(loaded.root, loaded.stored)}`,
+        ...(insideGit(loaded.root) ? [] : ["提交: 这个项目不在 Git 仓库里，没有提交"]),
       ];
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
+}
+
+function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFile: string | undefined): void {
+  const preview = previewDelivery(loaded.root, loaded.stored);
+  // 不在 Git 仓库里时没有提交，也就不读文案。
+  const file = preview.commit === null ? undefined : messageFile;
+  if (file !== undefined && statSync(file, { throwIfNoEntry: false })?.isFile() !== true) {
+    return fail([`读不到提交文案：${file}`]);
+  }
+  const lines = [
+    `任务: ${loaded.document.frontmatter.title}（${loaded.document.frontmatter.id}）`,
+    `归档: ${loaded.stored.dir} → ${preview.archiveDir}`,
+    ...fileLines(loaded.stored.dir, preview.commit),
+    ...hintLines(preview),
+    "结果:",
+    ...indented(loaded.document.result ?? ""),
+    ...(preview.commit === null
+      ? []
+      : file === undefined
+        ? ["提交文案: 没有给；交付时加 --message-file <文件>"]
+        : ["提交文案:", ...indented(readFileSync(file, "utf8").trim())]),
+  ];
+  process.stdout.write(lines.map((line) => `${line}\n`).join(""));
 }
