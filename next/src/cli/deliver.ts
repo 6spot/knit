@@ -1,6 +1,12 @@
 import { readFileSync, statSync } from "node:fs";
 import type { Command } from "commander";
-import { insideGit, previewDelivery, type DeliveryPreview } from "../application/delivery.js";
+import {
+  commitDelivery,
+  insideGit,
+  previewDelivery,
+  recordedPaths,
+  type DeliveryPreview,
+} from "../application/delivery.js";
 import { archiveTask, saveTask } from "../application/task-store.js";
 import { currentStatus } from "../domain/task-document.js";
 import { fail, loadTask } from "./task.js";
@@ -58,6 +64,14 @@ export function registerDeliverCommand(program: Command): void {
       if (authorization === "") {
         return fail(["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"]);
       }
+      const git = insideGit(loaded.root);
+      if (git && options.messageFile === undefined) {
+        return fail(["在 Git 仓库里交付要给提交文案：加 --message-file <文件>"]);
+      }
+      const message = git && options.messageFile !== undefined ? messageFrom(options.messageFile) : "";
+      if (message === null) return;
+      if (git && message === "") return fail([`提交文案是空的：${options.messageFile}`]);
+
       const conflicts = saveTask(
         loaded.root,
         loaded.stored,
@@ -65,22 +79,38 @@ export function registerDeliverCommand(program: Command): void {
         { ...loaded.record, authorization },
       );
       if (conflicts.length > 0) return fail(conflicts);
-      const lines = [
-        `已交付 ${id}`,
-        `归档: ${archiveTask(loaded.root, loaded.stored)}`,
-        ...(insideGit(loaded.root) ? [] : ["提交: 这个项目不在 Git 仓库里，没有提交"]),
-      ];
-      process.stdout.write(lines.map((line) => `${line}\n`).join(""));
+      const archiveDir = archiveTask(loaded.root, loaded.stored);
+      if (!git) {
+        return void process.stdout.write(
+          `已交付 ${id}\n归档: ${archiveDir}\n提交: 这个项目不在 Git 仓库里，没有提交\n`,
+        );
+      }
+      const commit = commitDelivery(loaded.root, {
+        taskId: id,
+        taskDir: loaded.stored.dir,
+        archiveDir,
+        recorded: recordedPaths(loaded.record),
+        message,
+      });
+      if (commit.kind === "refused") return fail([commit.error.trimEnd()]);
+      process.stdout.write(
+        `已交付 ${id}\n归档: ${archiveDir}\n提交: ${commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}\n`,
+      );
     });
+}
+
+/** 提交文案，去掉首尾空白；文件读不到时报错并返回 null。 */
+function messageFrom(file: string): string | null {
+  if (statSync(file, { throwIfNoEntry: false })?.isFile() === true) return readFileSync(file, "utf8").trim();
+  fail([`读不到提交文案：${file}`]);
+  return null;
 }
 
 function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFile: string | undefined): void {
   const preview = previewDelivery(loaded.root, loaded.stored);
   // 不在 Git 仓库里时没有提交，也就不读文案。
-  const file = preview.commit === null ? undefined : messageFile;
-  if (file !== undefined && statSync(file, { throwIfNoEntry: false })?.isFile() !== true) {
-    return fail([`读不到提交文案：${file}`]);
-  }
+  const message = preview.commit === null || messageFile === undefined ? undefined : messageFrom(messageFile);
+  if (message === null) return;
   const lines = [
     `任务: ${loaded.document.frontmatter.title}（${loaded.document.frontmatter.id}）`,
     `归档: ${loaded.stored.dir} → ${preview.archiveDir}`,
@@ -90,9 +120,9 @@ function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFi
     ...indented(loaded.document.result ?? ""),
     ...(preview.commit === null
       ? []
-      : file === undefined
+      : message === undefined
         ? ["提交文案: 没有给；交付时加 --message-file <文件>"]
-        : ["提交文案:", ...indented(readFileSync(file, "utf8").trim())]),
+        : ["提交文案:", ...indented(message)]),
   ];
   process.stdout.write(lines.map((line) => `${line}\n`).join(""));
 }
