@@ -116,4 +116,10 @@ title: F5 task show：显示交付的提交
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-f5-task-show-commit
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-e381afd3595e -->
+- 任务资料提交: e4fbf7546a185ad7c634a6b9ef315d1b3f248555
+- 归档目标: .knit/tasks/archive/2026-11/11-16-f5-task-show-commit
+
 <!-- knit:progress:end -->
