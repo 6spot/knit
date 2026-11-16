@@ -86,11 +86,16 @@ export interface CommitDeliveryInput {
 }
 
 export type DeliveryCommit =
-  /** `summary` 是提交号加首行。 */
-  | { readonly kind: "committed"; readonly summary: string }
+  /** `summary` 是提交号加首行；`extra`、`missing` 是提交里比预期多出来和少掉的文件。 */
+  | {
+      readonly kind: "committed";
+      readonly summary: string;
+      readonly extra: readonly string[];
+      readonly missing: readonly string[];
+    }
   | { readonly kind: "nothing" }
-  /** Git 没有接受；`error` 是它的标准错误。 */
-  | { readonly kind: "refused"; readonly error: string };
+  /** Git 没有接受；`error` 是它的标准错误，`files` 是已经暂存的文件。 */
+  | { readonly kind: "refused"; readonly error: string; readonly files: readonly string[] };
 
 /** 归档之后把这个任务的文件提交成一次提交；别的改动不动，不推送。 */
 export function commitDelivery(root: string, input: CommitDeliveryInput): DeliveryCommit {
@@ -99,7 +104,7 @@ export function commitDelivery(root: string, input: CommitDeliveryInput): Delive
   // 不带路径的 git add -A 会暂存整个工作区。
   if (files.length === 0) return { kind: "nothing" };
   const added = gitSync(["--literal-pathspecs", "add", "-A", "--", ...files], root);
-  if (added.code !== 0) return { kind: "refused", error: added.stderr };
+  if (added.code !== 0) return { kind: "refused", error: added.stderr, files };
   // --only：原来已经暂存的别的文件不进这次提交。不加 --no-verify，仓库的 hook 照常运行。
   const committed = gitSync(
     [
@@ -114,6 +119,16 @@ export function commitDelivery(root: string, input: CommitDeliveryInput): Delive
     ],
     root,
   );
-  if (committed.code !== 0) return { kind: "refused", error: committed.stderr };
-  return { kind: "committed", summary: gitSync(["log", "-1", "--format=%h %s"], root).stdout.trim() };
+  if (committed.code !== 0) return { kind: "refused", error: committed.stderr, files };
+  // hook 可以往提交里加文件，也可以拿掉文件。
+  const actual = gitSync(["show", "--name-only", "--no-renames", "-z", "--format=", "HEAD"], root)
+    .stdout.split("\0")
+    .filter((path) => path !== "")
+    .sort();
+  return {
+    kind: "committed",
+    summary: gitSync(["log", "-1", "--format=%h %s"], root).stdout.trim(),
+    extra: actual.filter((path) => !files.includes(path)),
+    missing: files.filter((path) => !actual.includes(path)),
+  };
 }

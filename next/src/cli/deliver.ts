@@ -1,4 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, renameSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Command } from "commander";
 import {
   commitDelivery,
@@ -7,7 +8,8 @@ import {
   recordedPaths,
   type DeliveryPreview,
 } from "../application/delivery.js";
-import { archiveTask, saveTask } from "../application/task-store.js";
+import { archiveTask, findTask, saveTask } from "../application/task-store.js";
+import { gitSync } from "../infrastructure/process.js";
 import { currentStatus } from "../domain/task-document.js";
 import { fail, loadTask } from "./task.js";
 
@@ -92,10 +94,30 @@ export function registerDeliverCommand(program: Command): void {
         recorded: recordedPaths(loaded.record),
         message,
       });
-      if (commit.kind === "refused") return fail([commit.error.trimEnd()]);
-      process.stdout.write(
-        `已交付 ${id}\n归档: ${archiveDir}\n提交: ${commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}\n`,
-      );
+      if (commit.kind === "refused") {
+        // 撤回到运行之前的样子：撤掉暂存，目录移回去，两个文件写回原来的内容。
+        gitSync(["--literal-pathspecs", "reset", "-q", "--", ...commit.files], loaded.root);
+        renameSync(join(loaded.root, archiveDir), join(loaded.root, loaded.stored.dir));
+        const moved = findTask(loaded.root, id);
+        if (moved !== null) saveTask(loaded.root, moved, loaded.document, loaded.record);
+        return fail([
+          commit.error.trimEnd(),
+          `Git 没有接受这次提交，交付已经撤回：任务目录在 ${loaded.stored.dir}，状态是 done`,
+        ]);
+      }
+      const lines = [
+        `已交付 ${id}`,
+        `归档: ${archiveDir}`,
+        `提交: ${commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}`,
+        ...(commit.kind === "committed" && commit.extra.length + commit.missing.length > 0
+          ? [
+              "注意：提交里的文件和预期的不一样，提交保留",
+              ...(commit.extra.length > 0 ? [`  多了: ${commit.extra.join("、")}`] : []),
+              ...(commit.missing.length > 0 ? [`  少了: ${commit.missing.join("、")}`] : []),
+            ]
+          : []),
+      ];
+      process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 }
 
