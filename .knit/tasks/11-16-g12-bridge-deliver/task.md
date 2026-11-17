@@ -1,8 +1,8 @@
 ---
 id: k-91ebb0cd2c01
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-19c962be9fb8
@@ -132,5 +132,17 @@ title: G12 交付授权：knit_deliver 核对用户的原话之后交付
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-8c87e31b96ca -->
+- 操作: op-8c87e31b96ca
+- 时间: 2026-11-17T01:03:03.953Z
+- 分支: refs/heads/main
+- 授权来源: user:a743f72d
+- 调用: bridge
+- 工作提交: 2338d92a8f76124550eb963f005e00cfc4d572b4
+- 结果: 正常交付；检查 run-28eeb32feae7 通过；验证 independent
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g12-bridge-deliver
 
 <!-- knit:progress:end -->
