@@ -130,4 +130,10 @@ title: G14 task.md 写坏时按 id 的命令说出哪里坏了
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-17-g14-broken-task-by-id
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-928978bcfff1 -->
+- 任务资料提交: dbac2b3dc12bd3964e1e6f72d41d57b31244bc36
+- 归档目标: .knit/tasks/archive/2026-11/11-17-g14-broken-task-by-id
+
 <!-- knit:progress:end -->
