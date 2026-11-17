@@ -147,4 +147,10 @@ title: G11 knit_deliver：预览
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g11-bridge-deliver-preview
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-85adc262e1cf -->
+- 任务资料提交: 29f8cb6084cfb87f024d60e397dd8452c53d71aa
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g11-bridge-deliver-preview
+
 <!-- knit:progress:end -->
