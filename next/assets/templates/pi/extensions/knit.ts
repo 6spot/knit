@@ -4,7 +4,7 @@
  * 只做转交：工具的每个动作对应一条 knit 命令，工具的结果就是命令的输出。
  * 只 import Node 自带的模块，只用去掉之后不影响运行的类型写法：Pi 去掉类型之后直接运行这个文件。
  */
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +25,12 @@ interface Pi {
   /** 写一条扩展自己的会话记录，不进模型的上下文。 */
   appendEntry(customType: string, data: unknown): void;
   on(event: "before_agent_start", handler: (event: TurnStart, ctx: Context) => Promise<void>): void;
+  on(event: "session_shutdown", handler: () => Promise<void>): void;
+  /** 这条消息进模型的上下文。followUp：智能体正在做事时等它这一轮做完再送到；triggerTurn：空闲时立即触发一轮。 */
+  sendMessage(
+    message: { customType: string; content: string; display: boolean },
+    options: { deliverAs: "followUp"; triggerTurn: boolean },
+  ): void;
 }
 
 /** `sections` 是按名字存的几段系统提示，可以直接改；内容没变的段 Pi 不会重发。 */
@@ -69,6 +75,9 @@ const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SELECTION = "knit.selection";
 
 export default function knitBridge(pi: Pi): void {
+  // 正在等执行结束的 knit run wait，按任务 id 记。派发成功时才启动：这个函数可能在没有会话的调用里运行。
+  const waiting = new Map<string, ChildProcess>();
+
   pi.registerTool<TaskParams>({
     name: "knit_task",
     label: "Knit task",
@@ -99,7 +108,7 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_run",
     label: "Knit run",
     description:
-      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
+      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
     parameters: {
       type: "object",
       properties: {
@@ -109,7 +118,7 @@ export default function knitBridge(pi: Pi): void {
       },
       required: ["action", "taskId"],
     },
-    execute: (_toolCallId, params) => run(params),
+    execute: (_toolCallId, params) => run(pi, waiting, params),
   });
 
   // 每一轮都把选中任务的状态、下一步和当前环节的规范写进系统提示里自己的那一段。
@@ -127,6 +136,11 @@ export default function knitBridge(pi: Pi): void {
       context.code === 0
         ? context.stdout.trimEnd()
         : `选中的 Knit 任务 ${taskId} 读不出来：\n${context.stderr.trimEnd()}`;
+  });
+
+  // 会话重新加载或重开之后不接着等：结果在下一轮的系统提示里能看到，也可以用 status 查。
+  pi.on("session_shutdown", async () => {
+    [...waiting.keys()].forEach((taskId) => stopWaiting(waiting, taskId));
   });
 }
 
@@ -165,11 +179,49 @@ async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
 }
 
 /** cancel 最多要等十秒左右，等它做完。 */
-async function run(params: RunParams): Promise<ToolResult> {
+async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams): Promise<ToolResult> {
   if (!params.taskId) return failure(`knit_run 的 ${params.action} 要有 taskId`);
-  return toResult(
-    await runKnit(["run", params.action, params.taskId, ...(params.action === "start" ? single("--model", params.model) : [])]),
-  );
+  // 主会话自己取消的，不需要再收一条通知。
+  if (params.action === "cancel") stopWaiting(waiting, params.taskId);
+  const result = await runKnit([
+    "run",
+    params.action,
+    params.taskId,
+    ...(params.action === "start" ? single("--model", params.model) : []),
+  ]);
+  if (params.action === "start" && result.code === 0) notifyWhenEnded(pi, waiting, params.taskId);
+  return toResult(result);
+}
+
+/** 在后台等这个任务的执行结束，结束时给主会话发一条消息并触发一轮。 */
+function notifyWhenEnded(pi: Pi, waiting: Map<string, ChildProcess>, taskId: string): void {
+  // 上一次执行刚结束、它的等待还没退出时：换成等这一次的。
+  stopWaiting(waiting, taskId);
+  const wait = startKnit(["run", "wait", taskId]);
+  waiting.set(taskId, wait.child);
+  void wait.result.then((ended) => {
+    // 被 stopWaiting 去掉的不发消息。
+    if (waiting.get(taskId) !== wait.child) return;
+    waiting.delete(taskId);
+    pi.sendMessage(
+      {
+        customType: "knit.run-ended",
+        content:
+          ended.code === 0
+            ? `Knit 的执行结束了：\n${ended.stdout.trimEnd()}`
+            : `等不到 ${taskId} 的执行结束：\n${ended.stderr.trimEnd()}`,
+        display: true,
+      },
+      { deliverAs: "followUp", triggerTurn: true },
+    );
+  });
+}
+
+/** 先从表里去掉再杀：它退出时已经不在表里，不会发消息。 */
+function stopWaiting(waiting: Map<string, ChildProcess>, taskId: string): void {
+  const child = waiting.get(taskId);
+  waiting.delete(taskId);
+  child?.kill();
 }
 
 /** 选中的任务只决定每轮显示哪个任务；写在会话记录里，会话重开之后还在。不带 `taskId` 是取消选中。 */
@@ -202,12 +254,17 @@ function several(option: string, values: string[] | undefined): string[] {
 
 /** 运行 PATH 上的 knit，不设超时。启动不了时不抛错，当作退出码 1。 */
 function runKnit(args: string[]): Promise<CommandResult> {
-  return new Promise((resolve) => {
-    const child = spawn("knit", [...args, "--dir", ROOT], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  return startKnit(args).result;
+}
+
+/** 启动 knit 并返回子进程，调用方可以不等它或者中途杀掉它。 */
+function startKnit(args: string[]): { child: ChildProcess; result: Promise<CommandResult> } {
+  const child = spawn("knit", [...args, "--dir", ROOT], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  const result = new Promise<CommandResult>((resolve) => {
     // 启动不了时 error 在 close 之前发出，后一次 resolve 不起作用。
     child.on("error", (error) =>
       resolve({ code: 1, stdout: "", stderr: `运行不了 knit 命令（${error.message}）；确认 knit 已经安装并且在 PATH 上` }),
@@ -216,6 +273,7 @@ function runKnit(args: string[]): Promise<CommandResult> {
       resolve({ code: code ?? 1, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") }),
     );
   });
+  return { child, result };
 }
 
 /** 工具的结果就是命令的输出：成功是标准输出，失败是标准错误（空的就用标准输出）。 */
