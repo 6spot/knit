@@ -132,4 +132,10 @@ title: G13 knit run wait：执行正好在两步检查之间结束时输出实�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-17-g13-run-wait-race
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-310d46e1f29a -->
+- 任务资料提交: 133bfc241a52cdef7bbdb2d03438060e48305b48
+- 归档目标: .knit/tasks/archive/2026-11/11-17-g13-run-wait-race
+
 <!-- knit:progress:end -->
