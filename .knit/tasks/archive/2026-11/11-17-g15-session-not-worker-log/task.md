@@ -124,4 +124,10 @@ title: G15 派发和状态指向会话记录，不再指向一直是空的 worke
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-17-g15-session-not-worker-log
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-77983fbb63be -->
+- 任务资料提交: 698d8bc68d666ee8723ab41ba291d38748490570
+- 归档目标: .knit/tasks/archive/2026-11/11-17-g15-session-not-worker-log
+
 <!-- knit:progress:end -->
