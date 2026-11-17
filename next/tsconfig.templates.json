@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "erasableSyntaxOnly": true
+  },
+  "include": ["assets/templates/pi/extensions/knit.ts"]
+}

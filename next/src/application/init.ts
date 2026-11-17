@@ -13,6 +13,7 @@ export const TEMPLATES = [
   { template: "config.json", target: ".knit/config.json", restore: false },
   // 模板的文件名不带点：npm 打包时不收名叫 .gitignore 的文件。
   { template: "gitignore", target: ".knit/.gitignore", restore: false },
+  { template: "pi/extensions/knit.ts", target: ".pi/extensions/knit.ts", restore: true },
 ] as const;
 
 // 编译后位于 next/dist/application/，往上两级是 next/。
