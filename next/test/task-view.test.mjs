@@ -142,6 +142,21 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
   assert.deepEqual(knit(dir, "task", "show", task.id), { code: 1, stdout: "", stderr: "record.json：多了字段 owner\n" });
 });
 
+test("task.md 写坏了：按 id 的命令说出哪里坏了", (t) => {
+  const dir = project(t);
+  const task = create(dir, "--title", "写坏的", "--slug", "broken");
+  const file = join(dir, task.dir, "task.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("priority: P2", "priority: PX"));
+
+  for (const command of [["task", "show"], ["context"], ["run", "status"]]) {
+    const result = knit(dir, ...command, task.id);
+    assert.equal(result.code, 1, command.join(" "));
+    assert.equal(result.stdout, "", command.join(" "));
+    assert.match(result.stderr, /^task\.md：字段 priority 的值不对：.*\n$/, command.join(" "));
+    assert.equal(result.stderr.includes("没有任务"), false, command.join(" "));
+  }
+});
+
 test("确认后改过需求：list 和 show 都显示 draft 并说明", (t) => {
   const dir = project(t);
   const task = create(dir, "--title", "改过需求");

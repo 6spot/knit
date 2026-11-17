@@ -19,6 +19,8 @@ export interface StoredTask {
   /** 任务目录，相对项目根，用 `/` 分隔。 */
   readonly dir: string;
   readonly archived: boolean;
+  /** task.md 开头字段里的 id；文档解析不出来时是从 `id:` 那一行直接取的，连这一行都没有时是 null。 */
+  readonly id: string | null;
   /** 文件写坏了、解析不出来时是 null，原因在 problems 里。 */
   readonly document: TaskDocument | null;
   readonly record: TaskRecord | null;
@@ -46,12 +48,18 @@ export function scanTasks(root: string): StoredTask[] {
     const taskFile = readWithVersion(join(root, entry.dir, TASK_FILE));
     if (taskFile === null) return [];
     const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
-    const document = parseTaskDocument(taskFile.data.toString("utf8"));
+    const markdown = taskFile.data.toString("utf8");
+    const document = parseTaskDocument(markdown);
     const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
     return [
       {
         dir: entry.dir,
         archived: entry.archived,
+        // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
+        id:
+          document.document?.frontmatter.id ??
+          /^id:[ \t]*(\S+)[ \t]*$/m.exec(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown)?.[1] ?? "")?.[1] ??
+          null,
         document: document.document,
         record: record.record,
         problems: [
@@ -65,7 +73,7 @@ export function scanTasks(root: string): StoredTask[] {
 }
 
 export function findTask(root: string, id: string): StoredTask | null {
-  return scanTasks(root).find((task) => task.document?.frontmatter.id === id) ?? null;
+  return scanTasks(root).find((task) => task.id === id) ?? null;
 }
 
 /** 建目录并写入 task.md；record.json 等第一次有内容要记时再建。 */

@@ -55,7 +55,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   const { root, taskId } = input;
   const refuse = (...problems: string[]): PrepareRunResult => ({ run: null, problems });
   const tasks = scanTasks(root);
-  const stored = tasks.find((task) => task.document?.frontmatter.id === taskId);
+  const stored = tasks.find((task) => task.id === taskId);
   if (stored === undefined) return refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
   const { document, record } = stored;
   if (document === null || record === null) return refuse(...stored.problems);

@@ -112,6 +112,19 @@ test("不能派发时说明原因，什么都不写", (t) => {
   assert.deepEqual([second].map((task) => filesOf(dir, task)), others);
 });
 
+test("task.md 写坏了：说出哪里坏了，不建执行目录", (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const file = join(dir, task.dir, "task.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("priority: P2", "priority: PX"));
+
+  const { run, problems } = prepare(dir, task.id);
+  assert.equal(run, null);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /^task\.md：字段 priority 的值不对：/);
+  assert.deepEqual(runDirs(dir), []);
+});
+
 test("下一个环节拿到上一个环节的报告", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
