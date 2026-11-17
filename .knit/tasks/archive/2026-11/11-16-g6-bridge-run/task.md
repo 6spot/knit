@@ -155,4 +155,10 @@ title: G6 knit_run：start、status、cancel
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g6-bridge-run
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-c856a8cea870 -->
+- 任务资料提交: 9b10e87091afff0fe276263439ee7ec3f7531980
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g6-bridge-run
+
 <!-- knit:progress:end -->
