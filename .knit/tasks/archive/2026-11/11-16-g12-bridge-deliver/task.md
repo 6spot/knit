@@ -145,4 +145,10 @@ title: G12 交付授权：knit_deliver 核对用户的原话之后交付
 - 结果: 正常交付；检查 run-28eeb32feae7 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g12-bridge-deliver
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8c87e31b96ca -->
+- 任务资料提交: d9e2f29d0fe7f10822509691bbf37ed13db54d48
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g12-bridge-deliver
+
 <!-- knit:progress:end -->
