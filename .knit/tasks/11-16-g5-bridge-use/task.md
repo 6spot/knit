@@ -1,8 +1,8 @@
 ---
 id: k-325d9a0ad142
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -114,5 +114,17 @@ title: G5 任务选择：knit_task 的 use
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-f8659f246777 -->
+- 操作: op-f8659f246777
+- 时间: 2026-11-17T01:01:15.626Z
+- 分支: refs/heads/main
+- 授权来源: user:a743f72d
+- 调用: bridge
+- 工作提交: ca6b50cc9ff864524b8bb67ae37d9a33ca80abab
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g5-bridge-use
 
 <!-- knit:progress:end -->
