@@ -145,4 +145,10 @@ title: H2b 新代码移到根目录：next/ 的 src、test、assets 移上来，
 - 结果: 正常交付；检查 run-e8a1d4aa4d90 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-18-h2b-move-next-to-root
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-e22047b3b266 -->
+- 任务资料提交: d3592bd8322f3f90733b2aebdbcd863fbe00ee20
+- 归档目标: .knit/tasks/archive/2026-11/11-18-h2b-move-next-to-root
+
 <!-- knit:progress:end -->
