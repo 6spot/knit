@@ -89,9 +89,12 @@ async function waitForRun(dir: string, id: string): Promise<string[] | null> {
     return null;
   }
   const running = loaded.record.runs.find((item) => item.endedAt === null);
-  // 后台进程已经不在的执行不会自己结束，不等它：输出里有让人运行 knit run cancel 的那一行。
-  if (running === undefined || liveWorker(loaded.root, running.id) === null) {
-    return statusLines(loaded.root, workflow, loaded.document, loaded.record);
+  if (running === undefined) return statusLines(loaded.root, workflow, loaded.document, loaded.record);
+  if (liveWorker(loaded.root, running.id) === null) {
+    // 后台进程先把结果写进记录再退出，它可能正好在上面读完记录之后结束：重新读一次才是最后的样子。
+    // 意外退出的记录里仍然没有结束时间，不等它：输出里有让人运行 knit run cancel 的那一行。
+    const settled = loadTask(dir, id);
+    return settled === null ? null : statusLines(settled.root, workflow, settled.document, settled.record);
   }
   await sleep(1000);
   return waitForRun(dir, id);

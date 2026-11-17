@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
-import { prepareRun } from "../dist/application/run-prepare.js";
+import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { readyTask, runProject } from "./helpers/run.mjs";
@@ -80,4 +81,52 @@ test("后台进程不在了也返回", (t) => {
   assert.equal(waited.status, 0, waited.stderr);
   assert.equal(waited.stdout, knit(dir, "run", "status", task.id).stdout);
   assert.match(waited.stdout, new RegExp(`knit run cancel ${task.id}`));
+});
+
+test("执行在读完记录之后、看后台进程之前正常结束", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const outside = mkdtempSync(join(tmpdir(), "knit-fake-pi-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  const env = { ...process.env, KNIT_PI_BIN: FAKE_PI, KNIT_FAKE_PI: join(outside, "script.json") };
+  writeFileSync(env.KNIT_FAKE_PI, JSON.stringify({ waitFor: join(outside, "go") }));
+  const started = spawnSync(process.execPath, [CLI, "run", "start", task.id, "--dir", dir], { encoding: "utf8", env });
+  assert.equal(started.status, 0, started.stderr);
+  const runId = lastRun(dir, task).id;
+
+  // knit run wait 读完任务记录之后去读 worker.json；换成命名管道，它就停在这两步之间。
+  const identityFile = join(dir, RUNS_DIR, runId, "worker.json");
+  const identity = readFileSync(identityFile, "utf8");
+  rmSync(identityFile);
+  assert.equal(spawnSync("mkfifo", [identityFile]).status, 0);
+
+  const waiting = spawn(process.execPath, [CLI, "run", "wait", task.id, "--dir", dir], { stdio: ["ignore", "pipe", "pipe"] });
+  const output = { stdout: "", stderr: "", code: undefined };
+  waiting.stdout.on("data", (chunk) => (output.stdout += chunk));
+  waiting.stderr.on("data", (chunk) => (output.stderr += chunk));
+  waiting.on("close", (code) => (output.code = code));
+  t.after(() => waiting.kill());
+
+  // 只写方式打开管道会一直等到有人来读：打开成功就是 knit run wait 已经停在上面了。
+  const writer = await Promise.race([open(identityFile, constants.O_WRONLY), sleep(20000, null, { ref: false })]);
+  if (writer === null) {
+    // 让上面那次打开返回，不然测试进程退不出去。
+    closeSync(openSync(identityFile, "r+"));
+    assert.fail("等了 20 秒：knit run wait 没有去读 worker.json");
+  }
+  t.after(() => writer.close());
+  // 路径换回普通文件：knit run wait 已经打开的管道不受影响，之后别的读取不会再停住。
+  rmSync(identityFile);
+  writeFileSync(identityFile, identity);
+
+  writeFileSync(join(outside, "go"), "");
+  await waitUntil(() => lastRun(dir, task).endedAt !== null, "执行结束");
+  await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);
+  assert.deepEqual(output, { stdout: "", stderr: "", code: undefined });
+
+  await writer.writeFile(identity);
+  await writer.close();
+  await waitUntil(() => output.code !== undefined, "knit run wait 退出");
+  assert.deepEqual(output, { stdout: knit(dir, "run", "status", task.id).stdout, stderr: "", code: 0 });
+  assert.match(output.stdout, /^结果: 正常结束$/m);
 });
