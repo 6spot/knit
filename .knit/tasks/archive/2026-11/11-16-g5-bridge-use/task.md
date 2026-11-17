@@ -127,4 +127,10 @@ title: G5 任务选择：knit_task 的 use
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g5-bridge-use
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-f8659f246777 -->
+- 任务资料提交: 23490606b078952c3b8fb6d6aa00f89d71050ae9
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g5-bridge-use
+
 <!-- knit:progress:end -->
