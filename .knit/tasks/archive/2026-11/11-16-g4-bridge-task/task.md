@@ -184,4 +184,10 @@ title: G4 桥接：knit init 生成桥接，knit_task 的 new、ready、close、
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g4-bridge-task
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-8eaf170cfb6a -->
+- 任务资料提交: b2dcfa87b78bfcb9015bdafa11cd0d4a1eb93d80
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g4-bridge-task
+
 <!-- knit:progress:end -->
