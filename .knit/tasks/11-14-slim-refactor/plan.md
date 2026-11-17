@@ -1,6 +1,6 @@
 # 子任务清单
 
-按 `design.md` 拆出的 70 个子任务，分 8 批；另有排在切换之后的任务（见「之后」）。用户已于 2026-11-15 确认清单，并决定分批登记：做到哪一批登记哪一批。A、B、C、D 批已完成并交付；E 批已做完并交付（2026-11-16），含之后补的 E18、E19。F 批已做完并交付（2026-11-16）。每个任务开始前仍要取得用户授权。
+按 `design.md` 拆出的 71 个子任务，分 8 批；另有排在切换之后的任务（见「之后」）。用户已于 2026-11-15 确认清单，并决定分批登记：做到哪一批登记哪一批。A、B、C、D 批已完成并交付；E 批已做完并交付（2026-11-16），含之后补的 E18、E19。F 批已做完并交付（2026-11-16）。每个任务开始前仍要取得用户授权。
 
 ## 约定
 
@@ -8,7 +8,7 @@
 - 每个任务按 `.knit/standards/task-splitting.md` 拆，正文按 `.knit/standards/task-writing.md` 写：执行者只拿到仓库和这份 `task.md` 就能做完，不按谁做、在哪做区分写法。
 - 标了「独立审查」的任务由另一个执行者审查，其余自查。
 - 同一批内按编号先后做；后一批依赖前一批。
-- 切换之前所有任务由旧 Knit 管理，每个任务的交付是 3 次提交，70 个任务约 210 次提交。
+- 切换之前所有任务由旧 Knit 管理，每个任务的交付是 3 次提交，71 个任务约 213 次提交。
 - 任务正文里不写旧记录区标记的原文（`knit:progress:start` 那一行注释）：旧 Knit 按第一次出现的位置切分正文，关闭和交付时会把那句话拆成几行，需求摘要随之改变，交付被拒（C1、C2 遇到过）。要提到它时只写名字。
 - 规范文件只在没有任务处于“已检查、未交付”时写：旧 Knit 发现规范变了，会把已有的检查判为过期。
 - A1、H1、H3 涉及全局安装、真实模型和手工提交，开始前单独取得授权。
@@ -225,7 +225,8 @@
 | --- | --- | --- |
 | H1 `k-62ebc05deb50` | 全流程演练 | 在临时项目里用真实 Pi 走完一个任务：创建、确认、实现、审查、交付；保存记录 |
 | R1 `k-074a8e6cbccf` | Rex 窗格（独立审查） | 主会话在 Rex 里时执行者在 Rex 的窗格里跑 Pi 的界面，窗格用不了就照旧在后台执行；排在 H2 之前 |
-| H2 | 代码切换（独立审查） | 删除旧的 `src/`、`test/`、`assets/`，`next/` 移到根目录，更新脚本 |
+| H2a `k-e281f44cdf86` | 删除旧代码（独立审查） | 删除旧的 `src/`、`test/`、`assets/` 和只有旧代码用的脚本 |
+| H2b `k-f77e261cf257` | 新代码移到根目录（独立审查） | `next/` 的 `src`、`test`、`assets` 移到根目录，脚本和路径跟着改；在 H2a 提交之后做 |
 | H3 | 本仓库切换 | 安装新版，重新生成桥接和模板，没结束的任务手工转成新格式，删除 `.runtime` 里的旧数据和旧的规范索引、候选。主会话手工做，用普通的 Git 提交 |
 | H4 | 清理 `AGENTS.md` | 删除受管块和已经写进规范的条目 |
 | H5 | 设计文档 | `docs/design/` 换成小核心的说明，旧文档移到 `docs/history/`；写上执行目录里的文件坏了时怎么恢复（见 E 段） |
@@ -240,7 +241,24 @@
   - 没有验证的：交互界面（只用 rpc 模式）；返工（审查每次都是 pass）；主会话用 `knit_run` 取消、授权原话找不到、执行没结束时会话重新加载；带 `external`、`network` 的环节；别的模型；真的安装。
 - Linux 上的测试：用户 2026-11-17 决定放到最后，本机 macOS 全部走通之后再跑一次 `npm run test:next` 和这份演练。排在 H5 之后。
 - Rex 窗格：用户 2026-11-17 决定在 H2 之前做（原来排在切换之后）。做法用户同一天定了（`user:f0807c3c`「Rex用B实现，Rex是额外扩展，Rex有问题时回退到当前的方式里面，所以代码完全不多余」）：像旧实现那样让 Pi 的界面在 Rex 的窗格里跑；Rex 是额外的一层，Rex 有问题时回退到现在的后台执行方式，现在的方式保持不变。2026-11-17 主会话直接做了出来，事后登记成任务 R1 并做独立审查：`design.md` 新增第 7.2 节，Rex 的接口和本机核实的表现记在 `research/rex-pane.md`；新增 `next/src/adapters/rex/pane.ts`、`next/src/adapters/pi/pane-worker.ts`、`next/src/application/run-pane.ts`、`next/test/run-pane.test.mjs`、`next/test/helpers/fake-rex.mjs`，修改 `adapters/pi/runtime.ts`、`application/run-execute.ts`、`application/run-process.ts`、`cli/run.ts`、`domain/report.ts`、`test/helpers/cli.mjs`、`test/helpers/fake-pi.mjs`；`npm run test:next` 213 → 221 个全部通过。在本机真的 Rex（0.1.0-preview.14）里核对过，记录和脚本在 `validation/slim-rex-2026-11/`：不调用模型的六种情况（真的 Pi 加模型不存在记为启动失败、Pi 在窗格里起不来时回退到后台、Pi 卡住不开始时 21 秒后回退、窗格里卡住时取消、派发之后马上取消、把窗格关掉记为失败），和用真的模型走的一个任务（用户授权「授权用真模型在窗口桌里跑一次」：实现环节在窗格里做完；审查环节中途按 Esc 之后还算正在跑，接着输入一句之后做完，结论 `pass`）。独立审查（DeepSeek）做了三次，都是 `pass`，每次按意见改完再送审：`run-15803a0d7782`（改了多关一次窗格、结果文件改成原子写、把手工核对写成脚本）、`run-b122f9fbf686`（指出派发之后马上取消时窗格里的执行者会留下来；在真的 Rex 里四次都复现，改了，加了第八个场景）、`run-90b2a87aaf98`（最后的代码）。最后一次留下两条没有改的意见：模型请求出错时窗格里记「执行者出错：…」，后台记「执行者没有给出报告」，说法不一样；后台进程意外退出而窗格里的 Pi 还在时，`run status` 不指出窗格（`run cancel` 照样能停掉它）。演练里还发现 `knit run status … | grep -q` 会让 `knit` 以 `write EPIPE` 退出，和 Rex 无关，没有改。交付的授权是 `user:65045a03`「…然后都没问题的话，就提交、推送。」，三个提交是 `7bf09f6`、`112b9ce`、`8218c56`，归档在 `.knit/tasks/archive/2026-11/11-17-r1-rex-pane`。
-- H2–H5 还没有登记。
+- 记下、还没有修的三个问题。用户 2026-11-17 决定先做 H2，这三项等用户确认之后再修（`user:b31ef96c`「上面的三项错误问题先记下来，我们先删代码吧，然后再去修复那些问题。」、`user:dd99e49c`「我们先删代码，修复的问题，等我确认之后你再修复。」）。文件路径是 H2 之前的：
+  1. 模型请求出错时，两种执行方式记下的失败原因不一样。窗格里记 `执行者出错：<模型给的原因>`（`next/src/adapters/pi/pane-worker.ts` 里 `stopReason === "error"` 那一支）；后台执行拿到的最后一条消息是空的，记 `执行者没有给出报告`（`next/src/domain/report.ts` 的 `reportOutcome`）。来源是第三次独立审查 `run-90b2a87aaf98` 读代码得出的，后台那一边没有实际跑过。
+  2. 后台进程意外退出、窗格里的 Pi 还在时，`knit run status` 只说「执行 … 的进程已经不在了…运行 knit run cancel … 记为失败」，不指出还有一个窗格开着（`next/src/cli/run.ts` 的 `runLines`：窗格那一行只在后台进程还在时才输出）。`knit run cancel` 照样能按 `pane.json` 停掉窗格里的 Pi。来源同上，没有复现过。
+  3. `knit run status <任务> | grep -q …` 会让 `knit` 以没有处理的 `write EPIPE` 错误退出：`grep -q` 找到之后就关掉管道，`knit` 还在往里写。和 Rex 无关，窗格之前就有；写 `validation/slim-rex-2026-11/rex-flow.sh` 时实际碰到，脚本里改成先把输出存进变量绕开了。别的往标准输出写多行的命令有没有同样的问题，没有看。
+- H2 拆成 H2a、H2b 两个任务，2026-11-18 登记。原因：新旧代码有 34 个文件同名（例如 `src/cli/run.ts`）。在一份克隆里试过：删和移放在同一次提交里，Git 把它们当成改了旧文件，`git blame src/cli/run.ts` 的 252 行里有 217 行归到那一次提交；先提交删除、再提交移动，每一行都归到当初写它的提交。所以 H2a 要先提交，H2b 才能做。两步在克隆里都走通过：删完 `npm run test:next` 221 个通过；移完 `npm test` 221 个通过、`npm run pack:check` 通过、装到临时目录之后 `knit init`、`knit workflow validate`、`knit task new` 都能用。
+- 旧代码最后还在的提交是 `2ed1787`，要看用 `git show 2ed1787:<路径>`。
+- H2a 第一次审查（`run-60ee8e39b4a1`）结论是 `blocked`：任务书里的一条验收写错了（要求 `git ls-files` 没有输出，可是删除没有暂存时它必然还列着），改了验收再送审。它另外提了旧代码有、新代码没有的六项，逐项核对的结果：
+  - `task search`（`src/application/history-search.ts`，354 行）：`design.md` 第 12 节写着稍后搬，本文「之后」里也列着，切换之后做。
+  - 失败残留继承（`residue.ts`）：属于第 11 节不做的「改动来源归属」。新代码里失败、取消的执行改过的文件照样记在那次执行的 `changedPaths` 里，交付时一起算（`next/src/application/run-finish.ts`、`delivery.ts`）。
+  - 历史成果复核（`scope-recovery.ts`，`task rebind --recover` 用的）：属于第 11 节不做的「分支绑定、adopt、rebind」。
+  - 归档任务历史分类（`task-history.ts`）：给本机绑定用的；新设计里任务的事实都在任务目录，没有本机数据库（第 1 节）。
+  - 非正式检查（`informal-check.ts`，`knit run check --scope <路径>`：不建任务，派一个只读的执行者看指定的路径）：第 11 节原来没有点名，新代码没有。本仓库 62 个主会话记录里真的调用过 0 次。用户 2026-11-18 决定不做（`user:896c4bf9`「第二、三，按照你的建议来」），不建任务时用宿主自己的子智能体看；已经写进 `design.md` 第 11 节。
+  - 审查通过之后成果又变了就不让交付（`check-validation.ts` 的 `check_stale`）：第 11 节只写了不做「检查凭据封存」，这一条没有点名。新代码只在需求改过之后让以前的审查不算数（`countedRuns` 比对需求的摘要）；审查通过之后再改代码，照样能完成、能交付，没有提示。用户 2026-11-18 决定（同一条消息）：不拦，在交付预览里标出“审查通过之后又改过的文件”。还没有做，排在 H2b 提交之后，届时登记成一个任务，做的时候再把写法补进 `design.md` 第 8.2 节。
+  - 这两项的旧实现建在已经不做的部分上（绑定、成果范围、检查凭据），搬不过来，要的话在新代码上重写，所以不影响删旧代码。
+- H2a 由主会话做完（2026-11-18），已经交付（`d2ab336` 删除、`1060b52` 任务资料、`dd11a8a` 归档；授权 `user:896c4bf9`「第一点提交」），提交之后 `git ls-files src test assets scripts/build-bridge-schema.mjs` 没有输出：211 个旧文件和 `scripts/build-bridge-schema.mjs` 从工作区删掉，`package.json` 删六行脚本，`next/` 没有动；`npm run test:next` 221 个通过。第二次审查 `run-be7e07daaa99` 结论 `pass`。删掉之后安装在仓库外面的旧 Knit 照常能用（改任务、派审查都是在删掉之后做的）。H2b 要等 H2a 提交之后才能做。
+- H2b 由主会话做完（2026-11-18），已经交付（`1dc1e15` 移动、`d3592bd` 任务资料、`dcac5ed` 归档；授权 `user:91d317e8`「提交推送」）：118 个文件从 `next/` 移到根目录，`next/tsconfig.json` 删掉，内容有变化的移动只有任务书点名的 7 个；`npm test` 221 个通过，`npm run typecheck`、`npx tsc -p tsconfig.templates.json`、`npm run pack:check` 通过；打包后装到临时目录，`knit --version`、`init`、`workflow validate`、`task new` 都能用。审查 `run-e8a1d4aa4d90` 结论 `pass`。没有做的：两个演练目录的脚本改完路径没有重跑；`npm run pack:install` 留给 H3。
+- H2b 之后仓库里的 `dist/` 是新代码构建出来的（`npm test` 每次都重新生成）。管理本仓库任务的还是装在仓库外面的旧 Knit，旧的安装包 `knit-0.1.0.tgz` 没有动（`shasum` 开头 `387488ef167f`），到 H3 才换。
+- H3–H5 还没有登记。
 
 ## 之后
 
