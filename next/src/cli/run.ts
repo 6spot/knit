@@ -76,6 +76,27 @@ export function statusLines(
   ];
 }
 
+/**
+ * 等任务正在跑的执行结束，返回这时候的 `statusLines`；读不出任务或流程时报错并返回 null。
+ * 每秒重新读一次任务文件。不设超时：执行者卡住时一直等，要停就停掉这个命令或者 knit run cancel。
+ */
+async function waitForRun(dir: string, id: string): Promise<string[] | null> {
+  const loaded = loadTask(dir, id);
+  if (loaded === null) return null;
+  const workflow = loadWorkflow(loaded.root);
+  if (workflow === null) {
+    process.exitCode = 1;
+    return null;
+  }
+  const running = loaded.record.runs.find((item) => item.endedAt === null);
+  // 后台进程已经不在的执行不会自己结束，不等它：输出里有让人运行 knit run cancel 的那一行。
+  if (running === undefined || liveWorker(loaded.root, running.id) === null) {
+    return statusLines(loaded.root, workflow, loaded.document, loaded.record);
+  }
+  await sleep(1000);
+  return waitForRun(dir, id);
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("派发环节的执行者");
 
@@ -125,6 +146,15 @@ export function registerRunCommands(program: Command): void {
       }
       const lines = statusLines(loaded.root, workflow, loaded.document, loaded.record);
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
+    });
+
+  run
+    .command("wait <id>")
+    .description("等任务正在跑的执行结束，然后显示和 status 一样的内容；没有执行在跑时立即返回")
+    .option("--dir <目录>", "项目目录", process.cwd())
+    .action(async (id: string, options: { dir: string }) => {
+      const lines = await waitForRun(options.dir, id);
+      if (lines !== null) process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 
   run
