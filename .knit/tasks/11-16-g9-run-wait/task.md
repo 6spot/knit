@@ -1,8 +1,8 @@
 ---
 id: k-f188e4cfb0a1
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -117,5 +117,17 @@ title: G9 knit run wait：等任务正在跑的执行结束
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-fed6d590bbc4 -->
+- 操作: op-fed6d590bbc4
+- 时间: 2026-11-17T01:02:15.874Z
+- 分支: refs/heads/main
+- 授权来源: user:a743f72d
+- 调用: bridge
+- 工作提交: 562ae83f46f43bb9b91d62da6bd3ca9fc6965429
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g9-run-wait
 
 <!-- knit:progress:end -->
