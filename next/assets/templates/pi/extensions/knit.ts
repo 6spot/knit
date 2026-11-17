@@ -5,7 +5,9 @@
  * 只 import Node 自带的模块，只用去掉之后不影响运行的类型写法：Pi 去掉类型之后直接运行这个文件。
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 interface ToolResult {
@@ -69,6 +71,12 @@ interface RunParams {
   model?: string;
 }
 
+interface DeliverParams {
+  taskId: string;
+  preview?: boolean;
+  message?: string;
+}
+
 // 这个文件在 .pi/extensions/ 里，往上三级是项目根。
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -119,6 +127,23 @@ export default function knitBridge(pi: Pi): void {
       required: ["action", "taskId"],
     },
     execute: (_toolCallId, params) => run(pi, waiting, params),
+  });
+
+  pi.registerTool<DeliverParams>({
+    name: "knit_deliver",
+    label: "Knit deliver",
+    description:
+      "交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次，不推送。preview 为真时只列出会做什么。message 是提交文案，在 Git 仓库里交付时要有。",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        preview: { type: "boolean" },
+        message: { type: "string" },
+      },
+      required: ["taskId"],
+    },
+    execute: (_toolCallId, params) => deliver(params),
   });
 
   // 每一轮都把选中任务的状态、下一步和当前环节的规范写进系统提示里自己的那一段。
@@ -222,6 +247,20 @@ function stopWaiting(waiting: Map<string, ChildProcess>, taskId: string): void {
   const child = waiting.get(taskId);
   waiting.delete(taskId);
   child?.kill();
+}
+
+async function deliver(params: DeliverParams): Promise<ToolResult> {
+  if (!params.taskId) return failure("knit_deliver 要有 taskId");
+  if (params.preview !== true) return failure("knit_deliver 现在只能预览：加 preview: true");
+  const args = ["deliver", params.taskId, "--preview"];
+  if (!params.message?.trim()) return toResult(await runKnit(args));
+  // 提交文案的文件不能放在项目里：放在项目里它自己就成了工作区的一处改动。
+  const dir = await mkdtemp(join(tmpdir(), "knit-message-"));
+  await writeFile(join(dir, "message.txt"), params.message);
+  // runKnit 不抛错，所以不管命令成败都会走到删除。
+  const result = await runKnit([...args, `--message-file=${join(dir, "message.txt")}`]);
+  await rm(dir, { recursive: true, force: true });
+  return toResult(result);
 }
 
 /** 选中的任务只决定每轮显示哪个任务；写在会话记录里，会话重开之后还在。不带 `taskId` 是取消选中。 */
