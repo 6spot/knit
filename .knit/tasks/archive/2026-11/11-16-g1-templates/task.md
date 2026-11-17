@@ -125,4 +125,10 @@ title: G1 模板：流程、角色文件和配置
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g1-templates
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-a0c231fd5721 -->
+- 任务资料提交: 4db3b6358b68d093003470888e19f3e49faa268b
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g1-templates
+
 <!-- knit:progress:end -->
