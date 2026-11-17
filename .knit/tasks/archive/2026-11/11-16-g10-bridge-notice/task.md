@@ -146,4 +146,10 @@ Pi 的文档要求扩展不要在入口函数里启动后台资源，要在用�
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g10-bridge-notice
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-607c97c5c716 -->
+- 任务资料提交: aa527de8867c242938c05ee7343e683ebd9b7ec9
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g10-bridge-notice
+
 <!-- knit:progress:end -->
