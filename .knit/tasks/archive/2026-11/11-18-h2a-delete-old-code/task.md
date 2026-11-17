@@ -128,4 +128,10 @@ title: H2a 删除旧代码：旧的 src、test、assets 和只有旧代码用的
 - 结果: 正常交付；检查 run-be7e07daaa99 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-18-h2a-delete-old-code
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d7638fdb4c3b -->
+- 任务资料提交: 1060b52ab19ecd1dc59d1e179e4466eef94a0015
+- 归档目标: .knit/tasks/archive/2026-11/11-18-h2a-delete-old-code
+
 <!-- knit:progress:end -->
