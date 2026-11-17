@@ -83,8 +83,6 @@ test("找不到原话时不交付", async (t) => {
 test("在 Git 仓库里带提交文案交付", async (t) => {
   const dir = gitProject(t);
   gitIdentity(dir);
-  // 提交之后 Git 会在后台整理仓库，测试结束删目录时它可能还在写，删除就会失败。
-  git(dir, "config", "maintenance.auto", "false");
   const bridge = await loadBridge(t, dir);
   const task = doneTask(dir);
   commitAll(dir, "task");

@@ -32,6 +32,8 @@ export function commitAll(dir, message) {
 export function gitProject(t) {
   const dir = project(t);
   git(dir, "init", "-q");
+  // 提交之后 Git 会在后台整理仓库，测试结束删目录时它可能还在写，删除就会失败。
+  git(dir, "config", "maintenance.auto", "false");
   commitAll(dir, "init");
   return dir;
 }

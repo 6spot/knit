@@ -17,8 +17,6 @@ const archived = (task) =>
 function prepared(t, hook) {
   const dir = gitProject(t);
   gitIdentity(dir);
-  // 提交之后 Git 会在后台整理仓库，测试结束删目录时它可能还在写，删除就会失败。
-  git(dir, "config", "maintenance.auto", "false");
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src/a.ts"), "a\n");
   writeFileSync(join(dir, "src/c.ts"), "c\n");
