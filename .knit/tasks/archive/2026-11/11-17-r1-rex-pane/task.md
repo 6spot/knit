@@ -195,4 +195,10 @@ title: R1 Rex 窗格：主会话在 Rex 里时执行者在窗格里跑，用不�
 - 结果: 正常交付；检查 run-90b2a87aaf98 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-17-r1-rex-pane
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1eeb424e599b -->
+- 任务资料提交: 112b9ce884a97512c5ae7c71dbacc5ec7c2bb4f7
+- 归档目标: .knit/tasks/archive/2026-11/11-17-r1-rex-pane
+
 <!-- knit:progress:end -->
