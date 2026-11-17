@@ -59,6 +59,23 @@ function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: 
   return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
 }
 
+/** `knit run status` 的输出：任务、状态、上一次或正在跑的执行、下一步。 */
+export function statusLines(
+  root: string,
+  workflow: WorkflowDefinition,
+  document: TaskDocument,
+  record: TaskRecord,
+): string[] {
+  const last = record.runs.at(-1);
+  return [
+    `任务: ${document.frontmatter.title}（${document.frontmatter.id}）`,
+    `状态: ${shownStatus(document, record).text}`,
+    ...runLines(root, workflow, document.frontmatter.id, last),
+    // 有执行还没结束时不给下一步。
+    ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
+  ];
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("派发环节的执行者");
 
@@ -106,15 +123,7 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const { root, document, record } = loaded;
-      const last = record.runs.at(-1);
-      const lines = [
-        `任务: ${document.frontmatter.title}（${document.frontmatter.id}）`,
-        `状态: ${shownStatus(document, record).text}`,
-        ...runLines(root, workflow, document.frontmatter.id, last),
-        // 有执行还没结束时不给下一步。
-        ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
-      ];
+      const lines = statusLines(loaded.root, workflow, loaded.document, loaded.record);
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 

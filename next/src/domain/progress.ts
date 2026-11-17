@@ -1,5 +1,5 @@
 /** 任务走到哪了：每次从流程定义和执行记录推出来，不单独保存。只做计算，不读写文件。 */
-import type { TaskFrontmatter, TaskRecord, TaskRun } from "../contracts/task.js";
+import type { TaskFrontmatter, TaskRecord, TaskRun, TaskStatus } from "../contracts/task.js";
 import { WORKFLOW_VERDICT_ANCHOR } from "../contracts/workflow.js";
 import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
 
@@ -45,6 +45,26 @@ export function nextStep(
   const entries = stageEntries(record, stage.id);
   // maxVisits 是第一次进入之后还能再进入几次。
   return entries > stage.maxVisits ? { kind: "limit", stage, entries } : { kind: "stage", stage };
+}
+
+/**
+ * 主会话现在该按哪个环节的规范做事；任务已经结束时是 null。
+ * `status` 是 `currentStatus` 算出来的状态。
+ */
+export function sessionStage(
+  workflow: WorkflowDefinition,
+  verification: TaskFrontmatter["verification"],
+  record: TaskRecord,
+  status: TaskStatus,
+): string | null {
+  if (status === "draft") return "discuss";
+  if (status === "done") return "deliver";
+  if (status !== "ready" && status !== "active") return null;
+  const running = record.runs.find((run) => run.endedAt === null);
+  if (running !== undefined) return running.stage;
+  const step = nextStep(workflow, verification, record);
+  // 环节都做完了，等主会话核对和 task close：核对成果只需要需求和交付规范。
+  return step.kind === "close" ? "deliver" : step.stage.id;
 }
 
 /** 按流程走到的下一个环节；没有就是所有环节都做完了。 */
