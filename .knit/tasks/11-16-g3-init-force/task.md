@@ -1,8 +1,8 @@
 ---
 id: k-6294f5bafbd8
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: independent
 parent: k-19c962be9fb8
@@ -130,5 +130,17 @@ title: G3 强制初始化：knit init --force
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-56ff38aef117 -->
+- 操作: op-56ff38aef117
+- 时间: 2026-11-17T01:00:47.322Z
+- 分支: refs/heads/main
+- 授权来源: user:a743f72d
+- 调用: bridge
+- 工作提交: d5fdacae8f53d67e9c1abfa22df1ac9afed99d8f
+- 结果: 正常交付；检查 run-1f9f8eb69488 通过；验证 independent
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g3-init-force
 
 <!-- knit:progress:end -->
