@@ -51,6 +51,12 @@ interface TaskParams {
   archive?: boolean;
 }
 
+interface RunParams {
+  action: "start" | "status" | "cancel";
+  taskId: string;
+  model?: string;
+}
+
 // 这个文件在 .pi/extensions/ 里，往上三级是项目根。
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -81,6 +87,23 @@ export default function knitBridge(pi: Pi): void {
       required: ["action"],
     },
     execute: (_toolCallId, params) => task(pi, params),
+  });
+
+  pi.registerTool<RunParams>({
+    name: "knit_run",
+    label: "Knit run",
+    description:
+      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["start", "status", "cancel"] },
+        taskId: { type: "string" },
+        model: { type: "string" },
+      },
+      required: ["action", "taskId"],
+    },
+    execute: (_toolCallId, params) => run(params),
   });
 }
 
@@ -115,6 +138,14 @@ async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
       ...several("--paths", params.paths),
       ...single("--reason", params.reason),
     ]),
+  );
+}
+
+/** cancel 最多要等十秒左右，等它做完。 */
+async function run(params: RunParams): Promise<ToolResult> {
+  if (!params.taskId) return failure(`knit_run 的 ${params.action} 要有 taskId`);
+  return toResult(
+    await runKnit(["run", params.action, params.taskId, ...(params.action === "start" ? single("--model", params.model) : [])]),
   );
 }
 
