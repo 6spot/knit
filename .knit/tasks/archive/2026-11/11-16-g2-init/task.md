@@ -147,4 +147,10 @@ title: G2 初始化：knit init
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g2-init
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-d1aad7100136 -->
+- 任务资料提交: 15569869e5bfc27ec951dbb7f7e95fdfa1534057
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g2-init
+
 <!-- knit:progress:end -->
