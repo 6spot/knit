@@ -130,4 +130,10 @@ title: G9 knit run wait：等任务正在跑的执行结束
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g9-run-wait
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-fed6d590bbc4 -->
+- 任务资料提交: 17da557ce0cb7974b6f08618e135e982fc37e591
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g9-run-wait
+
 <!-- knit:progress:end -->
