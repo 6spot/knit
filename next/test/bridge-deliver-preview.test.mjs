@@ -83,6 +83,5 @@ test("不能预览时", async (t) => {
   assert.notEqual(refused.stderr.trim(), "");
 
   assert.deepEqual(await bridge.tool("knit_deliver", { taskId: id, preview: true }), failed(refused.stderr.trimEnd()));
-  assert.deepEqual(await bridge.tool("knit_deliver", { taskId: id }), failed("knit_deliver 现在只能预览：加 preview: true"));
   assert.deepEqual(await bridge.tool("knit_deliver", { taskId: "", preview: true }), failed("knit_deliver 要有 taskId"));
 });

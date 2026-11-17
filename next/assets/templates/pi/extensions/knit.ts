@@ -22,7 +22,7 @@ interface Pi {
     label: string;
     description: string;
     parameters: object;
-    execute(toolCallId: string, params: Params): Promise<ToolResult>;
+    execute(toolCallId: string, params: Params, signal: unknown, onUpdate: unknown, ctx: Context): Promise<ToolResult>;
   }): void;
   /** 写一条扩展自己的会话记录，不进模型的上下文。 */
   appendEntry(customType: string, data: unknown): void;
@@ -41,7 +41,17 @@ interface TurnStart {
 }
 
 interface Context {
-  sessionManager: { getBranch(): { type: string; customType?: string; data?: unknown }[] };
+  /** 当前分支上的全部会话记录，从最早到最新；压缩之前的也在。 */
+  sessionManager: { getBranch(): SessionEntry[] };
+}
+
+/** 只写用到的成员。用户、智能体的消息是 `message`；扩展发的是 `custom_message`，不是用户消息。 */
+interface SessionEntry {
+  type: string;
+  id: string;
+  customType?: string;
+  data?: unknown;
+  message?: { role: string; content: string | { type: string; text?: string }[] };
 }
 
 interface CommandResult {
@@ -74,6 +84,7 @@ interface RunParams {
 interface DeliverParams {
   taskId: string;
   preview?: boolean;
+  authorization?: string;
   message?: string;
 }
 
@@ -133,17 +144,18 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_deliver",
     label: "Knit deliver",
     description:
-      "交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次，不推送。preview 为真时只列出会做什么。message 是提交文案，在 Git 仓库里交付时要有。",
+      "交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次，不推送。preview 为真时只列出会做什么。真的交付要有用户的授权：authorization 写用户同意交付的那条消息的原话（整条，或者其中完整的一行），不要改写。message 是提交文案，在 Git 仓库里交付时要有。",
     parameters: {
       type: "object",
       properties: {
         taskId: { type: "string" },
         preview: { type: "boolean" },
+        authorization: { type: "string" },
         message: { type: "string" },
       },
       required: ["taskId"],
     },
-    execute: (_toolCallId, params) => deliver(params),
+    execute: (_toolCallId, params, _signal, _onUpdate, ctx) => deliver(params, ctx),
   });
 
   // 每一轮都把选中任务的状态、下一步和当前环节的规范写进系统提示里自己的那一段。
@@ -249,14 +261,48 @@ function stopWaiting(waiting: Map<string, ChildProcess>, taskId: string): void {
   child?.kill();
 }
 
-async function deliver(params: DeliverParams): Promise<ToolResult> {
+/** 预览什么都不改，不需要授权；真的交付要在这个会话里找到用户的原话。 */
+async function deliver(params: DeliverParams, ctx: Context): Promise<ToolResult> {
   if (!params.taskId) return failure("knit_deliver 要有 taskId");
-  if (params.preview !== true) return failure("knit_deliver 现在只能预览：加 preview: true");
-  const args = ["deliver", params.taskId, "--preview"];
-  if (!params.message?.trim()) return toResult(await runKnit(args));
+  if (params.preview === true) return withMessageFile(["deliver", params.taskId, "--preview"], params.message);
+  const quote = params.authorization?.trim() ?? "";
+  if (quote === "") return failure("交付要有用户的授权：authorization 写用户同意交付的那条消息的原话");
+  const said = userMessageSaying(ctx, quote);
+  if (said === undefined) {
+    return failure(
+      `在这个会话里找不到用户说过这句话：${quote}；authorization 要写用户同意交付的那条消息的原话（整条，或者其中完整的一行）`,
+    );
+  }
+  // 命令行只要求有引用、不核对，核对在上面做完了；记下的是哪一条消息加原话，事后能查。
+  return withMessageFile(["deliver", params.taskId, `--authorization=user:${said.id} ${quote}`], params.message);
+}
+
+/**
+ * 最后一条说过这句话的用户消息：整条消息，或者其中完整的一行（都去掉首尾空白再比）。
+ * 只是一行里的一部分不算：用户说“先不要交付”时，引不出“交付”来当授权。
+ * 只证明用户说过这句话，不判断是不是针对这个任务说的。
+ */
+function userMessageSaying(ctx: Context, quote: string): SessionEntry | undefined {
+  return ctx.sessionManager.getBranch().findLast((entry) => {
+    if (entry.type !== "message" || entry.message?.role !== "user") return false;
+    const content = entry.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text ?? "")
+            .join("\n");
+    return text.trim() === quote || text.split("\n").some((line) => line.trim() === quote);
+  });
+}
+
+/** 运行 knit；给了提交文案时写进一个临时文件，用 --message-file 交给命令，做完删掉。 */
+async function withMessageFile(args: string[], message: string | undefined): Promise<ToolResult> {
+  if (!message?.trim()) return toResult(await runKnit(args));
   // 提交文案的文件不能放在项目里：放在项目里它自己就成了工作区的一处改动。
   const dir = await mkdtemp(join(tmpdir(), "knit-message-"));
-  await writeFile(join(dir, "message.txt"), params.message);
+  await writeFile(join(dir, "message.txt"), message);
   // runKnit 不抛错，所以不管命令成败都会走到删除。
   const result = await runKnit([...args, `--message-file=${join(dir, "message.txt")}`]);
   await rm(dir, { recursive: true, force: true });
