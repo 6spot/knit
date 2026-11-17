@@ -1,0 +1,51 @@
+
+== 需求还没有确认
+需求还没有确认，或确认之后改过；先运行 knit task ready k-748f6c017abc
+退出码 1
+
+== 依赖的任务没有完成
+依赖的任务还没有完成：k-748f6c017abc（draft）
+退出码 1
+
+== 任务已经结束
+任务已经结束（done），不能再派发
+退出码 1
+
+== 流程里没有写模型
+没有指定执行者的模型：在 .knit/workflow.yaml 里写 model，或加 --model provider/模型
+退出码 1
+
+== task.md 写坏了（priority 写成不认识的值）
+没有任务 k-2dd09327d65d；用 knit task list 查看现有任务
+退出码 1
+这时 knit task list 的最后一行: .knit/tasks/11-17-plain：task.md：字段 priority 的值不对：expected one of ["P0","P1","P2","P3"]
+
+== 依赖的任务不存在（手工把 dependsOn 改成一个没有的 id）
+依赖的任务不存在：k-000000000000
+退出码 1
+
+== workflow.yaml 写坏了
+第 32 行：YAML 解析失败：Map keys must be unique at line 32, column 1:
+第 33 行：YAML 解析失败：Flow sequence in block collection must be sufficiently indented and end with a ] at line 33, column 1:
+退出码 1
+
+== config.json 写坏了
+.knit/config.json：不是合法的 JSON：Expected property name or '}' in JSON at position 2 (line 2 column 1)
+退出码 1
+
+== 项目不在 Git 仓库里
+这个目录不在 Git 仓库里，不能派发执行者
+退出码 1
+
+九种情况都被拒绝，没有留下执行目录
+
+== 模型不存在
+已派发 k-2dd09327d65d：实现（r-b00769e9d9e0）
+日志：.knit/.runtime/runs/r-b00769e9d9e0/worker.log
+任务: 普通任务（k-2dd09327d65d）
+状态: active(implement)
+上一次: 实现（r-b00769e9d9e0）
+失败: 执行者启动失败：set_model 被拒绝: Model not found: magpie/no-such-model
+改动文件: 0 个
+下一步: 派发实现环节（knit run start k-2dd09327d65d）
+worker.log: 0 字节

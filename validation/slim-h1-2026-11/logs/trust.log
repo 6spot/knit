@@ -1,0 +1,6 @@
+--approve: 命令 handled；注册的 knit 工具 [{"name":"knit_task","scope":"project"},{"name":"knit_run","scope":"project"},{"name":"knit_deliver","scope":"project"}]；启用的 ["knit_task","knit_run","knit_deliver"]；符合
+  有没有开始模型轮次: false
+  Pi 退出: {"code":0,"signal":null}；标准错误: ""
+--no-approve: 命令 handled；注册的 knit 工具 []；启用的 []；符合
+  有没有开始模型轮次: false
+  Pi 退出: {"code":0,"signal":null}；标准错误: ""
