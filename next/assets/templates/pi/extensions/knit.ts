@@ -24,6 +24,12 @@ interface Pi {
   }): void;
   /** 写一条扩展自己的会话记录，不进模型的上下文。 */
   appendEntry(customType: string, data: unknown): void;
+  on(event: "before_agent_start", handler: (event: TurnStart, ctx: Context) => Promise<void>): void;
+}
+
+/** `sections` 是按名字存的几段系统提示，可以直接改；内容没变的段 Pi 不会重发。 */
+interface TurnStart {
+  systemPromptOptions?: { sections?: Record<string, string> };
 }
 
 interface Context {
@@ -104,6 +110,23 @@ export default function knitBridge(pi: Pi): void {
       required: ["action", "taskId"],
     },
     execute: (_toolCallId, params) => run(params),
+  });
+
+  // 每一轮都把选中任务的状态、下一步和当前环节的规范写进系统提示里自己的那一段。
+  // 放系统提示而不是消息：Pi 压缩会话时保留系统提示。不缓存，每一轮运行一次命令。
+  pi.on("before_agent_start", async (event, ctx) => {
+    const sections = event.systemPromptOptions?.sections;
+    if (sections === undefined) return;
+    const taskId = selectedTask(ctx);
+    if (taskId === null) {
+      sections.knit = "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中一个。";
+      return;
+    }
+    const context = await runKnit(["context", taskId]);
+    sections.knit =
+      context.code === 0
+        ? context.stdout.trimEnd()
+        : `选中的 Knit 任务 ${taskId} 读不出来：\n${context.stderr.trimEnd()}`;
   });
 }
 
