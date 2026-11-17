@@ -183,7 +183,7 @@
 
 ## G. 初始化与桥接
 
-已登记（2026-11-16），还没有开始做：
+已登记（2026-11-16），十二个任务都已做完并交付归档（2026-11-17）：
 
 | 编号 | 任务 | 内容 |
 | --- | --- | --- |
@@ -205,7 +205,13 @@
 - 登记前核对过的事实：Pi 1.5.2 的扩展文档里，`before_agent_start` 的 `event.systemPromptOptions.sections` 可以按名字写一段系统提示，Pi 只补发变了的段；`pi.appendEntry` 写的条目不进模型上下文，`ctx.sessionManager.getBranch()` 能读回；`pi.sendMessage(…, { deliverAs: "followUp", triggerTurn: true })` 在空闲时触发一轮；工具返回 `isError: true` 表示失败。本机 Node 26.3.0 能直接 `import` 一个 `.ts` 文件（去掉类型），所以测试直接加载生成出来的桥接；`tsc` 加 `erasableSyntaxOnly` 检查一份这样的桥接用时 0.3 秒。
 - 设计上的改动（已写进 `design.md` 第 5.1、8.2、9、10 节）：命令行多了 `knit context` 和 `knit run wait`；`task use` 只有工具有，命令行没有（选择写在 Pi 会话记录里，命令行写不了）；切换之前模板在 `next/assets/templates/`；备份放在 `.knit/.runtime/backups/<时间>/`。
 - 用户已定（2026-11-16）：桥接运行 `PATH` 上的 `knit`；新建的任务不自动选中，选中哪个只由 `use` 决定（G5 从三个场景减到两个）；主会话核对执行者的成果时只需要任务的需求，不需要开发规范，这时收到的是 `deliver` 的规范；会话重新加载或重开之后不接着等执行结束，先这样做；交付授权引用用户的原话，可以在任务开始的时候就给。这些都已写进 `design.md` 和对应任务的正文，第 15 节清空。
-- 没有验证、留给 H1 的：真的 Pi 加载这份桥接（项目信任、工具注册、系统提示里那一段、通知触发一轮）。
+- 进度（2026-11-17）：十二个任务都由主会话直接做完并记为完成（`task close`）。G3、G12 由 DeepSeek 做了独立审查，结论都是 pass，没有发现问题（`run-1f9f8eb69488`、`run-28eeb32feae7`）。`npm run test:next` 从 178 个测试增加到 210 个（180、182、184、187、189、192、195、198、201、204、207、210），全部通过。每个任务做完时的 `next/` 快照在 `/tmp/knit-g/stage/g1`–`g12`。
+- 做的时候发现并处理的：G12 的新测试「在 Git 仓库里带提交文案交付」在全量运行里偶尔失败，报删临时目录 `ENOTEMPTY`，剩下的是 `.git/objects/info/packs`。原因是提交之后 Git 在后台整理仓库（`git maintenance run --auto --detach`），测试结束删目录时它还在写。在这个测试的临时仓库里设 `maintenance.auto=false` 之后，全量连跑 12 次都是 210/210。
+- 交付（2026-11-17，授权 `user:a743f72d`「可以，授权 推送，现在做」）：逐个任务把 `next/` 还原成它做完时的快照、跑 `npm run test:next` 核对数量之后交付，每个任务三个提交，一共 36 个。交付之后 `next/` 和 G12 的快照一致。
+- 同一次授权里顺手改的：F4 的老测试 `next/test/deliver-problems.test.mjs` 有同样的偶发失败（机器负载高时删临时目录 `ENOTEMPTY`），在它的临时仓库里也设了 `maintenance.auto=false`。没有查清的：Git 在什么条件下才真的重新打包（多数时候后台整理启动了但什么都不做）；另外五个用 Git 临时仓库的测试文件（`deliver-commit`、`deliver-preview`、`task-show-commit`、`workspace`、`bridge-deliver-preview`）也会启动后台整理，没有见过它们失败，没有动。把这一行放进 `next/test/helpers/git.mjs` 的 `gitProject` 可以一次盖住全部。
+- 交付之后发现、还没有改的：`knit run wait`（G9）有一个时间差。它先读任务记录，再看后台进程在不在；执行正好在这两步之间正常结束时，它输出「执行 … 的进程已经不在了，没有正常结束；运行 knit run cancel …」，实际是正常结束，主会话收到的结束通知（G10）也就是错的。全量测试在机器负载高时出现过一次（`bridge-notice.test.mjs`「结束时发一条消息」）；把两步之间拉长到 4 秒可以稳定复现。改法：发现进程不在时重新读一次任务记录再输出。`knit run status` 和 `knit context` 是同样的两步，只是查一次、再查就对了。
+- 记下没有处理的：写提交文案的临时文件失败时（例如临时目录写不了）`knit_deliver` 会抛错，不是返回一个错误结果，没有测。`knit run wait` 自己失败时发的「等不到…」消息没有单独测。「几条用户消息都对得上时取最后一条」只用临时脚本核对过，没有留在测试里。
+- 没有验证、留给 H1 的：真的 Pi 加载这份桥接（项目信任、工具注册、系统提示里那一段、通知触发一轮、会话记录里用户消息的样子）。
 - 留给后面的：`knit init` 自带通用规范和引导任务（I1）；本仓库换用新的桥接和模板（H3）。
 
 ## H. 切换
