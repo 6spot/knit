@@ -166,4 +166,10 @@ title: G7 knit context：主会话每轮收到的内容
 - 结果: 正常交付；完成验证 self（无独立检查）
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g7-context
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-6c3eb8c59e54 -->
+- 任务资料提交: 3a90397c1b24787474f0c0c6631ec4c5c7908006
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g7-context
+
 <!-- knit:progress:end -->
