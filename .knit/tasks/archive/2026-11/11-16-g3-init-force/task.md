@@ -143,4 +143,10 @@ title: G3 强制初始化：knit init --force
 - 结果: 正常交付；检查 run-1f9f8eb69488 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-16-g3-init-force
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-56ff38aef117 -->
+- 任务资料提交: 6c4c7ea746fa97673aaac813f14804867674f4a7
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g3-init-force
+
 <!-- knit:progress:end -->
