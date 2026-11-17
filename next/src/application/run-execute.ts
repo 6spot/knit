@@ -4,11 +4,13 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { PiAgentRuntime } from "../adapters/pi/index.js";
+import { PiAgentRuntime, type PiRuntimeOptions } from "../adapters/pi/index.js";
+import type { RexHost } from "../adapters/rex/pane.js";
 import type { ToolCapability } from "../contracts/workflow.js";
-import { readReport } from "../domain/report.js";
+import { type ReportOutcome, reportOutcome, reportRetryMessage } from "../domain/report.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { finishRun } from "./run-finish.js";
+import { runInPane } from "./run-pane.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask } from "./task-store.js";
 
@@ -21,6 +23,8 @@ export interface ExecuteRunInput {
   readonly model: string;
   /** Pi 可执行文件的路径。 */
   readonly piExecutable: string;
+  /** 主会话在 Rex 里时给出：执行者在 Rex 的窗格里跑，窗格用不了才在后台跑。 */
+  readonly rex?: RexHost | null;
 }
 
 /** 环节的能力对出的 Pi 内置工具。 */
@@ -29,11 +33,6 @@ const BUILTIN_TOOLS = {
   write: ["write", "edit"],
   exec: ["bash"],
 } as const;
-
-interface Outcome {
-  readonly verdict: string | null;
-  readonly failure: string | null;
-}
 
 /** 返回 finishRun 的结果：问题的列表，空的表示记好了。 */
 export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
@@ -47,33 +46,45 @@ export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
   }
   const dir = join(root, RUNS_DIR, runId);
   const slash = input.model.indexOf("/");
-  const runtime = new PiAgentRuntime({
+  const pi: PiRuntimeOptions = {
     executablePath: input.piExecutable,
     provider: input.model.slice(0, slash),
     modelId: input.model.slice(slash + 1),
     cwd: root,
     sessionDir: join(dir, "session"),
-    appendSystemPrompt: readFileSync(join(dir, "system.md"), "utf8"),
     ...runtimeTools(stage.tools),
-  });
-  const outcome = await runStage(runtime, stage, dir).finally(() => runtime.dispose());
-  const session = runtime.sessionFile === null ? null : relative(root, runtime.sessionFile);
+  };
+  const result =
+    (input.rex ? await runInPane({ host: input.rex, root, runId, dir, stage, model: input.model, pi }) : null) ??
+    (await runInBackground(pi, stage, dir));
+  const session = result.sessionFile === null ? null : relative(root, result.sessionFile);
   return finishRun({
     root,
     taskId,
     runId,
     workflow,
-    ...outcome,
+    verdict: result.verdict,
+    failure: result.failure,
     // 会话文件在项目里时记相对项目根的路径。
     sessionFile:
       session === null || session.startsWith("..") || isAbsolute(session)
-        ? runtime.sessionFile
+        ? result.sessionFile
         : session.split(sep).join("/"),
   });
 }
 
-async function runStage(runtime: PiAgentRuntime, stage: WorkflowStage, dir: string): Promise<Outcome> {
-  const failed = (failure: string): Outcome => ({ verdict: null, failure });
+async function runInBackground(
+  pi: PiRuntimeOptions,
+  stage: WorkflowStage,
+  dir: string,
+): Promise<ReportOutcome & { readonly sessionFile: string | null }> {
+  const runtime = new PiAgentRuntime({ ...pi, appendSystemPrompt: readFileSync(join(dir, "system.md"), "utf8") });
+  const outcome = await runStage(runtime, stage, dir).finally(() => runtime.dispose());
+  return { ...outcome, sessionFile: runtime.sessionFile };
+}
+
+async function runStage(runtime: PiAgentRuntime, stage: WorkflowStage, dir: string): Promise<ReportOutcome> {
+  const failed = (failure: string): ReportOutcome => ({ verdict: null, failure });
   const started = await runtime.start();
   if (!started.ok) return failed(`执行者启动失败：${started.detail}`);
   const first = await askForReport(runtime, stage, dir, readFileSync(join(dir, "message.md"), "utf8"));
@@ -83,11 +94,7 @@ async function runStage(runtime: PiAgentRuntime, stage: WorkflowStage, dir: stri
     runtime,
     stage,
     dir,
-    [
-      "上一条消息里的报告读不出来：",
-      ...first.problems.map((problem) => `- ${problem}`),
-      "请只重新输出完整的报告，结尾带上 json 代码块。不要修改文件，不要重新做一遍。",
-    ].join("\n"),
+    reportRetryMessage(first.problems),
   );
   return second.outcome ?? failed(`报告读不出来：${second.problems.join("；")}`);
 }
@@ -101,24 +108,20 @@ async function askForReport(
   stage: WorkflowStage,
   dir: string,
   message: string,
-): Promise<{ readonly outcome: Outcome | null; readonly problems: readonly string[] }> {
+): Promise<{ readonly outcome: ReportOutcome | null; readonly problems: readonly string[] }> {
   const failed = (failure: string) => ({ outcome: { verdict: null, failure }, problems: [] });
   const settled = await runtime.prompt(message);
   if (!settled.settled) return failed("执行者中途退出");
   if (settled.aborted) return failed("执行者被中止");
   const report = await runtime.getLastAssistantText();
   writeFileSync(join(dir, "report.md"), report);
-  if (report.trim() === "") return failed("执行者没有给出报告");
-  const read = readReport(stage.report, report);
-  if (read.fields === null) return { outcome: null, problems: read.problems };
-  const verdict = typeof read.fields.verdict === "string" ? read.fields.verdict : null;
-  return { outcome: { verdict, failure: null }, problems: [] };
+  return reportOutcome(stage.report, report);
 }
 
 /** 环节的 tools 换成 PiAgentRuntime 的工具参数。 */
 function runtimeTools(
   capabilities: readonly ToolCapability[] | null,
-): Pick<ConstructorParameters<typeof PiAgentRuntime>[0], "capabilities" | "tools" | "toolAdditions" | "excludeTools"> {
+): Pick<PiRuntimeOptions, "capabilities" | "tools" | "toolAdditions" | "excludeTools"> {
   if (capabilities === null) return { capabilities: null, tools: null };
   const wanted = Object.entries(BUILTIN_TOOLS).flatMap(([capability, names]) =>
     capabilities.includes(capability as ToolCapability) ? [...names] : [],

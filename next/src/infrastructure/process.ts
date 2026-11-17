@@ -4,7 +4,7 @@
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { kill as killProcess } from "node:process";
 import { InfrastructureError } from "./errors.js";
 
@@ -48,6 +48,17 @@ export function sameProcessStart(recorded: string, current: string): boolean {
     return recorded.split(PS_IDENTITY_SEPARATOR)[0] === current.split(PS_IDENTITY_SEPARATOR)[0];
   }
   return false;
+}
+
+/**
+ * `file` 里登记的进程（`{ pid, start }`）还在时返回它的进程号；文件不存在或者进程不在时是 null。
+ * 进程号会被别的进程重新用上，启动标识一样才是原来那个。
+ */
+export function recordedProcess(file: string): number | null {
+  if (!existsSync(file)) return null;
+  const recorded = JSON.parse(readFileSync(file, "utf8")) as { pid: number; start: string | null };
+  const current = procStartTicks(recorded.pid);
+  return recorded.start !== null && current !== null && sameProcessStart(recorded.start, current) ? recorded.pid : null;
 }
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */

@@ -17,6 +17,36 @@ export function readReport(declared: Readonly<Record<string, ReportFieldType>>, 
   return problems.length > 0 ? { fields: null, problems } : { fields, problems: [] };
 }
 
+/** 一次执行的结果：结论（环节不要结论时是 null）或者失败原因。 */
+export interface ReportOutcome {
+  readonly verdict: string | null;
+  readonly failure: string | null;
+}
+
+/**
+ * 执行者做完一轮之后，从它的最后一条消息得出结果。
+ * `outcome` 是 null 表示报告读不出来，`problems` 里是原因，可以要求补报。
+ */
+export function reportOutcome(
+  declared: Readonly<Record<string, ReportFieldType>>,
+  text: string,
+): { readonly outcome: ReportOutcome | null; readonly problems: readonly string[] } {
+  if (text.trim() === "") return { outcome: { verdict: null, failure: "执行者没有给出报告" }, problems: [] };
+  const read = readReport(declared, text);
+  if (read.fields === null) return { outcome: null, problems: read.problems };
+  const verdict = typeof read.fields.verdict === "string" ? read.fields.verdict : null;
+  return { outcome: { verdict, failure: null }, problems: [] };
+}
+
+/** 报告读不出来时发给执行者的消息：在同一个会话里补报一次，不重做。 */
+export function reportRetryMessage(problems: readonly string[]): string {
+  return [
+    "上一条消息里的报告读不出来：",
+    ...problems.map((problem) => `- ${problem}`),
+    "请只重新输出完整的报告，结尾带上 json 代码块。不要修改文件，不要重新做一遍。",
+  ].join("\n");
+}
+
 /**
  * 可能是代码块内容的片段：每个标记和它后面相邻的标记、最后一个标记各配一次。
  * JSON 的字符串值里带着 ``` 时，相邻配对会断在中间，要靠和最后一个标记的配对取出来；

@@ -2,8 +2,11 @@
 /**
  * 测试用的假 Pi：照 `pi --mode rpc` 的样子一行一个 JSON 地收请求、给回答，不调用模型。
  * 做什么由环境变量 KNIT_FAKE_PI 指向的 JSON 文件决定，字段都可以不写：
- * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、stubborn。
+ * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、stubborn、paneExit、startDelay、resumeOn。
  * aborted 为真时它报告自己是被中止的。
+ * 命令行里没有 `--mode` 时它是“交互界面”：加载 `--extension` 给的扩展，照 Pi 的扩展接口触发事件。
+ * 这时 failStart 表示不认识模型，paneExit 为真时不加载扩展就以 1 退出；startDelay 是加载扩展之前等的毫秒数；aborted 为真时第一轮是被中止的，
+ * 等 resumeOn 指的文件出现（当作用户接着输入了一句）再做第二轮。
  * stubborn 为真时不理会 SIGTERM，输入关闭时也不退出，只有 SIGKILL 能结束它。
  */
 import { spawnSync } from "node:child_process";
@@ -29,10 +32,7 @@ if (script.stubborn) {
   setInterval(() => {}, 1000);
 }
 
-async function onPrompt(id, message) {
-  log({ message });
-  if (script.exitOnPrompt) process.exit(1);
-  respond(id);
+async function work() {
   for (const write of script.writes ?? []) {
     mkdirSync(dirname(join(process.cwd(), write.path)), { recursive: true });
     writeFileSync(join(process.cwd(), write.path), write.content);
@@ -41,7 +41,54 @@ async function onPrompt(id, message) {
   while (script.waitFor && !existsSync(script.waitFor)) await new Promise((resolve) => setTimeout(resolve, 20));
   lastText = texts[Math.min(prompts, texts.length - 1)];
   prompts += 1;
+}
+
+async function onPrompt(id, message) {
+  log({ message });
+  if (script.exitOnPrompt) process.exit(1);
+  respond(id);
+  await work();
   send({ type: "agent_settled", aborted: script.aborted === true });
+}
+
+if (!args.includes("--mode")) {
+  if (script.paneExit) process.exit(1);
+  if (script.startDelay) await new Promise((resolve) => setTimeout(resolve, script.startDelay));
+  const { default: extension } = await import(arg("--extension"));
+  const handlers = {};
+  const branch = [];
+  let pending = null;
+  const ctx = {
+    sessionManager: { getBranch: () => branch, getSessionFile: () => join(arg("--session-dir"), "fake.jsonl") },
+    modelRegistry: { find: () => (script.failStart ? undefined : {}) },
+    ui: { notify: (text) => log({ notify: text }) },
+    shutdown: () => setImmediate(() => process.exit(0)),
+  };
+  extension({
+    on: (event, handler) => (handlers[event] = handler),
+    sendUserMessage: (text) => (pending = text),
+  });
+  handlers.session_start({ reason: "startup" }, ctx);
+  let aborted = script.aborted === true;
+  while (pending !== null) {
+    const message = pending;
+    pending = null;
+    log({ message });
+    branch.push({ type: "message", message: { role: "user", content: message } });
+    if (aborted) {
+      branch.push({ type: "message", message: { role: "assistant", content: [], stopReason: "aborted" } });
+      handlers.agent_settled({ aborted: true }, ctx);
+      aborted = false;
+      while (!existsSync(script.resumeOn)) await new Promise((resolve) => setTimeout(resolve, 20));
+      pending = "接着做";
+      continue;
+    }
+    await work();
+    branch.push({ type: "message", message: { role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" } });
+    handlers.agent_settled({ aborted: false }, ctx);
+  }
+  // 扩展没有再发消息也没有要求退出时，界面停在那里等用户。
+  await new Promise(() => setInterval(() => {}, 1000));
 }
 
 const lines = createInterface({ input: process.stdin });

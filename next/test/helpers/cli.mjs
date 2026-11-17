@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
+// 在 Rex 的终端里跑测试时，派发出去的执行者不能开到真的 Rex 窗格里；要测窗格的测试自己设这两个变量。
+delete process.env.REX_SESSION;
+delete process.env.REX_BLOCK;
+
 const cli = new URL("../../dist/cli/knit.js", import.meta.url).pathname;
 
 /** 在临时目录里建一个带 `.knit/` 的项目，测试结束时删除。 */

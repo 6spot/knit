@@ -7,7 +7,7 @@ import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
 import { finishRun } from "../application/run-finish.js";
 import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
-import { aliveAmong, liveWorker, type WorkerProcess, workerProcesses } from "../application/run-process.js";
+import { aliveAmong, livePane, liveWorker, type WorkerProcess, workerProcesses } from "../application/run-process.js";
 import { findTask } from "../application/task-store.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
@@ -41,7 +41,11 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
   }
   return liveWorker(root, run.id) === null
     ? [`执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`]
-    : [`正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`, `会话记录: ${dir}/session/`];
+    : [
+        `正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`,
+        `会话记录: ${dir}/session/`,
+        ...(livePane(root, run.id) === null ? [] : [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`]),
+      ];
 }
 
 /** “下一步”那一行，到返工上限时后面还跟着各轮的报告和可以走的路；任务已经结束时没有。 */
@@ -176,40 +180,42 @@ export function registerRunCommands(program: Command): void {
       const taskId = loaded.document.frontmatter.id;
       const running = loaded.record.runs.find((item) => item.endedAt === null);
       if (running === undefined) return fail([`任务 ${taskId} 没有正在跑的执行`]);
-      // 发信号之前取：后台进程先退出的话就找不到它启动的 Pi 了。
-      const chain = workerProcesses(root, running.id);
-      const worker = chain[0];
-      if (worker !== undefined) {
+      const worker = liveWorker(root, running.id);
+      // Pi 还在的话会接着改工作区，所以等这一串都退出，再对比改动文件。
+      const stop = async (chain: readonly WorkerProcess[]): Promise<void> => {
+        if (chain[0] === undefined) return;
         signalProcessTree(
-          worker.pid,
+          chain[0].pid,
           "SIGTERM",
           chain.map((item) => item.pid),
         );
-        // Pi 还在的话会接着改工作区，所以等这一串都退出，再对比改动文件。
         const stubborn = await stillAlive(chain, Date.now() + 5000);
-        if (stubborn[0] !== undefined) {
-          signalProcessTree(
-            stubborn[0].pid,
-            "SIGKILL",
-            stubborn.map((item) => item.pid),
-          );
-          // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，别的任务也派发不了。
-          await stillAlive(stubborn, Date.now() + 5000);
-        }
-      }
+        if (stubborn[0] === undefined) return;
+        signalProcessTree(
+          stubborn[0].pid,
+          "SIGKILL",
+          stubborn.map((item) => item.pid),
+        );
+        // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，别的任务也派发不了。
+        await stillAlive(stubborn, Date.now() + 5000);
+      };
+      // 发信号之前取：后台进程先退出的话就找不到它启动的 Pi 了。
+      await stop(workerProcesses(root, running.id));
+      // 窗格里的 Pi 可能在这期间才登记：再找一次。更晚才起来的，会看到后台进程不在了，自己退出。
+      await stop(workerProcesses(root, running.id));
       const problems = finishRun({
         root,
         taskId,
         runId: running.id,
         workflow,
         verdict: null,
-        failure: worker === undefined ? "执行进程意外退出" : "已取消",
+        failure: worker === null ? "执行进程意外退出" : "已取消",
         sessionFile: null,
       });
       if (problems.length > 0) return fail(problems);
       const changed = findTask(root, taskId)?.record?.runs.find((item) => item.id === running.id)?.changedPaths ?? [];
       const first =
-        worker === undefined
+        worker === null
           ? `执行 ${running.id} 的进程已经不在了，已记为失败`
           : `已取消 ${taskId} 的执行 ${running.id}`;
       process.stdout.write(`${first}\n改动文件: ${changed.length} 个\n`);
@@ -235,6 +241,11 @@ export function registerRunCommands(program: Command): void {
         workflow,
         model: options.model,
         piExecutable: process.env.KNIT_PI_BIN ?? "pi",
+        // 主会话在 Rex 里跑时，它启动的进程都带着这两个变量。
+        rex:
+          process.env.REX_SESSION && process.env.REX_BLOCK
+            ? { session: process.env.REX_SESSION, block: process.env.REX_BLOCK }
+            : null,
       });
       if (problems.length > 0) fail(problems);
     });

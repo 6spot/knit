@@ -52,6 +52,8 @@ export interface PiRuntimeOptions {
   sessionFile?: string;
   /** 恢复前可选预检结果；调用方也可自行调用 checkNativeSessionFile。 */
   env?: Record<string, string>;
+  /** 为真时启动的是交互界面：不带 `--mode rpc`，也不带 `--no-themes`（界面要用户设置的主题）。 */
+  interactive?: boolean;
 }
 
 export interface RuntimeStartCheck {
@@ -98,6 +100,9 @@ export function capabilitySwitches(
   };
 }
 
+/** 主会话的 Pi 留在环境里的变量；执行者不能继承。 */
+const MAIN_SESSION_KEYS = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
+
 /**
  * 与本会话环境隔离，避免继承主会话的 PI_SESSION_ID／PI_MODEL 等。
  */
@@ -106,16 +111,7 @@ export function isolatedEnv(
   options: { offline?: boolean } = {},
 ): Record<string, string> {
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
-  for (const key of [
-    "PI_SESSION_ID",
-    "PI_SESSION_FILE",
-    "PI_PROVIDER",
-    "PI_MODEL",
-    "PI_REASONING_LEVEL",
-    "PI_OFFLINE",
-  ]) {
-    delete env[key];
-  }
+  for (const key of MAIN_SESSION_KEYS) delete env[key];
   if (options.offline !== false) env.PI_OFFLINE = "1";
   env.PI_SKIP_VERSION_CHECK = "1";
   env.PI_TELEMETRY = "0";
@@ -126,12 +122,9 @@ export function isolatedEnv(
 /** 构造 Pi RPC 参数；导出供能力→参数单测直接核对，不启动进程。 */
 export function buildPiArgs(options: PiRuntimeOptions): string[] {
   const switches = capabilitySwitches(options.capabilities);
-  const args = [
-    "--mode", "rpc",
-    "--no-prompt-templates",
-    "--no-themes",
-    "--no-approve",
-  ];
+  const args = options.interactive
+    ? ["--no-prompt-templates", "--no-approve"]
+    : ["--mode", "rpc", "--no-prompt-templates", "--no-themes", "--no-approve"];
   if (switches.offline) args.push("--offline");
   if (!switches.mcp) args.push("--no-mcp");
   if (!switches.skills) args.push("--no-skills");
@@ -163,6 +156,22 @@ export function buildPiArgs(options: PiRuntimeOptions): string[] {
     args.push("--name", options.sessionName ?? "Knit worker session");
   }
   return args;
+}
+
+/**
+ * 在别的程序给的环境里（例如 Rex 的窗格）启动交互界面的完整命令：环境变量没法直接传，
+ * 所以写成 `/usr/bin/env -u … KEY=VALUE … pi 参数`，隔离的内容和 isolatedEnv 一样。
+ */
+export function interactivePiCommand(options: PiRuntimeOptions, extra: Record<string, string>): string[] {
+  const env = { PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", ...extra };
+  return [
+    "/usr/bin/env",
+    ...MAIN_SESSION_KEYS.flatMap((key) => ["-u", key]),
+    ...(capabilitySwitches(options.capabilities).offline ? ["PI_OFFLINE=1"] : []),
+    ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
+    options.executablePath,
+    ...buildPiArgs({ ...options, interactive: true }),
+  ];
 }
 
 export class PiAgentRuntime {
