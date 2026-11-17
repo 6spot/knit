@@ -1,6 +1,6 @@
 #!/bin/bash
 # 在真的 Rex 里看窗格的失败和回退，不调用模型：模型不存在、Pi 在窗格里起不来、Pi 卡住不开始、取消、关窗格。
-# 要在 Rex 的终端里运行，先运行过 npm run -s build:next。约 50 秒。
+# 要在 Rex 的终端里运行，先运行过 npm run -s build。约 50 秒。
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 h1="$here/../slim-h1-2026-11"
@@ -57,7 +57,7 @@ echo "  失败（后台那一次的）: $(failure | head -1 | cut -c1-40)…"
 no_leftovers 二
 
 # 后面用假的 Pi。窗格里的程序拿不到这里的环境变量，所以包一层。
-fake="$here/../../next/test/helpers/fake-pi.mjs"
+fake="$here/../../test/helpers/fake-pi.mjs"
 printf '#!/bin/sh\nKNIT_FAKE_PI=%s exec node %s "$@"\n' "$base/script.json" "$fake" > "$base/fake-pi.sh"
 # 在窗格里（命令行里没有 --mode）什么都不做，在后台照常是假的 Pi。
 printf '#!/bin/sh\ncase " $* " in *" --mode "*) KNIT_FAKE_PI=%s exec node %s "$@";; esac\nexec sleep 300\n' "$base/script.json" "$fake" > "$base/stuck-pi.sh"

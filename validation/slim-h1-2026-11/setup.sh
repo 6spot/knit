@@ -1,16 +1,16 @@
 #!/bin/bash
 # 用法：setup.sh <名字>
-# 在 /tmp/knit-h1/<名字>/ 里建 bin/knit（运行本仓库的 next/dist）和 proj（knit init 过、写了模型、提交过一次的 Git 仓库）。
+# 在 /tmp/knit-h1/<名字>/ 里建 bin/knit（运行本仓库的 dist）和 proj（knit init 过、写了模型、提交过一次的 Git 仓库）。
 # 输出 /tmp/knit-h1/<名字>。
 set -euo pipefail
 [ -n "${1:-}" ] || { echo "用法：setup.sh <名字>" >&2; exit 2; }
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-[ -f "$repo/next/dist/cli/knit.js" ] || { echo "没有 next/dist：先运行 npm run -s build:next" >&2; exit 2; }
+[ -f "$repo/dist/cli/knit.js" ] || { echo "没有 dist：先运行 npm run -s build" >&2; exit 2; }
 base="/tmp/knit-h1/$1"
 rm -rf "$base"
 mkdir -p "$base/bin" "$base/proj"
-printf '#!/bin/sh\nexec node "%s/next/dist/cli/knit.js" "$@"\n' "$repo" > "$base/bin/knit"
+printf '#!/bin/sh\nexec node "%s/dist/cli/knit.js" "$@"\n' "$repo" > "$base/bin/knit"
 chmod +x "$base/bin/knit"
 export PATH="$base/bin:$PATH"
 cd "$base/proj"

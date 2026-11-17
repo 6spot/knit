@@ -49,7 +49,7 @@ test("初始化生成桥接", (t) => {
   const checked = spawnSync(
     process.execPath,
     [
-      fileURLToPath(new URL("../../node_modules/typescript/bin/tsc", import.meta.url)),
+      fileURLToPath(new URL("../node_modules/typescript/bin/tsc", import.meta.url)),
       "-p",
       fileURLToPath(new URL("../tsconfig.templates.json", import.meta.url)),
     ],

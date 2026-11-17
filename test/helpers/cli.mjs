@@ -18,7 +18,7 @@ export function project(t) {
   return dir;
 }
 
-/** 在项目 `dir` 里运行 `node next/dist/cli/knit.js <参数>`。 */
+/** 在项目 `dir` 里运行 `node dist/cli/knit.js <参数>`。 */
 export function knit(dir, ...args) {
   const result = spawnSync(process.execPath, [cli, ...args, "--dir", dir], { encoding: "utf8" });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };

@@ -30,10 +30,9 @@ check(binTarget !== undefined && paths.includes(binTarget), `包含 bin 入口 $
 const required = [
   "package.json",
   "README.md",
-  "assets/templates/pi/README.md",
+  "assets/templates/workflow.yaml",
   "assets/templates/pi/extensions/knit.ts",
-  "dist/worker/knit-worker.js",
-  "dist/contracts/bridge-tools.json",
+  "dist/adapters/pi/pane-worker.js",
   "dist/cli/knit.js",
 ];
 for (const path of required) {

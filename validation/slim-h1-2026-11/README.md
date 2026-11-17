@@ -100,7 +100,7 @@
 ## 怎么重跑
 
 ```bash
-npm run test:next                      # 先生成 next/dist；演练进行时不要再运行它
+npm test                               # 先生成 dist；演练进行时不要再运行它
 cd validation/slim-h1-2026-11
 ./refusals.sh && node trust.mjs        # 这两个不调用模型
 ./cli-flow.sh && ./cancel.sh && node bridge-flow.mjs

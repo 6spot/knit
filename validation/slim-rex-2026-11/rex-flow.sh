@@ -1,6 +1,6 @@
 #!/bin/bash
 # 在真的 Rex 里用真的模型走一个任务：实现环节在窗格里做完；审查环节中途按 Esc 中止，再接着输入让它做完。
-# 要在 Rex 的终端里运行（环境里有 REX_SESSION、REX_BLOCK），先运行过 npm run -s build:next。
+# 要在 Rex 的终端里运行（环境里有 REX_SESSION、REX_BLOCK），先运行过 npm run -s build。
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 h1="$here/../slim-h1-2026-11"

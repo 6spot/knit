@@ -9,7 +9,7 @@ const cli = fileURLToPath(new URL("../../dist/cli/knit.js", import.meta.url));
 
 /**
  * 在 `dir` 里运行 `knit init`，加载生成出来的桥接，传给它一个假的 `pi`。
- * `PATH` 最前面放一个指向 `next/dist/cli/knit.js` 的 `knit`，测试结束时改回去。
+ * `PATH` 最前面放一个指向 `dist/cli/knit.js` 的 `knit`，测试结束时改回去。
  * 返回 `{ tool, fire, entries, messages }`：调用工具、触发事件、会话记录、桥接发出的消息。
  */
 export async function loadBridge(t, dir) {

@@ -16,7 +16,7 @@ export const TEMPLATES = [
   { template: "pi/extensions/knit.ts", target: ".pi/extensions/knit.ts", restore: true },
 ] as const;
 
-// 编译后位于 next/dist/application/，往上两级是 next/。
+// 编译后位于 dist/application/，往上两级是根目录。
 const TEMPLATE_DIR = new URL("../../assets/templates/", import.meta.url);
 
 export interface InitResult {

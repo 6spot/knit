@@ -15,8 +15,12 @@
     "dist/"
   ],
   "scripts": {
-    "build:next": "rm -rf next/dist && tsc -p next/tsconfig.json",
-    "test:next": "npm run -s build:next && node --test \"next/test/*.test.mjs\""
+    "typecheck": "tsc --noEmit",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/knit.js",
+    "test": "npm run -s build && node --test \"test/*.test.mjs\"",
+    "pack:check": "npm run -s build && node scripts/pack-check.mjs",
+    "pack:install": "node scripts/pack-install.mjs",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@earendil-works/pi-schema": "1.5.0",

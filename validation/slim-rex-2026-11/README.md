@@ -49,7 +49,7 @@
 ## 怎么重跑
 
 ```bash
-npm run -s build:next                  # 演练进行时不要再运行它
+npm run -s build                       # 演练进行时不要再运行它
 validation/slim-rex-2026-11/no-model.sh
 validation/slim-rex-2026-11/rex-flow.sh
 ```
