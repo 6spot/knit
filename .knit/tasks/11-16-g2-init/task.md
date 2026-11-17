@@ -1,8 +1,8 @@
 ---
 id: k-4b35e8771a3e
-status: open
-stage: start
-outcome: null
+status: closed
+stage: deliver
+outcome: completed
 branch: refs/heads/main
 verification: self
 parent: k-19c962be9fb8
@@ -134,5 +134,17 @@ title: G2 初始化：knit init
 ## 结果与验证
 
 ## 运行引用
+
+### 交付记录
+
+<!-- knit:delivery:op-d1aad7100136 -->
+- 操作: op-d1aad7100136
+- 时间: 2026-11-17T01:00:33.966Z
+- 分支: refs/heads/main
+- 授权来源: user:a743f72d
+- 调用: bridge
+- 工作提交: 4b521c9934da827cdca0fe0fba74a05f8b30d14c
+- 结果: 正常交付；完成验证 self（无独立检查）
+- 归档目标: .knit/tasks/archive/2026-11/11-16-g2-init
 
 <!-- knit:progress:end -->
