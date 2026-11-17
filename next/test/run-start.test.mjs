@@ -65,7 +65,7 @@ test("派发后立即返回，执行者在后台做完", async (t) => {
   assert.equal(started.code, 0, started.stderr);
   const runId = lastRun(dir, task).id;
   const runDir = `${RUNS_DIR}/${runId}`;
-  assert.equal(started.stdout, `已派发 ${task.id}：实现（${runId}）\n日志：${runDir}/worker.log\n`);
+  assert.equal(started.stdout, `已派发 ${task.id}：实现（${runId}）\n会话记录：${runDir}/session/\n`);
   const worker = JSON.parse(readFileSync(join(dir, runDir, "worker.json"), "utf8"));
   assert.ok(Number.isInteger(worker.pid) && worker.pid > 0);
   assert.equal(typeof worker.start, "string");

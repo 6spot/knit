@@ -99,7 +99,7 @@ test("正在跑和进程不在了分得出来", async (t) => {
   assert.equal(
     status(running, first.id),
     `任务: 加问候语（${first.id}）\n状态: active(implement)\n` +
-      `正在跑: 实现（${run.id}），开始于 ${run.startedAt}\n日志: ${RUNS_DIR}/${run.id}/worker.log\n`,
+      `正在跑: 实现（${run.id}），开始于 ${run.startedAt}\n会话记录: ${RUNS_DIR}/${run.id}/session/\n`,
   );
 
   const gone = runProject(t);

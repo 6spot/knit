@@ -59,7 +59,7 @@ test("派发后立即返回，之后能看到结果", async (t) => {
   const started = await bridge.tool("knit_run", { action: "start", taskId: task.id });
   assert.equal(started.isError, undefined, text(started));
   const runId = lastRun(dir, task).id;
-  assert.equal(text(started), `已派发 ${task.id}：实现（${runId}）\n日志：${RUNS_DIR}/${runId}/worker.log`);
+  assert.equal(text(started), `已派发 ${task.id}：实现（${runId}）\n会话记录：${RUNS_DIR}/${runId}/session/`);
 
   await waitUntil(() => lastRun(dir, task).endedAt !== null, `执行 ${runId} 结束`);
   await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);

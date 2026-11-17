@@ -41,7 +41,7 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
   }
   return liveWorker(root, run.id) === null
     ? [`执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`]
-    : [`正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`, `日志: ${dir}/worker.log`];
+    : [`正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`, `会话记录: ${dir}/session/`];
 }
 
 /** “下一步”那一行，到返工上限时后面还跟着各轮的报告和可以走的路；任务已经结束时没有。 */
@@ -132,7 +132,7 @@ export function registerRunCommands(program: Command): void {
       // 以后靠启动标识确认这个进程号还是原来那个进程。
       const identity = { pid: worker.pid, start: worker.pid === undefined ? null : procStartTicks(worker.pid) };
       writeFileSync(join(root, started.dir, "worker.json"), `${JSON.stringify(identity, null, 2)}\n`);
-      process.stdout.write(`已派发 ${id}：${started.stage.name}（${started.id}）\n日志：${started.dir}/worker.log\n`);
+      process.stdout.write(`已派发 ${id}：${started.stage.name}（${started.id}）\n会话记录：${started.dir}/session/\n`);
     });
 
   run
