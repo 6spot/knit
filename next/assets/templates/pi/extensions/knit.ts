@@ -22,6 +22,12 @@ interface Pi {
     parameters: object;
     execute(toolCallId: string, params: Params): Promise<ToolResult>;
   }): void;
+  /** 写一条扩展自己的会话记录，不进模型的上下文。 */
+  appendEntry(customType: string, data: unknown): void;
+}
+
+interface Context {
+  sessionManager: { getBranch(): { type: string; customType?: string; data?: unknown }[] };
 }
 
 interface CommandResult {
@@ -31,7 +37,7 @@ interface CommandResult {
 }
 
 interface TaskParams {
-  action: "new" | "ready" | "close" | "list";
+  action: "new" | "use" | "ready" | "close" | "list";
   taskId?: string;
   title?: string;
   slug?: string;
@@ -48,16 +54,18 @@ interface TaskParams {
 // 这个文件在 .pi/extensions/ 里，往上三级是项目根。
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
+const SELECTION = "knit.selection";
+
 export default function knitBridge(pi: Pi): void {
   pi.registerTool<TaskParams>({
     name: "knit_task",
     label: "Knit task",
     description:
-      "管理 Knit 任务。new 创建任务（要有 title），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      "管理 Knit 任务。new 创建任务（要有 title），use 选中一个任务（之后每一轮都能看到它的状态和当前环节的规范；不带 taskId 是取消选中；新建的任务不会自动选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["new", "ready", "close", "list"] },
+        action: { type: "string", enum: ["new", "use", "ready", "close", "list"] },
         taskId: { type: "string" },
         title: { type: "string" },
         slug: { type: "string" },
@@ -72,11 +80,11 @@ export default function knitBridge(pi: Pi): void {
       },
       required: ["action"],
     },
-    execute: (_toolCallId, params) => task(params),
+    execute: (_toolCallId, params) => task(pi, params),
   });
 }
 
-async function task(params: TaskParams): Promise<ToolResult> {
+async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
   const missing = (name: string) => failure(`knit_task 的 ${params.action} 要有 ${name}`);
   if (params.action === "list") return toResult(await runKnit(["task", "list", ...(params.archive ? ["--archive"] : [])]));
   if (params.action === "new") {
@@ -94,6 +102,7 @@ async function task(params: TaskParams): Promise<ToolResult> {
       ]),
     );
   }
+  if (params.action === "use") return use(pi, params.taskId);
   if (!params.taskId) return missing("taskId");
   if (params.action === "ready") return toResult(await runKnit(["task", "ready", params.taskId]));
   if (!params.result) return missing("result");
@@ -107,6 +116,24 @@ async function task(params: TaskParams): Promise<ToolResult> {
       ...single("--reason", params.reason),
     ]),
   );
+}
+
+/** 选中的任务只决定每轮显示哪个任务；写在会话记录里，会话重开之后还在。不带 `taskId` 是取消选中。 */
+async function use(pi: Pi, taskId: string | undefined): Promise<ToolResult> {
+  if (!taskId) {
+    pi.appendEntry(SELECTION, { taskId: null });
+    return { content: [{ type: "text", text: "已取消选中" }], details: undefined };
+  }
+  const shown = await runKnit(["task", "show", taskId]);
+  if (shown.code !== 0) return toResult(shown);
+  pi.appendEntry(SELECTION, { taskId });
+  return { content: [{ type: "text", text: `已选中 ${taskId}\n${shown.stdout.trimEnd()}` }], details: undefined };
+}
+
+/** 最后一条选择记录里的任务；没有选过或者取消了是 null。 */
+function selectedTask(ctx: Context): string | null {
+  const last = ctx.sessionManager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === SELECTION);
+  return (last?.data as { taskId: string | null } | undefined)?.taskId ?? null;
 }
 
 /** 写成 `--选项=值` 的一个参数：值以 `-` 开头时不会被当成别的选项。没有给就不出现。 */
