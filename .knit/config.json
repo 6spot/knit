@@ -1,35 +1,3 @@
 {
-  "schemaVersion": 1,
-  "client": {
-    "default": "pi"
-  },
-  "agent": {
-    "runtime": "pi",
-    "resume": "prefer"
-  },
-  "execution": {
-    "host": "auto"
-  },
-  "delivery": {
-    "mode": "local"
-  },
-  "workflow": {
-    "maxRepairRounds": 2
-  },
-  "scheduler": {
-    "maxConcurrent": 1,
-    "maxAttempts": 1
-  },
-  "worktree": {
-    "default": "off",
-    "cleanup": "manual"
-  },
-  "limits": {
-    "heartbeatIntervalMs": 5000,
-    "heartbeatStaleMs": 30000,
-    "cancelGraceMs": 5000,
-    "snapshotsMaxBytes": 67108864,
-    "storageWarnBytes": 536870912,
-    "reportRetries": 1
-  }
+  "handoff": { "fileBytes": 16384, "totalBytes": 65536 }
 }

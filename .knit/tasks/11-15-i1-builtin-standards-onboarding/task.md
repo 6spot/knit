@@ -1,19 +1,14 @@
 ---
 id: k-966b2bf6ef60
-status: open
-stage: start
-outcome: null
-branch: refs/heads/main
+title: I1 通用规范进模板，初始化后生成引导任务
+status: draft
+stage: null
 verification: self
 parent: k-19c962be9fb8
-priority: P3
 dependsOn: []
-order: 10
+priority: P3
 createdAt: 2026-11-15T03:05:44.637Z
-title: I1 通用规范进模板，初始化后生成引导任务
 ---
-
-# I1 通用规范进模板，初始化后生成引导任务
 
 ## 目标与范围
 
@@ -58,16 +53,3 @@ title: I1 通用规范进模板，初始化后生成引导任务
 - `.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md`、`.knit/standards/delivery.md` — 现有的三份，通用内容的来源
 - `.knit/tasks/11-14-slim-refactor/design.md` 第 4 节、第 10 节 — 规范的格式；`knit init` 不覆盖哪些内容
 - `.knit/tasks/11-14-slim-refactor/plan.md` — 子任务清单，本任务排在 H 批之后
-
-<!-- knit:progress:start -->
-## 当前位置
-
-任务已创建，待讨论。
-
-## 关键经过
-
-## 结果与验证
-
-## 运行引用
-
-<!-- knit:progress:end -->

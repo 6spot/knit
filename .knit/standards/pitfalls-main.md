@@ -33,11 +33,11 @@ stages: [discuss, deliver]
 - 原因：模型服务不可用，或启动时连接断开。重试解决不了。
 - 做法：同一原因失败两次就停下，把错误原样报告给用户。
 
-### 本仓库的配置被覆盖
+### 本仓库的流程配置被覆盖
 
-- 现象：本仓库的 `config.json`、`workflow.yaml` 等被模板内容覆盖。
-- 原因：在本仓库运行了 `knit init --force`。
-- 做法：不在本仓库运行 `knit init --force`。要重新生成桥接或模板时，先运行 `knit init --check` 看会覆盖什么。
+- 现象：本仓库的 `.knit/workflow.yaml` 变回模板内容，里面写的 `model` 没有了，派发被拒绝。
+- 原因：在本仓库运行了 `knit init --force`。它把流程、角色文件和桥接恢复成模板。
+- 做法：只在升级安装版之后运行 `knit init --force`。运行之后把 `model` 写回 `.knit/workflow.yaml`；覆盖前的文件在 `.knit/.runtime/backups/` 里。
 
 ## 交付
 
@@ -52,23 +52,3 @@ stages: [discuss, deliver]
 - 现象：交付被拒，读不到提交文案文件。
 - 原因：传给工具的文件路径是错的。
 - 做法：把文件路径传给工具前先确认文件存在，路径用绝对路径。
-
-## 切换到小核心后删除
-
-### 检查之后改了输入、规范或 `AGENTS.md`
-
-- 现象：交付被拒（`stale_input`），或交付卡住：重试报 `policy_changed`，按新策略恢复报 `policy_recovery_effects`，互相拒绝。有两笔交付因此卡了约 28 小时。
-- 原因：检查通过之后改了任务输入或规范文件；或交付进行中改了 `AGENTS.md`，它的内容被用来算交付策略的版本。
-- 做法：从检查通过到交付完成，不改任务输入、规范文件和 `AGENTS.md`。必须改时，先把在途的交付做完。
-
-### 目录路径带尾斜杠
-
-- 现象：交付被拒（`hook_changed_selected`）。
-- 原因：登记的目录路径带了尾斜杠。
-- 做法：目录路径不带尾斜杠。
-
-### 创建任务时指定不了验证要求
-
-- 现象：创建任务失败 3 次。
-- 原因：`knit_task` 工具的参数里没有 `verification`。
-- 做法：用命令行：`knit task new --verification <模式>`，或创建后运行 `knit task verification <任务 ID> --mode <模式> --reason <理由>`。
