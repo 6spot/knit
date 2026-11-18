@@ -229,7 +229,7 @@
 | R1 `k-074a8e6cbccf` | Rex 窗格（独立审查） | 主会话在 Rex 里时执行者在 Rex 的窗格里跑 Pi 的界面，窗格用不了就照旧在后台执行；排在 H2 之前 |
 | H2a `k-e281f44cdf86` | 删除旧代码（独立审查） | 删除旧的 `src/`、`test/`、`assets/` 和只有旧代码用的脚本 |
 | H2b `k-f77e261cf257` | 新代码移到根目录（独立审查） | `next/` 的 `src`、`test`、`assets` 移到根目录，脚本和路径跟着改；在 H2a 提交之后做 |
-| H3 | 本仓库切换 | 安装新版，重新生成桥接和模板，没结束的任务手工转成新格式，删除 `.runtime` 里的旧数据和旧的规范索引、候选。主会话手工做，用普通的 Git 提交 |
+| H3（已做，没有登记任务） | 本仓库切换 | 安装新版，重新生成桥接和模板，没结束的任务手工转成新格式，删除 `.runtime` 里的旧数据和旧的规范索引、候选。主会话手工做，用普通的 Git 提交 |
 | H4 | 清理 `AGENTS.md` | 删除受管块和已经写进规范的条目 |
 | H5 | 设计文档 | `docs/design/` 换成小核心的说明，旧文档移到 `docs/history/`；写上执行目录里的文件坏了时怎么恢复（见 E 段） |
 
@@ -259,13 +259,30 @@
   - 这两项的旧实现建在已经不做的部分上（绑定、成果范围、检查凭据），搬不过来，要的话在新代码上重写，所以不影响删旧代码。
 - H2a 由主会话做完（2026-11-18），已经交付（`d2ab336` 删除、`1060b52` 任务资料、`dd11a8a` 归档；授权 `user:896c4bf9`「第一点提交」），提交之后 `git ls-files src test assets scripts/build-bridge-schema.mjs` 没有输出：211 个旧文件和 `scripts/build-bridge-schema.mjs` 从工作区删掉，`package.json` 删六行脚本，`next/` 没有动；`npm run test:next` 221 个通过。第二次审查 `run-be7e07daaa99` 结论 `pass`。删掉之后安装在仓库外面的旧 Knit 照常能用（改任务、派审查都是在删掉之后做的）。H2b 要等 H2a 提交之后才能做。
 - H2b 由主会话做完（2026-11-18），已经交付（`1dc1e15` 移动、`d3592bd` 任务资料、`dcac5ed` 归档；授权 `user:91d317e8`「提交推送」）：118 个文件从 `next/` 移到根目录，`next/tsconfig.json` 删掉，内容有变化的移动只有任务书点名的 7 个；`npm test` 221 个通过，`npm run typecheck`、`npx tsc -p tsconfig.templates.json`、`npm run pack:check` 通过；打包后装到临时目录，`knit --version`、`init`、`workflow validate`、`task new` 都能用。审查 `run-e8a1d4aa4d90` 结论 `pass`。没有做的：两个演练目录的脚本改完路径没有重跑；`npm run pack:install` 留给 H3。
-- H2b 之后仓库里的 `dist/` 是新代码构建出来的（`npm test` 每次都重新生成）。管理本仓库任务的还是装在仓库外面的旧 Knit，旧的安装包 `knit-0.1.0.tgz` 没有动（`shasum` 开头 `387488ef167f`），到 H3 才换。
+- H2b 之后仓库里的 `dist/` 是新代码构建出来的（`npm test` 每次都重新生成）。管理本仓库任务的还是装在仓库外面的旧 Knit，旧的安装包 `knit-0.1.0.tgz` 没有动（`shasum` 开头 `387488ef167f`），到 H3 才换。H3 已经换掉（见下）。
 - H2 之后、H3 之前做的两个任务（2026-11-18，主会话直接做，都先写测试再改代码）。已提交：G16 `b3e3bef`、`9c9e525`、`cc7e167`，F6 `e32426a`、`7cc29b0`、`5e47229`；授权是用户 2026-11-18 的「1.授权提交推送」（`user:c3abaf42`）：
   - G16 `k-c78512122584`：修上面记下的三个问题。模型请求出错时两种执行方式都记 `执行者出错：<原因>`；后台进程不在了而窗格里的 Pi 还在时 `knit run status` 多一行；输出接在已经关掉的管道上不再报错。第一次审查 `run-a67f24471fcc` 结论 `changes_requested`：新加的一个测试在 `pane.json` 一出现就杀后台进程，而窗格里的 Pi 登记之后还要看一眼后台进程在不在，这时被杀它会自己退出，测试单独跑每次都失败（主会话登记时写的“227 个全过”是整套一起跑碰巧过的）。改成等执行者收到第一条消息再杀，`npm test` 连跑三次都是 227 个通过，第二次审查 `run-4eb876be0a15` 结论 `pass`。三项里前两项用真的 Pi 1.5.2（模型指到连不上的地址）和真的 Rex 各验过一遍。
   - F6 `k-c3f36d6f7019`：交付预览里标出审查通过之后又改过的文件。审查 `run-44e4227a1298` 结论 `pass`。它留下两条不拦的意见，没有改：派发之后运行时目录被清掉时不会留下 `after.json`（于是不标）；`after.json` 内容坏掉时预览会报错。
   - 审查建议以后补的：模型请求先出错、Pi 重试之后成功的回归测试（假 Pi 现在不模拟重试，审查者用临时脚本核对过）。
 - 主会话收到执行结束的通知总是很晚，查过原因（2026-11-18）：桥接用 `sendMessage` 的 `followUp` 方式发通知，Pi 要等主会话这一轮完全做完才送到，一轮结束只送一条。按会话记录重数过（到 G16、F6 审查结束为止）：桥接发出过 17 条要唤醒主会话的通知；送到的只有 3 条，分别晚了 262、2701、3968 秒，都是紧跟在主会话一轮正常结束之后到的；没有送到的 14 条里，11 条发出之后主会话那一轮是被中止的（Esc），2 条是那一轮因为模型连接断开而出错结束，1 条排在用户自己的消息后面、随后那一轮也被中止。排着队的通知在这几种情况下都没有再出现。主会话派发之后自己在同一轮里轮询结果，所以通知到的时候结果早就处理过了。新桥接（`assets/templates/pi/extensions/knit.ts` 的 `notifyWhenEnded`）用的是同一种方式，H3 之后表现会一样。用户 2026-11-18 决定（`user:c3abaf42`）：延后处理，到时候看有没有比轮询更好的方式、能不能有机制实时通知过来。还没有登记任务。
-- H3–H5 还没有登记。
+- H3 由主会话手工做完（2026-11-18，用户同意开始：`user:c3abaf42`「H3 可以开始」；没有登记任务，旧 Knit 换掉之后管不了，新 Knit 还没装上）。先在克隆里演练，再动本仓库：
+  - 演练（`/tmp/knit-h3/repo2`，新包装在 `/tmp/knit-h3/prefix`）：照下面的步骤改完之后，用真实模型 `magpie/group/deepseek` 走完一个任务（新建、确认、实现 `r-ddcd6061853b` 正常结束、审查 `r-d5f800e98bca` 结论 `pass`、`task close`、`knit deliver` 提交一次共 3 个文件）；起一个 `pi --mode rpc` 核对桥接注册并启用了 `knit_task`、`knit_run`、`knit_deliver`，没有开始模型轮次。
+  - 备份（仓库外 `/Users/me/IdeaProjects/knit-backup-h3-2026-11-18/`）：旧安装包 `knit-0.1.0-old.tgz`（632,267 字节，`shasum` 开头 `387488ef167f`，解开后 `dist/` 和当时全局装着的逐文件一致）、旧的 `.knit/.runtime` 整个打包 `runtime-old.tar.gz`（3,327 项，约 32.6 MB）、旧的 `config-old.json`。
+  - 安装：`npm run pack:install`，全局的 `knit` 换成新代码（装好的 `dist/`、`assets/` 和仓库里构建出来的逐文件一致）。仓库根目录的 `knit-0.1.0.tgz` 现在是新包（76,552 字节，Git 忽略）。
+  - 重新生成：`knit init --force` 生成 `.knit/agents/review.md`，把 `.knit/workflow.yaml`、`.knit/agents/implement.md`、`.pi/extensions/knit.ts` 恢复成模板（覆盖前的三个文件在 `.knit/.runtime/backups/20261118-135651-172/`）。三份副本和 `assets/templates/` 里的逐字相同。
+  - 手工改：`.knit/workflow.yaml` 写上 `model: magpie/group/deepseek`（之前 28 次检查和最近的实现都用它）；`.knit/config.json` 换成模板的内容（只有 `handoff` 两个上限，旧格式的字段新 Knit 不认）；删除 `.knit/agents/check.md`、`.knit/agents/runtimes/pi.md`、`.knit/standards/index.md`、`.knit/standards/candidates.md`（候选只有一条：「限制要写出是什么在强制它、确认前把限制和完成条件对一遍」已经在主会话的避坑清单里；「成对副本一起改」不再成立，新的测试只读 `assets/templates/`，不比对仓库里的副本）。
+  - 任务：两个没结束的任务（本任务、I1）转成新格式，`status: draft`、`stage: null`（旧的 `open` + `start` 就是还在讨论），去掉 `outcome`、`branch`、`order`、和标题重复的一级标题、旧 Knit 维护的进度块，正文其它内容没有动。`.knit/tasks/` 下 6 个 11-03 的已取消任务原样移到 `archive/2026-11/`。
+  - 规范：两份避坑清单里「切换到小核心后删除」一节删掉；「本仓库的配置被覆盖」按新的 `init --force` 改写（没有 `--check` 了，被覆盖的是流程里的 `model`）；「报告不是 JSON」改成新的报告写法（结尾的 json 代码块）。
+  - 清掉：`.knit/.runtime` 里旧 Knit 的全部数据（约 92 MB：68 次执行、Pi 会话、`metadata.db`、凭据目录、`installation.json` 等），只留 `backups/`。
+  - 核对：`knit workflow validate` 讨论 → 实现 → 审查 → 收尾；`knit standards list` 六份规范，没有告警；`knit task list` 两个 `draft` 任务，没有报错；`knit context` 能读；本仓库里起 `pi --mode rpc` 桥接注册并启用三个工具；`npm test` 227 个通过，`npm run typecheck` 通过。
+  - 没有做、没有验证的：
+    - `knit task list --archive` 对 169 个旧格式的归档任务每个打印一行读不出来的原因（退出码 0）。设计定的是归档任务保持旧格式不动；要不要让列表不打印这些，没有决定。
+    - 本仓库没有用新 Knit 走过一个任务（演练是在克隆里走的）。
+    - 这次切换是在一个还加载着旧桥接的 Pi 会话里做的，旧桥接的工具从清掉 `.runtime` 起就不能用了（`缺少本机安装映射`）；重开 Pi 或 `/reload` 之后才是新桥接。
+    - 另外两个用过旧 Knit 的项目共用同一个全局安装，现在是新 Knit：`../knit-demo`（`.knit/` 没有进 Git，一个旧格式任务读不出来，没有 `workflow.yaml`）、`../pi-simplify-extensions`（`workflow.yaml` 是旧写法，校验不过）。没有动它们；要继续用就各自 `knit init --force` 并手工转任务，或者从备份的旧安装包装回旧版到别的目录。
+    - `AGENTS.md` 的受管块和 `docs/design/` 还在讲旧 Knit（规范索引、候选、`knit_material` 等），留给 H4、H5。
+    - Linux 没有跑。
+- H4、H5 还没有登记。
 
 ## 之后
 
