@@ -141,4 +141,10 @@ title: F6 交付预览里标出审查通过之后又改过的文件
 - 结果: 正常交付；检查 run-44e4227a1298 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-18-f6-preview-changed-after-review
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-1cf45dd0e4c4 -->
+- 任务资料提交: 7cc29b0cc09e52bf879ecc351576e05f60e81bf3
+- 归档目标: .knit/tasks/archive/2026-11/11-18-f6-preview-changed-after-review
+
 <!-- knit:progress:end -->
