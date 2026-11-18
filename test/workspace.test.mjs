@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changesSince, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
+import { changesBetween, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { project } from "./helpers/cli.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
@@ -26,7 +26,7 @@ test("新增、修改、删除的文件都算改动", (t) => {
     "src/removed.ts",
     "src/untouched.ts",
   ]);
-  assert.deepEqual(changesSince(dir, before), { changedPaths: [], head: null });
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir)), { changedPaths: [], head: null });
 
   write(dir, "src/added.ts", "new\n");
   write(dir, "src/edited.ts", "edited\n");
@@ -36,12 +36,12 @@ test("新增、修改、删除的文件都算改动", (t) => {
   write(dir, ".knit/.runtime/runs/r-1/worker.log", "log\n");
 
   const expected = { changedPaths: ["scripts/run.sh", "src/added.ts", "src/edited.ts", "src/removed.ts"], head: null };
-  assert.deepEqual(changesSince(dir, before), expected);
-  assert.deepEqual(changesSince(dir, JSON.parse(JSON.stringify(before))), expected);
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir)), expected);
+  assert.deepEqual(changesBetween(JSON.parse(JSON.stringify(before)), takeSnapshot(dir)), expected);
 
   // 改回去就不算改动
   write(dir, "src/edited.ts", "src/edited.ts\n");
-  assert.deepEqual(changesSince(dir, before).changedPaths, ["scripts/run.sh", "src/added.ts", "src/removed.ts"]);
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir)).changedPaths, ["scripts/run.sh", "src/added.ts", "src/removed.ts"]);
 });
 
 test("HEAD 动了能看出来", (t) => {
@@ -54,7 +54,7 @@ test("HEAD 动了能看出来", (t) => {
   write(dir, "src/a.ts", "two\n");
   commitAll(dir, "change");
 
-  const changes = changesSince(dir, before);
+  const changes = changesBetween(before, takeSnapshot(dir));
   assert.deepEqual(changes.head, { before: before.head, after: git(dir, "rev-parse", "HEAD") });
   assert.match(changes.head.before, /^[0-9a-f]{40}$/);
   assert.match(changes.head.after, /^[0-9a-f]{40}$/);

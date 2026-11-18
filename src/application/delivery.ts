@@ -2,17 +2,27 @@
  * 交付：把完成的任务归档；项目在 Git 仓库里时再把它的改动提交成一次提交。
  * Git 不是必须的，不在 Git 仓库里时只归档。
  */
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
+import { countedRuns } from "../domain/progress.js";
 import { gitSync } from "../infrastructure/process.js";
+import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, scanTasks, type StoredTask } from "./task-store.js";
-import { RUNTIME_PREFIX } from "./workspace.js";
+import { fingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
 
 export interface DeliveryPreview {
   /** 归档之后的任务目录。 */
   readonly archiveDir: string;
   /** 项目不在 Git 仓库里时是 null：只归档，不提交。 */
   readonly commit: {
-    readonly files: readonly { readonly path: string; readonly reviewed: boolean }[];
+    readonly files: readonly {
+      readonly path: string;
+      /** 给出过结论的执行改过它。 */
+      readonly reviewed: boolean;
+      /** 最后一次审查通过之后它又变了：这部分改动审查没有看过。 */
+      readonly changedAfterReview: boolean;
+    }[];
     /** 任务目录没有被 Git 忽略，会跟着提交。 */
     readonly taskDir: boolean;
     /** 记录里现在没有改动的路径。 */
@@ -60,10 +70,22 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
   const recorded = stored.record === null ? [] : recordedPaths(stored.record);
   const reviewed = new Set(runs.filter((run) => run.verdict !== null).flatMap((run) => run.changedPaths));
   const files = changedAmong(root, recorded);
+  // 和完成任务时一样：失败的执行、需求改之前的执行都不算数。
+  const lastReview = stored.record === null ? undefined : countedRuns(stored.record).findLast((run) => run.verdict !== null);
+  const passedFile = lastReview?.verdict === "pass" ? join(root, RUNS_DIR, lastReview.id, "after.json") : null;
+  // 运行时资料可以清掉：那一份不在了就不标。
+  const passed =
+    passedFile !== null && existsSync(passedFile)
+      ? (JSON.parse(readFileSync(passedFile, "utf8")) as WorkspaceSnapshot).files
+      : null;
   return {
     archiveDir,
     commit: {
-      files: files.map((path) => ({ path, reviewed: reviewed.has(path) })),
+      files: files.map((path) => ({
+        path,
+        reviewed: reviewed.has(path),
+        changedAfterReview: passed !== null && passed[path] !== fingerprint(root, path),
+      })),
       taskDir: gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], root).code !== 0,
       unchanged: recorded.filter(
         (path) => !files.some((file) => file === path || file.startsWith(path.endsWith("/") ? path : `${path}/`)),

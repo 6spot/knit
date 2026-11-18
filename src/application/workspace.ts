@@ -1,6 +1,7 @@
 /**
  * 对比工作区：一次执行改了哪些文件，由派发时和结束时各拍一份记录比出来，不听执行者自己报。
  * 只对比，不恢复；也不区分改动是谁做的。`root` 要是 Git 仓库的顶层目录。
+ * 审查通过时拍的那一份留在执行目录里（after.json），交付预览拿它看哪些文件之后又改过。
  */
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
@@ -29,6 +30,12 @@ export interface WorkspaceChanges {
   head: { before: string | null; after: string | null } | null;
 }
 
+/** 一个文件的指纹；`path` 是项目内的相对路径。已跟踪但磁盘上已经删掉的文件，类型是 absent。 */
+export function fingerprint(root: string, path: string): string {
+  const facts = fileFacts(join(root, path));
+  return [facts.kind, facts.mode ?? "-", facts.sha256 ?? "-"].join(" ");
+}
+
 export function takeSnapshot(root: string): WorkspaceSnapshot {
   const head = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
   // 已跟踪的文件加上没被忽略的新文件。
@@ -37,15 +44,12 @@ export function takeSnapshot(root: string): WorkspaceSnapshot {
   const files: Record<string, string> = {};
   for (const path of listed.stdout.split("\0")) {
     if (path === "" || path.startsWith(RUNTIME_PREFIX)) continue;
-    // 已跟踪但磁盘上已经删掉的文件，类型是 absent。
-    const facts = fileFacts(join(root, path));
-    files[path] = [facts.kind, facts.mode ?? "-", facts.sha256 ?? "-"].join(" ");
+    files[path] = fingerprint(root, path);
   }
   return { head: head.code === 0 ? head.stdout.trim() : null, files };
 }
 
-export function changesSince(root: string, before: WorkspaceSnapshot): WorkspaceChanges {
-  const after = takeSnapshot(root);
+export function changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): WorkspaceChanges {
   const changedPaths = [...new Set([...Object.keys(before.files), ...Object.keys(after.files)])]
     .filter((path) => before.files[path] !== after.files[path])
     .sort();

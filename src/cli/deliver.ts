@@ -25,7 +25,13 @@ const indented = (text: string) => text.split("\n").map((line) => (line === "" ?
 function fileLines(taskDir: string, commit: DeliveryPreview["commit"]): string[] {
   if (commit === null) return ["提交: 这个项目不在 Git 仓库里，只归档，不提交"];
   const files = [
-    ...commit.files.map((file) => `  ${file.path}${file.reviewed ? "（审查改过）" : ""}`),
+    ...commit.files.map((file) => {
+      const marks = [
+        ...(file.reviewed ? ["审查改过"] : []),
+        ...(file.changedAfterReview ? ["审查通过之后又改过"] : []),
+      ];
+      return `  ${file.path}${marks.length === 0 ? "" : `（${marks.join("，")}）`}`;
+    }),
     ...(commit.taskDir ? [`  ${taskDir}/（整个目录，移到归档的位置）`] : []),
   ];
   return files.length === 0 ? ["提交的文件: 没有，不会提交"] : ["提交的文件:", ...files];
@@ -34,7 +40,9 @@ function fileLines(taskDir: string, commit: DeliveryPreview["commit"]): string[]
 function hintLines(preview: DeliveryPreview): string[] {
   const unchanged = preview.commit?.unchanged ?? [];
   const others = preview.commit?.others ?? 0;
+  const changed = preview.commit?.files.filter((file) => file.changedAfterReview).length ?? 0;
   const hints = [
+    ...(changed > 0 ? [`有 ${changed} 个文件在审查通过之后又改过（上面标出来的），这些改动审查没有看过`] : []),
     ...(unchanged.length > 0
       ? [`记录里有 ${unchanged.length} 个路径现在没有改动，不会被提交：${unchanged.join("、")}`]
       : []),

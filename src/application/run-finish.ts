@@ -2,12 +2,12 @@
  * 结束一次执行：不管是正常做完、启动失败、被取消还是进程意外退出，都在任务的执行记录里
  * 记下结束时间、结论或失败原因、改动的文件。执行者提交了改动或改了受保护的文件，记为失败。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask, saveTask } from "./task-store.js";
-import { changesSince, protectedChanges, type WorkspaceSnapshot } from "./workspace.js";
+import { changesBetween, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
 
 export interface FinishRunInput {
   readonly root: string;
@@ -34,9 +34,11 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
     return [`执行 ${runId} 不在任务 ${taskId} 的记录里，或者已经结束`];
   }
   const beforeFile = join(root, RUNS_DIR, runId, "before.json");
-  const changes = existsSync(beforeFile)
-    ? changesSince(root, JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot)
-    : { changedPaths: [], head: null };
+  const after = existsSync(beforeFile) ? takeSnapshot(root) : null;
+  const changes =
+    after === null
+      ? { changedPaths: [], head: null }
+      : changesBetween(JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot, after);
   const guarded = protectedChanges(changes.changedPaths, input.workflow);
   const failure =
     input.failure ??
@@ -61,6 +63,10 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
         : item,
     ),
   });
+  // 审查通过时的工作区留一份：交付预览拿它看哪些文件在审查通过之后又改过。
+  if (conflicts.length === 0 && after !== null && failure === null && input.verdict === "pass") {
+    writeFileSync(join(root, RUNS_DIR, runId, "after.json"), `${JSON.stringify(after, null, 2)}\n`);
+  }
   // 任务文件在读入之后被别人改过时重新读一遍再做。
   return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1);
 }

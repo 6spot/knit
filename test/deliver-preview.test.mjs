@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
@@ -88,6 +88,63 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
   assert.deepEqual(resultOf(missing), { code: 1, stdout: "", stderr: `读不到提交文案：${join(dir, "nope.txt")}\n` });
   const bare = knit(dir, "deliver", task.id, "--preview");
   assert.equal(bare.stdout.split("\n").at(-2), "提交文案: 没有给；交付时加 --message-file <文件>");
+});
+
+test("审查通过之后又改过的文件标出来", (t) => {
+  const dir = runProject(t);
+  mkdirSync(join(dir, "src"));
+  const task = readyTask(dir);
+  commitAll(dir, "task");
+  const write = (path, text) => writeFileSync(join(dir, path), text);
+  const fileLines = () => {
+    const lines = knit(dir, "deliver", task.id, "--preview").stdout.split("\n");
+    return lines.slice(lines.indexOf("提交的文件:") + 1, lines.indexOf("结果:"));
+  };
+
+  run(dir, task, null, () => ["src/a.ts", "src/b.ts"].forEach((path) => write(path, "1\n")));
+  run(dir, task, "pass", () => write("src/c.ts", "1\n"));
+  const reviewId = JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs.at(-1).id;
+  write("src/a.ts", "2\n");
+  write("src/c.ts", "2\n");
+  write("src/d.ts", "1\n");
+  const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--paths", "src/d.ts");
+  assert.equal(closed.code, 0, closed.stderr);
+
+  assert.deepEqual(fileLines(), [
+    "  src/a.ts（审查通过之后又改过）",
+    "  src/b.ts",
+    "  src/c.ts（审查改过，审查通过之后又改过）",
+    "  src/d.ts（审查通过之后又改过）",
+    `  ${task.dir}/（整个目录，移到归档的位置）`,
+    "提示:",
+    "  - 有 3 个文件在审查通过之后又改过（上面标出来的），这些改动审查没有看过",
+  ]);
+
+  // 改回审查结束时的样子就不标。
+  write("src/a.ts", "1\n");
+  assert.equal(fileLines()[0], "  src/a.ts");
+  assert.equal(fileLines().at(-1), "  - 有 2 个文件在审查通过之后又改过（上面标出来的），这些改动审查没有看过");
+
+  // 审查结束时拍的那一份不在了（运行时资料被清掉）：不标，也不出错。
+  rmSync(join(dir, ".knit/.runtime/runs", reviewId, "after.json"));
+  assert.deepEqual(fileLines(), ["  src/a.ts", "  src/b.ts", "  src/c.ts（审查改过）", "  src/d.ts", `  ${task.dir}/（整个目录，移到归档的位置）`]);
+});
+
+test("最后一次审查没有通过时不标", (t) => {
+  const dir = runProject(t);
+  mkdirSync(join(dir, "src"));
+  const task = readyTask(dir);
+  commitAll(dir, "task");
+
+  run(dir, task, null, () => writeFileSync(join(dir, "src/a.ts"), "1\n"));
+  run(dir, task, "blocked", () => {});
+  writeFileSync(join(dir, "src/a.ts"), "2\n");
+  const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--reason", "用户要求直接完成");
+  assert.equal(closed.code, 0, closed.stderr);
+
+  const preview = knit(dir, "deliver", task.id, "--preview");
+  assert.match(preview.stdout, /\n提交的文件:\n  src\/a\.ts\n/);
+  assert.doesNotMatch(preview.stdout, /审查通过之后又改过/);
 });
 
 test("不在 Git 仓库里只说明归档", (t) => {
