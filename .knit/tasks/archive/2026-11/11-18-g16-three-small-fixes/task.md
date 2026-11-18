@@ -151,4 +151,10 @@ title: G16 三个小问题：模型出错的失败原因、状态里指出还开
 - 结果: 正常交付；检查 run-4eb876be0a15 通过；验证 independent
 - 归档目标: .knit/tasks/archive/2026-11/11-18-g16-three-small-fixes
 
+### 任务资料提交记录
+
+<!-- knit:metadata-commit:op-db517fb8f37a -->
+- 任务资料提交: 9c9e525921cd4613850a05a19dc77c2a290db4e0
+- 归档目标: .knit/tasks/archive/2026-11/11-18-g16-three-small-fixes
+
 <!-- knit:progress:end -->
