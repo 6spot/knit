@@ -247,7 +247,7 @@
     1. `task.md` 的元数据写坏时，`knit run start`、`task show`、`context`、`run status` 都说「没有任务 <id>」，不说文件哪里坏了；`knit task list` 的最后一行才有原因。
     2. `worker.log` 一直是 0 字节（正常结束、启动失败、正在跑、被取消都是），而派发的输出和 `run status` 把它当日志指给人看。执行过程实际能看的是执行目录里的 `session/*.jsonl`。
   - 没有验证的：交互界面（只用 rpc 模式）；返工（审查每次都是 pass）；主会话用 `knit_run` 取消、授权原话找不到、执行没结束时会话重新加载；带 `external`、`network` 的环节；别的模型；真的安装。
-- Linux 上的测试：用户 2026-11-17 决定放到最后，本机 macOS 全部走通之后再跑一次 `npm run test:next` 和这份演练。排在 H5 之后。已拆成三个任务并登记（2026-11-18，都是 `draft`）：L1 `k-6dadc77b2d18`（在 Linux 上跑 `npm test` 等并记录，不调用模型）、L2 `k-d8b5009c9981`（演练脚本去掉 macOS 的 `sed -i ''`，模型和日志目录改成可以指定，可以在 macOS 上做）、L3 `k-6b6f6c9d8aaa`（在 Linux 上用真的 Pi 和模型演练；用哪个模型、是否同意调用是 `[blocking]`，等用户定）。
+- Linux 上的测试：用户 2026-11-17 决定放到最后，本机 macOS 全部走通之后再跑一次 `npm run test:next` 和这份演练。排在 H5 之后。已拆成三个任务并登记（2026-11-18，都是 `draft`）：L1 `k-6dadc77b2d18`（在 Linux 上跑 `npm test` 等并记录，不调用模型）、L2 `k-d8b5009c9981`（演练脚本去掉 macOS 的 `sed -i ''`，模型和日志目录改成可以指定，可以在 macOS 上做）、L3 `k-6b6f6c9d8aaa`（在 Linux 上用真的 Pi 和模型演练；用户 2026-11-19 同意，模型和 macOS 那次一样 `magpie/group/deepseek`，`user:4eb94f6e`）。
 - Rex 窗格：用户 2026-11-17 决定在 H2 之前做（原来排在切换之后）。做法用户同一天定了（`user:f0807c3c`「Rex用B实现，Rex是额外扩展，Rex有问题时回退到当前的方式里面，所以代码完全不多余」）：像旧实现那样让 Pi 的界面在 Rex 的窗格里跑；Rex 是额外的一层，Rex 有问题时回退到现在的后台执行方式，现在的方式保持不变。2026-11-17 主会话直接做了出来，事后登记成任务 R1 并做独立审查：`design.md` 新增第 7.2 节，Rex 的接口和本机核实的表现记在 `research/rex-pane.md`；新增 `next/src/adapters/rex/pane.ts`、`next/src/adapters/pi/pane-worker.ts`、`next/src/application/run-pane.ts`、`next/test/run-pane.test.mjs`、`next/test/helpers/fake-rex.mjs`，修改 `adapters/pi/runtime.ts`、`application/run-execute.ts`、`application/run-process.ts`、`cli/run.ts`、`domain/report.ts`、`test/helpers/cli.mjs`、`test/helpers/fake-pi.mjs`；`npm run test:next` 213 → 221 个全部通过。在本机真的 Rex（0.1.0-preview.14）里核对过，记录和脚本在 `validation/slim-rex-2026-11/`：不调用模型的六种情况（真的 Pi 加模型不存在记为启动失败、Pi 在窗格里起不来时回退到后台、Pi 卡住不开始时 21 秒后回退、窗格里卡住时取消、派发之后马上取消、把窗格关掉记为失败），和用真的模型走的一个任务（用户授权「授权用真模型在窗口桌里跑一次」：实现环节在窗格里做完；审查环节中途按 Esc 之后还算正在跑，接着输入一句之后做完，结论 `pass`）。独立审查（DeepSeek）做了三次，都是 `pass`，每次按意见改完再送审：`run-15803a0d7782`（改了多关一次窗格、结果文件改成原子写、把手工核对写成脚本）、`run-b122f9fbf686`（指出派发之后马上取消时窗格里的执行者会留下来；在真的 Rex 里四次都复现，改了，加了第八个场景）、`run-90b2a87aaf98`（最后的代码）。最后一次留下两条没有改的意见：模型请求出错时窗格里记「执行者出错：…」，后台记「执行者没有给出报告」，说法不一样；后台进程意外退出而窗格里的 Pi 还在时，`run status` 不指出窗格（`run cancel` 照样能停掉它）。演练里还发现 `knit run status … | grep -q` 会让 `knit` 以 `write EPIPE` 退出，和 Rex 无关，没有改。交付的授权是 `user:65045a03`「…然后都没问题的话，就提交、推送。」，三个提交是 `7bf09f6`、`112b9ce`、`8218c56`，归档在 `.knit/tasks/archive/2026-11/11-17-r1-rex-pane`。
 - 记下的三个问题，已经在 G16 `k-c78512122584` 里修掉（用户 2026-11-18 同意先修再做 H3，`user:91d317e8`「可以先修复这些小问题，然后再做 H3」）。下面是当时的记录。用户 2026-11-17 决定先做 H2，这三项等用户确认之后再修（`user:b31ef96c`「上面的三项错误问题先记下来，我们先删代码吧，然后再去修复那些问题。」、`user:dd99e49c`「我们先删代码，修复的问题，等我确认之后你再修复。」）。文件路径是 H2 之前的：
   1. 模型请求出错时，两种执行方式记下的失败原因不一样。窗格里记 `执行者出错：<模型给的原因>`（`next/src/adapters/pi/pane-worker.ts` 里 `stopReason === "error"` 那一支）；后台执行拿到的最后一条消息是空的，记 `执行者没有给出报告`（`next/src/domain/report.ts` 的 `reportOutcome`）。来源是第三次独立审查 `run-90b2a87aaf98` 读代码得出的，后台那一边没有实际跑过。
@@ -310,8 +310,8 @@
 | 编号 | 任务 | 内容 |
 | --- | --- | --- |
 | I1a `k-966b2bf6ef60` | 通用规范进模板 | 讨论、任务编写、任务拆分、交付四份规范的通用内容放进 `assets/templates/standards/`，`knit init` 在没有同名文件时生成，`--force` 也不覆盖 |
-| I1b `k-759b948a5d61` | 第一次初始化后生成引导任务 | 项目里原来没有 `.knit/` 时，`knit init` 之后建一个「补齐项目规范」的任务，带用户修改自带规范并总结项目自己的开发规范 |
+| I1b `k-759b948a5d61` | 初始化后生成一个完善开发规范的任务 | `knit init` 之后默认建一个「完善项目的开发规范」的任务，只让用户把项目的开发规范写出来 |
 
-I1 已按原来说的拆成 I1a、I1b 两个任务并补写到可以执行（2026-11-18）；两个任务里各有几项 `[assumed]`，等用户确认。
+I1 已按原来说的拆成 I1a、I1b 两个任务并补写到可以执行（2026-11-18）。用户 2026-11-19 的决定（`user:4eb94f6e`）：I1a 模板放四份规范、交付规范只放通用的部分；I1b 不判断是不是第一次初始化，初始化之后默认生成任务，任务只让用户完善开发规范，不带别的。I1b 还有一项 `[assumed]`：重复运行 `knit init` 时不能每次多建一个，定成项目里一个任务都没有（归档的也算）时才建。
 
 届时再拆：Worktree 并行、`task search`、其它客户端。Rex 窗格显示执行者已提前到 H2 之前（见 H 段）。

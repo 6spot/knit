@@ -16,13 +16,13 @@ createdAt: 2026-11-18T16:55:56.049Z
 
 新 Knit 用真的 Pi 和真的模型从创建任务走到交付，只在 macOS 上演练过（2026-11-17，`validation/slim-h1-2026-11/`）。本任务在 Linux 上把同一套演练跑一遍，把结果记下来。
 
-本任务会调用真的模型，要花钱，开始前要有用户的同意（见「待澄清」）。
+本任务会调用真的模型。用户 2026-11-19 同意，模型和 macOS 那次一样：`magpie/group/deepseek`（`user:4eb94f6e`）。
 
 前置条件（不满足就停下报告）：
 
 - `uname -s` 输出 `Linux`；L1 已经做完，`validation/slim-linux-2026-11/README.md` 存在。
 - L2 已经做完：演练脚本认 `KNIT_H1_MODEL` 和 `KNIT_H1_LOGS`。
-- 本机有 Pi（`pi --version`），已经登录，用户指定的模型可以用。
+- 本机有 Pi（`pi --version`），里面配好了 `magpie` 这个 provider，`group/deepseek` 可以用。没有配时停下报告，不换成别的模型。
 - 有 `python3`（`cancel.sh` 用它计时）、`pgrep`、`pkill`。
 - `git status --short` 没有输出。
 
@@ -32,7 +32,7 @@ createdAt: 2026-11-18T16:55:56.049Z
 2. 设环境变量，日志写到新目录，不碰 macOS 的证据：
 
    ```bash
-   export KNIT_H1_MODEL=<用户指定的 provider/模型>
+   export KNIT_H1_MODEL=magpie/group/deepseek
    export KNIT_H1_LOGS="$PWD/validation/slim-linux-2026-11/h1-logs"
    mkdir -p "$KNIT_H1_LOGS"
    cd validation/slim-h1-2026-11
@@ -60,7 +60,7 @@ createdAt: 2026-11-18T16:55:56.049Z
 
 ## 待澄清
 
-- [blocking] 用哪个模型（`provider/模型`）、是否同意在 Linux 上调用真的模型，由用户定。macOS 那次用的是 `magpie/group/deepseek`，五个脚本合计十次左右的执行，每次十几秒。
+无。
 
 ## 相关资料
 
