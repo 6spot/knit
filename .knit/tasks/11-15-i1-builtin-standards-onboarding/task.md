@@ -1,55 +1,60 @@
 ---
 id: k-966b2bf6ef60
-title: I1 通用规范进模板，初始化后生成引导任务
+title: I1a 通用规范进模板
 status: draft
 stage: null
 verification: self
 parent: k-19c962be9fb8
-dependsOn: []
+dependsOn:
+  - k-c0000beef2eb
 priority: P3
 createdAt: 2026-11-15T03:05:44.637Z
 ---
 
 ## 目标与范围
 
-需求未全部确认，仅登记方向。重构切换完成（`plan.md` 的 H 批全部交付）之后再讨论细节和开始做；届时按 `.knit/standards/task-writing.md` 把本文件补写到可以直接执行，并按 `.knit/standards/task-splitting.md` 拆成两个任务（模板里的通用规范、引导任务）。
+`knit init` 现在只生成一个空的规范目录，新项目要自己从头写怎么用 Knit 管任务的规范。用户 2026-11-15 决定：通用的规范由 Knit 自带，初始化时生成。本任务把通用规范放进模板。
 
-背景：本仓库的 `.knit/standards/` 里有三份规范写的是“怎么用 Knit 管任务”，不只对本仓库成立：
+本仓库 `.knit/standards/` 里有四份写的是“怎么用 Knit 管任务”，不只对本仓库成立：`discussion.md`（讨论）、`task-writing.md`（任务编写）、`task-splitting.md`（任务拆分）、`delivery.md`（交付）。
 
-- `task-writing.md`（任务编写）
-- `task-splitting.md`（任务拆分）
-- `delivery.md`（交付）
+要做的：
 
-现在 `knit init` 只生成一个空的规范目录，新项目要自己从头写这三份。用户决定（2026-11-15）：通用的规范由 Knit 自带，初始化时直接生成；初始化之后再用一个引导任务带用户把项目自己的规范补齐。
-
-要做的两件事：
-
-1. 通用规范进模板。把上面三份里通用的内容放进 `assets/templates/.knit/standards/`，`knit init` 在项目里没有同名文件时生成；已有的文件不覆盖，`--force` 也不覆盖。
-2. 引导任务。`knit init` 第一次在一个项目里运行时，在 `.knit/tasks/` 下生成一个任务，由主会话带用户完成：过一遍自带的三份规范并按项目情况修改；从项目已有的约定文件（`AGENTS.md`、`CONTRIBUTING.md` 等）和代码里总结出开发规范；说明避坑清单是什么、什么时候往里加。
+1. 新增模板 `assets/templates/standards/` 下四个文件，文件名同上，开头的 `title` 和 `stages` 照本仓库的写。内容从本仓库的四份里取通用的部分：
+   - `discussion.md`、`task-writing.md`、`task-splitting.md`：全文照搬。
+   - `delivery.md`：「完成与汇报」「授权」「提交范围」「失败」四节照搬；「提交文案」一节只留三条：首行写这次改动的结果，不能只有任务编号；`Task: <任务 ID>` 一行必须有；不写以 `Knit-` 开头的行。语言、`type:` 列表、72 个字符的上限是本仓库自己的选择，不进模板。
+2. `src/application/init.ts` 的 `TEMPLATES` 加四项，目标是 `.knit/standards/<文件名>`，`restore: false`：项目里没有同名文件时生成，已有的不动，`--force` 也不覆盖。
+3. `knit init` 的输出照现在的格式自然多出四行（「已生成」或「已有，没有动」），不另加文字。
+4. 设计跟着改：`docs/design/DESIGN.md` 第 4 节「`knit init` 不预置规范内容…」那一条改成现在的行为；第 11 节「延后」表里「自带通用规范与引导任务」一行只留引导任务。
 
 不在范围内：
 
-- 开发规范（`development.md`）和避坑清单（`pitfalls-*.md`）的内容不进模板，它们写的是具体项目的情况。
-- 不改规范的注入方式和文件格式（见主任务 `design.md` 第 4、5 节）。
+- 引导任务（I1b）。
+- 本仓库的 `.knit/standards/`：不改。它们是按本仓库情况改过的，和模板不要求一致，不加逐字比对的测试。
+- `development.md` 和两份 `pitfalls-*.md`：写的是具体项目的情况，不进模板。
+- 规范的注入方式和文件格式（`docs/design/DESIGN.md` 第 4、5 节）。
+- 不加依赖，不提交、不推送。
 
-参考：Trellis 的 `trellis init` 在第一次初始化或任务目录为空时生成 `00-bootstrap-guidelines` 任务，目录已存在就不再生成；任务正文要求先读项目已有的约定文件，再看真实代码，写“代码现在怎么做”而不是“应该怎么做”（`packages/cli/src/commands/init.ts`，提交 f089cb3）。
+先改测试再改代码。会受影响的现有测试：`test/init.test.mjs`「在空目录里初始化」断言规范目录是空的；`test/init-force.test.mjs`「配置、规范和任务不动」。运行 `knit init` 之后看规范或 `knit context` 输出的别的测试，跑一遍 `npm test` 找出来，按新行为改断言，不删测试。
 
 ## 完成条件
 
-- 在一个空项目里运行 `knit init`：`.knit/standards/` 下有三份通用规范，`knit standards list` 能列出，各自声明了适用环节。
-- 项目里已有同名规范时再运行 `knit init` 或 `knit init --force`：文件内容不变。
-- 第一次 `knit init` 之后 `knit task list` 里有引导任务；再次运行不会生成第二个。
-- 引导任务的 `task.md` 符合任务编写规范：主会话只凭它就能带用户做完。
+- 在空目录里运行 `knit init`：`.knit/standards/` 下正好有这四个文件，内容和模板逐字相同；`knit standards list` 列出四份，各有环节，没有告警。
+- 项目里已有同名规范（内容不同）时运行 `knit init` 和 `knit init --force`：这个文件的内容都不变，输出把它列在「已有，没有动」下面。
+- 一个 `draft` 任务的 `knit context` 输出里有 `discussion.md`、`task-writing.md`、`task-splitting.md` 三份，没有 `delivery.md`。
+- 上面三条各有测试。`npm test` 全部通过，测试个数不比改之前少（改之前先运行一次记下个数；改之前就有失败时停下来报告）；`npm run typecheck` 退出码 0；`npm run pack:check` 通过，并且包里有这四个模板（`npm pack --dry-run --json` 的文件列表里能看到）。
 
 ## 待澄清
 
-- [assumed] 交付规范里的提交文案语言和类型列表是本仓库的选择，模板里只留通用部分（完成与汇报、授权、提交范围、同一原因失败两次就停），文案格式留给引导任务让用户定（Agent 建议，待确认）。
-- [assumed] 本仓库的这三份和模板里的三份内容会有重合。模板是来源，本仓库的是初始化生成后按自己情况改过的副本，两边不要求一致，也不加逐字比对的测试（Agent 建议，待确认）。
-- [assumed] 模板里的通用规范更新后，已初始化的项目不自动跟进；`knit init --check` 只提示“自带规范有新版本”，由用户决定是否合并（Agent 建议，待确认）。
-- [assumed] 引导任务只在第一次初始化时生成；用户取消或完成后不再生成（Agent 建议，待确认）。
+- [assumed] 模板里放四份，比原来说的三份多一份 `discussion.md`（2026-11-18 才写出来，内容也是通用的）（Agent 建议，待确认）。
+- [assumed] 交付规范只把上面说的通用部分放进模板，文案的语言和类型列表留给项目自己定（Agent 建议，待确认）。
+- [assumed] 模板和本仓库的规范不要求一致，不加逐字比对的测试（Agent 建议，待确认）。
+- [assumed] 模板里的规范以后更新时，已经初始化的项目不跟进、也不提示；`knit init --check` 已经没有了（Agent 建议，待确认）。
 
 ## 相关资料
 
-- `.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md`、`.knit/standards/delivery.md` — 现有的三份，通用内容的来源
-- `.knit/tasks/11-14-slim-refactor/design.md` 第 4 节、第 10 节 — 规范的格式；`knit init` 不覆盖哪些内容
-- `.knit/tasks/11-14-slim-refactor/plan.md` — 子任务清单，本任务排在 H 批之后
+- `.knit/standards/discussion.md`、`.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md`、`.knit/standards/delivery.md` — 通用内容的来源
+- `src/application/init.ts` — 模板清单 `TEMPLATES` 和生成的逻辑
+- `docs/design/DESIGN.md#4. 规范` — 规范的格式
+- `docs/design/DESIGN.md#10. 用 Knit 开发 Knit` — `knit init` 不覆盖哪些内容
+
+交付：提交文案首行建议 `feat: ship the general standards with knit init`。交付之后，本仓库要不要重新安装并运行 `knit init`（会在本仓库生成它没有的模板文件；四份都已经有，不会被覆盖）由主会话另问用户。

@@ -231,7 +231,13 @@
 | H2b `k-f77e261cf257` | 新代码移到根目录（独立审查） | `next/` 的 `src`、`test`、`assets` 移到根目录，脚本和路径跟着改；在 H2a 提交之后做 |
 | H3（已做，没有登记任务） | 本仓库切换 | 安装新版，重新生成桥接和模板，没结束的任务手工转成新格式，删除 `.runtime` 里的旧数据和旧的规范索引、候选。主会话手工做，用普通的 Git 提交 |
 | H4 `k-175d80171122` | 清理 `AGENTS.md` | 删除受管块和已经写进规范的条目 |
-| H5 | 设计文档 | `docs/design/` 换成小核心的说明，旧文档移到 `docs/history/`；写上执行目录里的文件坏了时怎么恢复（见 E 段） |
+| H5 | 设计文档 | `docs/design/` 换成小核心的说明，旧文档移到 `docs/history/`；写上执行目录里的文件坏了时怎么恢复（见 E 段）。拆成下面六个 |
+| H5a `k-723a69491855` | 旧设计文档移走 | 七份旧文档移到 `docs/history/design/`，指向它们的 142 处链接跟着改 |
+| H5b `k-1a73047ca4d5` | 现行设计 | 主任务 `design.md` 的第 1–11 节写成 `docs/design/DESIGN.md`，原处只留第 12–14 节 |
+| H5f `k-22ba3b46dab8` | 文件坏了怎么恢复 | 设计加第 7.3 节：`worker.json`、`before.json`、`after.json` 坏了时的表现和手工恢复 |
+| H5e `k-c0000beef2eb` | Rex 的核实记录 | `research/rex-pane.md` 移到 `docs/research/REX-PANE.md` |
+| H5c `k-b907eafe1bf4` | README 和文档索引 | `README.md`、`docs/README.md` 按现在的 Knit 重写 |
+| H5d `k-7a206502394e` | 过期的注释 | `src/`、`test/` 里 19 行指向旧文档章节、旧任务编号、锁和 Worktree 的注释 |
 
 - H1 已登记、做完并交付（2026-11-17，提交 `e74bd6a`）。用户同意调用真实模型（`user:dac54138`「提交，推送归档，然后继续按你推荐的来」）。记录在 `validation/slim-h1-2026-11/`：`README.md`、五个脚本和 `logs/`。
   - 环境：macOS 27.2.1、Node 26.3.0、Pi 1.5.2、模型 `magpie/group/deepseek`，本仓库提交 `d9d5b76`。新的 Knit 没有安装，`PATH` 上放一个运行 `next/dist` 的小脚本。
@@ -241,7 +247,7 @@
     1. `task.md` 的元数据写坏时，`knit run start`、`task show`、`context`、`run status` 都说「没有任务 <id>」，不说文件哪里坏了；`knit task list` 的最后一行才有原因。
     2. `worker.log` 一直是 0 字节（正常结束、启动失败、正在跑、被取消都是），而派发的输出和 `run status` 把它当日志指给人看。执行过程实际能看的是执行目录里的 `session/*.jsonl`。
   - 没有验证的：交互界面（只用 rpc 模式）；返工（审查每次都是 pass）；主会话用 `knit_run` 取消、授权原话找不到、执行没结束时会话重新加载；带 `external`、`network` 的环节；别的模型；真的安装。
-- Linux 上的测试：用户 2026-11-17 决定放到最后，本机 macOS 全部走通之后再跑一次 `npm run test:next` 和这份演练。排在 H5 之后。
+- Linux 上的测试：用户 2026-11-17 决定放到最后，本机 macOS 全部走通之后再跑一次 `npm run test:next` 和这份演练。排在 H5 之后。已拆成三个任务并登记（2026-11-18，都是 `draft`）：L1 `k-6dadc77b2d18`（在 Linux 上跑 `npm test` 等并记录，不调用模型）、L2 `k-d8b5009c9981`（演练脚本去掉 macOS 的 `sed -i ''`，模型和日志目录改成可以指定，可以在 macOS 上做）、L3 `k-6b6f6c9d8aaa`（在 Linux 上用真的 Pi 和模型演练；用哪个模型、是否同意调用是 `[blocking]`，等用户定）。
 - Rex 窗格：用户 2026-11-17 决定在 H2 之前做（原来排在切换之后）。做法用户同一天定了（`user:f0807c3c`「Rex用B实现，Rex是额外扩展，Rex有问题时回退到当前的方式里面，所以代码完全不多余」）：像旧实现那样让 Pi 的界面在 Rex 的窗格里跑；Rex 是额外的一层，Rex 有问题时回退到现在的后台执行方式，现在的方式保持不变。2026-11-17 主会话直接做了出来，事后登记成任务 R1 并做独立审查：`design.md` 新增第 7.2 节，Rex 的接口和本机核实的表现记在 `research/rex-pane.md`；新增 `next/src/adapters/rex/pane.ts`、`next/src/adapters/pi/pane-worker.ts`、`next/src/application/run-pane.ts`、`next/test/run-pane.test.mjs`、`next/test/helpers/fake-rex.mjs`，修改 `adapters/pi/runtime.ts`、`application/run-execute.ts`、`application/run-process.ts`、`cli/run.ts`、`domain/report.ts`、`test/helpers/cli.mjs`、`test/helpers/fake-pi.mjs`；`npm run test:next` 213 → 221 个全部通过。在本机真的 Rex（0.1.0-preview.14）里核对过，记录和脚本在 `validation/slim-rex-2026-11/`：不调用模型的六种情况（真的 Pi 加模型不存在记为启动失败、Pi 在窗格里起不来时回退到后台、Pi 卡住不开始时 21 秒后回退、窗格里卡住时取消、派发之后马上取消、把窗格关掉记为失败），和用真的模型走的一个任务（用户授权「授权用真模型在窗口桌里跑一次」：实现环节在窗格里做完；审查环节中途按 Esc 之后还算正在跑，接着输入一句之后做完，结论 `pass`）。独立审查（DeepSeek）做了三次，都是 `pass`，每次按意见改完再送审：`run-15803a0d7782`（改了多关一次窗格、结果文件改成原子写、把手工核对写成脚本）、`run-b122f9fbf686`（指出派发之后马上取消时窗格里的执行者会留下来；在真的 Rex 里四次都复现，改了，加了第八个场景）、`run-90b2a87aaf98`（最后的代码）。最后一次留下两条没有改的意见：模型请求出错时窗格里记「执行者出错：…」，后台记「执行者没有给出报告」，说法不一样；后台进程意外退出而窗格里的 Pi 还在时，`run status` 不指出窗格（`run cancel` 照样能停掉它）。演练里还发现 `knit run status … | grep -q` 会让 `knit` 以 `write EPIPE` 退出，和 Rex 无关，没有改。交付的授权是 `user:65045a03`「…然后都没问题的话，就提交、推送。」，三个提交是 `7bf09f6`、`112b9ce`、`8218c56`，归档在 `.knit/tasks/archive/2026-11/11-17-r1-rex-pane`。
 - 记下的三个问题，已经在 G16 `k-c78512122584` 里修掉（用户 2026-11-18 同意先修再做 H3，`user:91d317e8`「可以先修复这些小问题，然后再做 H3」）。下面是当时的记录。用户 2026-11-17 决定先做 H2，这三项等用户确认之后再修（`user:b31ef96c`「上面的三项错误问题先记下来，我们先删代码吧，然后再去修复那些问题。」、`user:dd99e49c`「我们先删代码，修复的问题，等我确认之后你再修复。」）。文件路径是 H2 之前的：
   1. 模型请求出错时，两种执行方式记下的失败原因不一样。窗格里记 `执行者出错：<模型给的原因>`（`next/src/adapters/pi/pane-worker.ts` 里 `stopReason === "error"` 那一支）；后台执行拿到的最后一条消息是空的，记 `执行者没有给出报告`（`next/src/domain/report.ts` 的 `reportOutcome`）。来源是第三次独立审查 `run-90b2a87aaf98` 读代码得出的，后台那一边没有实际跑过。
@@ -287,7 +293,13 @@
   - 任务里的三个场景都运行过：旧说法的 grep 输出 0；12 个链接路径都存在；规范里已有的条目 grep 输出 0。没有运行 `npm test`：没有测试读仓库根的 `AGENTS.md`。
   - 受管块里只有主会话才用的规则（先查再问、一轮最多 3 问、谁来做、长期规则怎么写进规范）删掉之后哪里都没有写。用户 2026-11-18 决定写成一份讨论环节的规范，另开任务（`user:725eb951`「按照你的建议来」）。
   - 提交文案：用户 2026-11-18 决定不用先给他看，交付时写好直接提交（`user:725eb951`「提交文案根本不需要人确认才对啊，提交时自动生成提交上去即可」）。`.knit/standards/delivery.md` 里「提交前把提交文案给用户看一次」要跟着改，另开任务。
-- H5 还没有登记。用户 2026-11-18 同意开始（`user:725eb951`「可以」），先拆分、把范围给用户看再动手。
+- I2（`k-89295386576c`，讨论规范 `.knit/standards/discussion.md`）和 I3（`k-1e6d12bf7814`，交付规范里去掉「提交前把提交文案给用户看一次」）已做完并交付（2026-11-18，提交 `7e4b388`、`761cf39`，用户 `user:2514e9e7`「提交并推送」）。
+- H5 已拆成六个任务并登记（2026-11-18），都还是 `draft`，没有动手。用户 2026-11-18 决定（`user:2514e9e7`）：现行设计搬到 `docs/design/DESIGN.md`；旧文档移走之后 `docs/history`、`docs/research` 里指向它们的链接跟着改，归档任务里的不改；后面的任务放到云端执行，本地只拆分和提交。
+  - 顺序：H5a → H5b → H5f → H5e → H5c、H5d（最后两个互不依赖）。H5b、H5f、H5e 都改 `docs/design/DESIGN.md`，H5e、H5d 都改 `src/` 里的注释，所以排成一串。
+  - 脚本和核实在 `validation/slim-h5-2026-11/`：`check-links.mjs`（查断链）、`relink-old-design.mjs`（H5a 用）、`split-design.mjs`（H5b 用）、`design-7.3.md` 和 `broken-run-files.test.mjs`（H5f 用）。H5a、H5b 的步骤在一份克隆里演练过，结果记在那里的 `README.md`。
+  - 原来说的 88 处链接是只数了 `docs/history`、`docs/research` 里指向旧文档的；加上旧文档自己往外指的和 `README.md`、`docs/README.md`、`AGENTS.md` 里的，脚本一共改 142 处。`validation/` 里没有指向 `docs/design/` 的相对链接。
+  - 执行目录里的文件坏了时的表现是这次实际试出来的（6 个测试）：`worker.json` 坏了，`run status`、`run wait`、`run cancel`、`context` 都报错，进程不停；`before.json` 坏了，执行者做完时记不了结果，`run cancel` 停了进程再报错；`after.json` 坏了只影响交付预览。恢复都是删掉坏文件再 `knit run cancel`，`worker.json` 要先停进程。
+- 拆分时发现的问题，登记成 F7（`k-7c9ba52b575b`，独立审查）：任务里的文件用 `git mv` 或 `git rm` 改过（删除已经暂存）时，`knit deliver` 第一次失败（`fatal: pathspec '…' did not match any files`），交付撤回，第二次成功。在临时仓库里试过三种改法。H5a、H5e 的步骤因此写的是普通的 `mv`。
 
 ## 之后
 
@@ -297,6 +309,9 @@
 
 | 编号 | 任务 | 内容 |
 | --- | --- | --- |
-| I1 `k-966b2bf6ef60` | 通用规范进模板，初始化后生成引导任务 | 任务编写、任务拆分、交付三份规范的通用内容放进模板，`knit init` 在没有同名文件时生成；第一次初始化后生成一个引导任务，带用户修改自带规范并总结项目自己的规范。只登记了方向，H 批交付后再讨论细节并拆成两个任务 |
+| I1a `k-966b2bf6ef60` | 通用规范进模板 | 讨论、任务编写、任务拆分、交付四份规范的通用内容放进 `assets/templates/standards/`，`knit init` 在没有同名文件时生成，`--force` 也不覆盖 |
+| I1b `k-759b948a5d61` | 第一次初始化后生成引导任务 | 项目里原来没有 `.knit/` 时，`knit init` 之后建一个「补齐项目规范」的任务，带用户修改自带规范并总结项目自己的开发规范 |
+
+I1 已按原来说的拆成 I1a、I1b 两个任务并补写到可以执行（2026-11-18）；两个任务里各有几项 `[assumed]`，等用户确认。
 
 届时再拆：Worktree 并行、`task search`、其它客户端。Rex 窗格显示执行者已提前到 H2 之前（见 H 段）。
