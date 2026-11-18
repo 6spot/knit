@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ReportFieldType } from "../../contracts/workflow.js";
-import { type ReportOutcome, reportOutcome, reportRetryMessage } from "../../domain/report.js";
+import { modelFailure, type ReportOutcome, reportOutcome, reportRetryMessage } from "../../domain/report.js";
 import { atomicWrite } from "../../infrastructure/atomic.js";
 import { procStartTicks, recordedProcess } from "../../infrastructure/process.js";
 
@@ -82,9 +82,7 @@ export default function paneWorker(pi: Pi): void {
       ctx.ui.notify("Knit：执行者被中止了。接着输入就继续做；要结束这次执行，关掉窗格或者运行 knit run cancel。", "info");
       return;
     }
-    if (last?.stopReason === "error") {
-      return finish(ctx, { verdict: null, failure: `执行者出错：${last.errorMessage ?? "没有给出原因"}` });
-    }
+    if (last?.stopReason === "error") return finish(ctx, modelFailure(last.errorMessage));
     const blocks = last === undefined || typeof last.content === "string" ? [] : last.content;
     const report = blocks
       .flatMap((block) => (block.type === "text" && block.text !== undefined ? [block.text] : []))

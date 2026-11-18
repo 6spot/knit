@@ -38,6 +38,11 @@ export function reportOutcome(
   return { outcome: { verdict, failure: null }, problems: [] };
 }
 
+/** 模型请求出错、Pi 自己重试之后仍然失败时的结果；`reason` 是模型服务给的原因。 */
+export function modelFailure(reason: string | undefined): ReportOutcome {
+  return { verdict: null, failure: `执行者出错：${reason?.trim() || "没有给出原因"}` };
+}
+
 /** 报告读不出来时发给执行者的消息：在同一个会话里补报一次，不重做。 */
 export function reportRetryMessage(problems: readonly string[]): string {
   return [

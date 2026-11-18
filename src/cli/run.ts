@@ -39,12 +39,19 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
       `改动文件: ${run.changedPaths.length} 个`,
     ];
   }
+  const pane = livePane(root, run.id) !== null;
   return liveWorker(root, run.id) === null
-    ? [`执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`]
+    ? [
+        `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`,
+        // 窗格里的 Pi 是 Rex 启动的，后台进程没了它还在，还会接着改工作区。
+        ...(pane
+          ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
+          : []),
+      ]
     : [
         `正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`,
         `会话记录: ${dir}/session/`,
-        ...(livePane(root, run.id) === null ? [] : [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`]),
+        ...(pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
       ];
 }
 

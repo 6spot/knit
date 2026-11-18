@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -67,6 +67,12 @@ function reviewRun(dir, task) {
     sessionFile: null,
   });
   assert.deepEqual(finished, []);
+  const review = prepare(dir, task);
+  assert.equal(review.stage.id, "review");
+  return review;
+}
+/** 上一次审查失败之后再准备一次。 */
+function reviewAgain(dir, task) {
   const review = prepare(dir, task);
   assert.equal(review.stage.id, "review");
   return review;
@@ -140,6 +146,30 @@ test("没有给出报告时记为失败，不要求补报", async (t) => {
     { id: run.id, verdict: null, failure: "执行者没有给出报告" },
   );
   assert.equal(pi.messages().length, 1);
+});
+
+test("模型请求出错时记下模型服务给的原因，不要求补报", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const pi = fakePi(t);
+  const run = reviewRun(dir, task);
+  pi.script({ modelError: "Connection error." });
+
+  assert.deepEqual(await execute(dir, task, run), []);
+
+  const ended = lastRun(dir, task);
+  assert.deepEqual(
+    { id: ended.id, verdict: ended.verdict, failure: ended.failure },
+    { id: run.id, verdict: null, failure: "执行者出错：Connection error." },
+  );
+  assert.equal(pi.messages().length, 1);
+  assert.ok(!existsSync(join(dir, run.dir, "report.md")));
+
+  // 模型服务没有给原因时。
+  pi.script({ modelError: "" });
+  const again = reviewAgain(dir, task);
+  assert.deepEqual(await execute(dir, task, again), []);
+  assert.equal(lastRun(dir, task).failure, "执行者出错：没有给出原因");
 });
 
 test("被中止时记为失败，不要求补报", async (t) => {

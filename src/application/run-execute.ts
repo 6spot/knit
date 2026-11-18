@@ -7,7 +7,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { PiAgentRuntime, type PiRuntimeOptions } from "../adapters/pi/index.js";
 import type { RexHost } from "../adapters/rex/pane.js";
 import type { ToolCapability } from "../contracts/workflow.js";
-import { type ReportOutcome, reportOutcome, reportRetryMessage } from "../domain/report.js";
+import { modelFailure, type ReportOutcome, reportOutcome, reportRetryMessage } from "../domain/report.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { finishRun } from "./run-finish.js";
 import { runInPane } from "./run-pane.js";
@@ -113,6 +113,8 @@ async function askForReport(
   const settled = await runtime.prompt(message);
   if (!settled.settled) return failed("执行者中途退出");
   if (settled.aborted) return failed("执行者被中止");
+  const modelError = runtime.lastModelError();
+  if (modelError !== null) return { outcome: modelFailure(modelError), problems: [] };
   const report = await runtime.getLastAssistantText();
   writeFileSync(join(dir, "report.md"), report);
   return reportOutcome(stage.report, report);

@@ -2,8 +2,8 @@
 /**
  * 测试用的假 Pi：照 `pi --mode rpc` 的样子一行一个 JSON 地收请求、给回答，不调用模型。
  * 做什么由环境变量 KNIT_FAKE_PI 指向的 JSON 文件决定，字段都可以不写：
- * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、stubborn、paneExit、startDelay、resumeOn。
- * aborted 为真时它报告自己是被中止的。
+ * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、modelError、stubborn、paneExit、startDelay、resumeOn。
+ * aborted 为真时它报告自己是被中止的。modelError 是模型服务给的出错原因：有它时这一轮的最后一条消息是出错的，没有文字。
  * 命令行里没有 `--mode` 时它是“交互界面”：加载 `--extension` 给的扩展，照 Pi 的扩展接口触发事件。
  * 这时 failStart 表示不认识模型，paneExit 为真时不加载扩展就以 1 退出；startDelay 是加载扩展之前等的毫秒数；aborted 为真时第一轮是被中止的，
  * 等 resumeOn 指的文件出现（当作用户接着输入了一句）再做第二轮。
@@ -23,6 +23,7 @@ const log = (line) => {
 const send = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const respond = (id, data = {}) => send({ type: "response", id, success: true, data });
 const texts = script.texts ?? ["做完了。"];
+const failedMessage = { role: "assistant", content: [], stopReason: "error", errorMessage: script.modelError };
 let prompts = 0;
 let lastText = "";
 
@@ -48,6 +49,10 @@ async function onPrompt(id, message) {
   if (script.exitOnPrompt) process.exit(1);
   respond(id);
   await work();
+  if (script.modelError !== undefined) {
+    lastText = "";
+    send({ type: "message_end", message: failedMessage });
+  }
   send({ type: "agent_settled", aborted: script.aborted === true });
 }
 
@@ -84,7 +89,13 @@ if (!args.includes("--mode")) {
       continue;
     }
     await work();
-    branch.push({ type: "message", message: { role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" } });
+    branch.push({
+      type: "message",
+      message:
+        script.modelError !== undefined
+          ? failedMessage
+          : { role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" },
+    });
     handlers.agent_settled({ aborted: false }, ctx);
   }
   // 扩展没有再发消息也没有要求退出时，界面停在那里等用户。

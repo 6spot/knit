@@ -338,6 +338,22 @@ export class PiAgentRuntime {
     return { queueCleared: clear?.success === true, aborted: stop?.success === true };
   }
 
+  /**
+   * 最近一次 prompt 的最后一条助手消息是模型请求出错时，返回模型服务给的原因（可能是空的）；否则是 null。
+   * 出错的消息没有文字，get_last_assistant_text 分不出它和“什么都没说”。
+   */
+  lastModelError(): string | null {
+    const last = this.requireConnection().events.findLast(
+      (event, position) =>
+        position >= this.settledCursor &&
+        event.type === "message_end" &&
+        (event.message as { role?: unknown } | undefined)?.role === "assistant",
+    );
+    const message = last?.message as { stopReason?: unknown; errorMessage?: unknown } | undefined;
+    if (message?.stopReason !== "error") return null;
+    return typeof message.errorMessage === "string" ? message.errorMessage : "";
+  }
+
   async getLastAssistantText(): Promise<string> {
     const response = await this.requireConnection().call("get_last_assistant_text");
     const data = (response.data ?? {}) as { text?: unknown };

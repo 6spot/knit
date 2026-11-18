@@ -181,6 +181,46 @@ test("模型不认识时窗格里的执行记为启动失败，不回退", async
   assert.equal(readFileSync(join(dir, RUNS_DIR, run.id, "worker.log"), "utf8"), "");
 });
 
+test("模型请求出错时，窗格里记的失败原因和后台执行一样", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const rex = inRex(t, dir);
+  rex.script({ modelError: "Connection error." });
+
+  const run = start(rex, dir, task);
+  const ended = await finished(dir, task, run.id);
+
+  assert.equal(ended.failure, "执行者出错：Connection error.");
+  assert.equal(rex.piLog().filter((line) => line.message !== undefined).length, 1);
+  assert.ok(!existsSync(join(dir, RUNS_DIR, run.id, "report.md")));
+});
+
+test("后台进程不在了、窗格里的执行者还在时，状态里指出窗格", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const rex = inRex(t, dir);
+  rex.script({ waitFor: join(rex.outside, "never") });
+
+  const run = start(rex, dir, task);
+  // 等到执行者收到第一条消息：窗格里的 Pi 登记之后还要看一眼后台进程在不在，那之前杀掉后台进程它会自己退出。
+  await waitUntil(() => rex.piLog().some((line) => line.message !== undefined), "执行者在窗格里收到第一条消息");
+  const { pid } = JSON.parse(readFileSync(join(dir, RUNS_DIR, run.id, "worker.json"), "utf8"));
+  process.kill(pid, "SIGKILL");
+  await waitUntil(() => spawnSync("kill", ["-0", String(pid)]).status !== 0, `后台进程 ${pid} 退出`);
+
+  const status = rex.knit("run", "status", task.id);
+  assert.equal(
+    status.stdout,
+    `任务: 加问候语（${task.id}）\n状态: active(implement)\n` +
+      `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.id} 记为失败\n` +
+      `窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉\n`,
+  );
+
+  const cancelled = rex.knit("run", "cancel", task.id);
+  assert.equal(cancelled.stdout, `执行 ${run.id} 的进程已经不在了，已记为失败\n改动文件: 0 个\n`);
+  await waitUntil(() => processesOf(run.id).length === 0, `执行 ${run.id} 的进程退出`);
+});
+
 test("在窗格里中止之后执行不结束，接着输入就接着做完", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
