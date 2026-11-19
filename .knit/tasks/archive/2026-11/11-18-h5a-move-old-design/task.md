@@ -1,7 +1,7 @@
 ---
 id: k-723a69491855
 title: H5a 旧设计文档移到 docs/history/design
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -67,3 +67,7 @@ createdAt: 2026-11-18T15:28:36.427Z
 - `validation/slim-h5-2026-11/relink-old-design.mjs` — 改链接的脚本，替换的规则都在里面
 
 交付：主会话直接做时，`knit task close` 的 `--paths` 写 `docs README.md AGENTS.md .knit/tasks/11-14-slim-refactor/task.md`。提交文案首行建议 `docs: move the old design documents to docs/history/design`。之后是 H5b（写现行设计）。
+
+## 结果
+
+七份旧设计文档用 mv 从 docs/design/ 移到 docs/history/design/，relink-old-design.mjs 输出「改了 142 处」，与预期一致。完成条件四条都在 Linux（aarch64，Node 26.3.0，Git 2.52.0）上跑过并满足：docs/history/design 有 7 份、docs/design 为空；七份文件除链接目标外逐行相同（diff 无输出）；check-links.mjs docs README.md AGENTS.md 无输出、退出码 0；docs/、README.md、AGENTS.md、.knit/tasks/ 之外没有改动。没有做的：无。

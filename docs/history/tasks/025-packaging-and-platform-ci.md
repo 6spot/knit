@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第1、6节。
-- [DESIGN.md](../../design/DESIGN.md)：第15–16节。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第1、6节。
+- [DESIGN.md](../design/DESIGN.md)：第15–16节。
 - [AGENTS.md](../../../AGENTS.md)：范围、授权及提交约束。
 
 ## 实施范围

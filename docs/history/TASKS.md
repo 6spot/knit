@@ -160,7 +160,7 @@ TASKS.md是唯一任务状态表，BLOCKERS.md是阻塞与决定记录，任务�
 | 新工作流包内初始化、旧模板升级与跨会话接续 | [046](tasks/046-role-aware-task-context.md)、[047](tasks/047-main-session-context-injection.md)、[050](tasks/050-workflow-template-upgrade-integration.md)、[051](tasks/051-main-workflow-independent-gate.md) |
 | Pi 1.5.0兼容、公开接口变化与能力采用 | [052](tasks/052-pi-1-5-compatibility-and-capabilities.md)、[047](tasks/047-main-session-context-injection.md)、[050](tasks/050-workflow-template-upgrade-integration.md)、[051](tasks/051-main-workflow-independent-gate.md) |
 
-设计入口：[DESIGN.md](../design/DESIGN.md)、[ARCHITECTURE.md](../design/ARCHITECTURE.md)、[STATES.md](../design/STATES.md)、[TECHNOLOGY.md](../design/TECHNOLOGY.md)、[OPERATIONS.md](../design/OPERATIONS.md)。审查与已有事实见 [RESEARCH.md](../research/RESEARCH.md)、[整体设计审查](../../validation/design-audit/README.md)。这些既有材料减少重复调研，不能替代当前实现的验收。
+设计入口：[DESIGN.md](design/DESIGN.md)、[ARCHITECTURE.md](design/ARCHITECTURE.md)、[STATES.md](design/STATES.md)、[TECHNOLOGY.md](design/TECHNOLOGY.md)、[OPERATIONS.md](design/OPERATIONS.md)。审查与已有事实见 [RESEARCH.md](../research/RESEARCH.md)、[整体设计审查](../../validation/design-audit/README.md)。这些既有材料减少重复调研，不能替代当前实现的验收。
 
 ## 后续开发入口
 

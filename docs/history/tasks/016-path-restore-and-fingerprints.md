@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第3节。
-- [DESIGN.md](../../design/DESIGN.md)：第13节。
-- [STATES.md](../../design/STATES.md)：快照／restore及检查失效。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第3节。
+- [DESIGN.md](../design/DESIGN.md)：第13节。
+- [STATES.md](../design/STATES.md)：快照／restore及检查失效。
 
 ## 实施范围
 

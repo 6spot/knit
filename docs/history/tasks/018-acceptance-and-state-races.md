@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [STATES.md](../../design/STATES.md)：Task输入、修复计数、run接收和操作恢复。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第6–8节。
-- [DESIGN.md](../../design/DESIGN.md)：第3.6、5.6、10.1节。
+- [STATES.md](../design/STATES.md)：Task输入、修复计数、run接收和操作恢复。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第6–8节。
+- [DESIGN.md](../design/DESIGN.md)：第3.6、5.6、10.1节。
 
 ## 实施范围
 

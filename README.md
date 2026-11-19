@@ -6,7 +6,7 @@
 
 开发 Agent 从 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md) 和[文档索引](https://github.com/6spot/knit/blob/main/docs/README.md)开始。后续正式任务由本仓库的 Knit 管理，流程由 `.knit/workflow.yaml` 声明（默认 准备 → 实现 → 检查 → 收尾），用 `knit task list` 查看活跃任务（归档用 `knit task list --archive`）；用户决定是否建任务，各任务的 `task.md` 保存需求、业务意图与 stage 名义，可交付资格是本机事实、换机后用 `task rebind` 重建。旧编号任务保留为历史档案。
 
-设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/design/OPERATIONS.md)、[阶段契约](https://github.com/6spot/knit/blob/main/docs/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
+设计入口：[产品规范](https://github.com/6spot/knit/blob/main/docs/history/design/DESIGN.md)、[架构](https://github.com/6spot/knit/blob/main/docs/history/design/ARCHITECTURE.md)、[状态](https://github.com/6spot/knit/blob/main/docs/history/design/STATES.md)、[技术选型](https://github.com/6spot/knit/blob/main/docs/history/design/TECHNOLOGY.md)、[运行规则](https://github.com/6spot/knit/blob/main/docs/history/design/OPERATIONS.md)、[阶段契约](https://github.com/6spot/knit/blob/main/docs/history/design/ROLE-CONTRACT.md)与[术语](https://github.com/6spot/knit/blob/main/docs/history/design/GLOSSARY.md)。研究依据见 [RESEARCH.md](https://github.com/6spot/knit/blob/main/docs/research/RESEARCH.md)。
 
 ```text
 AGENTS.md          本仓库的开发协作入口

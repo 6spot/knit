@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第4.1、7、9.1–9.3、16节。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第3、6.1节。
-- [STATES.md](../../design/STATES.md)：命令映射与只读边界。
+- [DESIGN.md](../design/DESIGN.md)：第4.1、7、9.1–9.3、16节。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第3、6.1节。
+- [STATES.md](../design/STATES.md)：命令映射与只读边界。
 
 ## 实施范围
 

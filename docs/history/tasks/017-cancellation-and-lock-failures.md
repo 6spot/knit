@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第2、4节。
-- [STATES.md](../../design/STATES.md)：运行、取消与Session锁。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第5、6节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第2、4节。
+- [STATES.md](../design/STATES.md)：运行、取消与Session锁。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第5、6节。
 - [validation/pi-cli-1.4.0/MATRIX.md](../../../validation/pi-cli-1.4.0/MATRIX.md)：取消与SIGKILL实验。
 
 ## 实施范围

@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第8、9.2、10.1节。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：输入／输出边界与规范权威。
-- [STATES.md](../../design/STATES.md)：规范候选、输入失效和正式合入规则。
+- [DESIGN.md](../design/DESIGN.md)：第8、9.2、10.1节。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：输入／输出边界与规范权威。
+- [STATES.md](../design/STATES.md)：规范候选、输入失效和正式合入规则。
 
 ## 实施范围
 

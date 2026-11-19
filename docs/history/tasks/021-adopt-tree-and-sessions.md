@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第3.5、9、12节。
-- [STATES.md](../../design/STATES.md)：adopt／选择与输入失效。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：身份、占用和只读查询。
+- [DESIGN.md](../design/DESIGN.md)：第3.5、9、12节。
+- [STATES.md](../design/STATES.md)：adopt／选择与输入失效。
+- [OPERATIONS.md](../design/OPERATIONS.md)：身份、占用和只读查询。
 
 ## 实施范围
 

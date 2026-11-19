@@ -97,7 +97,7 @@ CLI 创建结果、终端状态和程序状态提供定位与观察能力。Knit
 
 ## 17.9 公共资料、会话恢复与跨 Agent 接入
 
-下表中的 Worktree 准备已按 [WORKTREE.md](WORKTREE.md) 实现；跨客户端接入仍用于后续设计。Pi 会话恢复按[第 9 节](../design/DESIGN.md#9-主会话session-与上下文集成)实现，范围以[第 15 节](../design/DESIGN.md#15-交付范围)为准。
+下表中的 Worktree 准备已按 [WORKTREE.md](WORKTREE.md) 实现；跨客户端接入仍用于后续设计。Pi 会话恢复按[第 9 节](../history/design/DESIGN.md#9-主会话session-与上下文集成)实现，范围以[第 15 节](../history/design/DESIGN.md#15-交付范围)为准。
 
 | 来源 | 核查到的做法 | Knit 采用方式 |
 | --- | --- | --- |
@@ -149,11 +149,11 @@ Trellis 由独立 CLI 创建项目工作流与平台资料，Pi 配置器生成�
 
 依据：[Node 生命周期](https://nodejs.org/en/about/previous-releases)、[发布计划](https://github.com/nodejs/Release/blob/main/schedule.json)、[Commander15](https://github.com/tj/commander.js/blob/v15.0.0/Readme.md)、[TypeBox](https://github.com/sinclairzx81/typebox)、[TypeBox1.3.27](https://www.npmjs.com/package/typebox/v/1.3.27)、[YAML2](https://eemeli.org/yaml/)、[Node24 测试运行器](https://nodejs.org/docs/latest-v24.x/api/test.html)、[Pi SDK1.4.0](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.4.0)、[TypeScript6.0.3](https://www.npmjs.com/package/typescript/v/6.0.3)。
 
-Pi 接入以[第 17.14 节的本机 CLI 实测](#1714-m0-主体验验证边界)为准；本节的 SDK 包元数据核查不构成引入 SDK 的决定。其他技术候选见 [TECHNOLOGY.md](../design/TECHNOLOGY.md)，接口存在与元数据满足要求不代表产品已实现或通过验收。
+Pi 接入以[第 17.14 节的本机 CLI 实测](#1714-m0-主体验验证边界)为准；本节的 SDK 包元数据核查不构成引入 SDK 的决定。其他技术候选见 [TECHNOLOGY.md](../history/design/TECHNOLOGY.md)，接口存在与元数据满足要求不代表产品已实现或通过验收。
 
 ## 17.13 存储与诊断验证计划
 
-首版不再预先排除 SQLite。内部 Session、binding、operation 更新可纳同一短事务；该对比已在 Node24.21.0 实际执行并选定 SQLite（见 [TECHNOLOGY](../design/TECHNOLOGY.md) 第 8 节与任务004）；外部 Markdown、Git、原生历史仍分别核验。内置 node:sqlite 已实测满足事务、锁与只读要求，未引入外部驱动。
+首版不再预先排除 SQLite。内部 Session、binding、operation 更新可纳同一短事务；该对比已在 Node24.21.0 实际执行并选定 SQLite（见 [TECHNOLOGY](../history/design/TECHNOLOGY.md) 第 8 节与任务004）；外部 Markdown、Git、原生历史仍分别核验。内置 node:sqlite 已实测满足事务、锁与只读要求，未引入外部驱动。
 
 M0 驱动核查入口：[Node24 SQLite API](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)。需实际确认支持状态、事务／busy 行为、只读副作用与打包成本，不用本机 Node25 实验代替。开发者模式的脱敏 stepKey、摘要、I/O／事务计数可用于比较，不记录 SQL 参数、正文或凭据；它不是新状态库或模型调试调用。
 

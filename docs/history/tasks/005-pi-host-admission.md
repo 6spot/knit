@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第6.1、8节完整放行条件。
-- [DESIGN.md](../../design/DESIGN.md)：第7、9.1–9.3节：信任、当前路径与轮询。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第6.1、8节完整放行条件。
+- [DESIGN.md](../design/DESIGN.md)：第7、9.1–9.3节：信任、当前路径与轮询。
 - [validation/design-audit/README.md](../../../validation/design-audit/README.md)：尚待真实验收项目。
 - [validation/pi-cli-1.4.0/MATRIX.md](../../../validation/pi-cli-1.4.0/MATRIX.md)：复用已有验证，不重复无关模型调用。
 

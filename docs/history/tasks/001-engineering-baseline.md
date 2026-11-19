@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第1–3、6节：版本、CLI/schema及构建边界。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第2、9节：依赖方向与源码组织。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第1–3、6节：版本、CLI/schema及构建边界。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第2、9节：依赖方向与源码组织。
 
 ## 实施范围
 

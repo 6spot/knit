@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第2–4、9节：分层、端口、JSON协议。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第3–4节：schema、版本和传输。
-- [STATES.md](../../design/STATES.md)：第1节与对象字段定义。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第2–4、9节：分层、端口、JSON协议。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第3–4节：schema、版本和传输。
+- [STATES.md](../design/STATES.md)：第1节与对象字段定义。
 
 ## 实施范围
 

@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第10–11节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第4.1节：目标与授权。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：确定性操作、seal和回执。
+- [DESIGN.md](../design/DESIGN.md)：第10–11节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第4.1节：目标与授权。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：确定性操作、seal和回执。
 - [validation/pi-cli-1.4.0/README.md](../../../validation/pi-cli-1.4.0/README.md)：hook与回执限制。
 
 ## 实施范围

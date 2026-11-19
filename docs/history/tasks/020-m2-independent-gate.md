@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第15.1、16.1、16.4节。
-- [STATES.md](../../design/STATES.md)：数据权威、检查、取消及恢复守卫。
+- [DESIGN.md](../design/DESIGN.md)：第15.1、16.1、16.4节。
+- [STATES.md](../design/STATES.md)：数据权威、检查、取消及恢复守卫。
 - [TASKS.md](../TASKS.md)：001–019执行记录与当前阻塞。
 
 ## 实施范围

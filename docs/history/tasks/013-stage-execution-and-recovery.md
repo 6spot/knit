@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第5、9.3–9.5、10.1节。
-- [STATES.md](../../design/STATES.md)：运行、检查、自动修复与Session。
+- [DESIGN.md](../design/DESIGN.md)：第5、9.3–9.5、10.1节。
+- [STATES.md](../design/STATES.md)：运行、检查、自动修复与Session。
 - [validation/session-fallback/README.md](../../../validation/session-fallback/README.md)：真实续做与模型自报状态边界。
 
 ## 实施范围

@@ -16,10 +16,10 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第5.6、13节。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第5、7节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第2–3节。
-- [STATES.md](../../design/STATES.md)：初始化、launch与run准备。
+- [DESIGN.md](../design/DESIGN.md)：第5.6、13节。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第5、7节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第2–3节。
+- [STATES.md](../design/STATES.md)：初始化、launch与run准备。
 
 ## 实施范围
 

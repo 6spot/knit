@@ -109,7 +109,7 @@ Task、规范和候选在可入库的项目目录；本机索引、运行证据�
 | 原生历史 | 运行中主会话的宿主 API／阶段 Pi CLI 自身 | Core 和 worker 不直接追加或并发改写原生文件；阶段记录在独立 native-sessions 位置跨 run 保留 |
 | diagnostics JSONL（M3A） | 启用保存的执行者 | 可丢弃的排查信息，不作业务证据；M1 仅 stderr |
 
-Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路径实证选定，比较夹具与证据见 [任务004](../history/tasks/004-metadata-storage-decision.md) 与 [验证资料](../../validation/metadata-storage/README.md)）；数据库是唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
+Session、binding、operation 的元数据实现为单一 SQLite 库（M0 同路径实证选定，比较夹具与证据见 [任务004](../tasks/004-metadata-storage-decision.md) 与 [验证资料](../../../validation/metadata-storage/README.md)）；数据库是唯一元数据权威，不再双写 JSON 镜像。run 证据和快照可保留文件，不将聊天原文复制入数据库。 新建阶段会话使用预分配的原生 ID 和稳定 native-sessions 目录；run 只引用原生起止 entry／leaf 与本次用量，不把后续追加当作旧 run 的内容。
 
 讨论和收尾由主 Agent 完成时写操作与 Task，不伪造 worker run。binding 至少引用 confirmedInputs、scope、lastRunIds、lastCheckRunId、lastImplement、完成凭据引用、sessionRefs、activeFinalization，另存 repairCycleId、repairRounds、stopReason，以及至多一份 pendingInput 草案和基线／草案摘要；该草案不属于当前冻结输入。跨机只有入库 Task 时检查为 missing；Git 档案仅作历史。
 
@@ -148,7 +148,7 @@ ContextPlanner 区分需求、所选指令版本、授权输出和纯记录。�
 
 ## 9. 代码组织与协议
 
-已按下列结构建立目录与职责 README。开发入口见 [AGENTS.md](../../AGENTS.md)；后续正式任务与阻塞记入 `.knit/tasks/`，各任务的 `task.md` 保存需求与业务状态，验证按任务目标和风险执行。既有实现记录见[历史任务索引](../history/TASKS.md)。
+已按下列结构建立目录与职责 README。开发入口见 [AGENTS.md](../../../AGENTS.md)；后续正式任务与阻塞记入 `.knit/tasks/`，各任务的 `task.md` 保存需求与业务状态，验证按任务目标和风险执行。既有实现记录见[历史任务索引](../TASKS.md)。
 
 ```text
 src/

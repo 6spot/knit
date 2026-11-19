@@ -21,9 +21,9 @@
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
 - [TASKS.md](../TASKS.md)：全队列状态和前置记录。
-- [DESIGN.md](../../design/DESIGN.md)：第15.1、16节完整首版验收。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：写入权威与进程边界。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：选型与最终实际验证。
+- [DESIGN.md](../design/DESIGN.md)：第15.1、16节完整首版验收。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：写入权威与进程边界。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：选型与最终实际验证。
 
 ## 实施范围
 

@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第4、8节：原子写与存储比较。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第4、6–7节：MetadataStore及单写入方。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第4、8节：原子写与存储比较。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第4、6–7节：MetadataStore及单写入方。
 - [RESEARCH.md](../../research/RESEARCH.md)：第17.13节：比较计划（已执行，见任务记录）。
 
 ## 实施范围

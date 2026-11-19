@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [STATES.md](../../design/STATES.md)：第1–6、10–12节。
-- [DESIGN.md](../../design/DESIGN.md)：第3、5、10–11节。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：领域层及写入权威。
+- [STATES.md](../design/STATES.md)：第1–6、10–12节。
+- [DESIGN.md](../design/DESIGN.md)：第3、5、10–11节。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：领域层及写入权威。
 
 ## 实施范围
 

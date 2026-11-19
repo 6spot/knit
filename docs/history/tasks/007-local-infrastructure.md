@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第2–3节：锁、快照与恢复原则。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：第6–7、9节。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第4–5节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第2–3节：锁、快照与恢复原则。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：第6–7、9节。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第4–5节。
 
 ## 实施范围
 

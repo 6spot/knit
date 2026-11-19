@@ -1,6 +1,6 @@
 # Knit 技术选型
 
-本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。package.json、锁文件、工具链与业务命令已建立，001–060 实现与复核事实见[开发历史](../history/TASKS.md)。后续正式任务由本仓库的 Knit 管理，当前入口见 [AGENTS.md](../../AGENTS.md)。版本事实与来源见 [技术核查](../research/RESEARCH.md#1712-技术约束核查)。
+本文件记录首版技术决定与取舍，配合 [架构](ARCHITECTURE.md)、[状态契约](STATES.md) 和 [产品范围](DESIGN.md#151-首版闭环)。package.json、锁文件、工具链与业务命令已建立，001–060 实现与复核事实见[开发历史](../TASKS.md)。后续正式任务由本仓库的 Knit 管理，当前入口见 [AGENTS.md](../../../AGENTS.md)。版本事实与来源见 [技术核查](../../research/RESEARCH.md#1712-技术约束核查)。
 
 ## 1. 选择结果
 
@@ -100,9 +100,9 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 
 | 验证 | 必须观察到的结果 |
 | --- | --- |
-| 项目扩展加载／reload | init 产物能加载与重载，工具及真实 Session／有效路径可读，旧监听不重复、未 ready 不处理操作；宿主准入已验证（受信自动加载、reload 不重复、发现只认 .ts/.js），见 [host-admission](../../validation/host-admission/README.md) |
-| 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；schema 构建与自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](../../validation/host-admission/README.md) |
-| 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品桥接链路已在 015 验收，见 [host-admission](../../validation/host-admission/README.md) |
+| 项目扩展加载／reload | init 产物能加载与重载，工具及真实 Session／有效路径可读，旧监听不重复、未 ready 不处理操作；宿主准入已验证（受信自动加载、reload 不重复、发现只认 .ts/.js），见 [host-admission](../../../validation/host-admission/README.md) |
+| 工具 schema 与信任 | 核心 JSON schema 派生的桥接工具能在宿主注册并校验；安装 ready 不冒充项目信任，未受信不自动加载；schema 构建与自测不代替宿主兼容验证；已实测：dist/contracts 派生 schema 注册成功、真实模型调用通过、校验层对兼容原始类型强转（强标识需 execute 内二次校验），见 [host-admission](../../../validation/host-admission/README.md) |
+| 完成结果连接 | worker→核心结果→只读 status 精确查询→当前桥接轮询→来源／去重核对→通知，实际验收而非仅定时回调；查询不接受结果或重新执行；夹具链路已通过（被动零模型、wake 真实回合、忙时 follow-up、来源守卫、切会话不误投），产品桥接链路已在 015 验收，见 [host-admission](../../../validation/host-admission/README.md) |
 | 当前模型与子 worker | 获取原生实际模型，受控子资源配置仍能解析所选模型／鉴权；不可用显式阻塞，不静默换模型 |
 | 回合之外投递 | 完成回调发生在原调用回合之外，消息真正到达匹配的原 Session／路径，不能投给后来切换的上下文 |
 | 投递是否触发回合 | 分别测不触发／触发模式并计数实际模型回合，确认不是仅 UI 文本；进度不自动触发轮次 |
@@ -115,13 +115,13 @@ CI 规划 macOS/Linux、Node24 同补丁组合；Linux 已完成基本打包安�
 
 ## 7. 已核查与未验证
 
-本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](../../validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](../../validation/host-admission/README.md)。迁移前的 schema JSON 往返内存实验（历史记录保留 typebox 原值）仍只证明 schema 校验，不决定 Pi 的接入方式。
+本机 Pi CLI1.4.0 已实际完成实施、独立检查、原生恢复、模型工具取消、强杀后恢复、受信项目扩展和真实 TUI reload／轮外唤醒；模型可用性、缺失会话及 hook 越界限制均已复现，见[CLI 验证资料](../../../validation/pi-cli-1.4.0/README.md)。宿主桥接准入（schema 注册／校验语义、信任边界、reload、完整结果连接夹具）已实测通过，见[准入报告](../../../validation/host-admission/README.md)。迁移前的 schema JSON 往返内存实验（历史记录保留 typebox 原值）仍只证明 schema 校验，不决定 Pi 的接入方式。
 
-本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](../history/tasks/001-engineering-baseline.md)）；后续 006–025 已补齐 init、Task、阶段、数据保护、交付与查询并通过 Linux 候选验收。上述 Pi CLI 1.4.0 实验本身不替代完整业务链路验收；存储对比已完成（[任务004](../history/tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](../../validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
+本机 Node24.21.0 已完成任务001的编译／打包基线验证（typecheck、build、node:test 与 npm pack 白名单检查，记录见[任务001](../tasks/001-engineering-baseline.md)）；后续 006–025 已补齐 init、Task、阶段、数据保护、交付与查询并通过 Linux 候选验收。上述 Pi CLI 1.4.0 实验本身不替代完整业务链路验收；存储对比已完成（[任务004](../tasks/004-metadata-storage-decision.md)，选定 SQLite）。[新会话文件续做实验](../../../validation/session-fallback/README.md) 已通过缺失记录触发、空历史启动、实际读取任务／进度文件与控制器测试；模型自报阶段／次数未作为权威。产品必须按本节和第6.1节验收，不能把实验夹具当作已实现的恢复协议。
 
 ## 8. M0 存储对比与开发诊断
 
-该比较已在 Node24.21.0 实际执行（[任务004](../history/tasks/004-metadata-storage-decision.md)）。结论如下：
+该比较已在 Node24.21.0 实际执行（[任务004](../tasks/004-metadata-storage-decision.md)）。结论如下：
 
 - 内置 node:sqlite 在本机 v24.21.0 无 ExperimentalWarning（稳定于 Node24 版本线），文件库 WAL、BEGIN IMMEDIATE、busy timeout、readOnly 打开、崩溃后自动恢复均实测可用，不需外部驱动。
 - 同一共享场景脚本（关联事务、重复接收幂等、两进程竞争、取消／完成竞争、Git 回执丢失补记、只读不写、崩溃恢复、schema 校验）对原子文件实现与 SQLite 实现各执行一遍，全部通过；两实现的差异在故障处理复杂度：文件方案需根级锁文件 + 过期接管（持有者死亡后须等过期窗口），SQLite 由 WAL 与写锁即时释放，恢复路径无需额外状态。

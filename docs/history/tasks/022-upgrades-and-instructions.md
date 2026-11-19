@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第7、9.1–9.2、14节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第1节。
-- [STATES.md](../../design/STATES.md)：初始化／Session兼容与输入计划。
+- [DESIGN.md](../design/DESIGN.md)：第7、9.1–9.2、14节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第1节。
+- [STATES.md](../design/STATES.md)：初始化／Session兼容与输入计划。
 
 ## 实施范围
 

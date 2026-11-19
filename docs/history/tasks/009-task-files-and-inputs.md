@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第3–4、11、14.1节。
-- [STATES.md](../../design/STATES.md)：第3–4、8–10节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：记录、草案和封存规则。
+- [DESIGN.md](../design/DESIGN.md)：第3–4、11、14.1节。
+- [STATES.md](../design/STATES.md)：第3–4、8–10节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：记录、草案和封存规则。
 
 ## 实施范围
 

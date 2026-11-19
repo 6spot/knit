@@ -88,7 +88,7 @@
 
 ## 6. Trellis 来源映射（固定历史材料）
 
-固定来源：`mindfold-ai/Trellis` 提交 `f089cb3286071199e84118dee86b6d76aab032f1`，核对材料见 [validation/trellis-prompts-and-roles/](../../validation/trellis-prompts-and-roles/)。下表按固定提交源码与注入路径核对（路径相对 Trellis 仓库根），未运行 Trellis CLI 或模型。表中的 `workflow.md` 是 Trellis 的固定历史文件，不是 Knit 当前配置。
+固定来源：`mindfold-ai/Trellis` 提交 `f089cb3286071199e84118dee86b6d76aab032f1`，核对材料见 [validation/trellis-prompts-and-roles/](../../../validation/trellis-prompts-and-roles/)。下表按固定提交源码与注入路径核对（路径相对 Trellis 仓库根），未运行 Trellis CLI 或模型。表中的 `workflow.md` 是 Trellis 的固定历史文件，不是 Knit 当前配置。
 
 | 项 | 固定来源与观察到的行为 | Knit 采用与差异 | 当前落点 |
 | --- | --- | --- | --- |
@@ -105,7 +105,7 @@
 
 ## 7. GSD 来源映射
 
-固定来源：`open-gsd/gsd-core` 提交 `1ec5c812b79dc1cc487d0873d18b03449b11c106`，研究摘要见 [RESEARCH.md 第 17.5 节](../research/RESEARCH.md#175-gsd-core)。下表按固定提交文件文本核对（路径相对 GSD 仓库根），未运行 GSD CLI 或模型。
+固定来源：`open-gsd/gsd-core` 提交 `1ec5c812b79dc1cc487d0873d18b03449b11c106`，研究摘要见 [RESEARCH.md 第 17.5 节](../../research/RESEARCH.md#175-gsd-core)。下表按固定提交文件文本核对（路径相对 GSD 仓库根），未运行 GSD CLI 或模型。
 
 | 项 | 固定来源与观察到的行为 | Knit 采用与差异 | 当前落点 |
 | --- | --- | --- | --- |

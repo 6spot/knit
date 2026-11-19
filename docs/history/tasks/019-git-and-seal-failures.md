@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [OPERATIONS.md](../../design/OPERATIONS.md)：快照、授权与补记细则。
-- [STATES.md](../../design/STATES.md)：第7、10节。
-- [DESIGN.md](../../design/DESIGN.md)：第10–11、16节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：快照、授权与补记细则。
+- [STATES.md](../design/STATES.md)：第7、10节。
+- [DESIGN.md](../design/DESIGN.md)：第10–11、16节。
 - [validation/pi-cli-1.4.0/03-edge-cases/git/results.json](../../../validation/pi-cli-1.4.0/03-edge-cases/git/results.json)：已知Git原生边界。
 
 ## 实施范围

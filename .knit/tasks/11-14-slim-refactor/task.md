@@ -93,4 +93,4 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 - `research/opencode-agents-excerpt.md` — opencode AGENTS.md 的摘录，固定在一个提交上
 - `.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md` — 任务编写规范、任务拆分规范：登记子任务时照这两份写
 - `.knit/standards/development.md`、`.knit/standards/delivery.md`、`.knit/standards/pitfalls-worker.md`、`.knit/standards/pitfalls-main.md` — 开发规范、交付规范、两份避坑清单
-- `docs/design/DESIGN.md` 第 3.3 节、第 8 节、第 15.1 节 — 现行的任务结构、规范与范围
+- `docs/history/design/DESIGN.md` 第 3.3 节、第 8 节、第 15.1 节 — 重构之前的任务结构、规范与范围

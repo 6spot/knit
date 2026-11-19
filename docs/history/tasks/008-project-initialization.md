@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第2、7、14节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第1节。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：InitializationService和安装映射。
+- [DESIGN.md](../design/DESIGN.md)：第2、7、14节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第1节。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：InitializationService和安装映射。
 
 ## 实施范围
 

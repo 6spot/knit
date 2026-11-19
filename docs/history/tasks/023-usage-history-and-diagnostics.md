@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第9.5、12节。
-- [OPERATIONS.md](../../design/OPERATIONS.md)：第4节。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：传输／原生历史边界。
+- [DESIGN.md](../design/DESIGN.md)：第9.5、12节。
+- [OPERATIONS.md](../design/OPERATIONS.md)：第4节。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：传输／原生历史边界。
 - [validation/pi-cli-1.4.0/USAGE.json](../../../validation/pi-cli-1.4.0/USAGE.json)：原生entry去重口径。
 
 ## 实施范围

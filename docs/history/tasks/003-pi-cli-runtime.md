@@ -16,8 +16,8 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第5.4–5.6、9.2–9.4节。
-- [TECHNOLOGY.md](../../design/TECHNOLOGY.md)：第5–7节。
+- [DESIGN.md](../design/DESIGN.md)：第5.4–5.6、9.2–9.4节。
+- [TECHNOLOGY.md](../design/TECHNOLOGY.md)：第5–7节。
 - [validation/pi-cli-1.4.0/README.md](../../../validation/pi-cli-1.4.0/README.md)：既有能力与四项限制。
 - [validation/session-fallback/README.md](../../../validation/session-fallback/README.md)：文件续做证据与模型状态不可信边界。
 

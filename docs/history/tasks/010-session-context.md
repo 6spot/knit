@@ -16,9 +16,9 @@
 
 先遵守根 [AGENTS.md](../../../AGENTS.md) 和 [TASKS.md](../TASKS.md)，再按需读取以下指定小节；不必把九份设计全文灌入上下文。
 
-- [DESIGN.md](../../design/DESIGN.md)：第9节。
-- [STATES.md](../../design/STATES.md)：第6节。
-- [ARCHITECTURE.md](../../design/ARCHITECTURE.md)：SessionService、ContextPlanner与数据权威。
+- [DESIGN.md](../design/DESIGN.md)：第9节。
+- [STATES.md](../design/STATES.md)：第6节。
+- [ARCHITECTURE.md](../design/ARCHITECTURE.md)：SessionService、ContextPlanner与数据权威。
 
 ## 实施范围
 
