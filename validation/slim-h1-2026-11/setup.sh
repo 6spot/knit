@@ -50,8 +50,10 @@ stages: [deliver]
 
 提交文案的标题用英文，以 `feat:`、`fix:` 这样的类型开头。
 MD
-sed -i '' 's|^# model: provider/模型$|model: magpie/group/deepseek|' .knit/workflow.yaml
-grep -q '^model: magpie/group/deepseek$' .knit/workflow.yaml
+# 模型写成 provider/模型；不设时是 2026-11-17 演练用的那个。
+model="${KNIT_H1_MODEL:-magpie/group/deepseek}"
+sed -i.bak "s|^# model: provider/模型\$|model: $model|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
+grep -qxF "model: $model" .knit/workflow.yaml
 knit workflow validate > /dev/null
 git add -A
 git commit -q -m "init"

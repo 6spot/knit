@@ -1,11 +1,16 @@
 // 项目信任：--approve 时桥接的三个工具都在，--no-approve 时一个都没有。不调用模型。
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanEnv, startPi } from "./rpc.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// 模型写成 provider/模型，第一个 / 之前是 provider；日志目录可以从外面指定。
+const model = process.env.KNIT_H1_MODEL || "magpie/group/deepseek";
+const [provider, ...modelName] = model.split("/");
+const logs = process.env.KNIT_H1_LOGS || join(here, "logs");
+mkdirSync(logs, { recursive: true });
 const base = execFileSync(join(here, "setup.sh"), ["trust"], { encoding: "utf8" }).trim();
 const out = join(base, "tools.json");
 const env = cleanEnv({ PATH: `${join(base, "bin")}:${process.env.PATH}`, H1_OUT: out });
@@ -17,9 +22,9 @@ for (const [flag, expected] of [["--approve", WANT], ["--no-approve", []]]) {
   const pi = startPi({
     cwd: join(base, "proj"),
     env,
-    log: join(here, "logs", `trust${flag}.jsonl`),
+    log: join(logs, `trust${flag}.jsonl`),
     args: [flag, "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-themes", "--extension", join(here, "tools-ext.ts"),
-      "--session-dir", join(base, "sessions"), "--provider", "magpie", "--model", "group/deepseek"],
+      "--session-dir", join(base, "sessions"), "--provider", provider, "--model", modelName.join("/")],
   });
   try {
     const handled = await pi.call("prompt", { message: "/h1-tools" });

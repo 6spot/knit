@@ -2,6 +2,8 @@
 # 场景一：用命令行走完一个任务，执行者是真的 Pi。
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+# 日志目录可以从外面指定：别的机器上重跑时不覆盖这里 2026-11-17 的证据。
+logs="${KNIT_H1_LOGS:-$here/logs}"
 base="$("$here/setup.sh" cli)"
 export PATH="$base/bin:$PATH"
 cd "$base/proj"
@@ -75,10 +77,10 @@ step knit task show "$id"
 knit task show "$id" | grep -qx '状态: delivered' || fail "knit task show 的状态是 delivered"
 
 # 留给记录用的文件。
-mkdir -p "$here/logs/cli"
-cp .knit/tasks/archive/*/*/record.json "$here/logs/cli/record.json"
+mkdir -p "$logs/cli"
+cp .knit/tasks/archive/*/*/record.json "$logs/cli/record.json"
 for run in .knit/.runtime/runs/*/; do
-  mkdir -p "$here/logs/cli/$(basename "$run")"
-  cp "$run"report.md "$run"message.md "$run"system.md "$here/logs/cli/$(basename "$run")/"
+  mkdir -p "$logs/cli/$(basename "$run")"
+  cp "$run"report.md "$run"message.md "$run"system.md "$logs/cli/$(basename "$run")/"
 done
 echo; echo "场景一通过"

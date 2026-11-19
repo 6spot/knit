@@ -5,6 +5,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 base="$("$here/setup.sh" refusals)"
 export PATH="$base/bin:$PATH"
 cd "$base/proj"
+model="${KNIT_H1_MODEL:-magpie/group/deepseek}"
 fail() { echo "不满足：$1" >&2; exit 1; }
 new() { knit task new --title "$1" --slug "$2" --verification self "${@:3}" | sed -n 's/^已创建 //p'; }
 # 给任务写上能确认的需求正文。
@@ -41,19 +42,19 @@ refused "任务已经结束" knit run start "$ended"
 plain="$(new "普通任务" plain)"
 body "$plain"
 knit task ready "$plain" > /dev/null
-sed -i '' 's|^model: magpie/group/deepseek$|# model: provider/模型|' .knit/workflow.yaml
+sed -i.bak "s|^model: $model\$|# model: provider/模型|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
 refused "流程里没有写模型" knit run start "$plain"
-sed -i '' 's|^# model: provider/模型$|model: magpie/group/deepseek|' .knit/workflow.yaml
+sed -i.bak "s|^# model: provider/模型\$|model: $model|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
 
 file="$(grep -l "^id: $plain$" .knit/tasks/*/task.md)"
-sed -i '' 's/^priority: .*$/priority: 很高/' "$file"
+sed -i.bak 's/^priority: .*$/priority: 很高/' "$file" && rm "$file.bak"
 refused "task.md 写坏了（priority 写成不认识的值）" knit run start "$plain"
 echo "这时 knit task list 的最后一行: $(knit task list 2>&1 | tail -1)"
 
-sed -i '' 's/^priority: 很高$/priority: P2/' "$file"
-sed -i '' 's/^dependsOn: \[\]$/dependsOn: [k-000000000000]/' "$file"
+sed -i.bak 's/^priority: 很高$/priority: P2/' "$file" && rm "$file.bak"
+sed -i.bak 's/^dependsOn: \[\]$/dependsOn: [k-000000000000]/' "$file" && rm "$file.bak"
 refused "依赖的任务不存在（手工把 dependsOn 改成一个没有的 id）" knit run start "$plain"
-sed -i '' 's/^dependsOn: \[k-000000000000\]$/dependsOn: []/' "$file"
+sed -i.bak 's/^dependsOn: \[k-000000000000\]$/dependsOn: []/' "$file" && rm "$file.bak"
 
 cp .knit/workflow.yaml "$base/workflow.yaml"
 echo "stages: [" >> .knit/workflow.yaml
@@ -68,7 +69,7 @@ cp "$base/config.json" .knit/config.json
 mkdir "$base/nogit"
 cd "$base/nogit"
 knit init > /dev/null
-sed -i '' 's|^# model: provider/模型$|model: magpie/group/deepseek|' .knit/workflow.yaml
+sed -i.bak "s|^# model: provider/模型\$|model: $model|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
 nogit="$(new "不在 Git 仓库里" nogit)"
 body "$nogit"
 knit task ready "$nogit" > /dev/null
@@ -82,7 +83,7 @@ echo; echo "九种情况都被拒绝，没有留下执行目录"
 # 模型不存在不是派发之前能发现的：派发成功，执行者启动 Pi 之后在选模型这一步失败。
 cd "$base/proj"
 echo; echo "== 模型不存在"
-knit run start "$plain" --model magpie/no-such-model
+knit run start "$plain" --model "${model%%/*}/no-such-model"
 knit run wait "$plain"
 knit run status "$plain" | grep -q '^失败: 执行者启动失败：.*Model not found' || fail "模型不存在时这次执行记为失败，原因里有 Pi 的说法"
 echo "worker.log: $(wc -c < "$(echo .knit/.runtime/runs/*/worker.log)" | tr -d ' ') 字节"

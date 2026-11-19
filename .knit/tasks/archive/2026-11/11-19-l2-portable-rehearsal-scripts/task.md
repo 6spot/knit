@@ -1,7 +1,7 @@
 ---
 id: k-d8b5009c9981
 title: L2 演练脚本能在 Linux 上跑，模型和日志目录可以指定
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -62,3 +62,13 @@ createdAt: 2026-11-18T16:55:55.920Z
 - `validation/slim-h1-2026-11/README.md` — 每个脚本核对什么、原来怎么重跑
 
 交付：`--paths validation/slim-h1-2026-11`。提交文案首行建议 `test: let the rehearsal scripts take the model and log directory`。
+
+## 结果
+
+`validation/slim-h1-2026-11/` 的演练脚本改了三处：`sed -i ''` 换成 `sed -i.bak … && rm …bak`（`setup.sh` 1 处、`refusals.sh` 7 处）；模型从 `KNIT_H1_MODEL` 取，不设时是 `magpie/group/deepseek`；日志目录从 `KNIT_H1_LOGS` 取，不设时是脚本旁边的 `logs`。`README.md`「怎么重跑」一段加了这两个变量的说明。改了 6 个文件，由执行者（magpie/group/deepseek，执行 r-31071ce9c113）做，主会话对照差异核对过；各脚本里 `fail`、`check`、`refused` 的条数和改之前一样。
+
+五条完成条件主会话都在 Linux（Oracle Linux 9.8，aarch64，Pi 1.5.2）上重新跑过，都满足：四个 `.sh` 里 `sed -i ''` 都是 0 处；`magpie` 只剩四行，都是给 `KNIT_H1_MODEL` 设缺省值的；`npm run -s build` 之后设了 `KNIT_H1_LOGS` 运行 `./refusals.sh` 和 `node trust.mjs`，退出码都是 0，九种拒绝和「模型不存在」都和预期一样，日志 `trust--approve.jsonl`、`trust--no-approve.jsonl` 写在临时目录里；`git status --short validation/slim-h1-2026-11/logs` 没有输出；`bash -n cli-flow.sh cancel.sh` 和 `node --check bridge-flow.mjs` 退出码都是 0。
+
+没有验证的：`cli-flow.sh`、`cancel.sh`、`bridge-flow.mjs` 没有真的跑，只查了语法，留给 L3。`refusals.sh` 没有在 `KNIT_H1_MODEL` 设成别的模型时跑过（执行者只用 `magpie/group/claude` 跑过 `trust.mjs`）。macOS 上没有跑过改后的脚本。
+
+执行者顺带看到、没有改的：README「发现的问题」里有两处和现在的表现对不上。`task.md` 写坏时 `knit run start` 现在直接说出哪个字段不对，不再是「没有任务」；「模型不存在」那次的 `worker.log` 有 213 字节（Rex 窗格开不了、改在后台执行的那一行），不是 0 字节。

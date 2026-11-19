@@ -8,15 +8,18 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { cleanEnv, startPi } from "./rpc.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// 模型写成 provider/模型，第一个 / 之前是 provider；日志目录可以从外面指定。
+const model = process.env.KNIT_H1_MODEL || "magpie/group/deepseek";
+const [provider, ...modelName] = model.split("/");
 const base = execFileSync(join(here, "setup.sh"), ["bridge"], { encoding: "utf8" }).trim();
 const proj = join(base, "proj");
-const logs = join(here, "logs", "bridge");
+const logs = join(process.env.KNIT_H1_LOGS || join(here, "logs"), "bridge");
 mkdirSync(logs, { recursive: true });
 const env = cleanEnv({ PATH: `${join(base, "bin")}:${process.env.PATH}` });
 // --no-context-files：不然会话记录里会带上用户主目录下 AGENTS.md 的全文，而这些记录要存进仓库。
 const ARGS = [
   "--approve", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files",
-  "--provider", "magpie", "--model", "group/deepseek",
+  "--provider", provider, "--model", modelName.join("/"),
   "--session-dir", join(base, "sessions"),
   "--tools", "read,write,edit,bash,ls,grep,find,knit_task,knit_run,knit_deliver",
 ];

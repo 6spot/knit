@@ -102,9 +102,13 @@
 ```bash
 npm test                               # 先生成 dist；演练进行时不要再运行它
 cd validation/slim-h1-2026-11
+export KNIT_H1_MODEL=magpie/group/deepseek   # provider/模型，不设时就是它
+export KNIT_H1_LOGS="$(mktemp -d)"           # 日志写到这里，不设时是脚本旁边的 logs/
 ./refusals.sh && node trust.mjs        # 这两个不调用模型
 ./cli-flow.sh && ./cancel.sh && node bridge-flow.mjs
 ```
+
+这两个变量都可以不设。`KNIT_H1_MODEL` 写成 `provider/模型`：`bridge-flow.mjs` 和 `trust.mjs` 用它拆出 Pi 的 `--provider`、`--model`，`refusals.sh` 里「模型不存在」那一种用同一个 provider 加 `no-such-model`。`KNIT_H1_LOGS` 决定 `cli-flow.sh`、`bridge-flow.mjs`、`trust.mjs` 把日志写到哪里；在别的机器上重跑时把它指到一个空目录，`logs/` 里 2026-11-17 的证据就不会被盖掉。
 
 每个脚本以退出码 0 结束就是通过，不满足的那一条会写在输出里。要求本机有 Pi 1.5.2 和 `magpie/group/deepseek`。
 
