@@ -1,0 +1,10 @@
+{
+  "confirmedDigest": "7f8fa3d1762ce0a63fd0e701df95dd43b25bb628089ea4dbc7c96a2fb717b480",
+  "changedPaths": [
+    ".knit/standards/delivery.md",
+    ".knit/tasks/11-14-slim-refactor/plan.md",
+    "docs/design/DESIGN.md"
+  ],
+  "runs": [],
+  "authorization": "user:1eb39684 做完后对照完成条件核对，通过的任务可以交付。"
+}

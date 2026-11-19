@@ -236,6 +236,7 @@
 | H5b `k-1a73047ca4d5` | 现行设计 | 主任务 `design.md` 的第 1–11 节写成 `docs/design/DESIGN.md`，原处只留第 12–14 节 |
 | H5f `k-22ba3b46dab8` | 文件坏了怎么恢复 | 设计加第 7.3 节：`worker.json`、`before.json`、`after.json` 坏了时的表现和手工恢复 |
 | H5e `k-c0000beef2eb` | Rex 的核实记录 | `research/rex-pane.md` 移到 `docs/research/REX-PANE.md` |
+| H5g `k-0ce8d7897b35` | 设计和代码对不上的四处 | 2026-11-19 加的。H5b 通读时发现：`active` 怎样进入、执行目录里留着什么、`maxVisits` 可以是 `null`，改成和代码一致；「返工过要问用户要不要记进规范」用户决定要这个行为，写进交付规范 |
 | H5c `k-b907eafe1bf4` | README 和文档索引 | `README.md`、`docs/README.md` 按现在的 Knit 重写 |
 | H5d `k-7a206502394e` | 过期的注释 | `src/`、`test/` 里 19 行指向旧文档章节、旧任务编号、锁和 Worktree 的注释 |
 
