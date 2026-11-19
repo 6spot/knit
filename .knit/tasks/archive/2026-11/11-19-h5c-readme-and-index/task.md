@@ -1,7 +1,7 @@
 ---
 id: k-b907eafe1bf4
 title: H5c 改写 README 和文档索引
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -64,3 +64,11 @@ createdAt: 2026-11-18T16:55:55.669Z
 - `docs/design/DESIGN.md#10. 用 Knit 开发 Knit` — `knit init --force` 的行为
 
 交付：`--paths README.md docs/README.md`。提交文案首行建议 `docs: rewrite the README and the docs index for the new Knit`。
+
+## 结果
+
+`README.md` 和 `docs/README.md` 按现在的 Knit 重写，由执行者（magpie/group/deepseek，执行 r-2e4072223b79）做，主会话逐条核对。`README.md` 是任务要求的七段；安装一段的命令和原来一样，只少了 `knit init --pi`、`knit start --pi` 两行。`docs/README.md` 是五段，列了设计的 11 节和三个 `slim-` 验证目录。
+
+五条完成条件主会话都重新跑过，都满足：旧说法的计数是 `0`；`check-links.mjs` 没有输出，退出码 0；`npm run -s build` 之后 README 命令一段的 17 条逐条运行 `node dist/cli/knit.js <命令> --help`，退出码都是 0（init、workflow show、workflow validate、task new、task list、task show、task ready、task close、task cancel、standards list、run start、run status、run wait、run cancel、context、deliver、help），除 `help` 以外的 16 条和各级 `--help` 列出的命令是同一批；`npm run pack:check` 输出「pack 检查通过」；任务目录之外只改了这两个文件。
+
+没有验证的：三种安装方式没有实际走一遍，命令是照原文留下的。
