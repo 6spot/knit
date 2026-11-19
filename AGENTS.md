@@ -13,7 +13,7 @@
 
 [旧任务索引](docs/history/TASKS.md)、[001–060 执行记录](docs/history/tasks/)和[旧阻塞记录](docs/history/BLOCKERS.md)保留为历史档案，不再排新任务或维护后续任务状态。其旧启动指令、编号顺序和各任务执行时的边界只说明当时约定。历史证据保留在 [validation/](validation/)。
 
-macOS 的支持级别是开发环境：在 macOS 开发机上 `npm test` 必须全绿（Rex 终端与普通终端各跑一次）。开发机测试通过不等于完成了 macOS 的安装与运行验收；Linux 还没有跑过。NPM 发布、外部部署和其它真实项目操作尚未进行。
+macOS 的支持级别是开发环境：在 macOS 开发机上 `npm test` 必须全绿（Rex 终端与普通终端各跑一次）。开发机测试通过不等于完成了 macOS 的安装与运行验收；Linux 上 `npm test` 跑过一次（见 `validation/slim-linux-2026-11/`），没有用真的 Pi 和模型走过。NPM 发布、外部部署和其它真实项目操作尚未进行。
 
 本文件是本仓库自己的。Knit 不写入项目的 `AGENTS.md`。
 

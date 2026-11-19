@@ -1,7 +1,7 @@
 ---
 id: k-6dadc77b2d18
 title: L1 在 Linux 上跑测试并记录
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -74,3 +74,15 @@ createdAt: 2026-11-18T16:55:55.795Z
 - `src/infrastructure/process.ts` — 只有 Linux 才走的分支在 `procStartTicks` 和 `processTable`
 
 交付：`--paths AGENTS.md validation/slim-linux-2026-11`。提交文案首行建议 `test: record the first Linux test run`。之后是 L3（用真的 Pi 和模型演练）。
+
+## 结果
+
+在一台 Linux 机器上（Oracle Linux 9.8，aarch64，KVM 虚拟机，Node 26.3.0，提交 `d163f18`）把六步跑了一遍，记录在 `validation/slim-linux-2026-11/README.md`，日志在同目录的 `logs/` 下；`AGENTS.md` 讲平台的那一段换成了实际的情况。由主会话直接做。
+
+六步的退出码：`npm ci --include=dev` 0；`npm run typecheck` 0；`npm test` 0，`tests 230`、`pass 230`、`fail 0`；`broken-run-files.test.mjs` 0，`tests 6`、`pass 6`、`fail 0`；`npm run pack:check` 0，13 项 PASS；看有没有留下进程的 `pgrep` 没有输出。没有失败的测试。
+
+四条完成条件都满足：README 有「环境」「结果」「失败的测试」「没有验证的」四段，表里 6 步都有退出码；6 个日志都在，`npm-test.log` 里的三行数字和表里一样；`AGENTS.md` 里「Linux 还没有跑过」0 处、`slim-linux-2026-11` 1 处；任务目录之外只有 `AGENTS.md` 和 `validation/slim-linux-2026-11/`。
+
+和任务写的不一样的一处：第 6 步做了两次。第一次 `pgrep` 输出了一行 `2735515 bash`，当时没有记下它的命令行，是谁没有核实；之后确认直接运行这条 `pgrep` 会匹配到运行它的 shell 自己。第二次把 `pgrep` 单独放进脚本文件再运行，没有输出。两次的输出都留着（`leftover-first-attempt.log`、`leftover.log`），README 里写了经过。
+
+没有验证的：真的 Pi 和模型的全流程演练（L3）；真的 Rex 窗格；Node 的其它版本；别的发行版和 x86_64；只跑了一次，没有重复跑来看有没有偶尔失败的测试。

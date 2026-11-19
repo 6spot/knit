@@ -1,0 +1,14 @@
+✔ worker.json 坏了：run status、run wait、run cancel、context 都报错；停进程、删文件、再 cancel 之后恢复 (1731.975884ms)
+✔ worker.json 坏了：只删文件不停进程，cancel 记了失败，进程还在跑 (928.905563ms)
+✔ before.json 坏了：status 正常，cancel 停了进程之后报错；删文件、再 cancel 之后恢复，改动文件没有记下 (1448.315968ms)
+✔ before.json 坏了：执行者自己做完时记不了结果，这次执行一直算正在跑；删文件、再 cancel 之后恢复 (1420.896417ms)
+✔ after.json 坏了：交付预览报错；交付本身不读它，照样能交付 (3554.149301ms)
+✔ after.json 坏了：删掉之后预览正常 (3516.268192ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12733.875765

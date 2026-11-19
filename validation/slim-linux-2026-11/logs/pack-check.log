@@ -1,0 +1,77 @@
+
+> knit@0.1.0 pack:check
+> npm run -s build && node scripts/pack-check.mjs
+
+PASS  包名为 knit（实际 knit）
+PASS  版本为 0.1.0（实际 0.1.0）
+PASS  包含 bin 入口 dist/cli/knit.js
+PASS  包含 package.json
+PASS  包含 README.md
+PASS  包含 assets/templates/workflow.yaml
+PASS  包含 assets/templates/pi/extensions/knit.ts
+PASS  包含 dist/adapters/pi/pane-worker.js
+PASS  包含 dist/cli/knit.js
+PASS  无禁止文件（clean）
+PASS  编译入口不含本机仓库绝对路径
+PASS  bin 入口保留执行位（可执行）
+PASS  编译入口可运行且 --version 输出 0.1.0
+
+共 56 个文件：
+  README.md
+  assets/templates/agents/implement.md
+  assets/templates/agents/review.md
+  assets/templates/config.json
+  assets/templates/gitignore
+  assets/templates/pi/extensions/knit.ts
+  assets/templates/workflow.yaml
+  dist/adapters/pi/connection.js
+  dist/adapters/pi/index.js
+  dist/adapters/pi/native-file.js
+  dist/adapters/pi/pane-worker.js
+  dist/adapters/pi/runtime.js
+  dist/adapters/rex/pane.js
+  dist/application/config.js
+  dist/application/delivery.js
+  dist/application/handoff.js
+  dist/application/init.js
+  dist/application/run-execute.js
+  dist/application/run-finish.js
+  dist/application/run-pane.js
+  dist/application/run-prepare.js
+  dist/application/run-process.js
+  dist/application/standards-store.js
+  dist/application/task-materials.js
+  dist/application/task-store.js
+  dist/application/workspace.js
+  dist/cli/context.js
+  dist/cli/deliver.js
+  dist/cli/init.js
+  dist/cli/knit.js
+  dist/cli/root.js
+  dist/cli/run.js
+  dist/cli/standards.js
+  dist/cli/task.js
+  dist/cli/workflow.js
+  dist/contracts/digest.js
+  dist/contracts/frames.js
+  dist/contracts/schema.js
+  dist/contracts/task.js
+  dist/contracts/workflow.js
+  dist/domain/markdown.js
+  dist/domain/progress.js
+  dist/domain/report.js
+  dist/domain/stage-rules.js
+  dist/domain/standards.js
+  dist/domain/task-document.js
+  dist/domain/task-record.js
+  dist/domain/task-references.js
+  dist/domain/task-requirements.js
+  dist/domain/workflow.js
+  dist/infrastructure/atomic.js
+  dist/infrastructure/errors.js
+  dist/infrastructure/fingerprint.js
+  dist/infrastructure/paths.js
+  dist/infrastructure/process.js
+  package.json
+
+pack 检查通过

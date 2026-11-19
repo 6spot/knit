@@ -1,0 +1,9 @@
+{
+  "confirmedDigest": "f9e631f715f03f47a3db6c697b32ab87379786735cec4e81de408597d9240bb5",
+  "changedPaths": [
+    "AGENTS.md",
+    "validation/slim-linux-2026-11"
+  ],
+  "runs": [],
+  "authorization": "user:1eb39684 做完后对照完成条件核对，通过的任务可以交付。"
+}
