@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
 import { knit, project } from "./helpers/cli.mjs";
 
@@ -16,7 +16,13 @@ function create(dir, ...args) {
 }
 
 const read = (dir, taskDir) => parseTaskDocument(readFileSync(join(dir, taskDir, "task.md"), "utf8")).document;
-const tree = (dir) => execFileSync("find", [".knit", "-type", "f", "-exec", "shasum", "{}", "+"], { cwd: dir, encoding: "utf8" }).split("\n").sort();
+/** `.knit` 下每个文件的路径和内容摘要，排好序：前后两次一样，就是文件和目录都没有变。 */
+const tree = (dir) =>
+  readdirSync(join(dir, ".knit"), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name))
+    .map((file) => `${createHash("sha256").update(readFileSync(file)).digest("hex")}  ${relative(dir, file)}`)
+    .sort();
 
 test("取消并归档：目录移到当月的归档目录，状态 cancelled，写下原因", (t) => {
   const dir = project(t);

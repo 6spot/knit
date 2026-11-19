@@ -1,0 +1,9 @@
+{
+  "confirmedDigest": "69f458a54410b2a9345a11d47092e8429db26c92d6b16df188d9e3db49bb5df0",
+  "changedPaths": [
+    ".knit/tasks/11-14-slim-refactor/plan.md",
+    "test/task-cancel.test.mjs"
+  ],
+  "runs": [],
+  "authorization": "user:1eb39684 做完后对照完成条件核对，通过的任务可以交付。"
+}
