@@ -80,6 +80,11 @@ export const WORKFLOW_STAGE_ID_REGEX = /^[a-z][a-z0-9-]{0,31}$/;
 /** 执行者的模型：`provider/模型`，第一个 `/` 的前后都不为空。 */
 export const WORKFLOW_MODEL_PATTERN = "^[^/]+/.+$";
 
+/** Pi 的 --thinking 接受的等级。 */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const ThinkingLevelSchema = union(THINKING_LEVELS.map((level) => lit(level)));
+export type ThinkingLevel = Static<typeof ThinkingLevelSchema>;
+
 /** 单个阶段；未知字段视为拼写错误，整体判为非法配置。 */
 export const WorkflowStageConfigSchema = obj({
   id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
@@ -87,6 +92,8 @@ export const WorkflowStageConfigSchema = obj({
   description: opt(str()),
   /** 这个环节的执行者用的模型；不写用顶层的 model。 */
   model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
+  /** 这个环节的思考等级；不写用顶层的 thinking。 */
+  thinking: opt(ThinkingLevelSchema),
   /** 项目相对路径；文件是否存在不在这里判断。 */
   prompt: opt(str({ minLength: 1 })),
   /** 不写或 `all` = 全部放开；`[]` = 全部禁用；非空数组 = 白名单。 */
@@ -104,6 +111,8 @@ export const WorkflowConfigSchema = obj({
   version: lit(WORKFLOW_CONFIG_VERSION),
   /** 所有环节的执行者缺省用的模型。 */
   model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
+  /** 所有环节的执行者缺省用的思考等级。 */
+  thinking: opt(ThinkingLevelSchema),
   /** 返工上限：没写 maxVisits 的环节用它；不写是 DEFAULT_MAX_REPAIR_ROUNDS。 */
   maxRepairRounds: opt(int({ minimum: 0 })),
   stages: arr(WorkflowStageConfigSchema, { minItems: 1 }),
@@ -128,6 +137,7 @@ export const WORKFLOW_ISSUE_CODES = [
   "invalid_on_verdict",
   "invalid_max_visits",
   "invalid_model",
+  "invalid_thinking",
   "invalid_max_repair_rounds",
   "duplicate_report_enum",
   "undeclared_verdict_value",

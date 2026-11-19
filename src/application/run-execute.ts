@@ -21,6 +21,8 @@ export interface ExecuteRunInput {
   readonly workflow: WorkflowDefinition;
   /** provider/模型。 */
   readonly model: string;
+  /** 已定下来的思考等级；没给时用 Pi 的缺省。 */
+  readonly thinking?: string | null;
   /** Pi 可执行文件的路径。 */
   readonly piExecutable: string;
   /** 主会话在 Rex 里时给出：执行者在 Rex 的窗格里跑，窗格用不了才在后台跑。 */
@@ -50,6 +52,7 @@ export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
     executablePath: input.piExecutable,
     provider: input.model.slice(0, slash),
     modelId: input.model.slice(slash + 1),
+    thinkingLevel: input.thinking ?? undefined,
     cwd: root,
     sessionDir: join(dir, "session"),
     ...runtimeTools(stage.tools),

@@ -118,8 +118,9 @@ export function registerRunCommands(program: Command): void {
     .command("start <id>")
     .description("派发任务的下一个环节；执行者在后台跑，命令立即返回")
     .option("--model <provider/模型>", "这一次用的模型")
+    .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { model?: string; dir: string }) => {
+    .action((id: string, options: { model?: string; thinking?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const { config, problems } = loadConfig(root);
@@ -129,13 +130,17 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const prepared = prepareRun({ root, taskId: id, workflow, config, model: options.model ?? null });
+      const prepared = prepareRun({ root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking });
       if (prepared.run === null) return fail(prepared.problems);
       const { run: started } = prepared;
       const log = openSync(join(root, started.dir, "worker.log"), "a");
       const worker = spawn(
         process.execPath,
-        [process.argv[1]!, "run", "worker", started.id, "--task", id, "--model", started.model, "--dir", root],
+        [
+          process.argv[1]!, "run", "worker", started.id, "--task", id, "--model", started.model,
+          ...(started.thinking === null ? [] : ["--thinking", started.thinking]),
+          "--dir", root,
+        ],
         { detached: true, stdio: ["ignore", log, log] },
       );
       worker.unref();
@@ -232,8 +237,9 @@ export function registerRunCommands(program: Command): void {
     .command("worker <runId>", { hidden: true })
     .requiredOption("--task <id>", "任务")
     .requiredOption("--model <provider/模型>", "模型")
+    .option("--thinking <等级>", "思考等级")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action(async (runId: string, options: { task: string; model: string; dir: string }) => {
+    .action(async (runId: string, options: { task: string; model: string; thinking?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const workflow = loadWorkflow(root);
@@ -247,6 +253,7 @@ export function registerRunCommands(program: Command): void {
         runId,
         workflow,
         model: options.model,
+        thinking: options.thinking,
         piExecutable: process.env.KNIT_PI_BIN ?? "pi",
         // 主会话在 Rex 里跑时，它启动的进程都带着这两个变量。
         rex:

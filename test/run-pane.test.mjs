@@ -16,7 +16,7 @@ const lastRun = (dir, task) => JSON.parse(readFileSync(join(dir, task.dir, "reco
 const processesOf = (runId) => spawnSync("pgrep", ["-f", runId], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
 
 /** 主会话在 Rex 里的样子：PATH 上有假的 rex，环境里有 REX_SESSION 和 REX_BLOCK。 */
-function inRex(t, dir) {
+function inRex(t, dir, environment = {}) {
   const outside = mkdtempSync(join(tmpdir(), "knit-fake-rex-"));
   t.after(() => rmSync(outside, { recursive: true, force: true }));
   symlinkSync(FAKE_REX, join(outside, "rex"));
@@ -30,6 +30,7 @@ function inRex(t, dir) {
     KNIT_PI_BIN: FAKE_PI,
     KNIT_FAKE_PI: join(outside, "script.json"),
     KNIT_FAKE_PI_LOG: join(outside, "log.jsonl"),
+    ...environment,
   };
   const jsonLines = (file) =>
     existsSync(file)
@@ -114,6 +115,27 @@ test("主会话在 Rex 里时，执行者在窗格里做完", async (t) => {
     { message: readFileSync(join(runDir, "message.md"), "utf8") },
   ]);
   assert.deepEqual(rex.panes(), []);
+});
+
+[
+  { name: "Rex 窗格传递主会话的思考等级", session: "high", paneExit: false, expected: "high" },
+  { name: "Rex 窗格四处都没等级时不传 --thinking", session: undefined, paneExit: false, expected: null },
+  { name: "Rex 窗格回退后台时保留思考等级", session: "high", paneExit: true, expected: "high" },
+].forEach((scenario) => {
+  test(scenario.name, async (t) => {
+    const dir = runProject(t);
+    const task = readyTask(dir);
+    const rex = inRex(t, dir, { PI_REASONING_LEVEL: scenario.session });
+    rex.script({ paneExit: scenario.paneExit });
+
+    assert.equal((await finished(dir, task, start(rex, dir, task).id)).failure, null);
+    const starts = rex.piLog().filter((line) => line.args !== undefined);
+    assert.equal(starts.length, scenario.paneExit ? 2 : 1);
+    starts.forEach(({ args }) => {
+      assert.equal(args.includes("--thinking"), scenario.expected !== null);
+      if (scenario.expected !== null) assert.equal(args[args.indexOf("--thinking") + 1], scenario.expected);
+    });
+  });
 });
 
 test("窗格开不了时，照旧在后台执行", async (t) => {
