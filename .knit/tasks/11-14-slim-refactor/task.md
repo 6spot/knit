@@ -87,7 +87,8 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 
 ## 相关资料
 
-- `design.md` — 小核心范围：保留什么、不做什么、布局、流程与角色文件、返工、完成与交付、命令、规范注入、自举、可搬代码、重写怎么进行
+- `docs/design/DESIGN.md` — 现行设计：保留什么、不做什么、布局、流程与角色文件、返工、完成与交付、命令、规范注入、自举
+- `design.md` — 重写过程用到的三节：可搬代码、规模估算、重写怎么进行
 - `plan.md` — 子任务清单：8 批 73 个，加切换之后的任务；含已登记任务的 ID 和进度
 - `research/findings.md` — 调查结论与数据来源
 - `research/opencode-agents-excerpt.md` — opencode AGENTS.md 的摘录，固定在一个提交上

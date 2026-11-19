@@ -1,7 +1,7 @@
 ---
 id: k-1a73047ca4d5
 title: H5b 现行设计写成 docs/design/DESIGN.md
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -74,3 +74,17 @@ Knit 现行的设计写在主任务的资料 `.knit/tasks/11-14-slim-refactor/de
 - `validation/slim-h5-2026-11/split-design.mjs` — 拆分的脚本，要替换的 29 处都在 `EDITS` 表里
 
 交付：主会话直接做时，`knit task close` 的 `--paths` 写 `docs/design/DESIGN.md AGENTS.md .knit/tasks/11-14-slim-refactor/design.md .knit/tasks/11-14-slim-refactor/task.md`。提交文案首行建议 `docs: make docs/design/DESIGN.md the current design`。之后依次是 H5f（加第 7.3 节）、H5e（移 Rex 的记录），再之后 H5c、H5d 互不依赖。
+
+## 结果
+
+split-design.mjs 输出与预期逐字一致（替换 29 处，另外改了 2 个文件）：第 1–11 节成为 docs/design/DESIGN.md，主任务的 design.md 只留第 12–14 节，AGENTS.md 和主任务 task.md 指向新位置。三条完成条件都在 Linux 上跑过并满足：计数命令输出 `0 11 3 0`；第 12–14 节与原来逐行相同（diff 无输出，退出码 0）；check-links.mjs 无输出、退出码 0，AGENTS.md 里 `11-14-slim-refactor/design.md` 出现 0 次。
+
+通读 DESIGN.md 时对照 src/ 发现下面几处，按任务要求没有改，留给后面的任务或用户决定：
+
+- 第 3.2 节，`active` 的「怎样进入」写「派发第一个环节，或主会话开始做」。代码里只有派发会把状态改成 `active`（src/application/run-prepare.ts）；主会话直接做的任务从 `ready` 直接到 `done`，没有命令能进入 `active`。
+- 第 3.3 节「`.runtime/runs/` 下只留日志和报告原文」。执行目录里实际还有交接内容（system.md、message.md）、工作区记录（before.json、after.json）、进程登记（worker.json、pane.json、outcome.json）和会话记录；第 2 节的目录树写的是对的，两处不一致。
+- 第 6.1 节 `maxVisits` 只写了「最多进入几次」。代码还接受 `null`，表示不设上限（回退环上每个环节都是 `null` 时校验报错），设计里没有写。
+- 第 7.1 节「任务完成时如果返工过，主会话问用户要不要把原因记进避坑清单或规范」。程序、桥接、角色文件模板和本仓库的规范里都没有这一条，主会话收不到这个要求。
+- 第 7.2 节最后一条还指向 `.knit/tasks/11-14-slim-refactor/research/rex-pane.md`，由 H5e 改。
+
+没有验证的：无。
