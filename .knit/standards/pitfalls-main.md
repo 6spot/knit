@@ -35,9 +35,9 @@ stages: [discuss, deliver]
 
 ### 本仓库的流程配置被覆盖
 
-- 现象：本仓库的 `.knit/workflow.yaml` 变回模板内容，里面写的 `model` 没有了，派发被拒绝。
+- 现象：本仓库的 `.knit/workflow.yaml` 变回模板内容，手工改过的环节、`model`、`thinking` 和返工上限都没有了。
 - 原因：在本仓库运行了 `knit init --force`。它把流程、角色文件和桥接恢复成模板。
-- 做法：只在升级安装版之后运行 `knit init --force`。运行之后把 `model` 写回 `.knit/workflow.yaml`；覆盖前的文件在 `.knit/.runtime/backups/` 里。
+- 做法：只在升级安装版之后运行 `knit init --force`。本仓库的流程现在和模板一样，不写 `model` 和 `thinking`，执行者用主会话的；以后手工改过的，运行之后从 `.knit/.runtime/backups/` 里的备份写回。
 
 ## 交付
 

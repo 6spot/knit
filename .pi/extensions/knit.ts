@@ -41,6 +41,8 @@ interface TurnStart {
 }
 
 interface Context {
+  model?: { provider: string; id: string };
+  thinkingLevel?: string;
   /** 当前分支上的全部会话记录，从最早到最新；压缩之前的也在。 */
   sessionManager: { getBranch(): SessionEntry[] };
 }
@@ -79,6 +81,7 @@ interface RunParams {
   action: "start" | "status" | "cancel";
   taskId: string;
   model?: string;
+  thinking?: string;
 }
 
 interface DeliverParams {
@@ -134,10 +137,11 @@ export default function knitBridge(pi: Pi): void {
         action: { type: "string", enum: ["start", "status", "cancel"] },
         taskId: { type: "string" },
         model: { type: "string" },
+        thinking: { type: "string", enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
       },
       required: ["action", "taskId"],
     },
-    execute: (_toolCallId, params) => run(pi, waiting, params),
+    execute: (_toolCallId, params, _signal, _onUpdate, ctx) => run(pi, waiting, params, ctx),
   });
 
   pi.registerTool<DeliverParams>({
@@ -216,16 +220,19 @@ async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
 }
 
 /** cancel 最多要等十秒左右，等它做完。 */
-async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams): Promise<ToolResult> {
+async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams, ctx: Context): Promise<ToolResult> {
   if (!params.taskId) return failure(`knit_run 的 ${params.action} 要有 taskId`);
   // 主会话自己取消的，不需要再收一条通知。
   if (params.action === "cancel") stopWaiting(waiting, params.taskId);
-  const result = await runKnit([
-    "run",
-    params.action,
-    params.taskId,
-    ...(params.action === "start" ? single("--model", params.model) : []),
-  ]);
+  const result = await runKnit(
+    [
+      "run", params.action, params.taskId,
+      ...(params.action === "start" ? [...single("--model", params.model), ...single("--thinking", params.thinking)] : []),
+    ],
+    params.action === "start"
+      ? { ...process.env, PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
+      : process.env,
+  );
   if (params.action === "start" && result.code === 0) notifyWhenEnded(pi, waiting, params.taskId);
   return toResult(result);
 }
@@ -338,13 +345,13 @@ function several(option: string, values: string[] | undefined): string[] {
 }
 
 /** 运行 PATH 上的 knit，不设超时。启动不了时不抛错，当作退出码 1。 */
-function runKnit(args: string[]): Promise<CommandResult> {
-  return startKnit(args).result;
+function runKnit(args: string[], env = process.env): Promise<CommandResult> {
+  return startKnit(args, env).result;
 }
 
 /** 启动 knit 并返回子进程，调用方可以不等它或者中途杀掉它。 */
-function startKnit(args: string[]): { child: ChildProcess; result: Promise<CommandResult> } {
-  const child = spawn("knit", [...args, "--dir", ROOT], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+function startKnit(args: string[], env = process.env): { child: ChildProcess; result: Promise<CommandResult> } {
+  const child = spawn("knit", [...args, "--dir", ROOT], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
