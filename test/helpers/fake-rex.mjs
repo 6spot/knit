@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 测试用的假 rex：照任务资料 research/rex-pane.md 里核实过的样子回答 `rex api call` 和 `rex wait`。
+ * 测试用的假 rex：照docs/research/REX-PANE.md 里核实过的样子回答 `rex api call` 和 `rex wait`。
  * 环境变量 KNIT_FAKE_REX 是一个目录：calls.jsonl 记下每次调用，layers/ 里一个窗格一个文件；
  * 目录里有 fail 文件时，名字写在里面的方法失败。窗格里的命令真的会被启动。
  */

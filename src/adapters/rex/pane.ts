@@ -1,6 +1,6 @@
 /**
  * Rex 的浮动窗格：开一个跑一条命令的窗格、等里面的程序结束、关掉它。
- * 都是运行 PATH 上的 `rex` 命令；用到的方法和它们的表现见任务资料 research/rex-pane.md。
+ * 都是运行 PATH 上的 `rex` 命令；用到的方法和它们的表现见docs/research/REX-PANE.md。
  */
 import { spawn, spawnSync } from "node:child_process";
 import { delimiter } from "node:path";

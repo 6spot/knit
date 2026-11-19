@@ -1,6 +1,6 @@
 # Rex 窗格：本机核实过的事实
 
-2026-11-17 在本机核实：macOS 27.2.1、Rex `0.1.0-preview.14`（`rex version`）、Pi 1.5.2。除第 7 节列出的以外，每一条都是用临时脚本实际跑出来的，不调用模型。实现见 `design.md` 第 7.2 节和 `next/src/adapters/rex/pane.ts`、`next/src/adapters/pi/pane-worker.ts`、`next/src/application/run-pane.ts`；测试用假的 `rex`（`next/test/helpers/fake-rex.mjs`）和假的 Pi，不需要本机装有 Rex。旧实现在 `src/adapters/rex/`、`src/application/rex-launcher.ts`（共 2,377 行），只作参考，没有搬。
+2026-11-17 在本机核实：macOS 27.2.1、Rex `0.1.0-preview.14`（`rex version`）、Pi 1.5.2。除第 7 节列出的以外，每一条都是用临时脚本实际跑出来的，不调用模型。实现见 `docs/design/DESIGN.md` 第 7.2 节和 `src/adapters/rex/pane.ts`、`src/adapters/pi/pane-worker.ts`、`src/application/run-pane.ts`；测试用假的 `rex`（`test/helpers/fake-rex.mjs`）和假的 Pi，不需要本机装有 Rex。重构之前的旧实现（2,377 行）已经随旧代码删除，没有搬。
 
 ## 1. 怎么知道在 Rex 里
 
@@ -137,7 +137,7 @@ ctx.shutdown();                                    // 请求 Pi 退出；交互�
 
 - 助手消息的 `stopReason`：正常是 `"stop"`；请求失败是 `"error"`，这时 `content` 是空数组，`errorMessage` 里是原因（例如 `404: {"code":null,"message":"magpie knows no model \"no-such-model\" …"}`），`event.aborted` 是 `false`。
 - Pi 自己取“最后一条助手消息的文字”的做法（RPC 的 `get_last_assistant_text`）：从后往前找第一条 `role` 是 `assistant` 的消息，跳过 `stopReason` 是 `"aborted"` 而且 `content` 为空的；把其中 `type` 是 `text` 的块的 `text` 接起来，去掉首尾空白。
-- 扩展里用 `procStartTicks(process.pid)`（`next/src/infrastructure/process.ts`）读到的启动标识，和别的进程读这个进程号得到的一样。
+- 扩展里用 `procStartTicks(process.pid)`（`src/infrastructure/process.ts`）读到的启动标识，和别的进程读这个进程号得到的一样。
 
 ## 7. 用真的模型核实的，和没有核实的
 

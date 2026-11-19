@@ -1,7 +1,7 @@
 ---
 id: k-c0000beef2eb
 title: H5e Rex 窗格的核实记录移到 docs/research
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -58,3 +58,13 @@ Rex 的接口和本机核实过的表现记在主任务的资料 `.knit/tasks/11
 - `docs/design/DESIGN.md#7.2 Rex 窗格` — 指向这份记录的那一节
 
 交付：`--paths docs/research/REX-PANE.md docs/design/DESIGN.md src/adapters/rex/pane.ts test/helpers/fake-rex.mjs .knit/tasks/11-14-slim-refactor/research/rex-pane.md`。提交文案首行建议 `docs: move the Rex pane notes to docs/research`。
+
+## 结果
+
+Rex 窗格的核实记录用 mv 移到 docs/research/REX-PANE.md，里面过期的路径按任务改了（`design.md` 改成 `docs/design/DESIGN.md`，五处 `next/` 去掉，讲旧实现的一句换掉），别的内容没有动；docs/design/DESIGN.md 第 7.2 节和两处代码注释指向新位置。
+
+四条完成条件都满足，在 Linux（Oracle Linux，aarch64，Node 26.3.0）上核对：文件在新位置、旧位置没有了；`next/` 出现 0 次，反引号里的路径都存在；`rex-pane.md` 在 src、test、docs、README.md、AGENTS.md 里搜不到；`npm test` 是 `tests 227`、`pass 227`、`fail 0`，个数和改之前一样。
+
+第四条第一次核对时是 `fail 1`：`test/task-cancel.test.mjs` 用了这台机器上没有的 `shasum` 命令，改之前就失败，和本任务无关。用户决定先修那个测试（任务 k-4b534dded53d，提交 af3c69a），修完之后带着本任务的改动重跑，全部通过。
+
+没有验证的：无。

@@ -1,0 +1,12 @@
+{
+  "confirmedDigest": "32b06b16dd2f8771035032cb624e748ae2fc34acc99e9e3aff39fde7597b6aac",
+  "changedPaths": [
+    ".knit/tasks/11-14-slim-refactor/research/rex-pane.md",
+    "docs/design/DESIGN.md",
+    "docs/research/REX-PANE.md",
+    "src/adapters/rex/pane.ts",
+    "test/helpers/fake-rex.mjs"
+  ],
+  "runs": [],
+  "authorization": "user:1eb39684 做完后对照完成条件核对，通过的任务可以交付。"
+}
