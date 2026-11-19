@@ -1,0 +1,3 @@
+{"type":"extension_ui_request","id":"0e2f59fd-71bc-4d80-b809-c3f0a8212ade","method":"setWidget","widgetKey":"subagent-background-tasks"}
+{"id":"r1","type":"response","command":"prompt","success":true,"data":{"disposition":"handled"}}
+{"type":"extension_ui_request","id":"929e091f-498f-40eb-83c3-a430943f14e4","method":"setWidget","widgetKey":"subagent-background-tasks"}

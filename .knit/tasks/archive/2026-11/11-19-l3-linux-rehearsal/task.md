@@ -1,7 +1,7 @@
 ---
 id: k-6b6f6c9d8aaa
 title: L3 在 Linux 上用真的 Pi 和模型跑全流程演练
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -68,3 +68,19 @@ createdAt: 2026-11-18T16:55:56.049Z
 - `validation/slim-linux-2026-11/README.md` — 要接着写的记录
 
 交付：`--paths validation/slim-linux-2026-11`。提交文案首行建议 `test: record the Linux rehearsal with a real model`。
+
+## 结果
+
+在 Linux（Oracle Linux 9.8，aarch64，Pi 1.5.2，模型 `magpie/group/deepseek`，提交 `72866e1`）上把五个演练脚本各跑了一次，都以退出码 0 结束，没有重跑：`refusals.sh` 5.2 秒、`trust.mjs` 1.7 秒、`cli-flow.sh` 36.7 秒、`cancel.sh` 5.6 秒、`bridge-flow.mjs` 64.4 秒。输出和日志在 `validation/slim-linux-2026-11/h1-logs/`，记录写在同目录 `README.md` 的「用真的 Pi 和模型演练」一节。由主会话直接做。
+
+四条完成条件都满足：五个 `.log` 都在；README 有这一节，五个脚本都有退出码；`git status --short validation/slim-h1-2026-11` 没有输出；`pgrep -fl 'sleep 613|knit.js run (worker|wait)'` 没有输出。
+
+和 macOS 那次比：四个脚本的输出去掉 id、日期和用时之后逐行比过，`bridge-flow.log` 比了「符合」那几行，核对的结果都一样。不一样的是两处那次演练之后改过的提示文字、后台进程的父进程（这里是 `systemd --user`），和用时。
+
+和任务写的步骤不一样的一处：运行脚本之前去掉了环境变量 `REX_SESSION`、`REX_BLOCK`。它们是主会话的环境留下的，指着一个已经不存在的 Rex 会话；去掉之后演练走的是没有 Rex 的后台执行，和 macOS 那次一样。
+
+日志提交之前看过：没有搜到密钥和令牌，这台机器的主目录下没有 `AGENTS.md`，没有删文件。里面有模型服务的本地地址 `http://127.0.0.1:3425/v1` 和 `/home/opc` 开头的路径，和 macOS 那份证据是同一类。
+
+顺带改的：README 里 L1 写的「真的 Pi 和模型……留给 L3」那一条改成指向新加的一节。
+
+没有验证的：每个脚本只跑了一次，模型的回答每次不一样，一次通过不说明每次都通过；真的 Rex 窗格没有试；别的模型、Pi 的其它版本、别的发行版和 x86_64。
