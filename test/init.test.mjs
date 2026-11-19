@@ -26,7 +26,21 @@ test("在空目录里初始化", (t) => {
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stdout, `${[...listed("已生成:", targets), NEXT_STEP].join("\n")}\n`);
   for (const item of TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
-  assert.deepEqual(readdirSync(join(dir, ".knit", "standards")), []);
+  assert.deepEqual(readdirSync(join(dir, ".knit", "standards")).sort(), [
+    "delivery.md",
+    "discussion.md",
+    "task-splitting.md",
+    "task-writing.md",
+  ]);
+  assert.equal(
+    knit(dir, "standards", "list").stdout,
+    [
+      ".knit/standards/delivery.md  交付规范  deliver",
+      ".knit/standards/discussion.md  讨论规范  discuss",
+      ".knit/standards/task-splitting.md  任务拆分规范  discuss",
+      ".knit/standards/task-writing.md  任务编写规范  discuss",
+    ].join("\n") + "\n",
+  );
   assert.deepEqual(readdirSync(join(dir, ".knit", "tasks")), []);
   assert.equal(existsSync(join(dir, "AGENTS.md")), false);
 

@@ -6,7 +6,7 @@ import { projectRoot } from "./root.js";
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
-    .description("把流程、角色文件和配置生成到项目里；已有的文件不动")
+    .description("把流程、角色文件、配置和通用规范生成到项目里；已有的文件不动")
     .option("--force", "把流程和角色文件恢复成模板的内容，覆盖之前先备份；配置、规范和任务不动")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string; force?: boolean }) => {

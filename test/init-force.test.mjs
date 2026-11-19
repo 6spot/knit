@@ -83,7 +83,27 @@ test("配置、规范和任务不动", (t) => {
   const result = knit(dir, "init", "--force");
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(contents(), before);
-  assert.deepEqual(filesUnder(join(dir, ".knit", "standards")), ["a.md"]);
+  assert.deepEqual(filesUnder(join(dir, ".knit", "standards")), [
+    "a.md",
+    "delivery.md",
+    "discussion.md",
+    "task-splitting.md",
+    "task-writing.md",
+  ]);
   assert.equal(existsSync(join(dir, ".knit", ".runtime", "backups")), false);
   assert.doesNotMatch(result.stdout, /已恢复成模板:|备份:/);
+});
+
+test("已有的同名规范不覆盖", (t) => {
+  const dir = initialized(t);
+  const path = ".knit/standards/discussion.md";
+  writeFileSync(join(dir, path), "项目自己改过的讨论规范。\n");
+
+  for (const args of [["init"], ["init", "--force"]]) {
+    const result = knit(dir, ...args);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout, `${listed("已有，没有动:", targets).join("\n")}\n`);
+    assert.equal(readFileSync(join(dir, path), "utf8"), "项目自己改过的讨论规范。\n");
+  }
+  assert.equal(existsSync(join(dir, ".knit", ".runtime", "backups")), false);
 });

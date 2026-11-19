@@ -13,6 +13,10 @@ export const TEMPLATES = [
   { template: "config.json", target: ".knit/config.json", restore: false },
   // 模板的文件名不带点：npm 打包时不收名叫 .gitignore 的文件。
   { template: "gitignore", target: ".knit/.gitignore", restore: false },
+  { template: "standards/discussion.md", target: ".knit/standards/discussion.md", restore: false },
+  { template: "standards/task-writing.md", target: ".knit/standards/task-writing.md", restore: false },
+  { template: "standards/task-splitting.md", target: ".knit/standards/task-splitting.md", restore: false },
+  { template: "standards/delivery.md", target: ".knit/standards/delivery.md", restore: false },
   { template: "pi/extensions/knit.ts", target: ".pi/extensions/knit.ts", restore: true },
 ] as const;
 

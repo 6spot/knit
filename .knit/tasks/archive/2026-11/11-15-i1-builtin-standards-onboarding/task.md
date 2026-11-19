@@ -1,7 +1,7 @@
 ---
 id: k-966b2bf6ef60
 title: I1a 通用规范进模板
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -56,3 +56,13 @@ createdAt: 2026-11-15T03:05:44.637Z
 - `docs/design/DESIGN.md#10. 用 Knit 开发 Knit` — `knit init` 不覆盖哪些内容
 
 交付：提交文案首行建议 `feat: ship the general standards with knit init`。交付之后，本仓库要不要重新安装并运行 `knit init`（会在本仓库生成它没有的模板文件；四份都已经有，不会被覆盖）由主会话另问用户。
+
+## 结果
+
+`knit init` 现在生成四份通用规范：`assets/templates/standards/` 下新增 `discussion.md`、`task-writing.md`、`task-splitting.md`、`delivery.md`，`src/application/init.ts` 的 `TEMPLATES` 加了四项（`restore: false`）。前三份和本仓库的逐字相同；`delivery.md` 的「完成与汇报」「授权」「提交范围」「失败」四节和本仓库的相同，「提交文案」只留任务要求的三条。`docs/design/DESIGN.md` 第 4 节和第 11 节跟着改了。由执行者（magpie/group/deepseek，执行 r-234200a33950）做，主会话对照差异核对过。
+
+四条完成条件主会话都在 Linux（Oracle Linux 9.8，aarch64，Node 26.3.0）上重新跑过，都满足，前三条各有测试：空目录里初始化后规范目录正好四个文件、和模板逐字相同，`knit standards list` 列出四份、没有告警（「在空目录里初始化」）；已有同名规范时 `knit init` 和 `knit init --force` 都不改它，列在「已有，没有动」下面（「已有的同名规范不覆盖」，主会话另在临时目录里手工试过 `--force`）；`draft` 任务的 `knit context` 里有讨论、任务编写、任务拆分三份，没有交付规范（「初始化生成的通用规范」）。`npm test` 是 `tests 232`、`pass 232`、`fail 0`（改之前 230）；`npm run typecheck` 退出码 0；`npm run pack:check` 通过，`npm pack --dry-run --json` 的文件列表里有四个模板。
+
+执行者多做的、任务没有点名的：`README.md` 三处、`docs/README.md` 一处和 `knit init --help` 的说明文字里补上了「通用规范」，设计第 4 节列举通用规范的地方补上了「讨论」。这些都是直接描述 `knit init` 生成什么的句子，主会话看过，留下了。
+
+没有验证的：macOS 上没有跑过。本仓库没有重新安装，也没有重新运行 `knit init`；管理本仓库的安装版还是改之前的。

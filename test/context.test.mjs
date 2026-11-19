@@ -8,7 +8,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { knit } from "./helpers/cli.mjs";
+import { knit, project } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
 import { readyTask, runProject } from "./helpers/run.mjs";
 
@@ -85,6 +85,27 @@ test("没有规范和已经结束的任务", (t) => {
   assert.equal(ended.code, 0, ended.stderr);
   assert.match(ended.stdout.trimEnd().split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
   assert.doesNotMatch(ended.stdout, /规范/);
+});
+
+test("初始化生成的通用规范", (t) => {
+  const dir = project(t);
+  const initialized = knit(dir, "init");
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const created = knit(dir, "task", "new", "--title", "加问候语");
+  assert.equal(created.code, 0, created.stderr);
+  const [first] = created.stdout.split("\n");
+  const id = first.replace("已创建 ", "");
+
+  const shown = knit(dir, "context", id);
+  assert.equal(shown.code, 0, shown.stderr);
+  assert.deepEqual(
+    [...shown.stdout.matchAll(/^<standard path="([^"]+)"/gm)].map((match) => match[1]),
+    [
+      ".knit/standards/discussion.md",
+      ".knit/standards/task-splitting.md",
+      ".knit/standards/task-writing.md",
+    ],
+  );
 });
 
 test("状态没变时输出逐字不变", (t) => {

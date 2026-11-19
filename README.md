@@ -39,7 +39,7 @@ npm install /path/to/knit-0.1.0.tgz
 
 ## 开始用
 
-1. `knit init`：把流程、角色文件和配置生成到项目里，已有的文件不动。
+1. `knit init`：把流程、角色文件、配置和通用规范生成到项目里，已有的文件不动。
 2. 在 `.knit/workflow.yaml` 里写 `model`：写 `provider/模型`，所有环节缺省用它。
 3. `knit workflow validate`：校验流程文件，有问题时逐条给出行号。
 4. 在项目里打开 Pi 并同意加载项目扩展：主会话就有 `knit_task`、`knit_run`、`knit_deliver` 三个工具。
@@ -47,7 +47,7 @@ npm install /path/to/knit-0.1.0.tgz
 ## 命令
 
 ```text
-knit init                        把流程、角色文件和配置生成到项目里；已有的文件不动
+knit init                        把流程、角色文件、配置和通用规范生成到项目里；已有的文件不动
 knit workflow show               显示流程和每个环节的配置
 knit workflow validate           校验流程文件，有问题时逐条给出行号
 knit task new                    创建一个任务
@@ -71,7 +71,7 @@ knit help                        显示帮助
 ```text
 AGENTS.md          开发协作入口
 src/               CLI、契约、领域、用例、适配与基础设施
-assets/templates/  knit init 的模板：流程、角色文件与 Pi 桥接
+assets/templates/  knit init 的模板：流程、角色文件、通用规范与 Pi 桥接
 test/              单元测试与隔离集成测试
 scripts/           构建、打包检查与本地安装
 .knit/             当前任务、流程配置、规范与运行资料
