@@ -40,9 +40,11 @@ npm install /path/to/knit-0.1.0.tgz
 ## 开始用
 
 1. `knit init`：把流程、角色文件、配置和通用规范生成到项目里，已有的文件不动。
-2. 在 `.knit/workflow.yaml` 里写 `model`：写 `provider/模型`，所有环节缺省用它。
+2. 按需在 `.knit/workflow.yaml` 里写 `model`（`provider/模型`）和 `thinking`（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`），所有环节缺省用它们，也可以给环节单独写。派发时分别依次取命令行的 `--model`／`--thinking`、环节的、顶层的、主会话当前的值。模型四处都没有时拒绝派发；思考等级四处都没有时由 Pi 用自己的缺省。
 3. `knit workflow validate`：校验流程文件，有问题时逐条给出行号。
 4. 在项目里打开 Pi 并同意加载项目扩展：主会话就有 `knit_task`、`knit_run`、`knit_deliver` 三个工具。
+
+主会话的模型从 `PI_PROVIDER`、`PI_MODEL` 读取，思考等级从 `PI_REASONING_LEVEL` 读取；桥接的 start 则从当前的 `ctx.model`、`ctx.thinkingLevel` 取值。不在 Pi 会话里时，要在流程里配置模型或加 `--model`，思考等级仍可不指定。Pi 会按模型能力收窄思考等级。
 
 ## 命令
 
@@ -65,6 +67,8 @@ knit context <id>                主会话每轮收到的内容：任务的状�
 knit deliver <id>                交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次
 knit help                        显示帮助
 ```
+
+`knit run start <id> [--model <provider/模型>] [--thinking <等级>]` 可以只覆盖这一次派发。桥接工具 `knit_run` 的 start 对应参数是 `model`、`thinking`。`knit workflow show` 按环节显示模型和思考等级；没配置思考等级时显示 `（没有指定，用主会话的等级）`。
 
 ## 仓库里有什么
 

@@ -1,6 +1,5 @@
 import type { Command } from "commander";
 import { initProject } from "../application/init.js";
-import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { projectRoot } from "./root.js";
 
 export function registerInitCommand(program: Command): void {
@@ -16,9 +15,6 @@ export function registerInitCommand(program: Command): void {
         ...section("已恢复成模板:", result.restored),
         ...(result.backupDir === null ? [] : [`备份: ${result.backupDir}/`]),
         ...section("已有，没有动:", result.kept),
-        ...([...result.created, ...result.restored].includes(WORKFLOW_CONFIG_PATH)
-          ? [`下一步: 在 ${WORKFLOW_CONFIG_PATH} 里写上执行者的模型（model: provider/模型），再运行 knit workflow validate`]
-          : []),
       ];
       process.stdout.write(`${lines.join("\n")}\n`);
     });

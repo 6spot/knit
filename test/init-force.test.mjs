@@ -7,8 +7,6 @@ import { join } from "node:path";
 import { TEMPLATES } from "../dist/application/init.js";
 import { knit } from "./helpers/cli.mjs";
 
-const NEXT_STEP =
-  "下一步: 在 .knit/workflow.yaml 里写上执行者的模型（model: provider/模型），再运行 knit workflow validate";
 const targets = TEMPLATES.map((item) => item.target);
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
 const listed = (title, paths) => [title, ...paths.map((path) => `  ${path}`)];
@@ -54,7 +52,6 @@ test("改过的先备份再恢复", (t) => {
       ...listed("已恢复成模板:", changed),
       `备份: .knit/.runtime/backups/${backups[0]}/`,
       ...listed("已有，没有动:", targets.filter((target) => target !== ".knit/agents/review.md" && !changed.includes(target))),
-      NEXT_STEP,
     ].join("\n")}\n`,
   );
 

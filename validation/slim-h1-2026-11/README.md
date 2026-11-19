@@ -66,11 +66,13 @@
    | 依赖的任务没有完成 | `依赖的任务还没有完成：<id>（draft）` |
    | 依赖的任务不存在 | `依赖的任务不存在：k-000000000000` |
    | 任务已经结束 | `任务已经结束（done），不能再派发` |
-   | 流程里没有写模型 | `没有指定执行者的模型：在 .knit/workflow.yaml 里写 model，或加 --model provider/模型` |
+   | 流程里没有写模型，环境里也没有主会话模型 | `没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型` |
    | `task.md` 写坏了 | `没有任务 <id>；用 knit task list 查看现有任务`（见「发现的问题」第 1 条） |
    | `workflow.yaml` 写坏了 | `第 32 行：YAML 解析失败：…` |
    | `config.json` 写坏了 | `.knit/config.json：不是合法的 JSON：…` |
    | 项目不在 Git 仓库里 | `这个目录不在 Git 仓库里，不能派发执行者` |
+
+   上表的无模型条件和文案已随当前脚本更新；`logs/` 保留 2026-11-17 的原始输出，没有重新生成。
 
    模型不存在不是派发之前能发现的：派发成功，执行者启动 Pi 之后在选模型这一步失败，这次执行记为 `执行者启动失败：set_model 被拒绝: Model not found: magpie/no-such-model`，可以重新派发。
 

@@ -20,11 +20,13 @@ import {
   WORKFLOW_STAGE_ID_REGEX,
   WORKFLOW_VERDICT_ANCHOR,
   TOOLS_ALL_REGEX,
+  THINKING_LEVELS,
   WorkflowConfigSchema,
   isReportEnum,
   isWorkflowAnchor,
   type ReportFieldType,
   type ToolCapability,
+  type ThinkingLevel,
   type WorkflowAnchor,
   type WorkflowConfig,
   type WorkflowIssue,
@@ -42,8 +44,10 @@ export interface WorkflowStage {
   name: string;
   /** 本步说明；缺省 null。 */
   description: string | null;
-  /** 这个环节生效的模型：环节自己写的，否则顶层的；都没写是 null，派发时要另外指定。 */
+  /** 这个环节生效的模型：环节自己写的，否则顶层的；都没写是 null，派发时回退到主会话的模型。 */
   model: string | null;
+  /** 环节自己的思考等级，否则顶层的；都没写是 null，派发时回退到主会话的等级。 */
+  thinking: ThinkingLevel | null;
   /** 项目相对提示词路径；缺省 null，表示用核心默认 agent 指令。 */
   prompt: string | null;
   /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
@@ -405,17 +409,18 @@ function workflowFromConfig(config: WorkflowConfig): WorkflowDefinition {
   return {
     version: WORKFLOW_CONFIG_VERSION,
     anchors: WORKFLOW_ANCHORS,
-    stages: config.stages.map((stage) => normalizeStage(stage, config.model ?? null, defaultMaxVisits)),
+    stages: config.stages.map((stage) => normalizeStage(stage, config, defaultMaxVisits)),
     defaultMaxVisits,
   };
 }
 
-function normalizeStage(stage: WorkflowStageConfig, defaultModel: string | null, defaultMaxVisits: number): WorkflowStage {
+function normalizeStage(stage: WorkflowStageConfig, config: WorkflowConfig, defaultMaxVisits: number): WorkflowStage {
   return {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
-    model: stage.model ?? defaultModel,
+    model: stage.model ?? config.model ?? null,
+    thinking: stage.thinking ?? config.thinking ?? null,
     prompt: stage.prompt ?? null,
     tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
@@ -503,6 +508,7 @@ function schemaIssueCode(pointer: string): WorkflowIssueCode {
   const segments = pointerSegments(pointer);
   if (segments[0] === "version") return "unsupported_version";
   if (segments[0] === "model") return "invalid_model";
+  if (segments[0] === "thinking") return "invalid_thinking";
   if (segments[0] === "maxRepairRounds") return "invalid_max_repair_rounds";
   if (segments[0] === "stages" && segments.length >= 3) {
     switch (segments[2]) {
@@ -510,6 +516,8 @@ function schemaIssueCode(pointer: string): WorkflowIssueCode {
         return "invalid_stage_id";
       case "model":
         return "invalid_model";
+      case "thinking":
+        return "invalid_thinking";
       case "tools":
         return "invalid_tools";
       case "report":
@@ -539,6 +547,8 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
       return `${path} 必须是非负整数或 null`;
     case "invalid_model":
       return `${path} 要写成 provider/模型`;
+    case "invalid_thinking":
+      return `${path} 只允许 ${THINKING_LEVELS.join("／")}`;
     case "invalid_max_repair_rounds":
       return "maxRepairRounds 必须是非负整数";
     case "unsupported_version":

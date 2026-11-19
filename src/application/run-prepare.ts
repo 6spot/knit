@@ -6,7 +6,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
-import { WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
+import { checkSchema } from "../contracts/schema.js";
+import { THINKING_LEVELS, ThinkingLevelSchema, type ThinkingLevel, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
 import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, requirementDigest } from "../domain/task-document.js";
@@ -25,8 +26,10 @@ export interface PrepareRunInput {
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
   readonly config: ProjectConfig;
-  /** 调用方临时指定的模型（provider/模型）；null 时用流程里这个环节的。 */
+  /** 调用方临时指定的模型（provider/模型）；null 时先用流程里的，再用主会话的。 */
   readonly model: string | null;
+  /** 临时指定的思考等级；没给时先用流程里的，再用主会话的。 */
+  readonly thinking?: string | null;
 }
 
 export interface PreparedRun {
@@ -36,6 +39,8 @@ export interface PreparedRun {
   readonly stage: WorkflowStage;
   /** 最后用的模型。 */
   readonly model: string;
+  /** 最后用的思考等级；null 时让 Pi 自己取缺省。 */
+  readonly thinking: ThinkingLevel | null;
 }
 
 export type PrepareRunResult =
@@ -82,11 +87,17 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   if (step.kind === "close") return refuse(`所有环节都做完了；核对之后运行 knit task close ${taskId}`);
   if (step.kind === "limit") return refuse(...limitNotice(taskId, input.workflow, record, step));
   const stage = step.stage;
-  const model = input.model ?? stage.model;
+  const model =
+    input.model ?? stage.model ??
+    (process.env.PI_PROVIDER && process.env.PI_MODEL ? `${process.env.PI_PROVIDER}/${process.env.PI_MODEL}` : null);
   if (model === null) {
-    return refuse("没有指定执行者的模型：在 .knit/workflow.yaml 里写 model，或加 --model provider/模型");
+    return refuse("没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型");
   }
   if (!new RegExp(WORKFLOW_MODEL_PATTERN).test(model)) return refuse(`--model 要写成 provider/模型：${model}`);
+  const thinking = input.thinking ?? stage.thinking ?? process.env.PI_REASONING_LEVEL ?? null;
+  if (thinking !== null && !checkSchema(ThinkingLevelSchema, thinking)) {
+    return refuse(`思考等级只允许 ${THINKING_LEVELS.join("／")}：${thinking}`);
+  }
 
   const counted = countedRuns(record);
   const last = counted.at(-1);
@@ -134,7 +145,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   // 在写回任务之后拍：任务自己的两个文件的变化不会算成执行者的改动。
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(root), null, 2)}\n`);
-  return { run: { id, dir, stage, model }, problems: [] };
+  return { run: { id, dir, stage, model, thinking }, problems: [] };
 }
 
 /**

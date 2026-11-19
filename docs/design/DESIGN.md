@@ -199,7 +199,8 @@ createdAt: 2026-11-14T13:36:56Z
 
 ```yaml
 version: 1
-model: provider/模型          # 所有环节的执行者缺省用的模型
+model: provider/模型          # 可不写；所有环节的执行者缺省用的模型
+thinking: high               # 可不写；所有环节的执行者缺省用的思考等级
 maxRepairRounds: 5            # 返工上限，不写是 5
 stages:
   - id: implement
@@ -209,6 +210,7 @@ stages:
   - id: review
     name: 审查
     model: provider/另一个     # 可以不写；写了只管这个环节
+    thinking: max             # 可以不写；写了只管这个环节
     prompt: .knit/agents/review.md
     tools: [read, write, exec]
     report:
@@ -219,9 +221,12 @@ stages:
 ```
 
 - 两头固定：讨论（需求确认之前）和收尾（交付），都在主会话里。中间有哪些环节、什么顺序，由这个文件决定。默认是实现、审查两个。
-- 执行者的模型：顶层的 `model` 是缺省，环节可以写自己的 `model`。派发时取值的先后是 `knit run start --model`、环节的、顶层的；都没有时拒绝派发。写法是 `provider/模型`，写错在 `knit workflow validate` 时就指出。
+- 执行者的模型：顶层的 `model` 是缺省，环节可以写自己的 `model`。派发时取值的先后是 `knit run start --model`、环节的、顶层的、主会话当前的模型；四处都没有时才拒绝派发。写法是 `provider/模型`，流程里写错在 `knit workflow validate` 时就指出。
+- 执行者的思考等级：顶层的 `thinking` 是缺省，环节可以写自己的 `thinking`。派发时取值的先后是 `knit run start --thinking`、环节的、顶层的、主会话当前的等级；四处都没有时不传 `--thinking`，由 Pi 用自己的缺省，不拒绝派发。允许 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；流程里写错在 `knit workflow validate` 时带行号指出。定下来的等级通过 `--thinking` 传给执行者，后台和 Rex 窗格相同；Pi 会按模型能力收窄等级，Knit 不另做适配。不把思考等级写进 `record.json`，`knit run status` 也不显示。
+- 主会话的模型从环境变量 `PI_PROVIDER`、`PI_MODEL` 读取，两者都有值时拼成 `provider/模型`；思考等级从 `PI_REASONING_LEVEL` 读取。Pi 的 bash 工具会注入这些变量；桥接的 `knit_run` start 从 `ctx.model.provider`、`ctx.model.id` 和 `ctx.thinkingLevel` 取当前值，放进 `knit run start` 子进程的对应环境变量，不把这些回退值变成命令行覆盖。不解析虚拟模型；执行者用这个名字启动不了时，照常记为“执行者启动失败”。
+- `knit workflow show` 每个环节显示生效的模型和思考等级；没有配置思考等级时显示 `（没有指定，用主会话的等级）`，不读取环境变量替换这句提示。
 - 返工上限写在顶层的 `maxRepairRounds`，不写是 5。
-- 每个环节可以写：`id`、`name`、`description`、`model`、`prompt`（角色文件）、`tools`（能力：`read`、`write`、`exec`、`external`、`network`）、`report`（额外的报告字段）、`onVerdict`（按结论跳到哪个环节）、`maxVisits`（第一次之后最多再进入几次，`null` 是不设上限）。
+- 每个环节可以写：`id`、`name`、`description`、`model`、`thinking`、`prompt`（角色文件）、`tools`（能力：`read`、`write`、`exec`、`external`、`network`）、`report`（额外的报告字段）、`onVerdict`（按结论跳到哪个环节）、`maxVisits`（第一次之后最多再进入几次，`null` 是不设上限）。
 - 报告里带 `verdict` 的环节算审查环节。
 - 文件手工改，`knit workflow validate` 校验并给出行号。没有 `add`／`remove`／`move`／`set-*` 这些修改子命令，也没有 `knit_workflow` 工具。
 - 文件有错时，拒绝派发新的执行并指出哪一行。
@@ -247,7 +252,7 @@ stages:
 - 派发执行者要求项目在 Git 仓库里：改动文件是靠 Git 列出文件对比出来的，执行者有没有提交也靠它判断。不在 Git 仓库里的项目，任务由主会话直接做，照样可以确认、完成和交付。要让这类项目也能派发，得另外定怎么列出要对比的文件、跳过哪些目录；现在不做。
 - 执行者不能提交：结束时 HEAD 变了，本次执行记为失败。
 - 执行者不能改 `.knit/standards/`、`.knit/workflow.yaml`、`.knit/config.json` 和流程用到的角色文件：改了，本次执行记为失败。
-- 派发前检查：需求已确认、依赖的任务都已完成、没有别的执行者在跑、这个环节有模型可用、交接内容拼得出来。点名的资料读不出或角色文件不存在时拒绝派发。
+- 派发前检查：需求已确认、依赖的任务都已完成、没有别的执行者在跑、能按第 6.1 节的先后取到模型名、交接内容拼得出来。模型配置和主会话模型都没有时拒绝，提示“不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型”；不在派发前检查 Pi 能否启动这个模型。点名的资料读不出或角色文件不存在时也拒绝派发。
 - 报告是执行者的最后一条消息，全文存成 `runs/<run-id>/report.md`。环节在 `report` 里声明了字段时，报告结尾要有一个 json 代码块给出这些字段；没有声明字段的环节不需要。没有固定字段。
 - 报告读不出来时，要求执行者补报一次；仍然读不出就记为失败，保留原文。
 - 模型请求出错、Pi 自己重试之后仍然失败时，记为失败 `执行者出错：<模型服务给的原因>`，不要求补报，不存报告。后台执行和窗格里执行记的一样。
@@ -386,7 +391,8 @@ stages:
 ```
 knit init
 knit task new | ready | close | cancel | list | show
-knit run start | status | wait | cancel 都按任务 id
+knit run start <任务> [--model <provider/模型>] [--thinking <等级>]
+knit run status | wait | cancel 都按任务 id
 knit context <任务>                      主会话每轮收到的内容
 knit deliver <任务> --authorization <引用> [--message-file <文件>]
 knit deliver <任务> --preview [--message-file <文件>]
@@ -399,7 +405,7 @@ knit workflow show | validate
 | 工具 | 动作 |
 | --- | --- |
 | `knit_task` | new、use、ready、close、list |
-| `knit_run` | start（派发任务当前的环节）、status、cancel |
+| `knit_run` | start（派发任务下一个环节，可选 `model`、`thinking` 参数）、status、cancel |
 | `knit_deliver` | 预览、交付 |
 
 - 工具的声明不随流程配置变化。
@@ -416,7 +422,7 @@ knit workflow show | validate
 3. 模板只有一份来源：`assets/templates/`。本仓库的 `.knit/agents/`、`.knit/workflow.yaml` 和 `.pi/extensions/knit.ts` 是安装版 `knit init` 生成的副本。执行者改模板，不改副本；升级安装版后重新生成。
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
-6. `knit init` 不带 `--force` 时只补上没有的文件，已有的不动。`knit init --force` 只重新生成桥接、`workflow.yaml` 和角色文件，覆盖前把和模板不一样的备份到 `.knit/.runtime/backups/<时间>/`；`config.json`、`standards/` 和 `tasks/` 任何时候都不覆盖。强制覆盖就是恢复成初始内容：流程里改过的环节、模型和返工上限都回到模板的样子。
+6. `knit init` 不带 `--force` 时只补上没有的文件，已有的不动。`knit init --force` 只重新生成桥接、`workflow.yaml` 和角色文件，覆盖前把和模板不一样的备份到 `.knit/.runtime/backups/<时间>/`；`config.json`、`standards/` 和 `tasks/` 任何时候都不覆盖。强制覆盖就是恢复成初始内容：流程里改过的环节、模型、思考等级和返工上限都回到模板的样子。
 
 ## 11. 不做与延后
 

@@ -40,7 +40,7 @@ export async function loadBridge(t, dir) {
   });
 
   return {
-    tool: (name, params) => tools.get(name).execute("call", params, undefined, undefined, ctx),
+    tool: (name, params, context = {}) => tools.get(name).execute("call", params, undefined, undefined, { ...ctx, ...context }),
     fire: async (event, payload) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },

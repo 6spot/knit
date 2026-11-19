@@ -13,8 +13,8 @@ import { readyTask, runProject } from "./helpers/run.mjs";
 
 const workflowOf = (dir, edit = (text) => text) =>
   parseWorkflow(edit(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8"))).workflow;
-const prepare = (dir, taskId, { model = null, workflow = workflowOf(dir) } = {}) =>
-  prepareRun({ root: dir, taskId, workflow, config: loadConfig(dir).config, model });
+const prepare = (dir, taskId, { model = null, thinking, workflow = workflowOf(dir) } = {}) =>
+  prepareRun({ root: dir, taskId, workflow, config: loadConfig(dir).config, model, thinking });
 const documentOf = (dir, task) => parseTaskDocument(readFileSync(join(dir, task.dir, "task.md"), "utf8")).document;
 const recordOf = (dir, task) => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8"));
 const filesOf = (dir, task) => ["task.md", "record.json"].map((file) => readFileSync(join(dir, task.dir, file), "utf8"));
@@ -40,10 +40,10 @@ test("能派发时存好交接内容并登记", (t) => {
   });
   assert.deepEqual(expected.problems, []);
 
-  const { run, problems } = prepare(dir, task.id, { workflow });
+  const { run, problems } = prepare(dir, task.id, { workflow, thinking: "high" });
   assert.deepEqual(problems, []);
   assert.match(run.id, /^r-[0-9a-f]{12}$/);
-  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], model: "fake/model" });
+  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], model: "fake/model", thinking: "high" });
   assert.deepEqual(readdirSync(join(dir, run.dir)).sort(), ["before.json", "message.md", "system.md"]);
   assert.ok(readFileSync(join(dir, run.dir, "system.md"), "utf8").startsWith(`${expected.systemPrompt}\n\n<rules>\n`));
   assert.equal(readFileSync(join(dir, run.dir, "message.md"), "utf8"), expected.firstMessage);
@@ -84,17 +84,13 @@ test("不能派发时说明原因，什么都不写", (t) => {
   const first = readyTask(dir);
   const dependent = readyTask(dir, { dependsOn: [first.id] });
   const second = readyTask(dir);
-  const noModel = workflowOf(dir, (text) => text.replace("model: fake/model\n", ""));
   const before = [first, dependent, second].map((task) => filesOf(dir, task));
 
   const refused = [
     [prepare(dir, draft), `需求还没有确认，或确认之后改过；先运行 knit task ready ${draft}`],
     [prepare(dir, dependent.id), `依赖的任务还没有完成：${first.id}（ready）`],
-    [
-      prepare(dir, first.id, { workflow: noModel }),
-      "没有指定执行者的模型：在 .knit/workflow.yaml 里写 model，或加 --model provider/模型",
-    ],
     [prepare(dir, first.id, { model: "big-model" }), "--model 要写成 provider/模型：big-model"],
+    [prepare(dir, first.id, { thinking: "ultra" }), "思考等级只允许 off／minimal／low／medium／high／xhigh／max：ultra"],
     [prepare(dir, "k-000000000000"), "没有任务 k-000000000000；用 knit task list 查看现有任务"],
   ];
   for (const [result, problem] of refused) assert.deepEqual(result, { run: null, problems: [problem] });

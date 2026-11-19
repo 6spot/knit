@@ -43,7 +43,7 @@ plain="$(new "普通任务" plain)"
 body "$plain"
 knit task ready "$plain" > /dev/null
 sed -i.bak "s|^model: $model\$|# model: provider/模型|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
-refused "流程里没有写模型" knit run start "$plain"
+refused "流程里没有写模型，环境里也没有主会话模型" env -u PI_PROVIDER -u PI_MODEL knit run start "$plain"
 sed -i.bak "s|^# model: provider/模型\$|model: $model|" .knit/workflow.yaml && rm .knit/workflow.yaml.bak
 
 file="$(grep -l "^id: $plain$" .knit/tasks/*/task.md)"

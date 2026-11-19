@@ -7,8 +7,6 @@ import { join } from "node:path";
 import { TEMPLATES } from "../dist/application/init.js";
 import { knit } from "./helpers/cli.mjs";
 
-const NEXT_STEP =
-  "下一步: 在 .knit/workflow.yaml 里写上执行者的模型（model: provider/模型），再运行 knit workflow validate";
 const targets = TEMPLATES.map((item) => item.target);
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
 const listed = (title, paths) => [title, ...paths.map((path) => `  ${path}`)];
@@ -24,7 +22,7 @@ test("在空目录里初始化", (t) => {
   const dir = emptyDir(t);
   const result = knit(dir, "init");
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.stdout, `${[...listed("已生成:", targets), NEXT_STEP].join("\n")}\n`);
+  assert.equal(result.stdout, `${listed("已生成:", targets).join("\n")}\n`);
   for (const item of TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
   assert.deepEqual(readdirSync(join(dir, ".knit", "standards")).sort(), [
     "delivery.md",

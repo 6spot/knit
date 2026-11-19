@@ -29,7 +29,13 @@ async function bridged(t, script) {
   const bridge = await loadBridge(t, dir);
   commitAll(dir, "init");
   const outside = mkdtempSync(join(tmpdir(), "knit-fake-pi-"));
-  const before = { KNIT_PI_BIN: process.env.KNIT_PI_BIN, KNIT_FAKE_PI: process.env.KNIT_FAKE_PI };
+  const before = {
+    KNIT_PI_BIN: process.env.KNIT_PI_BIN,
+    KNIT_FAKE_PI: process.env.KNIT_FAKE_PI,
+    KNIT_FAKE_PI_LOG: process.env.KNIT_FAKE_PI_LOG,
+    PI_PROVIDER: process.env.PI_PROVIDER,
+    PI_MODEL: process.env.PI_MODEL,
+  };
   t.after(() => {
     for (const [name, value] of Object.entries(before)) {
       if (value === undefined) delete process.env[name];
@@ -37,10 +43,14 @@ async function bridged(t, script) {
     }
     rmSync(outside, { recursive: true, force: true });
   });
+  // 桥接在 Pi 里直接 spawn，不会拿到 bash 工具注入的会话模型。
+  delete process.env.PI_PROVIDER;
+  delete process.env.PI_MODEL;
   process.env.KNIT_PI_BIN = FAKE_PI;
   process.env.KNIT_FAKE_PI = join(outside, "script.json");
+  process.env.KNIT_FAKE_PI_LOG = join(outside, "pi.jsonl");
   writeFileSync(process.env.KNIT_FAKE_PI, JSON.stringify(script(outside)));
-  return { dir, bridge };
+  return { dir, bridge, outside };
 }
 
 /** 每 100 毫秒看一次，最多等 20 秒。 */
@@ -67,6 +77,59 @@ test("派发后立即返回，之后能看到结果", async (t) => {
   assert.equal(status.isError, undefined, text(status));
   assert.equal(text(status), knit(dir, "run", "status", task.id).stdout.trimEnd());
   assert.match(text(status), /上一次: 实现/);
+});
+
+test("桥接 start 把 ctx.model 作为环境交给 CLI，执行者用主会话的模型", async (t) => {
+  const { dir, bridge, outside } = await bridged(t, () => ({}));
+  const workflow = join(dir, ".knit/workflow.yaml");
+  writeFileSync(workflow, readFileSync(workflow, "utf8").replace("model: fake/model\n", ""));
+  const task = readyTask(dir);
+  const inherited = { PI_PROVIDER: process.env.PI_PROVIDER, PI_MODEL: process.env.PI_MODEL };
+
+  const started = await bridge.tool("knit_run", { action: "start", taskId: task.id }, { model: { provider: "p", id: "m" } });
+  assert.equal(started.isError, undefined, text(started));
+  const runId = lastRun(dir, task).id;
+  await waitUntil(() => lastRun(dir, task).endedAt !== null, `执行 ${runId} 结束`);
+  await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);
+  assert.equal(lastRun(dir, task).failure, null);
+  const { args } = JSON.parse(readFileSync(join(outside, "pi.jsonl"), "utf8").split("\n")[0]);
+  assert.equal(args[args.indexOf("--provider") + 1], "p");
+  assert.equal(args[args.indexOf("--model") + 1], "m");
+  assert.deepEqual({ PI_PROVIDER: process.env.PI_PROVIDER, PI_MODEL: process.env.PI_MODEL }, inherited);
+  await bridge.fire("session_shutdown");
+});
+
+[
+  { name: "桥接 start 把 ctx.thinkingLevel 交给 CLI，覆盖过期环境", context: "high", override: undefined, expected: "high" },
+  { name: "桥接 start 的 thinking 参数优先于 ctx.thinkingLevel", context: "high", override: "off", expected: "off" },
+  { name: "桥接 start 没有当前等级时不沿用过期环境", context: undefined, override: undefined, expected: null },
+].forEach((scenario) => {
+  test(scenario.name, async (t) => {
+    const { dir, bridge, outside } = await bridged(t, () => ({}));
+    const task = readyTask(dir);
+    const before = process.env.PI_REASONING_LEVEL;
+    t.after(() => {
+      if (before === undefined) delete process.env.PI_REASONING_LEVEL;
+      if (before !== undefined) process.env.PI_REASONING_LEVEL = before;
+    });
+    process.env.PI_REASONING_LEVEL = "low";
+
+    const started = await bridge.tool(
+      "knit_run",
+      { action: "start", taskId: task.id, thinking: scenario.override },
+      { thinkingLevel: scenario.context },
+    );
+    assert.equal(started.isError, undefined, text(started));
+    const runId = lastRun(dir, task).id;
+    await waitUntil(() => lastRun(dir, task).endedAt !== null, `执行 ${runId} 结束`);
+    await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);
+    assert.equal(lastRun(dir, task).failure, null);
+    const { args } = JSON.parse(readFileSync(join(outside, "pi.jsonl"), "utf8").split("\n")[0]);
+    assert.equal(args.includes("--thinking"), scenario.expected !== null);
+    if (scenario.expected !== null) assert.equal(args[args.indexOf("--thinking") + 1], scenario.expected);
+    assert.equal(process.env.PI_REASONING_LEVEL, "low");
+    await bridge.fire("session_shutdown");
+  });
 });
 
 test("取消正在跑的执行", async (t) => {

@@ -38,7 +38,7 @@ test("顶层的模型是缺省，环节可以写自己的", (t) => {
   assert.equal(bareShown.status, 0, bareShown.stderr);
   assert.deepEqual(
     bareShown.stdout.split("\n").filter((line) => line.startsWith("     模型: ")),
-    ["     模型: （没有指定，派发时加 --model）", "     模型: （没有指定，派发时加 --model）"],
+    ["     模型: （没有指定，用主会话的模型）", "     模型: （没有指定，用主会话的模型）"],
   );
 });
 
