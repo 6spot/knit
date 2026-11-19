@@ -1,7 +1,7 @@
 ---
 id: k-22ba3b46dab8
 title: H5f 设计里写上执行目录的文件坏了怎么恢复
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -54,3 +54,9 @@ createdAt: 2026-11-18T16:55:55.408Z
 - `validation/slim-h5-2026-11/broken-run-files.test.mjs` — 核实这一节的测试
 
 交付：`--paths docs/design/DESIGN.md`。提交文案首行建议 `docs: describe how to recover from broken run files`。
+
+## 结果
+
+design-7.3.md 全文插进 docs/design/DESIGN.md 的第 7.2 节之后、第 8 节之前（与来源文件逐行相同），第 7 节开头的列表加了一条指向第 7.3 节。四条完成条件都在 Linux（aarch64，Node 26.3.0）上跑过并满足：标题出现 1 次，行号 288、303、330 递增；「恢复办法见第 7.3 节」出现 1 次；`npm run -s build && node --test validation/slim-h5-2026-11/broken-run-files.test.mjs` 输出 `pass 6`、`fail 0`；任务目录之外只改了 docs/design/DESIGN.md。
+
+没有核实的：第 7.3 节里「执行者在 Rex 的窗格里跑时，另外关掉那个窗格」没有试过，测试只覆盖后台执行。
