@@ -1,6 +1,6 @@
 /**
- * POSIX 进程与 Git argv 基础（TECHNOLOGY.md 第5节）。
- * 进程身份含机器／启动标识、PID starttime 与本次实例信息；旧 PID 不足以判断存活。
+ * POSIX 进程与 Git argv 基础。
+ * 进程身份是进程号加启动标识；只凭进程号判断不了是不是原来那个进程。
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -18,7 +18,7 @@ export interface ManagedProcess {
 
 /**
  * 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的「lstart|comm」文本
- * （lstart 只精确到秒，追加可执行名降低同秒 PID 复用误判；同平台自洽，任务052/B001）。
+ * （lstart 只精确到秒，追加可执行名降低同秒 PID 复用误判；同平台自洽）。
  */
 export function procStartTicks(pid: number): string | null {
   try {
@@ -40,7 +40,7 @@ const PS_IDENTITY_SEPARATOR = "|";
 /**
  * 比较记录的启动标识与当前读到的启动标识。
  * 两侧都带可执行名时全量比较；任一侧是旧格式（只有 lstart）时只比 lstart，
- * 避免升级前写入的 owner 因格式不同被误判为 PID 复用而遭回收。
+ * 避免升级前写入的记录因格式不同被误判为 PID 复用。
  */
 export function sameProcessStart(recorded: string, current: string): boolean {
   if (recorded === current) return true;
@@ -163,7 +163,7 @@ export function gitSync(args: string[], cwd: string): { code: number; stdout: st
 /**
  * 只读进程表：pid、ppid、进程组与启动标识；解析失败条目跳过。
  * Linux 直接读 /proc；其它平台（macOS 等）回退 `ps -eo`——startTicks 用 lstart 文本，
- * 只要写入与核对在同一平台就保持一致（跨平台混用同一锁目录不受支持）。
+ * 只要写入与核对在同一平台就保持一致（同一份运行资料不支持跨平台混用）。
  */
 export function processTable(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
   try {

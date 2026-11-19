@@ -1,0 +1,29 @@
+{
+  "confirmedDigest": "4fae0f0c6e601cc070ddd84a00eb43a4f1dedbbdee34b22c381de974ff2d3113",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-e0914a28cab7",
+      "stage": "implement",
+      "startedAt": "2026-11-19T07:19:00.218Z",
+      "endedAt": "2026-11-19T07:21:24.980Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "4fae0f0c6e601cc070ddd84a00eb43a4f1dedbbdee34b22c381de974ff2d3113",
+      "changedPaths": [
+        "src/adapters/pi/connection.ts",
+        "src/adapters/pi/runtime.ts",
+        "src/contracts/digest.ts",
+        "src/infrastructure/atomic.ts",
+        "src/infrastructure/fingerprint.ts",
+        "src/infrastructure/paths.ts",
+        "src/infrastructure/process.ts",
+        "test/infrastructure.test.mjs",
+        "test/workflow-cli.test.mjs",
+        "test/workflow.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-e0914a28cab7/session/2026-11-19T07-19-01-012Z_ba365ce1-753c-47d6-b6d2-eb0fa80d0bbb.jsonl"
+    }
+  ],
+  "authorization": "user:1eb39684 做完后对照完成条件核对，通过的任务可以交付。"
+}

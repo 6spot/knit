@@ -112,7 +112,7 @@ test("指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸",
   }
 });
 
-test("文件事实：absent 如实记录，不抛错；链接按目标、文件含模式（任务027）", () => {
+test("文件事实：absent 如实记录，不抛错；链接按目标、文件含模式", () => {
   const dir = freshDir("facts");
   try {
     const file = join(dir, "a.txt");

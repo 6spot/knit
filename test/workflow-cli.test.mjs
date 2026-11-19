@@ -8,7 +8,7 @@ import process from "node:process";
 
 const cli = new URL("../dist/cli/knit.js", import.meta.url).pathname;
 
-/** design.md 第 6.1 节的示例流程。 */
+/** docs/design/DESIGN.md 第 6.1 节的示例流程。 */
 const SAMPLE_WORKFLOW_YAML = `version: 1
 stages:
   - id: implement

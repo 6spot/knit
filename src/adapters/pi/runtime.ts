@@ -1,5 +1,5 @@
 /**
- * 本机 Pi CLI AgentRuntime 最小实现（DESIGN.md 5.4–5.6、9.4）。
+ * 本机 Pi CLI AgentRuntime 最小实现。
  * 复用本机客户端鉴权与模型配置；不导入 SDK，不另建模型运行时。
  * 缺能力显式报错，不用自动换模型或伪造成功补齐。
  */
@@ -232,7 +232,7 @@ export class PiAgentRuntime {
         return this.failStart("no_session_state", "get_state 未返回 sessionId");
       }
       // 启动身份核对：恢复（--session）与预分配（--session-id）都要求实际 ID 与预期一致；
-      // 不一致带错误会话锁继续执行会把成果写进错误对象（任务035）。
+      // 不一致还继续执行，会把成果写进错误的对象。
       if (this.options.sessionId !== undefined && sessionId !== this.options.sessionId) {
         return this.failStart(
           "session_identity_mismatch",
@@ -288,7 +288,7 @@ export class PiAgentRuntime {
 
   /**
    * 提交 prompt；返回的 promise 在 agent_settled 或连接结束时解决，不接受单个响应作终态。
-   * timeoutMs 仅控制单个 RPC 响应／观察等待，不是阶段总时限（任务034）：传 null 表示无截止，
+   * timeoutMs 仅控制单个 RPC 响应／观察等待，不是阶段总时限：传 null 表示无截止，
    * 终态只由 agent_settled、进程退出、abort 或连接失败决定。
    */
   async prompt(message: string, timeoutMs: number | null = null): Promise<SettledObservation> {
@@ -302,7 +302,7 @@ export class PiAgentRuntime {
     return this.waitSettled(timeoutMs);
   }
 
-  /** 等待稳定终态；agent_settled 才算，agent_end 不算。timeoutMs 为 null 时无截止（任务034）。 */
+  /** 等待稳定终态；agent_settled 才算，agent_end 不算。timeoutMs 为 null 时无截止。 */
   async waitSettled(timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;

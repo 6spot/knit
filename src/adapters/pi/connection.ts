@@ -1,5 +1,5 @@
 /**
- * Pi CLI stdin/stdout RPC 连接（DESIGN.md 5.6）。
+ * Pi CLI stdin/stdout RPC 连接。
  * 只使用公开 JSONL 协议：请求 {id, type, ...}，响应 {type:"response", id,...}；
  * 其余记录是事件流。响应被接受不等于终态，稳定终态由 agent_settled 事件表达。
  * Pi 协议形状只出现在本目录；不导入 Pi SDK 或 RpcClient。

@@ -1,7 +1,7 @@
 ---
 id: k-7a206502394e
 title: H5d 清理注释里指向旧文档和旧任务的说法
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: k-19c962be9fb8
@@ -76,3 +76,11 @@ createdAt: 2026-11-18T15:28:36.835Z
 - `docs/design/DESIGN.md#11. 不做与延后` — 锁、Worktree 已经去掉的依据
 
 交付：`--paths` 写上表里的 10 个文件。提交文案首行建议 `chore: drop comments that point at the old design and tasks`。
+
+## 结果
+
+`src/` 和 `test/` 里 19 行指向旧设计文档章节、旧任务编号、锁和 Worktree 的注释按任务里的表改了，共 10 个文件，19 行换 19 行。由执行者（magpie/group/deepseek，执行 r-e0914a28cab7）做，主会话对照差异逐行核对过，和表一致。代码没有改，只有一个测试的名字去掉了末尾的括号。
+
+完成条件都满足，主会话在 Linux（Oracle Linux，aarch64，Node 26.3.0）上重新跑过：改之前 `npm test` 是 227 个全部通过（执行者跑的，主会话在上一个任务交付前也跑到同样的数）；残留说法的计数是 `0`；不是注释的改动正好两行，都是 `test("文件事实` 那个名字；改之后 `npm test` 是 `tests 227`、`pass 227`、`fail 0`；`npm run typecheck` 退出码 0。做之前要核实的两处也成立：`process.ts` 里没有读机器标识或实例信息的代码，`atomic.ts` 里没有加锁。
+
+没有验证的：无。

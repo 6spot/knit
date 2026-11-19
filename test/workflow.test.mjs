@@ -13,7 +13,7 @@ import {
 } from "../dist/contracts/workflow.js";
 import { checkSchema } from "../dist/contracts/schema.js";
 
-/** design.md 第 6.1 节的示例流程。 */
+/** docs/design/DESIGN.md 第 6.1 节的示例流程。 */
 const SAMPLE_WORKFLOW_YAML = `version: 1
 stages:
   - id: implement

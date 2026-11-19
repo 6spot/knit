@@ -1,5 +1,5 @@
 /**
- * 原子发布（TECHNOLOGY.md 第4节）：锁内读取预期版本、写临时、fsync、rename、fsync 目录。
+ * 原子发布：读取预期版本、写临时、fsync、rename、fsync 目录。
  * 预期版本不匹配时停止，不用重新渲染覆盖后来输入；临时文件同目录，保证同文件系统。
  */
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";

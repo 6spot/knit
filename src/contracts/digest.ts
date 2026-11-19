@@ -1,7 +1,7 @@
 /**
- * 确定性摘要（TECHNOLOGY.md 第4节）：SHA-256 纯函数，只依赖 node:crypto，无文件系统访问。
+ * 确定性摘要：SHA-256 纯函数，只依赖 node:crypto，无文件系统访问。
  * contracts／domain 用其对输入与清单做稳定指纹；infrastructure/fingerprint 复用本模块，
- * 因此 contracts 不反向依赖 infrastructure（DESIGN.md 第2节分层）。
+ * 因此 contracts 不反向依赖 infrastructure。
  */
 import { createHash } from "node:crypto";
 
