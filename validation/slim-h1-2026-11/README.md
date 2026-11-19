@@ -112,6 +112,8 @@ export KNIT_H1_LOGS="$(mktemp -d)"           # 日志写到这里，不设时是
 
 这两个变量都可以不设。`KNIT_H1_MODEL` 写成 `provider/模型`：`bridge-flow.mjs` 和 `trust.mjs` 用它拆出 Pi 的 `--provider`、`--model`，`refusals.sh` 里「模型不存在」那一种用同一个 provider 加 `no-such-model`。`KNIT_H1_LOGS` 决定 `cli-flow.sh`、`bridge-flow.mjs`、`trust.mjs` 把日志写到哪里；在别的机器上重跑时把它指到一个空目录，`logs/` 里 2026-11-17 的证据就不会被盖掉。
 
+脚本自己去掉环境变量 `REX_SESSION` 和 `REX_BLOCK`，执行者都在后台执行，不开 Rex 窗格：在 Rex 终端里跑和在普通终端里跑走的是同一条路。
+
 每个脚本以退出码 0 结束就是通过，不满足的那一条会写在输出里。要求本机有 Pi 1.5.2 和 `magpie/group/deepseek`。
 
 `logs/` 里的事件记录不含流式输出的增量和 `get_entries` 的响应。主会话启动时加了 `--no-context-files`：不加的话，用户主目录下 `AGENTS.md` 的全文会进系统提示，跟着会话记录存进仓库。执行者不受影响，它们由 Knit 启动，照常读 `AGENTS.md`。

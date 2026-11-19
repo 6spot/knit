@@ -1,6 +1,8 @@
 #!/bin/bash
 # 场景三：取消正在跑的执行。
 set -euo pipefail
+# 演练固定走后台执行：在 Rex 终端里跑时不把执行者开到窗格里。
+unset REX_SESSION REX_BLOCK
 here="$(cd "$(dirname "$0")" && pwd)"
 base="$("$here/setup.sh" cancel)"
 export PATH="$base/bin:$PATH"

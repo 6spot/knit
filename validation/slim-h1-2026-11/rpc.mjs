@@ -8,7 +8,7 @@ const DIALOGS = ["select", "confirm", "input", "editor"];
 /** 不带进主会话的变量：这些是运行本脚本的那个 Pi 会话自己的。 */
 export function cleanEnv(extra = {}) {
   const env = { ...process.env, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", ...extra };
-  for (const key of ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_CODING_AGENT"]) {
+  for (const key of ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_CODING_AGENT", "REX_SESSION", "REX_BLOCK"]) {
     delete env[key];
   }
   return env;

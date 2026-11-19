@@ -1,6 +1,8 @@
 #!/bin/bash
 # 场景一：用命令行走完一个任务，执行者是真的 Pi。
 set -euo pipefail
+# 演练固定走后台执行：在 Rex 终端里跑时不把执行者开到窗格里。
+unset REX_SESSION REX_BLOCK
 here="$(cd "$(dirname "$0")" && pwd)"
 # 日志目录可以从外面指定：别的机器上重跑时不覆盖这里 2026-11-17 的证据。
 logs="${KNIT_H1_LOGS:-$here/logs}"
