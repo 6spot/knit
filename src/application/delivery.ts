@@ -125,6 +125,10 @@ export function commitDelivery(root: string, input: CommitDeliveryInput): Delive
   const files = changedAmong(root, [...input.recorded, input.taskDir, input.archiveDir]);
   // 不带路径的 git add -A 会暂存整个工作区。
   if (files.length === 0) return { kind: "nothing" };
+  // 已经暂存的删除在工作区和暂存区里都已经没有文件，add 的路径对不上；先撤掉这些路径的暂存，
+  // 别的路径的暂存不动。
+  const reset = gitSync(["--literal-pathspecs", "reset", "-q", "--", ...files], root);
+  if (reset.code !== 0) return { kind: "refused", error: reset.stderr, files };
   const added = gitSync(["--literal-pathspecs", "add", "-A", "--", ...files], root);
   if (added.code !== 0) return { kind: "refused", error: added.stderr, files };
   // --only：原来已经暂存的别的文件不进这次提交。不加 --no-verify，仓库的 hook 照常运行。

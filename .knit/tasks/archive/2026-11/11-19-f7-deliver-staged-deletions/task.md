@@ -1,7 +1,7 @@
 ---
 id: k-7c9ba52b575b
 title: F7 交付时任务里有已经暂存的删除也能一次提交
-status: draft
+status: delivered
 stage: null
 verification: independent
 parent: k-19c962be9fb8
@@ -77,3 +77,11 @@ Git 没有接受这次提交，交付已经撤回：任务目录在 .knit/tasks/
 验证：`npm test` 全部通过，测试个数比改之前多（改之前先运行一次记下个数，写这个任务时是 227；改之前就有失败时停下来报告）；`npm run typecheck` 退出码 0。
 
 交付：本任务要求独立审查。提交文案首行建议 `fix: deliver tasks whose deletions are already staged`。交付之后 `validation/slim-h5-2026-11/README.md`「做这些时发现的问题」那一段可以删掉，由主会话在资料提交里做。
+
+## 结果
+
+`commitDelivery` 在 `git add` 之前先对要提交的那批路径运行 `git reset -q --`，撤掉它们的暂存，再照原样 `add -A` 和 `commit --only`；任务里有用 `git mv`、`git rm` 改过的文件时一次交付成功。改动是 `src/application/delivery.ts` 里的 4 行，`test/deliver-commit.test.mjs` 加了 3 个测试，各对应一个场景。实现（执行 r-5367bb9eac27）和独立审查（执行 r-9ded8e872652，结论 pass，没有改文件）都由执行者做，模型是 magpie/group/deepseek。
+
+三个场景都满足。审查者把新加的 4 行去掉重新构建，3 个新测试都以任务里写的 `fatal: pathspec 'd/a.md' did not match any files` 失败，还原之后通过。主会话在 Linux（Oracle Linux，aarch64，Node 26.3.0，Git 2.52.0）上重新跑过：`npm test` 是 `tests 230`、`pass 230`、`fail 0`（改之前 227）；`npm run typecheck` 退出码 0；原有的「只提交这个任务的文件」「没有要提交的文件时不提交」「Git 拒绝提交时撤回」都通过。「用 git rm 删除的文件」的测试只断言 `d/a.md` 在提交里，没有断言它是删除；主会话在临时仓库里手工走了一遍，提交里是 `D d/a.md`，之后 `git status --porcelain` 没有输出。
+
+没有验证的：macOS 上没有跑过；比 2.52.0 老的 Git 没有试过。管理本仓库的安装版还是改之前的，要运行 `npm run pack:install` 升级之后这个修复才对本仓库的交付生效。

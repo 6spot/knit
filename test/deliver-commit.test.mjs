@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { knit, project } from "./helpers/cli.mjs";
 import { doneTask, gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
+import { readyTask } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -53,6 +54,84 @@ test("只提交这个任务的文件", (t) => {
   assert.match(git(dir, "show", `HEAD:${archived(task)}/task.md`), /^status: delivered$/m);
   assert.equal(git(dir, "log", "-1", "--format=%B"), `feat: 加问候语\n\n# 说明一行\n\nKnit-Task: ${task.id}`);
   assert.equal(git(dir, "status", "--porcelain"), "M  src/c.ts\n?? other.txt");
+});
+
+test("用 git mv 移动过的文件", (t) => {
+  const dir = gitProject(t);
+  gitIdentity(dir);
+  mkdirSync(join(dir, "d"));
+  writeFileSync(join(dir, "d/a.md"), "a\n");
+  const task = readyTask(dir, { verification: "self" });
+  commitAll(dir, "task");
+  mkdirSync(join(dir, "e"));
+  git(dir, "mv", "d/a.md", "e/a.md");
+  const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--paths", "d/a.md", "e/a.md");
+  assert.equal(closed.code, 0, closed.stderr);
+
+  const delivered = deliver(dir, task, "--message-file", messageFile(t, "feat: 移动文件\n"));
+
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.match(delivered.stdout, /^已交付 /m);
+  assert.deepEqual(git(dir, "show", "--name-status", "--no-renames", "--format=", "HEAD").split("\n").sort(), [
+    `A\t${archived(task)}/record.json`,
+    `A\t${archived(task)}/task.md`,
+    "A\te/a.md",
+    `D\t${task.dir}/record.json`,
+    `D\t${task.dir}/task.md`,
+    "D\td/a.md",
+  ]);
+  assert.equal(git(dir, "status", "--porcelain"), "");
+});
+
+test("用 git rm 删除的文件", (t) => {
+  const dir = gitProject(t);
+  gitIdentity(dir);
+  mkdirSync(join(dir, "d"));
+  writeFileSync(join(dir, "d/a.md"), "a\n");
+  const task = readyTask(dir, { verification: "self" });
+  commitAll(dir, "task");
+  git(dir, "rm", "d/a.md");
+  const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--paths", "d/a.md");
+  assert.equal(closed.code, 0, closed.stderr);
+
+  const delivered = deliver(dir, task, "--message-file", messageFile(t, "feat: 删除文件\n"));
+
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.match(delivered.stdout, /^已交付 /m);
+  assert.equal(
+    git(dir, "show", "--name-only", "--no-renames", "--format=", "HEAD")
+      .split("\n")
+      .includes("d/a.md"),
+    true,
+  );
+  assert.equal(git(dir, "status", "--porcelain"), "");
+});
+
+test("别的已经暂存的文件不受影响", (t) => {
+  const dir = gitProject(t);
+  gitIdentity(dir);
+  mkdirSync(join(dir, "d"));
+  writeFileSync(join(dir, "d/a.md"), "a\n");
+  writeFileSync(join(dir, "other.txt"), "other\n");
+  const task = readyTask(dir, { verification: "self" });
+  commitAll(dir, "task");
+  mkdirSync(join(dir, "e"));
+  git(dir, "mv", "d/a.md", "e/a.md");
+  writeFileSync(join(dir, "other.txt"), "other2\n");
+  git(dir, "add", "other.txt");
+  const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--paths", "d/a.md", "e/a.md");
+  assert.equal(closed.code, 0, closed.stderr);
+
+  const delivered = deliver(dir, task, "--message-file", messageFile(t, "feat: 移动文件\n"));
+
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(
+    git(dir, "show", "--name-only", "--no-renames", "--format=", "HEAD")
+      .split("\n")
+      .includes("other.txt"),
+    false,
+  );
+  assert.equal(git(dir, "status", "--porcelain"), "M  other.txt");
 });
 
 test("没有提交文案时拒绝", (t) => {
