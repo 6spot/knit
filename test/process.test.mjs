@@ -77,7 +77,8 @@ test("进程树：取消时清理工具自建进程组的后代", async () => {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
     process.on("SIGTERM", () => {});
     child.once("exit", () => process.exit(0));
-    console.log(child.pid);
+    // console.log 在有颜色的终端里会给数字加颜色码，读的一方解析不出进程号。
+    process.stdout.write(String(child.pid));
   `], { cwd: tmpdir() });
   try {
     const reader = root.stdout.getReader();
