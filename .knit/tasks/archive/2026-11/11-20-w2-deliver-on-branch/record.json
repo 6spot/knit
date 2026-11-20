@@ -1,0 +1,40 @@
+{
+  "confirmedDigest": "6d30e658ac1f81c44be0e5c233405ce0b805b772c4e15dddb296e341910d4a55",
+  "changedPaths": [
+    ".knit/standards/delivery.md"
+  ],
+  "runs": [
+    {
+      "id": "r-024a32985140",
+      "stage": "implement",
+      "startedAt": "2026-11-20T10:47:49.348Z",
+      "endedAt": "2026-11-20T11:02:35.634Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "6d30e658ac1f81c44be0e5c233405ce0b805b772c4e15dddb296e341910d4a55",
+      "changedPaths": [
+        "assets/templates/pi/extensions/knit.ts",
+        "assets/templates/standards/delivery.md",
+        "docs/design/DESIGN.md",
+        "src/application/delivery.ts",
+        "src/application/task-store.ts",
+        "src/cli/deliver.ts",
+        "test/deliver-preview.test.mjs",
+        "test/deliver-worktree.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-024a32985140/session/2026-11-20T10-47-50-071Z_2b00a66d-38f0-4a88-bbd3-b7adb702788a.jsonl"
+    },
+    {
+      "id": "r-bdb6b35c4fca",
+      "stage": "review",
+      "startedAt": "2026-11-20T11:03:27.880Z",
+      "endedAt": "2026-11-20T11:08:04.275Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "6d30e658ac1f81c44be0e5c233405ce0b805b772c4e15dddb296e341910d4a55",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-bdb6b35c4fca/session/2026-11-20T11-03-28-455Z_ad2fbddc-fb3f-4314-a9b9-bd49f95e8139.jsonl"
+    }
+  ],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}
