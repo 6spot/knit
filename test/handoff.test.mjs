@@ -28,6 +28,7 @@ function taskWith(dir, references, result = null) {
 }
 
 const IMPLEMENT = { id: "implement", prompt: ".knit/agents/implement.md" };
+const location = (dir, task) => `你在任务的 Worktree 里工作：${dir}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${dir}），只读，不要改。任务目录：${join(dir, task.dir)}；这些资料和报告按给出的绝对路径读取。`;
 
 test("系统提示里是角色文件和规范", (t) => {
   const dir = project(t);
@@ -38,7 +39,7 @@ test("系统提示里是角色文件和规范", (t) => {
     ".knit/standards/c.md": "丙的正文\n",
   });
   const task = taskWith(dir, () => "- `.knit/standards/c.md#丙` — 点名追加的规范\n- `.knit/standards/a.md` — 本来就适用的规范");
-  const handoff = assembleHandoff({ root: dir, task, stage: IMPLEMENT, previous: null });
+  const handoff = assembleHandoff({ root: dir, worktree: dir, task, stage: IMPLEMENT, previous: null });
 
   assert.equal(
     handoff.systemPrompt,
@@ -53,7 +54,7 @@ test("系统提示里是角色文件和规范", (t) => {
   assert.ok(!handoff.firstMessage.includes("<material"));
 
   // 没有角色文件的环节：系统提示里只有规范。
-  const review = assembleHandoff({ root: dir, task, stage: { id: "review", prompt: null }, previous: null });
+  const review = assembleHandoff({ root: dir, worktree: dir, task, stage: { id: "review", prompt: null }, previous: null });
   assert.ok(review.systemPrompt.startsWith('<standard path=".knit/standards/a.md"'));
   assert.deepEqual(review.problems, []);
 });
@@ -82,11 +83,12 @@ test("第一条消息里是需求、资料、计划和上一环节的报告", (t
   });
   const input = {
     root: dir,
+    worktree: dir,
     task: findTask(dir, task.document.frontmatter.id),
     stage: { id: "review", prompt: null },
     previous: {
       stage: "implement",
-      path: ".knit/.runtime/runs/r-1/report.md",
+      path: join(dir, ".knit/.runtime/runs/r-1/report.md"),
       changedPaths: ["src/a.ts", "src/b.ts"],
       text: "\n做完了，测试通过。\n",
     },
@@ -96,12 +98,13 @@ test("第一条消息里是需求、资料、计划和上一环节的报告", (t
   assert.equal(
     handoff.firstMessage,
     [
-      `<task path="${task.dir}/task.md">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>`,
+      location(dir, task),
+      `<task path="${join(dir, task.dir, "task.md")}">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>`,
       '<material path="src/a.ts">\nexport const a = 1;\n</material>',
       '<material path="docs/design.md#5-交接">\n## 5. 交接\n\n只给点名的一节。\n</material>',
       '<material path="src/pi/">\n这是一个目录，没有附上内容。\n</material>',
-      `<plan path="${task.dir}/plan.md">\n先做甲，再做乙。\n</plan>`,
-      '<previous-report stage="implement" path=".knit/.runtime/runs/r-1/report.md">\n' +
+      `<plan path="${join(dir, task.dir, "plan.md")}">\n先做甲，再做乙。\n</plan>`,
+      `<previous-report stage="implement" path="${input.previous.path}">\n` +
         "改动的文件：\n- src/a.ts\n- src/b.ts\n\n做完了，测试通过。\n</previous-report>",
     ].join("\n\n"),
   );
@@ -120,7 +123,7 @@ test("缺少文件时说明问题", (t) => {
   const dir = project(t);
   write(dir, { "src/a.ts": "export const a = 1;\n" });
   const task = taskWith(dir, () => "- `src/missing.ts` — 写错了路径\n- `src/a.ts` — 要改的文件");
-  const handoff = assembleHandoff({ root: dir, task, stage: IMPLEMENT, previous: null });
+  const handoff = assembleHandoff({ root: dir, worktree: dir, task, stage: IMPLEMENT, previous: null });
 
   assert.deepEqual(handoff.problems, [
     "环节 implement 的角色文件不存在：.knit/agents/implement.md",
@@ -129,14 +132,14 @@ test("缺少文件时说明问题", (t) => {
   assert.equal(handoff.systemPrompt, "");
   assert.equal(
     handoff.firstMessage,
-    `<task path="${task.dir}/task.md">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>\n\n` +
+    `${location(dir, task)}\n\n<task path="${join(dir, task.dir, "task.md")}">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>\n\n` +
       '<material path="src/a.ts">\nexport const a = 1;\n</material>',
   );
 
   // 「相关资料」点名了自己的 plan.md 时只按点名的给，不再另给一块计划。
   const planned = taskWith(dir, (taskDir) => `- \`${taskDir}/plan.md#步骤\` — 只要步骤这一节`);
   write(dir, { [`${planned.dir}/plan.md`]: "## 步骤\n\n先做甲。\n\n## 备忘\n\n别的内容。\n" });
-  const once = assembleHandoff({ root: dir, task: planned, stage: { id: "implement", prompt: null }, previous: null });
-  assert.ok(once.firstMessage.endsWith(`<material path="${planned.dir}/plan.md#步骤">\n## 步骤\n\n先做甲。\n</material>`));
+  const once = assembleHandoff({ root: dir, worktree: dir, task: planned, stage: { id: "implement", prompt: null }, previous: null });
+  assert.ok(once.firstMessage.endsWith(`<material path="${join(dir, planned.dir, "plan.md")}#步骤">\n## 步骤\n\n先做甲。\n</material>`));
   assert.ok(!once.firstMessage.includes("<plan"));
 });

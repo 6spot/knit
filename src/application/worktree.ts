@@ -23,17 +23,35 @@ export function taskWorktree(root: string, taskDir: string): TaskWorktree {
   };
 }
 
-/** 只在所有派发校验通过之后调用；已有目录复用，丢失目录按原分支重建。 */
-export function ensureWorktree(root: string, worktree: TaskWorktree): string[] {
-  if (existsSync(join(worktree.path, ".git"))) return [];
+export interface PreparedWorktree {
+  readonly problems: readonly string[];
+  readonly created: boolean;
+  readonly branchCreated: boolean;
+}
+
+/** 非交接的派发校验通过后调用；已有目录复用，丢失目录按原分支重建。 */
+export function ensureWorktree(root: string, worktree: TaskWorktree): PreparedWorktree {
+  if (existsSync(join(worktree.path, ".git"))) return { problems: [], created: false, branchCreated: false };
   const branchExists = gitSync(["show-ref", "--verify", "--quiet", `refs/heads/${worktree.branch}`], root).code === 0;
   const pruned = branchExists ? gitSync(["worktree", "prune"], root) : null;
-  if (pruned !== null && pruned.code !== 0) return [pruned.stderr.trimEnd()];
+  if (pruned !== null && pruned.code !== 0) return { problems: [pruned.stderr.trimEnd()], created: false, branchCreated: false };
   const added = gitSync(
     branchExists
       ? ["worktree", "add", worktree.path, worktree.branch]
       : ["worktree", "add", "-b", worktree.branch, worktree.path, "HEAD"],
     root,
   );
-  return added.code === 0 ? [] : [added.stderr.trimEnd()];
+  return added.code === 0
+    ? { problems: [], created: true, branchCreated: !branchExists }
+    : { problems: [added.stderr.trimEnd()], created: false, branchCreated: false };
+}
+
+/** 派发被拒绝时只撤回这次准备新建的目录和分支，不碰之前的工作。 */
+export function rollbackWorktree(root: string, worktree: TaskWorktree, prepared: PreparedWorktree): string[] {
+  if (!prepared.created) return [];
+  const removed = gitSync(["worktree", "remove", worktree.path], root);
+  if (removed.code !== 0) return [removed.stderr.trimEnd()];
+  if (!prepared.branchCreated) return [];
+  const deleted = gitSync(["branch", "-D", worktree.branch], root);
+  return deleted.code === 0 ? [] : [deleted.stderr.trimEnd()];
 }

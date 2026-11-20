@@ -1,0 +1,36 @@
+{
+  "confirmedDigest": "419cb19a1dad80a037967f2b4b80abd7073b4e3801860067f479003fae911b61",
+  "changedPaths": [
+    "docs/design/DESIGN.md",
+    "src/application/handoff.ts",
+    "src/application/task-materials.ts",
+    "test/handoff-worktree.test.mjs"
+  ],
+  "runs": [
+    {
+      "id": "r-cffe45757719",
+      "stage": "implement",
+      "startedAt": "2026-11-20T15:04:09.898Z",
+      "endedAt": "2026-11-20T15:16:19.037Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "419cb19a1dad80a037967f2b4b80abd7073b4e3801860067f479003fae911b61",
+      "changedPaths": [
+        "docs/design/DESIGN.md",
+        "src/application/handoff.ts",
+        "src/application/run-prepare.ts",
+        "src/application/task-materials.ts",
+        "src/application/worktree.ts",
+        "test/handoff-limits.test.mjs",
+        "test/handoff-own.test.mjs",
+        "test/handoff-worktree.test.mjs",
+        "test/handoff.test.mjs",
+        "test/run-prepare.test.mjs",
+        "test/run-start.test.mjs",
+        "test/stage-rules.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-cffe45757719/session/2026-11-20T15-04-10-599Z_4e6c6889-6ecb-45ad-ad8e-2d1994e2aa03.jsonl"
+    }
+  ],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}

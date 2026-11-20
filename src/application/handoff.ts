@@ -4,7 +4,7 @@
  * 「结果」、record.json 和没有点名的资料不给。
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { standardsForStage } from "../domain/standards.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import { referencesOf } from "../domain/task-references.js";
@@ -13,7 +13,10 @@ import { loadStandards } from "./standards-store.js";
 import { readMaterials } from "./task-materials.js";
 
 export interface HandoffInput {
+  /** 主检出；任务、报告、角色文件和规范的来源。 */
   readonly root: string;
+  /** 执行者所在的任务 Worktree；仓库资料的来源。 */
+  readonly worktree: string;
   /** 任务目录（相对项目根）和解析出的 task.md。 */
   readonly task: { readonly dir: string; readonly document: TaskDocument };
   /** 环节 id 和角色文件的路径（相对项目根）。 */
@@ -28,7 +31,7 @@ export interface HandoffInput {
 
 export interface HandoffReport {
   readonly stage: string;
-  /** 报告原文的路径。 */
+  /** 报告原文在主检出里的绝对路径。 */
   readonly path: string;
   readonly changedPaths: readonly string[];
   readonly text: string;
@@ -67,6 +70,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
   const materials = readMaterials(
     input.root,
     references.filter((reference) => !standards.some((standard) => standard.path === projectRelative(reference.path))),
+    { worktree: input.worktree },
   );
   const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt);
   const planPath = `${input.task.dir}/plan.md`;
@@ -82,7 +86,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     }));
   const taskBlock = {
     tag: "task",
-    attributes: { path: `${input.task.dir}/task.md` },
+    attributes: { path: resolve(input.root, input.task.dir, "task.md") },
     content: trimBlankLines(`# ${input.task.document.frontmatter.title}\n\n${input.task.document.requirement}`),
   };
   // 受上限约束的块，按第一条消息里的先后；content 是 null 的是目录，没有内容可附。
@@ -94,7 +98,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       },
       content: material.text === null ? null : trimBlankLines(material.text),
     })),
-    ...(plan === null ? [] : [{ tag: "plan", attributes: { path: planPath }, content: trimBlankLines(plan) }]),
+    ...(plan === null ? [] : [{ tag: "plan", attributes: { path: resolve(input.root, planPath) }, content: trimBlankLines(plan) }]),
     ...(input.previous === null ? [] : [reportBlock("previous-report", input.previous)]),
     ...(input.own == null ? [] : [reportBlock("own-last-report", input.own)]),
   ];
@@ -125,7 +129,11 @@ export function assembleHandoff(input: HandoffInput): Handoff {
 
   return {
     systemPrompt: [...roleText, ...standardBlocks.map(render)].join("\n\n"),
-    firstMessage: [taskBlock, ...fitted].map(render).join("\n\n"),
+    // 工作位置说明不改变原有的资料字节预算。
+    firstMessage: [
+      `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；这些资料和报告按给出的绝对路径读取。`,
+      ...[taskBlock, ...fitted].map(render),
+    ].join("\n\n"),
     problems: [
       ...(input.stage.prompt !== null && role === null
         ? [`环节 ${input.stage.id} 的角色文件不存在：${input.stage.prompt}`]

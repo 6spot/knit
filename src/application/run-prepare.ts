@@ -4,7 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { checkSchema } from "../contracts/schema.js";
 import { THINKING_LEVELS, ThinkingLevelSchema, type ThinkingLevel, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
@@ -17,7 +17,7 @@ import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, type HandoffReport } from "./handoff.js";
 import { saveTask, scanTasks } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
-import { ensureWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
+import { ensureWorktree, rollbackWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
 
 /** 一次执行的目录是 `<RUNS_DIR>/<run-id>`。 */
 export const RUNS_DIR = ".knit/.runtime/runs";
@@ -101,25 +101,28 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
     return refuse(`思考等级只允许 ${THINKING_LEVELS.join("／")}：${thinking}`);
   }
 
+  if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
+    return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
+  }
+  const worktree = taskWorktree(root, stored.dir);
+  const preparedWorktree = ensureWorktree(root, worktree);
+  if (preparedWorktree.problems.length > 0) return refuse(...preparedWorktree.problems);
+  const refusePrepared = (...problems: string[]) => refuse(...problems, ...rollbackWorktree(root, worktree, preparedWorktree));
+
   const counted = countedRuns(record);
   const last = counted.at(-1);
   // 再次进入这个环节时带上它自己上一次的报告；留在原环节再做时那就是上一个环节的报告，不重复给。
   const own = counted.findLast((run) => run.stage === stage.id);
   const handoff = assembleHandoff({
     root,
+    worktree: worktree.path,
     task: { dir: stored.dir, document },
     stage,
     previous: last === undefined ? null : reportOf(root, last),
     own: own === undefined || own === last ? null : reportOf(root, own),
     limits: input.config.handoff,
   });
-  if (handoff.problems.length > 0) return refuse(...handoff.problems);
-  if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
-    return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
-  }
-  const worktree = taskWorktree(root, stored.dir);
-  const worktreeProblems = ensureWorktree(root, worktree);
-  if (worktreeProblems.length > 0) return refuse(...worktreeProblems);
+  if (handoff.problems.length > 0) return refusePrepared(...handoff.problems);
 
   const id = `r-${randomBytes(6).toString("hex")}`;
   const conflicts = saveTask(
@@ -144,7 +147,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
       ],
     },
   );
-  if (conflicts.length > 0) return refuse(...conflicts);
+  if (conflicts.length > 0) return refusePrepared(...conflicts);
 
   const dir = `${RUNS_DIR}/${id}`;
   mkdirSync(join(root, dir), { recursive: true });
@@ -181,11 +184,11 @@ export function limitNotice(
 
 /** 一次执行的报告，交接时用。 */
 function reportOf(root: string, run: TaskRun): HandoffReport {
-  const path = `${RUNS_DIR}/${run.id}/report.md`;
+  const path = resolve(root, RUNS_DIR, run.id, "report.md");
   return {
     stage: run.stage,
     path,
     changedPaths: run.changedPaths,
-    text: existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : "报告原文不在这台机器上。",
+    text: existsSync(path) ? readFileSync(path, "utf8") : "报告原文不在这台机器上。",
   };
 }

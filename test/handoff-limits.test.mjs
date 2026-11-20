@@ -32,9 +32,10 @@ test("单个文件超过上限时只给路径", (t) => {
   write(dir, { "docs/big.md": `${"字".repeat(100)}\n`, "docs/small.md": `${"字".repeat(60)}\n` });
   const handoff = assembleHandoff({
     root: dir,
+    worktree: dir,
     task: taskNaming(dir, ["docs/big.md", "docs/small.md"]),
     stage: { id: "implement", prompt: null },
-    previous: { stage: "implement", path: ".knit/.runtime/runs/r-1/report.md", changedPaths: [], text: "x".repeat(190) },
+    previous: { stage: "implement", path: join(dir, ".knit/.runtime/runs/r-1/report.md"), changedPaths: [], text: "x".repeat(190) },
     limits: { fileBytes: 200, totalBytes: 100000 },
   });
 
@@ -46,10 +47,8 @@ test("单个文件超过上限时只给路径", (t) => {
   );
   assert.ok(handoff.firstMessage.includes(`<material path="docs/small.md">\n${"字".repeat(60)}\n</material>`));
   // 报告连同“改动的文件”那一段一起算，超过了也只给路径。
-  assert.match(
-    handoff.firstMessage,
-    /<previous-report stage="implement" path="\.knit\/\.runtime\/runs\/r-1\/report\.md">\n这份资料有 \d+ 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n<\/previous-report>$/,
-  );
+  assert.ok(handoff.firstMessage.includes(`<previous-report stage="implement" path="${join(dir, ".knit/.runtime/runs/r-1/report.md")}">`));
+  assert.match(handoff.firstMessage, /\n这份资料有 \d+ 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n<\/previous-report>$/);
   assert.deepEqual(handoff.problems, []);
 });
 
@@ -69,7 +68,7 @@ test("合计超过上限时后面的只给路径", (t) => {
   // 任何时候都全文给的三样：角色文件、规范、需求部分。
   const always = bytes("角色") + bytes("规范正文") + bytes(taskContent);
   const assemble = (totalBytes) =>
-    assembleHandoff({ root: dir, task, stage: STAGE, previous: null, limits: { fileBytes: 200, totalBytes } });
+    assembleHandoff({ root: dir, worktree: dir, task, stage: STAGE, previous: null, limits: { fileBytes: 200, totalBytes } });
 
   const handoff = assemble(always + 299);
   assert.equal(
@@ -79,12 +78,13 @@ test("合计超过上限时后面的只给路径", (t) => {
   assert.equal(
     handoff.firstMessage,
     [
-      `<task path="${task.dir}/task.md">\n${taskContent}\n</task>`,
+      `你在任务的 Worktree 里工作：${dir}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${dir}），只读，不要改。任务目录：${join(dir, task.dir)}；这些资料和报告按给出的绝对路径读取。`,
+      `<task path="${join(dir, task.dir, "task.md")}">\n${taskContent}\n</task>`,
       `<material path="docs/one.md">\n${"1".repeat(100)}\n</material>`,
       '<material path="src/pi">\n这是一个目录，没有附上内容。\n</material>',
       `<material path="docs/two.md">\n${"2".repeat(100)}\n</material>`,
       `<material path="docs/three.md">\n加上这份资料会超过一次交接的上限 ${always + 299} 字节，没有附上；需要时按路径自己读。\n</material>`,
-      `<plan path="${task.dir}/plan.md">\n先做甲。\n</plan>`,
+      `<plan path="${join(dir, task.dir, "plan.md")}">\n先做甲。\n</plan>`,
     ].join("\n\n"),
   );
   assert.deepEqual(handoff.problems, []);
@@ -108,9 +108,10 @@ test("没有超出时和原来相同", (t) => {
   write(dir, { [`${task.dir}/plan.md`]: "先做甲。\n" });
   const input = {
     root: dir,
+    worktree: dir,
     task,
     stage: STAGE,
-    previous: { stage: "implement", path: ".knit/.runtime/runs/r-1/report.md", changedPaths: ["docs/one.md"], text: "做完了。" },
+    previous: { stage: "implement", path: join(dir, ".knit/.runtime/runs/r-1/report.md"), changedPaths: ["docs/one.md"], text: "做完了。" },
   };
   const handoff = assembleHandoff(input);
 

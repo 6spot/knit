@@ -23,7 +23,7 @@ function prepare(dir, task) {
     model: null,
   });
   assert.deepEqual(problems, []);
-  return { ...run, message: readFileSync(join(dir, run.dir, "message.md"), "utf8") };
+  return { ...run, root: dir, message: readFileSync(join(dir, run.dir, "message.md"), "utf8") };
 }
 /** 写下这次执行的报告，再把它记成正常结束。 */
 function finish(dir, task, run, report, verdict = null) {
@@ -40,7 +40,7 @@ function finish(dir, task, run, report, verdict = null) {
   assert.deepEqual(problems, []);
 }
 const block = (tag, stage, run, body) =>
-  `<${tag} stage="${stage}" path="${RUNS_DIR}/${run.id}/report.md">\n${body}\n</${tag}>`;
+  `<${tag} stage="${stage}" path="${join(run.root, RUNS_DIR, run.id, "report.md")}">\n${body}\n</${tag}>`;
 
 test("返工和再审时两份报告都拿到", (t) => {
   const dir = runProject(t);
@@ -105,18 +105,17 @@ test("受字节上限约束，不给时和原来相同", (t) => {
   const stored = findTask(dir, readyTask(dir).id);
   const input = {
     root: dir,
+    worktree: worktreeOf(dir, stored),
     task: { dir: stored.dir, document: stored.document },
     stage: { id: "review", prompt: ".knit/agents/review.md" },
-    previous: { stage: "implement", path: `${RUNS_DIR}/r-2/report.md`, changedPaths: [], text: "实现的报告。" },
+    previous: { stage: "implement", path: join(dir, RUNS_DIR, "r-2/report.md"), changedPaths: [], text: "实现的报告。" },
     limits: { fileBytes: 200, totalBytes: 100000 },
   };
-  const own = { stage: "review", path: `${RUNS_DIR}/r-1/report.md`, changedPaths: [], text: "字".repeat(100) };
+  const own = { stage: "review", path: join(dir, RUNS_DIR, "r-1/report.md"), changedPaths: [], text: "字".repeat(100) };
 
   const withOwn = assembleHandoff({ ...input, own });
-  assert.match(
-    withOwn.firstMessage,
-    /<\/previous-report>\n\n<own-last-report stage="review" path="\.knit\/\.runtime\/runs\/r-1\/report\.md">\n这份资料有 \d+ 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n<\/own-last-report>$/,
-  );
+  assert.ok(withOwn.firstMessage.includes(`</previous-report>\n\n<own-last-report stage="review" path="${own.path}">`));
+  assert.match(withOwn.firstMessage, /\n这份资料有 \d+ 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n<\/own-last-report>$/);
   assert.equal(withOwn.firstMessage.includes("字字"), false);
 
   const without = assembleHandoff(input);

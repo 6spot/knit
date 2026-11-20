@@ -164,6 +164,7 @@ test("派发后立即返回，执行者在后台做完", async (t) => {
       "没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型\n",
     );
     assert.equal(existsSync(join(dir, RUNS_DIR)), false);
+    assert.equal(existsSync(join(process.env.KNIT_HOME, "worktrees")), false);
     assert.deepEqual(["task.md", "record.json"].map((file) => readFileSync(join(dir, task.dir, file), "utf8")), before);
   });
 });

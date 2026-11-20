@@ -8,7 +8,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { findTask } from "../dist/application/task-store.js";
 import { stageRules } from "../dist/domain/stage-rules.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 /** 实现、审查两个环节；`review` 是接在审查环节后面的几行。 */
 function workflowWith(review, reviewPrompt = ".knit/agents/review.md") {
@@ -87,6 +87,7 @@ test("派发时写进系统提示", (t) => {
   const stored = findTask(dir, task.id);
   const expected = assembleHandoff({
     root: dir,
+    worktree: worktreeOf(dir, task),
     task: { dir: stored.dir, document: stored.document },
     stage: workflow.stages[0],
     previous: null,

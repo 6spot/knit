@@ -33,6 +33,7 @@ test("能派发时存好交接内容并登记", (t) => {
   const document = documentOf(dir, task);
   const expected = assembleHandoff({
     root: dir,
+    worktree: worktreeOf(dir, task),
     task: { dir: task.dir, document },
     stage: workflow.stages[0],
     previous: null,
@@ -95,6 +96,7 @@ test("不能派发时说明原因，什么都不写", (t) => {
   ];
   for (const [result, problem] of refused) assert.deepEqual(result, { run: null, problems: [problem] });
   assert.deepEqual(runDirs(dir), []);
+  assert.equal(existsSync(join(process.env.KNIT_HOME, "worktrees")), false);
   assert.deepEqual([first, dependent, second].map((task) => filesOf(dir, task)), before);
 
   // 另一个任务有一次没结束的执行
@@ -105,6 +107,7 @@ test("不能派发时说明原因，什么都不写", (t) => {
     problems: [`任务 ${first.id} 的执行 ${run.id} 还没有结束；等它结束，或运行 knit run cancel ${first.id}`],
   });
   assert.deepEqual(runDirs(dir), [run.id]);
+  assert.equal(existsSync(worktreeOf(dir, second)), false);
   assert.deepEqual([second].map((task) => filesOf(dir, task)), others);
 });
 
@@ -132,7 +135,7 @@ test("下一个环节拿到上一个环节的报告", (t) => {
   assert.equal(review.stage.id, "review");
   assert.equal(documentOf(dir, task).frontmatter.stage, "review");
   const block = [
-    `<previous-report stage="implement" path="${implement.dir}/report.md">`,
+    `<previous-report stage="implement" path="${join(dir, implement.dir, "report.md")}">`,
     "改动的文件：",
     "- src/greet.ts",
     "- test/greet.test.ts",
