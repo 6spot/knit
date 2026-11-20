@@ -148,7 +148,7 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_deliver",
     label: "Knit deliver",
     description:
-      "交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次，不推送。派发过的任务在它的 Worktree 和任务分支上交付，不自动合并或清理；主会话接着按交付规范用 Git 做。preview 为真时只列出会做什么。真的交付要有用户的授权：authorization 写用户同意交付的那条消息的原话（整条，或者其中完整的一行），不要改写。message 是提交文案，在 Git 仓库里交付时要有。",
+      "交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次，不推送。派发过的任务在它的 Worktree 和任务分支上交付；项目配置 worktree.autoMerge 为 true 时，交付成功后自动合并进主检出的当前分支并清理 Worktree 和任务分支，否则由主会话按交付规范用 Git 做。一次交付的授权同时覆盖合并和清理。自动合并或清理失败仍返回交付成功，须看输出；合并失败时由主会话把 Git 错误给用户看并问他怎么处理，不自己解决冲突或强行合并。preview 为真时只列出会做什么。真的交付要有用户的授权：authorization 写用户同意交付的那条消息的原话（整条，或者其中完整的一行），不要改写。message 是提交文案，在 Git 仓库里交付时要有。",
     parameters: {
       type: "object",
       properties: {

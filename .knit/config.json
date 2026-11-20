@@ -1,4 +1,4 @@
 {
   "handoff": { "fileBytes": 16384, "totalBytes": 65536 },
-  "worktree": { "setup": ["npm ci"] }
+  "worktree": { "setup": ["npm ci"], "autoMerge": true }
 }
