@@ -32,6 +32,8 @@ cat > AGENTS.md <<'MD'
 - 每份报告正文的第一行写 `AGENTS-MARK: 7f3a`。
 MD
 knit init > /dev/null
+# 新项目里 knit init 会建一个写开发规范的任务；演练不需要它，有的脚本还靠项目里只有一个任务来找 task.md。
+rm -rf .knit/tasks/*-bootstrap-standards
 # 两份规范，用来看规范有没有按环节交到执行者和主会话手里。
 mkdir -p .knit/standards
 cat > .knit/standards/testing.md <<'MD'

@@ -1,6 +1,8 @@
 /** `knit init`：把随 Knit 发布的模板生成到项目里。 */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { atomicWrite } from "../infrastructure/atomic.js";
+import { createTask, scanTasks } from "./task-store.js";
 
 /**
  * `template` 相对模板目录，`target` 相对项目根；顺序就是输出的顺序。
@@ -29,11 +31,14 @@ export interface InitResult {
   kept: string[];
   /** 相对项目根，结尾不带 `/`；这一次没有备份时是 null。 */
   backupDir: string | null;
+  /** 这一次建的初始化任务，`file` 相对项目根；没有建时是 null。 */
+  task: { id: string; file: string } | null;
 }
 
 /**
  * 缺的文件按模板补上，已有的不动。`force` 时再把 `restore` 的文件里和模板不一样的恢复成模板，
  * 覆盖之前全部复制到备份目录。返回的数组保持 TEMPLATES 的顺序。
+ * 项目里一个任务都没有（归档的也算）时，再建一个写开发规范的任务。
  */
 export function initProject(root: string, force = false): InitResult {
   mkdirSync(join(root, ".knit", "standards"), { recursive: true });
@@ -62,7 +67,32 @@ export function initProject(root: string, force = false): InitResult {
     restored: changed.map((item) => item.target),
     kept: TEMPLATES.filter((item) => !missing.includes(item) && !changed.includes(item)).map((item) => item.target),
     backupDir: changed.length === 0 ? null : backupDir,
+    task: scanTasks(root).length > 0 ? null : createStandardsTask(root),
   };
+}
+
+function createStandardsTask(root: string): InitResult["task"] {
+  const created = createTask(root, {
+    title: "完善项目的开发规范",
+    slug: "bootstrap-standards",
+    verification: "self",
+    priority: "P1",
+    parent: null,
+    dependsOn: [],
+  }).created;
+  // 没有上级和依赖，createTask 没有可以拒绝的地方。
+  if (created === null) return null;
+  const markdown = readFileSync(join(root, created.file), "utf8");
+  const end = "\n---\n";
+  // createTask 写的是开头字段加一份空的正文：开头字段留下，正文换成模板。
+  atomicWrite({
+    path: join(root, created.file),
+    data: Buffer.from(
+      `${markdown.slice(0, markdown.indexOf(end) + end.length)}\n${readFileSync(new URL("tasks/bootstrap-standards.md", TEMPLATE_DIR), "utf8")}`,
+    ),
+    mode: 0o644,
+  });
+  return created;
 }
 
 /** 本机时间的 `YYYYMMDD-HHMMSS-mmm`。 */

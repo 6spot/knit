@@ -15,6 +15,9 @@ export function registerInitCommand(program: Command): void {
         ...section("已恢复成模板:", result.restored),
         ...(result.backupDir === null ? [] : [`备份: ${result.backupDir}/`]),
         ...section("已有，没有动:", result.kept),
+        ...(result.task === null
+          ? []
+          : [`初始化任务: ${result.task.id}（${result.task.file}）；在 Pi 里用 knit_task 的 use 选中它`]),
       ];
       process.stdout.write(`${lines.join("\n")}\n`);
     });

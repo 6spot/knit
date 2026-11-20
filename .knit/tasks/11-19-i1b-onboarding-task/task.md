@@ -1,8 +1,8 @@
 ---
 id: k-759b948a5d61
 title: I1b 初始化后生成一个完善开发规范的任务
-status: draft
-stage: null
+status: active
+stage: implement
 verification: self
 parent: k-19c962be9fb8
 dependsOn:

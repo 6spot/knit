@@ -19,8 +19,8 @@
 #   onVerdict  按结论去哪个环节；没写的结论走顺序的下一个
 #   maxVisits  第一次之后最多再进入几次；不写用 maxRepairRounds
 version: 1
-# model: provider/模型
-# thinking: high
+model: magpie/group/openai
+thinking: high
 stages:
   - id: implement
     name: 实现
