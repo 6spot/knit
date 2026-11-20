@@ -13,7 +13,7 @@
 | `export-check.mjs` | 两脚本共用的导出核对器：按 `git ls-tree` 记录逐文件核对 mode 与 sha256，生成清单 JSON；传入 `--expect` 时核对 commit/文件数/内容摘要是否等于冻结基线。 |
 | `export-manifest.json` | 冻结基线清单：commit `2d68014…`、817 个文件、3 个可执行、内容摘要 `sha256:4ab40c37…`。由 `export-check.mjs` 从 `git archive` 导出生成，供两次真实终端运行比对。 |
 
-脚本只依赖：本机 Node 26、npm、bash（`/bin/bash` 3.2 即可）、git、`shasum`、`tar`、`/usr/libexec/PlistBuddy`（仅读 Rex 应用版本，缺失时留空）。
+脚本面向上述 macOS 本机验收，需要 Node 26、npm、bash（`/bin/bash` 3.2 即可）、git、`tar`。SHA-256 由 Node 内置的 `node:crypto` 计算，无需外部摘要命令。环境采集仍使用 macOS 的 `sw_vers`、`sysctl`；`/usr/libexec/PlistBuddy` 仅读 Rex 应用版本，缺失时留空。
 
 ## 运行前条件
 

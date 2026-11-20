@@ -26,6 +26,10 @@ die() {
   exit 1
 }
 
+sha256_file() {
+  node -e 'const fs=require("node:fs");const {createHash}=require("node:crypto");process.stdout.write(createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"));' "$1"
+}
+
 usage() {
   cat <<'EOF'
 用法：bash rex-tests.sh [选项]
@@ -173,7 +177,7 @@ meta_set baselineManifest "$BASELINE"
 # ---- 仓库工作区指纹 ---------------------------------------------------------
 git -C "$REPO" status --porcelain=v1 > "$RUN_DIR/git-status.txt" 2>&1 || true
 STATUS_LINES_BEFORE="$(wc -l < "$RUN_DIR/git-status.txt" | tr -d '[:space:]')"
-STATUS_SHA_BEFORE="$(shasum -a 256 "$RUN_DIR/git-status.txt" | cut -d' ' -f1)"
+STATUS_SHA_BEFORE="$(sha256_file "$RUN_DIR/git-status.txt")"
 DIRTY_OUTSIDE_KNIT="$(grep -vc '^.. \.knit/' "$RUN_DIR/git-status.txt" || true)"
 DIRTY_OUTSIDE_KNIT="${DIRTY_OUTSIDE_KNIT:-0}"
 if [[ "$DIRTY_OUTSIDE_KNIT" -gt 0 ]]; then
@@ -417,7 +421,7 @@ print_summary() {
   else
     say "prepare-only：未执行 npm test，不能作为 R1.S2 证据"
   fi
-  say "仓库：HEAD ${HEAD_SHA} -> $(git -C "$REPO" rev-parse HEAD)；工作区指纹 ${STATUS_SHA_BEFORE} -> $(shasum -a 256 <(git -C "$REPO" status --porcelain=v1) | cut -d' ' -f1)"
+  say "仓库：HEAD ${HEAD_SHA} -> $(git -C "$REPO" rev-parse HEAD)；工作区指纹 ${STATUS_SHA_BEFORE} -> $(sha256_file <(git -C "$REPO" status --porcelain=v1))"
   say "结果：$([[ $code -eq 0 ]] && echo '成功' || echo '失败')${reason:+（${reason}）}"
   say "证据：${RUN_DIR}（run.log、env.txt、git-status*.txt、export-manifest.json、logs/*.log、result.json）"
   say "=========================================="
@@ -429,7 +433,7 @@ finish_result() {
   head_after="$(git -C "$REPO" rev-parse HEAD)"
   git -C "$REPO" status --porcelain=v1 > "$RUN_DIR/git-status-after.txt" 2>&1 || true
   status_after="$(wc -l < "$RUN_DIR/git-status-after.txt" | tr -d '[:space:]')"
-  status_sha_after="$(shasum -a 256 "$RUN_DIR/git-status-after.txt" | cut -d' ' -f1)"
+  status_sha_after="$(sha256_file "$RUN_DIR/git-status-after.txt")"
   if [[ "$head_after" != "$HEAD_SHA" || "$status_sha_after" != "$STATUS_SHA_BEFORE" ]]; then
     repo_unchanged="false"
     code=1
@@ -469,7 +473,7 @@ if [[ "${STEP_CODES[0]:-1}" -ne 0 ]]; then
   finish_result 1 "导出/基线核对失败（见 logs/00-export-verify.log）"
 fi
 
-ARCHIVE_SHA="$(shasum -a 256 "$RUN_DIR/source.tar" | cut -d' ' -f1)"
+ARCHIVE_SHA="$(sha256_file "$RUN_DIR/source.tar")"
 EXPORT_FILE_COUNT="$(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(m.fileCount))' "$RUN_DIR/export-manifest.json")"
 EXPORT_DIGEST="$(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(m.contentDigest))' "$RUN_DIR/export-manifest.json")"
 meta_set archiveSha256 "$ARCHIVE_SHA"
