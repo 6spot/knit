@@ -1,3 +1,4 @@
 {
-  "handoff": { "fileBytes": 16384, "totalBytes": 65536 }
+  "handoff": { "fileBytes": 16384, "totalBytes": 65536 },
+  "worktree": { "setup": ["npm ci"] }
 }
