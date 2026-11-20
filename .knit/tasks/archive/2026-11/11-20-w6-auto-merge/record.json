@@ -1,0 +1,46 @@
+{
+  "confirmedDigest": "9b734928265aca91a201c155066c65f5b73f7002cf072fa39df139a68fd7b821",
+  "changedPaths": [
+    ".knit/standards/delivery.md"
+  ],
+  "runs": [
+    {
+      "id": "r-720ff7035c75",
+      "stage": "implement",
+      "startedAt": "2026-11-20T16:35:54.853Z",
+      "endedAt": "2026-11-20T16:48:00.353Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "9b734928265aca91a201c155066c65f5b73f7002cf072fa39df139a68fd7b821",
+      "changedPaths": [
+        "assets/templates/pi/extensions/knit.ts",
+        "assets/templates/standards/delivery.md",
+        "docs/design/DESIGN.md",
+        "src/application/config.ts",
+        "src/application/worktree.ts",
+        "src/cli/deliver.ts",
+        "test/config.test.mjs",
+        "test/deliver-commit.test.mjs",
+        "test/deliver-worktree.test.mjs",
+        "test/deliver.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-720ff7035c75/session/2026-11-20T16-35-55-480Z_f92db1ac-d335-46e9-962e-c9876d279d85.jsonl"
+    },
+    {
+      "id": "r-ccf6305beaf4",
+      "stage": "review",
+      "startedAt": "2026-11-20T16:48:14.532Z",
+      "endedAt": "2026-11-20T16:55:09.336Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "9b734928265aca91a201c155066c65f5b73f7002cf072fa39df139a68fd7b821",
+      "changedPaths": [
+        "docs/design/DESIGN.md",
+        "src/cli/deliver.ts",
+        "test/deliver-worktree.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-ccf6305beaf4/session/2026-11-20T16-48-15-091Z_0bcf3fa8-f87e-4765-90a0-fc0fc895bb56.jsonl"
+    }
+  ],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}

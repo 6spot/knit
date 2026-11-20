@@ -55,3 +55,51 @@ export function rollbackWorktree(root: string, worktree: TaskWorktree, prepared:
   const deleted = gitSync(["branch", "-D", worktree.branch], root);
   return deleted.code === 0 ? [] : [deleted.stderr.trimEnd()];
 }
+
+/** 交付已经成功；后续失败只报告，不撤回交付，也不强制清理。 */
+export function mergeAndCleanWorktree(root: string, worktree: TaskWorktree, targetBranch: string): {
+  readonly merged: boolean;
+  readonly lines: readonly string[];
+} {
+  const merged = gitSync(["merge", "--no-edit", worktree.branch], root);
+  if (merged.code !== 0) {
+    // 覆盖本地改动等拒绝不会进入合并状态，不能对它运行 --abort。
+    const aborted = gitSync(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], root).code === 0
+      ? gitSync(["merge", "--abort"], root)
+      : null;
+    return {
+      merged: false,
+      lines: [
+        `合并没有成功: ${worktree.branch} → ${targetBranch}`,
+        (merged.stdout + merged.stderr).trimEnd(),
+        ...(aborted === null ? [] : aborted.code === 0
+          ? ["已放弃这次合并（git merge --abort）"]
+          : ["放弃合并失败:", (aborted.stdout + aborted.stderr).trimEnd()]),
+        `任务已经交付，提交保留在任务分支 ${worktree.branch}；Worktree 保留在 ${worktree.path}`,
+        "由主会话把以上 Git 错误原样给用户看并问他怎么处理；不自己解决冲突，不强行合并",
+      ],
+    };
+  }
+  const removed = gitSync(["worktree", "remove", worktree.path], root);
+  if (removed.code !== 0) {
+    return {
+      merged: true,
+      lines: [
+        `已合并 ${worktree.branch} → ${targetBranch}`,
+        `清理被 Git 拒绝，Worktree 和分支保留: ${worktree.path}（${worktree.branch}）`,
+        (removed.stdout + removed.stderr).trimEnd(),
+      ],
+    };
+  }
+  const deleted = gitSync(["branch", "-d", worktree.branch], root);
+  return {
+    merged: true,
+    lines: [
+      `已合并 ${worktree.branch} → ${targetBranch}`,
+      `已删除 Worktree: ${worktree.path}`,
+      ...(deleted.code === 0
+        ? [`已删除分支: ${worktree.branch}`]
+        : [`清理被 Git 拒绝，分支保留: ${worktree.branch}（主检出: ${root}）`, (deleted.stdout + deleted.stderr).trimEnd()]),
+    ],
+  };
+}

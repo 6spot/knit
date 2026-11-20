@@ -19,9 +19,13 @@ const crossDeviceSkip = crossDeviceDir === undefined || statSync(crossDeviceDir)
   ? "需要 KNIT_TEST_CROSS_DEVICE_DIR 指向另一个文件系统的可写目录"
   : false;
 
-function completed(t, tracked = false, ignored = false, crossDeviceDir = null) {
+function completed(t, tracked = false, ignored = false, crossDeviceDir = null, baseContent = null) {
   const root = runProject(t);
   gitIdentity(root);
+  if (baseContent !== null) {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src/a.txt"), baseContent);
+  }
   writeFileSync(join(root, ".gitignore"), `.knit/.runtime/\n${ignored ? ".knit/tasks/\n" : ""}`);
   commitAll(root, "ignore runtime files");
   const task = readyTask(root, { verification: "self" });
@@ -35,7 +39,7 @@ function completed(t, tracked = false, ignored = false, crossDeviceDir = null) {
   const prepared = prepareRun({ root, taskId: task.id, workflow, config: loadConfig(root).config, model: null });
   assert.deepEqual(prepared.problems, []);
   const worktree = taskWorktree(root, task.dir);
-  mkdirSync(join(worktree.path, "src"));
+  mkdirSync(join(worktree.path, "src"), { recursive: true });
   writeFileSync(join(worktree.path, "src/a.txt"), "worker result\n");
   assert.deepEqual(finishRun({ root, taskId: task.id, runId: prepared.run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
   const closed = knit(root, "task", "close", task.id, "--result", "主检出当前的成果和验证");
@@ -48,6 +52,188 @@ function completed(t, tracked = false, ignored = false, crossDeviceDir = null) {
 
 const taskFiles = (root, task) => ["task.md", "record.json"].map((file) => readFileSync(join(root, task.dir, file), "utf8"));
 const mainIdentity = (root) => [git(root, "branch", "--show-current"), git(root, "rev-parse", "HEAD")];
+
+function autoMergeConfig(root, autoMerge = true) {
+  writeFileSync(join(root, ".knit/config.json"), JSON.stringify({ worktree: { autoMerge } }));
+  git(root, "add", "--", ".knit/config.json");
+  git(root, "commit", "-qm", "auto merge configuration", "--only", "--", ".knit/config.json");
+}
+
+[false, true].forEach((tracked) => test(`自动合并到主检出的当前分支并清理，非快进落成合并提交（任务目录${tracked ? "已" : "未"}入库）`, (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t, tracked);
+  git(root, "checkout", "-qb", "delivery-target");
+  autoMergeConfig(root);
+  writeFileSync(join(root, "main-only.txt"), "main branch advanced\n");
+  git(root, "add", "main-only.txt");
+  git(root, "commit", "-qm", "advance main branch", "--only", "--", "main-only.txt");
+  const head = git(root, "rev-parse", "HEAD");
+  const before = [taskFiles(root, task), git(root, "status", "--porcelain"), git(worktree.path, "status", "--porcelain")];
+
+  const preview = deliver("--preview");
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.match(preview.stdout, /交付之后会合并进主检出的分支 delivery-target/);
+  assert.ok(preview.stdout.includes(`删除 Worktree: ${worktree.path}`), preview.stdout);
+  assert.ok(preview.stdout.includes(`删除分支: ${worktree.branch}`), preview.stdout);
+  assert.deepEqual([taskFiles(root, task), git(root, "status", "--porcelain"), git(worktree.path, "status", "--porcelain")], before);
+
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(delivered.stderr, "");
+  assert.equal(git(root, "rev-parse", "HEAD^1"), head);
+  assert.equal(git(root, "log", "-1", "--format=%P").split(" ").length, 2);
+  assert.equal(git(root, "show", "HEAD^2:src/a.txt"), "worker result");
+  assert.equal(readFileSync(join(root, "src/a.txt"), "utf8"), "worker result\n");
+  assert.equal(readFileSync(join(root, "main-only.txt"), "utf8"), "main branch advanced\n");
+  assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.equal(JSON.parse(readFileSync(join(root, archive, "record.json"), "utf8")).authorization, "user:delivery");
+  assert.equal(git(root, "status", "--porcelain"), "");
+  assert.equal(existsSync(worktree.path), false);
+  assert.equal(git(root, "branch", "--list", worktree.branch), "");
+  assert.equal(git(root, "worktree", "list", "--porcelain").includes(worktree.path), false);
+  assert.match(delivered.stdout, /已合并 .* → delivery-target/);
+  assert.ok(delivered.stdout.includes(`已删除 Worktree: ${worktree.path}`), delivered.stdout);
+  assert.ok(delivered.stdout.includes(`已删除分支: ${worktree.branch}`), delivered.stdout);
+  assert.equal(delivered.stdout.includes("还没有合并"), false);
+}));
+
+[false, true].flatMap((tracked) => ["conflict", "dirty"].map((reason) => ({ tracked, reason }))).forEach(({ tracked, reason }) => test(`自动合并失败保留交付，主检出恢复原样：${reason}（任务目录${tracked ? "已" : "未"}入库）`, (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t, tracked, false, null, "base\n");
+  autoMergeConfig(root);
+  writeFileSync(join(root, "src/a.txt"), "main result\n");
+  if (reason === "conflict") {
+    git(root, "add", "src/a.txt");
+    git(root, "commit", "-qm", "main changes same line", "--only", "--", "src/a.txt");
+  }
+  writeFileSync(join(root, "unrelated.txt"), "keep main changes\n");
+  if (reason === "dirty") git(root, "add", "unrelated.txt");
+  const state = () => [mainIdentity(root), git(root, "status", "--porcelain", "--", ".", `:(exclude)${task.dir}`), git(root, "diff", "--", ".", `:(exclude)${task.dir}`), git(root, "diff", "--cached", "--", ".", `:(exclude)${task.dir}`)];
+  const before = state();
+
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(delivered.stderr, "");
+  assert.deepEqual(state(), before);
+  assert.equal(existsSync(join(root, ".git/MERGE_HEAD")), false);
+  assert.equal(existsSync(join(root, task.dir)), false, "abort 不能把已归档的任务恢复成主检出里的旧任务");
+  assert.ok(existsSync(worktree.path));
+  assert.equal(git(root, "rev-parse", worktree.branch), git(worktree.path, "rev-parse", "HEAD"));
+  assert.match(readFileSync(join(worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.equal(git(worktree.path, "log", "-1", "--format=%B").split("\n").at(-1), `Knit-Task: ${task.id}`);
+  assert.match(delivered.stdout, /^已交付 /m);
+  assert.ok(delivered.stdout.includes(`提交保留在任务分支 ${worktree.branch}`), delivered.stdout);
+  assert.match(delivered.stdout, /合并没有成功/);
+  assert.match(delivered.stdout, /主会话.*用户.*怎么处理/);
+  assert.match(delivered.stdout, reason === "conflict" ? /CONFLICT \(content\): Merge conflict in src\/a.txt/ : /Your local changes to the following files would be overwritten by merge:/);
+  assert.equal(delivered.stdout.includes("已删除"), false);
+  assert.equal(delivered.stdout.includes("已放弃这次合并"), reason === "conflict");
+}));
+
+test("Worktree 清理拒绝不强制，未入库文件和分支保留且退出码为 0", (t) => {
+  const { root, worktree, archive, deliver } = completed(t);
+  autoMergeConfig(root);
+  writeFileSync(join(worktree.path, "untracked.txt"), "must not delete\n");
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(delivered.stderr, "");
+  assert.match(delivered.stdout, /已合并/);
+  assert.match(delivered.stdout, /contains modified or untracked files/);
+  assert.ok(delivered.stdout.includes(worktree.path), delivered.stdout);
+  assert.equal(readFileSync(join(worktree.path, "untracked.txt"), "utf8"), "must not delete\n");
+  assert.ok(git(root, "branch", "--list", worktree.branch).includes(worktree.branch));
+  assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.equal(git(root, "status", "--porcelain"), "");
+  assert.equal(delivered.stdout.includes("已删除"), false);
+});
+
+test("分支清理被 Git 拒绝时保留分支，已合并和已删除 Worktree 的结果可见", (t) => {
+  const { root, worktree, deliver } = completed(t);
+  autoMergeConfig(root);
+  git(root, "branch", "unmerged-upstream", worktree.branch);
+  git(worktree.path, "branch", "--set-upstream-to=unmerged-upstream");
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(delivered.stderr, "");
+  assert.match(delivered.stdout, /已合并/);
+  assert.match(delivered.stdout, /已删除 Worktree/);
+  assert.match(delivered.stdout, /not fully merged/);
+  assert.ok(delivered.stdout.includes(worktree.branch), delivered.stdout);
+  assert.equal(existsSync(worktree.path), false);
+  assert.ok(git(root, "branch", "--list", worktree.branch).includes(worktree.branch));
+});
+
+test("快进合并并清理，被忽略的归档留在主检出", (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t, false, true);
+  autoMergeConfig(root);
+  git(worktree.path, "merge", "--no-edit", git(root, "rev-parse", "HEAD"));
+  const head = git(root, "rev-parse", "HEAD");
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(git(root, "rev-parse", "HEAD^"), head);
+  assert.equal(git(root, "log", "-1", "--format=%P").split(" ").length, 1);
+  assert.deepEqual(git(root, "show", "--name-only", "--format=", "HEAD").split("\n"), ["src/a.txt"]);
+  assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.equal(existsSync(worktree.path), false);
+  assert.equal(git(root, "branch", "--list", worktree.branch), "");
+  assert.ok(delivered.stdout.includes(`归档: ${join(realpathSync(root), archive)}`), delivered.stdout);
+  assert.equal(knit(root, "task", "show", task.id).code, 0);
+});
+
+test("没有要提交的文件也合并并清理，归档仍在主检出", (t) => {
+  const { root, worktree, archive, deliver } = completed(t, false, true);
+  autoMergeConfig(root);
+  rmSync(join(worktree.path, "src"), { recursive: true });
+  const head = git(root, "rev-parse", "HEAD");
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.match(delivered.stdout, /提交: 没有要提交的文件/);
+  assert.equal(git(root, "rev-parse", "HEAD"), head);
+  assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.equal(existsSync(worktree.path), false);
+  assert.equal(git(root, "branch", "--list", worktree.branch), "");
+});
+
+["hook", "move"].forEach((reason) => test(`自动合并开着但交付撤回时不合并、不清理：${reason}`, (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t, true);
+  autoMergeConfig(root);
+  if (reason === "hook") {
+    const hooks = join(root, ".git/hooks");
+    git(root, "config", "core.hooksPath", hooks);
+    writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\necho 'delivery refused' >&2\nexit 1\n");
+    chmodSync(join(hooks, "pre-commit"), 0o755);
+  }
+  if (reason === "move") writeFileSync(join(worktree.path, ".knit/tasks/archive"), "blocks directory\n");
+  const before = [mainIdentity(root), git(worktree.path, "rev-parse", "HEAD"), taskFiles(root, task), git(worktree.path, "status", "--porcelain")];
+  const refused = deliver();
+  assert.equal(refused.code, 1);
+  assert.equal(refused.stdout, "");
+  assert.match(refused.stderr, reason === "hook" ? /delivery refused/ : /ENOTDIR/);
+  assert.deepEqual([mainIdentity(root), git(worktree.path, "rev-parse", "HEAD"), taskFiles(root, task), git(worktree.path, "status", "--porcelain")], before);
+  assert.equal(existsSync(join(worktree.path, archive)), false);
+}));
+
+test("autoMerge 配置不是布尔值时在归档之前拒绝", (t) => {
+  const { root, task, worktree, deliver } = completed(t);
+  autoMergeConfig(root, "true");
+  const before = [mainIdentity(root), taskFiles(root, task), git(worktree.path, "status", "--porcelain")];
+  const refused = deliver();
+  assert.equal(refused.code, 1);
+  assert.equal(refused.stdout, "");
+  assert.match(refused.stderr, /\.knit\/config\.json：.*worktree\/autoMerge/);
+  assert.deepEqual([mainIdentity(root), taskFiles(root, task), git(worktree.path, "status", "--porcelain")], before);
+});
+
+test("显式关闭 autoMerge 时预览和交付沿用原文", (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t);
+  autoMergeConfig(root, false);
+  const before = mainIdentity(root);
+  const preview = deliver("--preview");
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.match(preview.stdout, /^提交在任务分支上，不会合并进主检出的分支$/m);
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(delivered.stdout, `已交付 ${task.id}\n归档: ${join(worktree.path, archive)}\n提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\nWorktree: ${worktree.path}（${worktree.branch}）\n这个提交还没有合并进主检出的分支\n`);
+  assert.deepEqual(mainIdentity(root), before);
+});
 
 test("派发过的任务只在任务分支提交代码和归档，主检出 HEAD 不变", (t) => {
   const { root, task, worktree, archive, deliver } = completed(t);
@@ -76,7 +262,8 @@ test("派发过的任务只在任务分支提交代码和归档，主检出 HEAD
   assert.ok(delivered.stdout.includes(`归档: ${join(worktree.path, archive)}\n`), delivered.stdout);
   assert.ok(delivered.stdout.includes(`提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\n`), delivered.stdout);
   assert.ok(delivered.stdout.includes(`Worktree: ${worktree.path}（${worktree.branch}）\n`), delivered.stdout);
-  assert.match(delivered.stdout, /还没有合并进主检出的分支/);
+  assert.equal(delivered.stdout, `已交付 ${task.id}\n归档: ${join(worktree.path, archive)}\n提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\nWorktree: ${worktree.path}（${worktree.branch}）\n这个提交还没有合并进主检出的分支\n`);
+  assert.ok(git(root, "worktree", "list", "--porcelain").includes(`branch refs/heads/${worktree.branch}`));
 });
 
 [false, true].flatMap((tracked) => [false, true].map((crossDevice) => ({ tracked, crossDevice }))).forEach(({ tracked, crossDevice }) => test(`任务分支 hook 拒绝时原样撤回（任务目录${tracked ? "已" : "未"}入库${crossDevice ? "，跨文件系统" : ""}）`, { skip: crossDevice ? crossDeviceSkip : false }, (t) => {

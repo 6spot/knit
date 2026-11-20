@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Command } from "commander";
+import { loadConfig } from "../application/config.js";
+import { mergeAndCleanWorktree } from "../application/worktree.js";
 import {
   commitDelivery,
   deliveryArchiveRoot,
@@ -71,7 +73,13 @@ export function registerDeliverCommand(program: Command): void {
       const status = currentStatus(loaded.document, loaded.record);
       if (status === "delivered" || status === "cancelled") return fail([`任务 ${id} 已经结束（${status}），不能交付`]);
       if (status !== "done") return fail([`任务 ${id} 还没有完成（${status}）；完成之后再交付：knit task close ${id}`]);
-      if (options.preview === true) return showPreview(loaded, options.messageFile);
+      const worktree = deliveryWorktree(loaded.root, loaded.stored.dir);
+      const config = worktree === null ? null : loadConfig(loaded.root);
+      if (config?.config === null) return fail(config.problems);
+      const mergeBranch = config?.config?.worktree?.autoMerge === true
+        ? gitSync(["branch", "--show-current"], loaded.root).stdout.trim() || "HEAD"
+        : null;
+      if (options.preview === true) return showPreview(loaded, options.messageFile, mergeBranch);
 
       const authorization = options.authorization?.trim() ?? "";
       if (authorization === "") {
@@ -85,7 +93,6 @@ export function registerDeliverCommand(program: Command): void {
       if (message === null) return;
       if (git && message === "") return fail([`提交文案是空的：${options.messageFile}`]);
 
-      const worktree = deliveryWorktree(loaded.root, loaded.stored.dir);
       const workspace = worktree?.path ?? loaded.root;
       const archiveRoot = deliveryArchiveRoot(loaded.root, loaded.stored.dir, worktree);
       const archiveDir = archiveDirOf(loaded.stored);
@@ -155,13 +162,18 @@ export function registerDeliverCommand(program: Command): void {
         ]);
       }
       if (previousTask !== null) removeCopy(previousTask);
+      const integration = worktree !== null && mergeBranch !== null
+        ? mergeAndCleanWorktree(loaded.root, worktree, mergeBranch)
+        : null;
+      // --abort 会恢复主检出里已入库的旧任务目录；当前记录已经在任务 Worktree 的归档里。
+      if (integration?.merged === false && archiveRoot !== loaded.root) removeCopy(join(loaded.root, loaded.stored.dir));
       const lines = [
         `已交付 ${id}`,
-        `归档: ${worktree === null ? archiveDir : join(archiveRoot, archiveDir)}`,
+        `归档: ${worktree === null ? archiveDir : join(integration?.merged === true ? loaded.root : archiveRoot, archiveDir)}`,
         `提交: ${commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}`,
         ...(worktree === null ? [] : [
           `Worktree: ${worktree.path}（${worktree.branch}）`,
-          ...(commit.kind === "committed" ? ["这个提交还没有合并进主检出的分支"] : []),
+          ...(commit.kind === "committed" && integration === null ? ["这个提交还没有合并进主检出的分支"] : []),
         ]),
         ...(commit.kind === "committed" && commit.extra.length + commit.missing.length > 0
           ? [
@@ -170,6 +182,7 @@ export function registerDeliverCommand(program: Command): void {
               ...(commit.missing.length > 0 ? [`  少了: ${commit.missing.join("、")}`] : []),
             ]
           : []),
+        ...(integration?.lines ?? []),
       ];
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
@@ -182,7 +195,7 @@ function messageFrom(file: string): string | null {
   return null;
 }
 
-function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFile: string | undefined): void {
+function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFile: string | undefined, mergeBranch: string | null): void {
   const preview = previewDelivery(loaded.root, loaded.stored);
   // 不在 Git 仓库里时没有提交，也就不读文案。
   const message = preview.commit === null || messageFile === undefined ? undefined : messageFrom(messageFile);
@@ -192,7 +205,13 @@ function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFi
     `归档: ${loaded.stored.dir} → ${preview.worktree === null ? preview.archiveDir : join(preview.archiveRoot, preview.archiveDir)}`,
     ...(preview.worktree === null ? [] : [
       `Worktree: ${preview.worktree.path}（${preview.worktree.branch}）`,
-      "提交在任务分支上，不会合并进主检出的分支",
+      ...(mergeBranch === null
+        ? ["提交在任务分支上，不会合并进主检出的分支"]
+        : [
+            `提交在任务分支上；交付之后会合并进主检出的分支 ${mergeBranch}`,
+            `合并成功之后删除 Worktree: ${preview.worktree.path}`,
+            `删除分支: ${preview.worktree.branch}`,
+          ]),
     ]),
     ...fileLines(loaded.stored.dir, preview.commit),
     ...hintLines(preview),

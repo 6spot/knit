@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { parseTaskDocument } from "../dist/domain/task-document.js";
@@ -14,8 +14,9 @@ const archived = (task) =>
 const filesOf = (dir, taskDir) => ["task.md", "record.json"].map((name) => readFileSync(join(dir, taskDir, name), "utf8"));
 const resultOf = (run) => ({ code: run.code, stdout: run.stdout, stderr: run.stderr });
 
-test("不在 Git 仓库里交付一个完成的任务", (t) => {
+[false, true].forEach((autoMerge) => test(`不在 Git 仓库里交付一个完成的任务（autoMerge=${autoMerge}）`, (t) => {
   const dir = project(t);
+  writeFileSync(join(dir, ".knit/config.json"), JSON.stringify({ worktree: { autoMerge } }));
   const task = doneTask(dir, ["src/a.ts"]);
   const [taskBefore, recordBefore] = filesOf(dir, task.dir);
 
@@ -36,7 +37,7 @@ test("不在 Git 仓库里交付一个完成的任务", (t) => {
   assert.deepEqual(JSON.parse(recordAfter), { ...JSON.parse(recordBefore), authorization: "user:1a2b3c4d" });
   assert.equal(knit(dir, "task", "list").stdout, "没有任务\n");
   assert.match(knit(dir, "task", "list", "--archive").stdout, new RegExp(`${task.id}  delivered  加问候语`));
-});
+}));
 
 test("不能交付时什么都不变", (t) => {
   const dir = project(t);

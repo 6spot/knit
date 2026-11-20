@@ -1,7 +1,7 @@
-/** 读出项目配置 `.knit/config.json`：交接的字节上限与 Worktree 准备命令。 */
+/** 读出项目配置 `.knit/config.json`：交接字节上限、Worktree 准备命令与自动合并。 */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { arr, int, obj, opt, str, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { schemaProblems } from "../contracts/task.js";
 import { DEFAULT_HANDOFF_LIMITS, type HandoffLimits } from "./handoff.js";
 
@@ -10,12 +10,12 @@ export const CONFIG_PATH = ".knit/config.json";
 /** 字段都可以不写；不认识的字段算问题，写错字段名时能马上发现。 */
 const ConfigFileSchema = obj({
   handoff: opt(obj({ fileBytes: opt(int({ minimum: 1 })), totalBytes: opt(int({ minimum: 1 })) })),
-  worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))) })),
+  worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))), autoMerge: opt(bool()) })),
 });
 
 export interface ProjectConfig {
   readonly handoff: HandoffLimits;
-  readonly worktree?: { readonly setup?: readonly string[] };
+  readonly worktree?: { readonly setup?: readonly string[]; readonly autoMerge?: boolean };
 }
 
 export interface ConfigLoadResult {

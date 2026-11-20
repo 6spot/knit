@@ -20,9 +20,10 @@ function messageFile(t, text) {
   return join(dir, "message.txt");
 }
 
-test("只提交这个任务的文件", (t) => {
+[false, true].forEach((autoMerge) => test(`没有 Worktree 时只在当前分支提交这个任务的文件（autoMerge=${autoMerge}）`, (t) => {
   const dir = gitProject(t);
   gitIdentity(dir);
+  writeFileSync(join(dir, ".knit/config.json"), JSON.stringify({ worktree: { autoMerge } }));
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src/a.ts"), "a\n");
   writeFileSync(join(dir, "src/c.ts"), "c\n");
@@ -54,7 +55,7 @@ test("只提交这个任务的文件", (t) => {
   assert.match(git(dir, "show", `HEAD:${archived(task)}/task.md`), /^status: delivered$/m);
   assert.equal(git(dir, "log", "-1", "--format=%B"), `feat: 加问候语\n\n# 说明一行\n\nKnit-Task: ${task.id}`);
   assert.equal(git(dir, "status", "--porcelain"), "M  src/c.ts\n?? other.txt");
-});
+}));
 
 test("用 git mv 移动过的文件", (t) => {
   const dir = gitProject(t);
