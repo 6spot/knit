@@ -1,0 +1,37 @@
+{
+  "confirmedDigest": "6175fd5788e4eff86735ee1af28d4c3ad0fd23fddf60af0c6b1b514a109ce6e0",
+  "changedPaths": [
+    ".knit/standards/delivery.md"
+  ],
+  "runs": [
+    {
+      "id": "r-3aa8623c6474",
+      "stage": "implement",
+      "startedAt": "2026-11-20T17:05:33.437Z",
+      "endedAt": "2026-11-20T17:16:58.410Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "6175fd5788e4eff86735ee1af28d4c3ad0fd23fddf60af0c6b1b514a109ce6e0",
+      "changedPaths": [
+        "assets/templates/standards/delivery.md",
+        "docs/design/DESIGN.md",
+        "src/application/worktree.ts",
+        "src/cli/task.ts",
+        "test/task-cancel-worktree.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-3aa8623c6474/session/2026-11-20T17-05-34-060Z_b7dbd99f-fa86-4a27-a8ef-aefba635558e.jsonl"
+    },
+    {
+      "id": "r-61bb61a6245c",
+      "stage": "review",
+      "startedAt": "2026-11-20T17:17:14.944Z",
+      "endedAt": "2026-11-20T17:21:35.094Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "6175fd5788e4eff86735ee1af28d4c3ad0fd23fddf60af0c6b1b514a109ce6e0",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-61bb61a6245c/session/2026-11-20T17-17-15-500Z_a199ec95-af45-4f8c-aa41-fbf55c3d1746.jsonl"
+    }
+  ],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}

@@ -9,6 +9,7 @@ import {
   scanTasks,
   type StoredTask,
 } from "../application/task-store.js";
+import { cleanCancelledWorktree, taskWorktree } from "../application/worktree.js";
 import {
   TASK_PRIORITIES,
   TASK_VERIFICATIONS,
@@ -315,5 +316,6 @@ export function registerTaskCommands(program: Command): void {
       );
       if (conflicts.length > 0) return fail(conflicts);
       process.stdout.write(`已取消 ${id}\n${archiveTask(loaded.root, loaded.stored)}\n`);
+      process.stdout.write(cleanCancelledWorktree(loaded.root, taskWorktree(loaded.root, loaded.stored.dir)).map((line) => `${line}\n`).join(""));
     });
 }
