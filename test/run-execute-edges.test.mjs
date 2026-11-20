@@ -172,6 +172,26 @@ test("模型请求出错时记下模型服务给的原因，不要求补报", as
   assert.equal(lastRun(dir, task).failure, "执行者出错：没有给出原因");
 });
 
+test("模型请求先出错两次、重试之后成功时，后台执行照常读报告和结论", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const pi = fakePi(t);
+  const run = reviewRun(dir, task);
+  const report = '审查通过。\n\n```json\n{ "verdict": "pass" }\n```';
+  pi.script({ retryErrors: ["Claude: Service Unavailable (error)", "Claude: Service Unavailable (error)"], texts: [report] });
+
+  assert.deepEqual(await execute(dir, task, run), []);
+
+  const ended = lastRun(dir, task);
+  assert.deepEqual(
+    { id: ended.id, verdict: ended.verdict, failure: ended.failure },
+    { id: run.id, verdict: "pass", failure: null },
+  );
+  assert.notEqual(ended.endedAt, null);
+  assert.equal(readFileSync(join(dir, run.dir, "report.md"), "utf8"), report);
+  assert.equal(pi.messages().length, 1);
+});
+
 test("被中止时记为失败，不要求补报", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);

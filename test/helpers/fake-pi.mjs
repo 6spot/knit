@@ -2,8 +2,9 @@
 /**
  * 测试用的假 Pi：照 `pi --mode rpc` 的样子一行一个 JSON 地收请求、给回答，不调用模型。
  * 做什么由环境变量 KNIT_FAKE_PI 指向的 JSON 文件决定，字段都可以不写：
- * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、modelError、stubborn、paneExit、startDelay、resumeOn。
+ * failStart、exitOnPrompt、writes、commands、waitFor、texts、aborted、modelError、retryErrors、stubborn、paneExit、startDelay、resumeOn。
  * aborted 为真时它报告自己是被中止的。modelError 是模型服务给的出错原因：有它时这一轮的最后一条消息是出错的，没有文字。
+ * retryErrors 是重试前的错误原因数组：每轮先出现这些出错的助手消息，再照常做完；RPC 模式还发重试事件和成功消息的 message_end。
  * 命令行里没有 `--mode` 时它是“交互界面”：加载 `--extension` 给的扩展，照 Pi 的扩展接口触发事件。
  * 这时 failStart 表示不认识模型，paneExit 为真时不加载扩展就以 1 退出；startDelay 是加载扩展之前等的毫秒数；aborted 为真时第一轮是被中止的，
  * 等 resumeOn 指的文件出现（当作用户接着输入了一句）再做第二轮。
@@ -24,8 +25,15 @@ const send = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const respond = (id, data = {}) => send({ type: "response", id, success: true, data });
 const texts = script.texts ?? ["做完了。"];
 const failedMessage = { role: "assistant", content: [], stopReason: "error", errorMessage: script.modelError };
+const retryMessages = (script.retryErrors ?? []).map((errorMessage) => ({
+  role: "assistant",
+  content: [],
+  stopReason: "error",
+  errorMessage,
+}));
 let prompts = 0;
 let lastText = "";
+const successfulMessage = () => ({ role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" });
 
 log({ args });
 if (script.stubborn) {
@@ -48,10 +56,24 @@ async function onPrompt(id, message) {
   log({ message });
   if (script.exitOnPrompt) process.exit(1);
   respond(id);
+  retryMessages.forEach((message, index) => {
+    send({ type: "message_end", message });
+    send({
+      type: "auto_retry_start",
+      attempt: index + 1,
+      maxAttempts: retryMessages.length + 1,
+      delayMs: 2000,
+      errorMessage: message.errorMessage,
+    });
+  });
   await work();
   if (script.modelError !== undefined) {
     lastText = "";
     send({ type: "message_end", message: failedMessage });
+  }
+  if (script.retryErrors !== undefined && script.modelError === undefined) {
+    send({ type: "message_end", message: successfulMessage() });
+    send({ type: "auto_retry_end", success: true, attempt: retryMessages.length });
   }
   send({ type: "agent_settled", aborted: script.aborted === true });
 }
@@ -88,13 +110,11 @@ if (!args.includes("--mode")) {
       pending = "接着做";
       continue;
     }
+    branch.push(...retryMessages.map((message) => ({ type: "message", message })));
     await work();
     branch.push({
       type: "message",
-      message:
-        script.modelError !== undefined
-          ? failedMessage
-          : { role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" },
+      message: script.modelError !== undefined ? failedMessage : successfulMessage(),
     });
     handlers.agent_settled({ aborted: false }, ctx);
   }

@@ -217,6 +217,31 @@ test("模型请求出错时，窗格里记的失败原因和后台执行一样",
   assert.ok(!existsSync(join(dir, RUNS_DIR, run.id, "report.md")));
 });
 
+test("模型请求先出错两次、重试之后成功时，窗格执行照常读报告和结论", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const rex = inRex(t, dir);
+  rex.script({});
+  await finished(dir, task, start(rex, dir, task).id);
+  const logCursor = rex.piLog().length;
+  const report = '审查通过。\n\n```json\n{ "verdict": "pass" }\n```';
+  rex.script({ retryErrors: ["Claude: Service Unavailable (error)", "Claude: Service Unavailable (error)"], texts: [report] });
+
+  const run = start(rex, dir, task);
+  const ended = await finished(dir, task, run.id);
+
+  assert.deepEqual(
+    { id: ended.id, stage: ended.stage, verdict: ended.verdict, failure: ended.failure },
+    { id: run.id, stage: "review", verdict: "pass", failure: null },
+  );
+  assert.notEqual(ended.endedAt, null);
+  assert.equal(readFileSync(join(dir, RUNS_DIR, run.id, "report.md"), "utf8"), report);
+  assert.equal(
+    rex.piLog().slice(logCursor).filter((line) => line.message !== undefined).length,
+    1,
+  );
+});
+
 test("后台进程不在了、窗格里的执行者还在时，状态里指出窗格", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
