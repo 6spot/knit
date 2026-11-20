@@ -1,7 +1,7 @@
 ---
 id: k-19c962be9fb8
 title: 重构：收敛为轻量的需求规范与任务管理（主任务）
-status: draft
+status: delivered
 stage: null
 verification: self
 parent: null
@@ -12,7 +12,7 @@ createdAt: 2026-11-14T13:36:56.850Z
 
 ## 目标与范围
 
-需求未全部确认，不含实施授权。
+子任务已全部结束，主任务于 2026-11-20 收尾（见 `plan.md` 开头）。
 
 Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理和传递，加一个简化的任务管理。现状比这个目标重得多，近期任务反复卡在收口上。
 
@@ -95,3 +95,10 @@ Knit 要做的是两件事的轻量合并：OpenSpec 式的需求与场景管理
 - `.knit/standards/task-writing.md`、`.knit/standards/task-splitting.md` — 任务编写规范、任务拆分规范：登记子任务时照这两份写
 - `.knit/standards/development.md`、`.knit/standards/delivery.md`、`.knit/standards/pitfalls-worker.md`、`.knit/standards/pitfalls-main.md` — 开发规范、交付规范、两份避坑清单
 - `docs/history/design/DESIGN.md` 第 3.3 节、第 8 节、第 15.1 节 — 重构之前的任务结构、规范与范围
+
+## 结果
+
+瘦身重构收尾。plan.md 登记过的 87 个子任务逐个核对过 task.md，都已结束：70 个是旧格式的 closed（结果都是 completed），17 个是新格式的 delivered。三条完成条件都满足：待澄清为空；子任务全部完成，没有取消的；主任务目录里只有文档。
+收尾时改的：plan.md 里过期的几处改成实际状态（L0–L3、H5 的任务、I1a、I1b 都已交付），记下用户 2026-11-20 的三个决定（归档列表打印旧格式任务不处理，开发阶段不做兼容；重试之后成功的回归测试登记成 k-2e387ab34f42；Worktree 另建主任务 k-7c16fc6dfc6f）和通知晚到的复查结果；AGENTS.md 里指向 plan.md 的链接改到归档之后的位置。
+验证：只改了文档，没有跑测试。归档之后用 validation/slim-h5-2026-11/check-links.mjs 查 AGENTS.md 的链接。
+没有做的：通知排着队时主会话那一轮被中止或出错会丢，没有复验，也没有建任务；task search 和其它客户端留到以后。validation/ 里三处提到主任务目录原来位置的文字是当时的记录，没有改。

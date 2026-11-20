@@ -21,7 +21,7 @@ macOS 的支持级别是开发环境：在 macOS 开发机上 `npm test` 必须�
 ## 文档与目录
 
 - [docs/design/DESIGN.md](docs/design/DESIGN.md)：现行设计。
-- [.knit/tasks/11-14-slim-refactor/plan.md](.knit/tasks/11-14-slim-refactor/plan.md)：重构的子任务清单和进度。
+- [.knit/tasks/archive/2026-11/11-14-slim-refactor/plan.md](.knit/tasks/archive/2026-11/11-14-slim-refactor/plan.md)：重构的子任务清单和进度，已收尾。
 - [docs/history/design/](docs/history/design/)：重构之前的旧 Knit 的规范、架构和状态说明，只作历史档案。
 - [docs/research/](docs/research/)：研究依据。研究不自动扩大范围。
 - [docs/history/](docs/history/)：旧开发队列、阻塞与执行档案。
