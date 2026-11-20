@@ -1,0 +1,26 @@
+{
+  "confirmedDigest": "f44b7dd8715192fb0980458739b9b591f7595961846efa29e8efd1e73d8ed229",
+  "changedPaths": [
+    "validation/worktree-drill-2026-11/README.md",
+    "validation/worktree-drill-2026-11/logs/01-parallel-start.log",
+    "validation/worktree-drill-2026-11/logs/02-parallel-wait.log",
+    "validation/worktree-drill-2026-11/logs/03-parallel-result.log",
+    "validation/worktree-drill-2026-11/logs/04-dependency-refused.log",
+    "validation/worktree-drill-2026-11/logs/05-deliver-a-b.log",
+    "validation/worktree-drill-2026-11/logs/06-dependency-allowed.log",
+    "validation/worktree-drill-2026-11/logs/07-deliver-c.log",
+    "validation/worktree-drill-2026-11/logs/08-local-three-running.log",
+    "validation/worktree-drill-2026-11/logs/09-local-after-run-cancel.log",
+    "validation/worktree-drill-2026-11/logs/10-local-first-notice.log",
+    "validation/worktree-drill-2026-11/logs/11-local-second-notice.log",
+    "validation/worktree-drill-2026-11/logs/12-local-task-cancel.log",
+    "validation/worktree-drill-2026-11/logs/report-r-49884dae4444.md",
+    "validation/worktree-drill-2026-11/logs/report-r-706a222302bc.md",
+    "validation/worktree-drill-2026-11/logs/report-r-9ac7b6e16fb8.md",
+    "validation/worktree-drill-2026-11/logs/report-r-dba282988a57.md",
+    "validation/worktree-drill-2026-11/logs/report-r-dc8bb4207e64.md",
+    "validation/worktree-drill-2026-11/logs/temp-repo-config.json"
+  ],
+  "runs": [],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}

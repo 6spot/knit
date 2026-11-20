@@ -1,0 +1,26 @@
+$ date（取消慢的那个的执行之后）
+Sat 21 Nov 2026 07:53:33 +08
+$ knit run status k-f9efc24c3ec9
+任务: 演练·慢：等 10 分钟再加 drill-slow.txt（k-f9efc24c3ec9）
+状态: active(implement)
+Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-slow（knit/11-21-drill-slow）
+上一次: 实现（r-116a61a96372）
+失败: 已取消
+改动文件: 0 个
+下一步: 派发实现环节（knit run start k-f9efc24c3ec9）
+$ knit run status k-f32e4c7b737f
+任务: 演练·中：等 2 分钟再加 drill-mid.txt（k-f32e4c7b737f）
+状态: active(implement)
+Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-mid（knit/11-21-drill-mid）
+正在跑: 实现（r-706a222302bc），开始于 2026-11-20T23:53:04.838Z
+会话记录: .knit/.runtime/runs/r-706a222302bc/session/
+窗格: Rex 里标着 knit r-706a222302bc 的浮动窗格（最小化着）
+$ pgrep -fl 'knit run (worker|wait)'
+22179 knit run worker r-706a222302bc --task k-f32e4c7b737f
+22191 knit run wait k-f32e4c7b737f
+$ 慢任务的 Pi 和 sleep 还在不在
+$ git worktree list
+/Users/me/IdeaProjects/knit                              215593a [main]
+/Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-fast 215593a [knit/11-21-drill-fast]
+/Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-mid  215593a [knit/11-21-drill-mid]
+/Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-slow 215593a [knit/11-21-drill-slow]

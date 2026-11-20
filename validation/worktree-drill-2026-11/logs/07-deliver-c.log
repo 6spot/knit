@@ -1,0 +1,36 @@
+$ knit task close k-ab44a882ab95
+已完成 k-ab44a882ab95
+$ knit deliver k-ab44a882ab95
+已交付 k-ab44a882ab95
+归档: /private/tmp/knit-drill-repo-yCRh3P/.knit/tasks/archive/2026-11/11-21-drill-c
+提交: 2d6de46 feat: add hello
+Worktree: /private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-c（knit/11-21-drill-c）
+已合并 knit/11-21-drill-c → main
+已删除 Worktree: /private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-c
+已删除分支: knit/11-21-drill-c
+exit=0
+$ git log --oneline --graph -5
+* 2d6de46 feat: add hello
+*   1ecc0af Merge branch 'knit/11-21-drill-b'
+|\  
+| * f455c72 docs: add notes
+* | 28bf944 feat: add greet
+|/  
+* a111b3a chore: add the drill tasks
+$ git worktree list
+/private/tmp/knit-drill-repo-yCRh3P 2d6de46 [main]
+$ git branch --list 'knit/*'
+$ git status --short
+$ node hello.mjs（主检出）
+你好，Knit
+$ knit task list; knit task list --archive
+没有任务
+P1  k-2fe23fac3184  cancelled  完善项目的开发规范
+P2  k-b876ece446b2  delivered  甲：加 greet 函数
+P2  k-1a0ec97d2bcd  delivered  乙：加 NOTES.md
+P2  k-ab44a882ab95  delivered  丙：用 greet 写 hello.mjs
+$ find $KNIT_HOME -maxdepth 3
+<KNIT_HOME>
+<KNIT_HOME>/worktrees
+<KNIT_HOME>/worktrees/knit-drill-repo-yCRh3P-3e463a3e
+$ pgrep 残留

@@ -1,0 +1,33 @@
+$ 会话记录里实际用的模型
+   7 "model":"group/deepseek"
+   1 "modelId":"group/deepseek"
+   8 "provider":"magpie"
+   4 "model":"group/deepseek"
+   1 "modelId":"group/deepseek"
+   5 "provider":"magpie"
+$ knit task close k-b876ece446b2
+已完成 k-b876ece446b2
+$ knit task close k-1a0ec97d2bcd
+已完成 k-1a0ec97d2bcd
+$ knit task list
+P2  k-b876ece446b2  done  甲：加 greet 函数
+P2  k-1a0ec97d2bcd  done  乙：加 NOTES.md
+P2  k-ab44a882ab95  ready  丙：用 greet 写 hello.mjs
+$ git worktree list（派发丙之前）
+/private/tmp/knit-drill-repo-yCRh3P                                                         a111b3a [main]
+/private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-a a111b3a [knit/11-21-drill-a]
+/private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-b a111b3a [knit/11-21-drill-b]
+$ knit run start k-ab44a882ab95 --model magpie/group/deepseek
+依赖的任务还没有交付：k-b876ece446b2（done）；交付并合并之后再派发
+exit=1
+$ git worktree list（派发丙被拒绝之后）
+/private/tmp/knit-drill-repo-yCRh3P                                                         a111b3a [main]
+/private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-a a111b3a [knit/11-21-drill-a]
+/private/tmp/knit-drill-home-aefdPa/worktrees/knit-drill-repo-yCRh3P-3e463a3e/11-21-drill-b a111b3a [knit/11-21-drill-b]
+$ git branch --list 'knit/*'
++ knit/11-21-drill-a
++ knit/11-21-drill-b
+$ 丙的执行记录
+[]
+r-49884dae4444
+r-dc8bb4207e64

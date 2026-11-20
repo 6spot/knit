@@ -1,0 +1,15 @@
+$ date（收到第一条通知：快的 k-040659ece34f / r-dba282988a57）
+Sat 21 Nov 2026 07:54:02 +08
+$ knit run status k-f32e4c7b737f
+任务: 演练·中：等 2 分钟再加 drill-mid.txt（k-f32e4c7b737f）
+状态: active(implement)
+Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-mid（knit/11-21-drill-mid）
+正在跑: 实现（r-706a222302bc），开始于 2026-11-20T23:53:04.838Z
+会话记录: .knit/.runtime/runs/r-706a222302bc/session/
+窗格: Rex 里标着 knit r-706a222302bc 的浮动窗格（最小化着）
+$ pgrep -fl 'knit run (worker|wait)'
+22179 knit run worker r-706a222302bc --task k-f32e4c7b737f
+22191 knit run wait k-f32e4c7b737f
+$ 快任务的 Worktree
+?? drill-fast.txt
+fast

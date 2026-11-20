@@ -1,0 +1,23 @@
+$ git -C <Worktree 11-21-drill-a> status --short
+?? src/
+$ git -C <Worktree 11-21-drill-b> status --short
+?? NOTES.md
+$ 两个任务各自记下的改动
+11-21-drill-a r-49884dae4444 implement 2026-11-20T23:48:15.745Z 2026-11-20T23:48:29.371Z None ['src/greet.mjs']
+11-21-drill-b r-dc8bb4207e64 implement 2026-11-20T23:48:15.979Z 2026-11-20T23:48:25.914Z None ['NOTES.md']
+$ cat <a>/src/greet.mjs
+export function greet(name) {
+  return `你好，${name}`;
+}
+$ cat <b>/NOTES.md
+# 备注
+
+这是演练用的文件。
+$ 甲的函数
+你好，Knit
+$ git status --short（主检出）
+ M .knit/tasks/11-21-drill-a/record.json
+ M .knit/tasks/11-21-drill-a/task.md
+ M .knit/tasks/11-21-drill-b/record.json
+ M .knit/tasks/11-21-drill-b/task.md
+$ pgrep 残留

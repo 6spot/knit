@@ -1,0 +1,47 @@
+$ knit task cancel k-040659ece34f --reason "W10 演练用的任务，演练做完"
+已取消 k-040659ece34f
+.knit/tasks/archive/2026-11/11-21-drill-fast
+已删除 Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-fast
+已丢弃未提交的改动（1 个文件）
+已删除分支: knit/11-21-drill-fast
+exit=0
+$ knit task cancel k-f32e4c7b737f --reason "W10 演练用的任务，演练做完"
+已取消 k-f32e4c7b737f
+.knit/tasks/archive/2026-11/11-21-drill-mid
+已删除 Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-mid
+已丢弃未提交的改动（1 个文件）
+已删除分支: knit/11-21-drill-mid
+exit=0
+$ knit task cancel k-f9efc24c3ec9 --reason "W10 演练用的任务，演练做完"
+已取消 k-f9efc24c3ec9
+.knit/tasks/archive/2026-11/11-21-drill-slow
+已删除 Worktree: /Users/me/.knit/worktrees/knit-058bcf1b/11-21-drill-slow
+已删除分支: knit/11-21-drill-slow
+exit=0
+$ git worktree list
+/Users/me/IdeaProjects/knit 215593a [main]
+$ git branch --list 'knit/*'
+$ git rev-parse HEAD
+215593a8aa5ac2100528b67873e41918f3f20037
+$ ls ~/.knit/worktrees/knit-058bcf1b
+$ knit task list
+P1  k-7c16fc6dfc6f  ready  Worktree：每个任务在自己的 Worktree 里执行，可以同时跑多个（主任务）
+P1  k-0aff458174d6  ready  W10：用真实的 Pi 和模型演练并行、依赖和取消
+P2  k-0dabe6f4a322  draft  会话在选中任务前也能获得需求讨论规范
+P2  k-b2ac5d4c4c11  draft  工作流派发支持选择 Agent 并接入 Antigravity CLI
+$ knit task list --archive | grep 演练
+P2  k-d8b5009c9981  delivered  L2 演练脚本能在 Linux 上跑，模型和日志目录可以指定
+P2  k-6b6f6c9d8aaa  delivered  L3 在 Linux 上用真的 Pi 和模型跑全流程演练
+P3  k-040659ece34f  cancelled  演练·快：加 drill-fast.txt
+P3  k-f32e4c7b737f  cancelled  演练·中：等 2 分钟再加 drill-mid.txt
+P3  k-f9efc24c3ec9  cancelled  演练·慢：等 10 分钟再加 drill-slow.txt
+$ git status --short
+?? .knit/tasks/11-20-worktree/
+?? .knit/tasks/11-21-antigravity-cli-agent/
+?? .knit/tasks/11-21-discussion-before-task/
+?? .knit/tasks/11-21-w10-real-drill/
+?? .knit/tasks/archive/2026-11/11-21-drill-fast/
+?? .knit/tasks/archive/2026-11/11-21-drill-mid/
+?? .knit/tasks/archive/2026-11/11-21-drill-slow/
+?? validation/worktree-drill-2026-11/
+$ pgrep 残留
