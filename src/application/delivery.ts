@@ -15,7 +15,9 @@ import { taskWorktree, type TaskWorktree } from "./worktree.js";
 export interface DeliveryPreview {
   /** 归档之后的任务目录。 */
   readonly archiveDir: string;
-  /** 存在任务 Worktree 时在这里归档和提交，否则沿用主检出。 */
+  /** 归档所在检出：任务目录被忽略时仍是主检出。 */
+  readonly archiveRoot: string;
+  /** 存在任务 Worktree 时在这里提交，否则沿用主检出。 */
   readonly worktree: TaskWorktree | null;
   /** 项目不在 Git 仓库里时是 null：只归档，不提交。 */
   readonly commit: {
@@ -47,6 +49,12 @@ export function deliveryWorktree(root: string, taskDir: string): TaskWorktree | 
   return existsSync(join(worktree.path, ".git")) ? worktree : null;
 }
 
+/** 被 Git 忽略的任务目录留在主检出归档，不随任务分支提交。 */
+export function deliveryArchiveRoot(root: string, taskDir: string, worktree: TaskWorktree | null): string {
+  if (worktree === null) return root;
+  return gitSync(["check-ignore", "-q", "--", `${taskDir}/task.md`], worktree.path).code === 0 ? root : worktree.path;
+}
+
 /** 这些路径里现在有改动的文件：含新增、删除和没有跟踪的，不含被 Git 忽略的；目录列出里面的文件。 */
 export function changedAmong(root: string, paths: readonly string[]): string[] {
   // 不带路径时 Git 会列出整个工作区。
@@ -74,7 +82,7 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
       : [{ id: frontmatter.id, status: frontmatter.status }];
   });
   const archiveDir = archiveDirOf(stored);
-  if (!insideGit(root)) return { archiveDir, worktree: null, commit: null, openChildren };
+  if (!insideGit(root)) return { archiveDir, archiveRoot: root, worktree: null, commit: null, openChildren };
   const worktree = deliveryWorktree(root, stored.dir);
   const workspace = worktree?.path ?? root;
 
@@ -92,6 +100,7 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
       : null;
   return {
     archiveDir,
+    archiveRoot: deliveryArchiveRoot(root, stored.dir, worktree),
     worktree,
     commit: {
       files: files.map((path) => ({
@@ -113,8 +122,8 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
 
 export interface CommitDeliveryInput {
   readonly taskId: string;
-  /** 归档之前的任务目录。 */
-  readonly taskDir: string;
+  /** 归档之前的任务目录；归档留在另一个检出时是 null，不提交目录。 */
+  readonly taskDir: string | null;
   readonly archiveDir: string;
   readonly recorded: readonly string[];
   readonly message: string;
@@ -135,7 +144,7 @@ export type DeliveryCommit =
 /** 归档之后把这个任务的文件提交成一次提交；别的改动不动，不推送。 */
 export function commitDelivery(root: string, input: CommitDeliveryInput): DeliveryCommit {
   // 任务目录已经移走：原目录里跟踪过的文件是删除，归档目录里的是新增。
-  const files = changedAmong(root, [...input.recorded, input.taskDir, input.archiveDir]);
+  const files = changedAmong(root, [...input.recorded, ...(input.taskDir === null ? [] : [input.taskDir, input.archiveDir])]);
   // 不带路径的 git add -A 会暂存整个工作区。
   if (files.length === 0) return { kind: "nothing" };
   // 已经暂存的删除在工作区和暂存区里都已经没有文件，add 的路径对不上；先撤掉这些路径的暂存，

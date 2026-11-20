@@ -1,16 +1,17 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Command } from "commander";
 import {
   commitDelivery,
+  deliveryArchiveRoot,
   deliveryWorktree,
   insideGit,
   previewDelivery,
   recordedPaths,
   type DeliveryPreview,
 } from "../application/delivery.js";
-import { archiveDirOf, archiveTask, findTask, saveTask } from "../application/task-store.js";
+import { archiveDirOf, findTask, saveTask } from "../application/task-store.js";
+import { moveDirectory, removeCopy } from "../infrastructure/directory.js";
 import { gitSync } from "../infrastructure/process.js";
 import { currentStatus } from "../domain/task-document.js";
 import { fail, loadTask } from "./task.js";
@@ -84,25 +85,54 @@ export function registerDeliverCommand(program: Command): void {
       if (message === null) return;
       if (git && message === "") return fail([`提交文案是空的：${options.messageFile}`]);
 
+      const worktree = deliveryWorktree(loaded.root, loaded.stored.dir);
+      const workspace = worktree?.path ?? loaded.root;
+      const archiveRoot = deliveryArchiveRoot(loaded.root, loaded.stored.dir, worktree);
+      const archiveDir = archiveDirOf(loaded.stored);
+      // 备份与任务分支在同一文件系统，不依赖系统临时目录的位置。
+      const previousTask = worktree !== null && archiveRoot === workspace && existsSync(join(workspace, loaded.stored.dir))
+        ? mkdtempSync(join(workspace, ".knit-delivery-"))
+        : null;
+      const newArchiveParents = [
+        dirname(join(archiveRoot, archiveDir)),
+        join(archiveRoot, ".knit/tasks/archive"),
+        join(archiveRoot, ".knit/tasks"),
+        join(archiveRoot, ".knit"),
+      ].filter((path) => !existsSync(path));
+      const rollback = () => {
+        if (!existsSync(join(loaded.root, loaded.stored.dir))) {
+          moveDirectory(join(archiveRoot, archiveDir), join(loaded.root, loaded.stored.dir));
+        }
+        if (previousTask !== null) {
+          if (existsSync(join(previousTask, "task"))) {
+            renameSync(join(previousTask, "task"), join(workspace, loaded.stored.dir));
+          }
+          rmSync(previousTask, { recursive: true, force: true });
+        }
+        newArchiveParents.forEach((path) => {
+          if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);
+        });
+        const moved = findTask(loaded.root, id);
+        if (moved !== null) saveTask(loaded.root, moved, loaded.document, loaded.record);
+      };
       const conflicts = saveTask(
         loaded.root,
         loaded.stored,
         { ...loaded.document, frontmatter: { ...loaded.document.frontmatter, status: "delivered" } },
         { ...loaded.record, authorization },
       );
-      if (conflicts.length > 0) return fail(conflicts);
-      const worktree = deliveryWorktree(loaded.root, loaded.stored.dir);
-      const workspace = worktree?.path ?? loaded.root;
-      // 任务分支可能带着建分支时的旧任务目录：本次提交删除它，失败时原样放回。
-      const previousTask = worktree !== null && existsSync(join(workspace, loaded.stored.dir))
-        ? mkdtempSync(join(tmpdir(), "knit-delivery-"))
-        : null;
-      if (previousTask !== null) renameSync(join(workspace, loaded.stored.dir), join(previousTask, "task"));
-      const newArchiveParents = worktree === null ? [] : [
-        dirname(join(workspace, archiveDirOf(loaded.stored))),
-        join(workspace, ".knit/tasks/archive"),
-      ].filter((path) => !existsSync(path));
-      const archiveDir = archiveTask(loaded.root, loaded.stored, workspace);
+      if (conflicts.length > 0) {
+        if (previousTask !== null) rmSync(previousTask, { recursive: true, force: true });
+        return fail(conflicts);
+      }
+      try {
+        if (previousTask !== null) renameSync(join(workspace, loaded.stored.dir), join(previousTask, "task"));
+        mkdirSync(dirname(join(archiveRoot, archiveDir)), { recursive: true });
+        moveDirectory(join(loaded.root, loaded.stored.dir), join(archiveRoot, archiveDir));
+      } catch (error) {
+        rollback();
+        throw error;
+      }
       if (!git) {
         return void process.stdout.write(
           `已交付 ${id}\n归档: ${archiveDir}\n提交: 这个项目不在 Git 仓库里，没有提交\n`,
@@ -110,7 +140,7 @@ export function registerDeliverCommand(program: Command): void {
       }
       const commit = commitDelivery(workspace, {
         taskId: id,
-        taskDir: loaded.stored.dir,
+        taskDir: archiveRoot === workspace ? loaded.stored.dir : null,
         archiveDir,
         recorded: recordedPaths(loaded.record),
         message,
@@ -118,25 +148,16 @@ export function registerDeliverCommand(program: Command): void {
       if (commit.kind === "refused") {
         // 撤回到运行之前的样子：撤掉暂存，目录移回去，两个文件写回原来的内容。
         gitSync(["--literal-pathspecs", "reset", "-q", "--", ...commit.files], workspace);
-        renameSync(join(workspace, archiveDir), join(loaded.root, loaded.stored.dir));
-        if (previousTask !== null) {
-          renameSync(join(previousTask, "task"), join(workspace, loaded.stored.dir));
-          rmSync(previousTask, { recursive: true, force: true });
-        }
-        newArchiveParents.forEach((path) => {
-          if (readdirSync(path).length === 0) rmdirSync(path);
-        });
-        const moved = findTask(loaded.root, id);
-        if (moved !== null) saveTask(loaded.root, moved, loaded.document, loaded.record);
+        rollback();
         return fail([
           commit.error.trimEnd(),
           `Git 没有接受这次提交，交付已经撤回：任务目录在 ${loaded.stored.dir}，状态是 done`,
         ]);
       }
-      if (previousTask !== null) rmSync(previousTask, { recursive: true, force: true });
+      if (previousTask !== null) removeCopy(previousTask);
       const lines = [
         `已交付 ${id}`,
-        `归档: ${worktree === null ? archiveDir : join(workspace, archiveDir)}`,
+        `归档: ${worktree === null ? archiveDir : join(archiveRoot, archiveDir)}`,
         `提交: ${commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}`,
         ...(worktree === null ? [] : [
           `Worktree: ${worktree.path}（${worktree.branch}）`,
@@ -168,7 +189,7 @@ function showPreview(loaded: NonNullable<ReturnType<typeof loadTask>>, messageFi
   if (message === null) return;
   const lines = [
     `任务: ${loaded.document.frontmatter.title}（${loaded.document.frontmatter.id}）`,
-    `归档: ${loaded.stored.dir} → ${preview.worktree === null ? preview.archiveDir : join(preview.worktree.path, preview.archiveDir)}`,
+    `归档: ${loaded.stored.dir} → ${preview.worktree === null ? preview.archiveDir : join(preview.archiveRoot, preview.archiveDir)}`,
     ...(preview.worktree === null ? [] : [
       `Worktree: ${preview.worktree.path}（${preview.worktree.branch}）`,
       "提交在任务分支上，不会合并进主检出的分支",
