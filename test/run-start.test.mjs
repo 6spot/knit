@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { RUNS_DIR } from "../dist/application/run-prepare.js";
 import { knit } from "./helpers/cli.mjs";
 import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { git } from "./helpers/git.mjs";
+import { nodeCommand, setupConfig } from "./helpers/setup.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -83,6 +85,78 @@ test("派发后立即返回，执行者在后台做完", async (t) => {
   assert.equal(existsSync(join(dir, "src/a.ts")), false);
   assert.equal(readFileSync(join(dir, runDir, "report.md"), "utf8"), "做完了。");
   assert.equal(readFileSync(join(dir, runDir, "worker.log"), "utf8"), "");
+});
+
+test("start 等两条准备命令按顺序完成，快照排除准备文件；审查和返工不再运行", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  setupConfig(dir, [
+    nodeCommand("require('node:fs').writeFileSync('setup.txt', 'first')"),
+    nodeCommand("setTimeout(() => require('node:fs').appendFileSync('setup.txt', ':second:' + process.env.KNIT_SETUP_TEST), 100)"),
+  ]);
+  const pi = fakePi(t, dir, { KNIT_SETUP_TEST: "inherited" });
+  pi.script({ writes: [{ path: "worker.txt", content: "worker" }] });
+  const started = pi.knit("run", "start", task.id);
+  assert.equal(started.code, 0, started.stderr);
+  const first = lastRun(dir, task);
+  const setupText = existsSync(join(worktreeOf(dir, task), "setup.txt")) ? readFileSync(join(worktreeOf(dir, task), "setup.txt"), "utf8") : null;
+  assert.equal((await finished(dir, task, first.id)).failure, null);
+  assert.equal(started.stdout, `已派发 ${task.id}：实现（${first.id}）\n${worktreeLine(dir, task)}已运行准备命令：2 条\n会话记录：${RUNS_DIR}/${first.id}/session/\n`);
+  assert.equal(setupText, "first:second:inherited");
+  assert.equal(existsSync(join(dir, "setup.txt")), false);
+  assert.deepEqual(lastRun(dir, task).changedPaths, ["worker.txt"]);
+
+  // 若复用时误跑，第二条会追加，第一条会以 19 退出。
+  setupConfig(dir, [nodeCommand("process.exit(19)"), nodeCommand("require('node:fs').appendFileSync('setup.txt', ':again')")]);
+  pi.script({ texts: ['```json\n{"verdict":"changes_requested"}\n```'] });
+  const review = pi.knit("run", "start", task.id);
+  assert.equal(review.code, 0, review.stderr);
+  assert.doesNotMatch(review.stdout, /已运行准备命令/);
+  assert.equal((await finished(dir, task, startedRunId(review.stdout))).verdict, "changes_requested");
+  pi.script({});
+  const repair = pi.knit("run", "start", task.id);
+  assert.equal(repair.code, 0, repair.stderr);
+  assert.doesNotMatch(repair.stdout, /已运行准备命令/);
+  assert.equal((await finished(dir, task, startedRunId(repair.stdout))).failure, null);
+  assert.equal(readFileSync(join(worktreeOf(dir, task), "setup.txt"), "utf8"), "first:second:inherited");
+});
+
+test("第二条准备命令失败时 start 原样报告、停止后续命令、撤回脏 Worktree，改对后能再派发", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const marker = join(process.env.KNIT_HOME, "must-not-run");
+  const failedCommand = nodeCommand("console.log('setup stdout'); console.error('setup stderr'); process.exit(23)");
+  setupConfig(dir, [
+    nodeCommand("require('node:fs').writeFileSync('untracked.txt', 'unfinished'); require('node:fs').mkdirSync('node_modules')"),
+    failedCommand,
+    nodeCommand("require('node:fs').writeFileSync(process.env.KNIT_SETUP_MARKER, 'bad')"),
+  ]);
+  const pi = fakePi(t, dir, { KNIT_SETUP_MARKER: marker });
+  pi.script({});
+  const before = ["task.md", "record.json"].map((file) => readFileSync(join(dir, task.dir, file), "utf8"));
+  const trees = git(dir, "worktree", "list", "--porcelain");
+  const refused = pi.knit("run", "start", task.id);
+  if (refused.code === 0) await finished(dir, task, startedRunId(refused.stdout));
+  assert.equal(refused.code, 1);
+  assert.equal(refused.stdout, "");
+  assert.ok(refused.stderr.includes(failedCommand), refused.stderr);
+  assert.match(refused.stderr, /退出码[：: ]+23/);
+  assert.match(refused.stderr, /setup stdout\n/);
+  assert.match(refused.stderr, /setup stderr\n/);
+  assert.equal(existsSync(marker), false);
+  assert.equal(existsSync(worktreeOf(dir, task)), false);
+  assert.equal(git(dir, "branch", "--list", `knit/${basename(task.dir)}`), "");
+  assert.equal(git(dir, "worktree", "list", "--porcelain"), trees);
+  assert.equal(existsSync(join(dir, RUNS_DIR)), false);
+  assert.equal(existsSync(join(pi.outside, "pi.jsonl")), false);
+  assert.deepEqual(["task.md", "record.json"].map((file) => readFileSync(join(dir, task.dir, file), "utf8")), before);
+
+  setupConfig(dir, [nodeCommand("require('node:fs').writeFileSync('untracked.txt', 'ready')")]);
+  const retried = pi.knit("run", "start", task.id);
+  assert.equal(retried.code, 0, retried.stderr);
+  assert.match(retried.stdout, /已运行准备命令：1 条/);
+  assert.equal(readFileSync(join(worktreeOf(dir, task), "untracked.txt"), "utf8"), "ready");
+  assert.equal((await finished(dir, task, startedRunId(retried.stdout))).failure, null);
 });
 
 [

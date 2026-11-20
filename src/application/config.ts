@@ -1,7 +1,7 @@
-/** 读出项目配置 `.knit/config.json`：只有交接的字节上限。 */
+/** 读出项目配置 `.knit/config.json`：交接的字节上限与 Worktree 准备命令。 */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { int, obj, opt, type Static } from "@earendil-works/pi-schema";
+import { arr, int, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { schemaProblems } from "../contracts/task.js";
 import { DEFAULT_HANDOFF_LIMITS, type HandoffLimits } from "./handoff.js";
 
@@ -10,10 +10,12 @@ export const CONFIG_PATH = ".knit/config.json";
 /** 字段都可以不写；不认识的字段算问题，写错字段名时能马上发现。 */
 const ConfigFileSchema = obj({
   handoff: opt(obj({ fileBytes: opt(int({ minimum: 1 })), totalBytes: opt(int({ minimum: 1 })) })),
+  worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))) })),
 });
 
 export interface ProjectConfig {
   readonly handoff: HandoffLimits;
+  readonly worktree?: { readonly setup?: readonly string[] };
 }
 
 export interface ConfigLoadResult {
@@ -35,8 +37,12 @@ export function loadConfig(root: string): ConfigLoadResult {
   if (problems.length > 0) {
     return { config: null, problems: problems.map((problem) => `${CONFIG_PATH}：${problem}`) };
   }
+  const config = raw as Static<typeof ConfigFileSchema>;
   return {
-    config: { handoff: { ...DEFAULT_HANDOFF_LIMITS, ...(raw as Static<typeof ConfigFileSchema>).handoff } },
+    config: {
+      handoff: { ...DEFAULT_HANDOFF_LIMITS, ...config.handoff },
+      ...(config.worktree === undefined ? {} : { worktree: config.worktree }),
+    },
     problems: [],
   };
 }

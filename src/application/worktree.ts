@@ -46,10 +46,10 @@ export function ensureWorktree(root: string, worktree: TaskWorktree): PreparedWo
     : { problems: [added.stderr.trimEnd()], created: false, branchCreated: false };
 }
 
-/** 派发被拒绝时只撤回这次准备新建的目录和分支，不碰之前的工作。 */
-export function rollbackWorktree(root: string, worktree: TaskWorktree, prepared: PreparedWorktree): string[] {
+/** 派发被拒绝时只撤回这次新建的目录和分支；运行过准备命令后强制删除它留下的文件。 */
+export function rollbackWorktree(root: string, worktree: TaskWorktree, prepared: PreparedWorktree, force = false): string[] {
   if (!prepared.created) return [];
-  const removed = gitSync(["worktree", "remove", worktree.path], root);
+  const removed = gitSync(["worktree", "remove", ...(force ? ["--force"] : []), worktree.path], root);
   if (removed.code !== 0) return [removed.stderr.trimEnd()];
   if (!prepared.branchCreated) return [];
   const deleted = gitSync(["branch", "-D", worktree.branch], root);

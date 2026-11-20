@@ -122,7 +122,7 @@ export function registerRunCommands(program: Command): void {
 
   run
     .command("start <id>")
-    .description("派发任务的下一个环节；执行者在后台跑，命令立即返回")
+    .description("派发任务的下一个环节；等 Worktree 准备命令完成后返回，执行者在后台跑")
     .option("--model <provider/模型>", "这一次用的模型")
     .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
     .option("--dir <目录>", "项目目录", process.cwd())
@@ -157,6 +157,7 @@ export function registerRunCommands(program: Command): void {
       process.stdout.write(
         `已派发 ${id}：${started.stage.name}（${started.id}）\n` +
         `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
+        (started.setupCommands === undefined ? "" : `已运行准备命令：${started.setupCommands} 条\n`) +
         `会话记录：${started.dir}/session/\n`,
       );
     });

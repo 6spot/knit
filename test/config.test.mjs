@@ -30,12 +30,43 @@ test("写了的值生效", (t) => {
   });
 });
 
+test("Worktree 准备命令保留内容和顺序，空数组合法", (t) => {
+  [[], ["npm ci", "  echo ready  "]].forEach((setup) => {
+    assert.deepEqual(loadConfig(projectWithConfig(t, JSON.stringify({ worktree: { setup } }))), {
+      config: { handoff: { fileBytes: 16384, totalBytes: 65536 }, worktree: { setup } },
+      problems: [],
+    });
+  });
+  assert.deepEqual(loadConfig(projectWithConfig(t, '{"worktree":{}}')), {
+    config: { handoff: { fileBytes: 16384, totalBytes: 65536 }, worktree: {} },
+    problems: [],
+  });
+});
+
+[null, "npm ci", {}, [""], ["   "], ["echo ok", 1]].forEach((setup) => {
+  test(`准备命令配置写错时指出配置文件和 setup：${JSON.stringify(setup)}`, (t) => {
+    const loaded = loadConfig(projectWithConfig(t, JSON.stringify({ worktree: { setup } })));
+    assert.equal(loaded.config, null);
+    assert.match(loaded.problems.join("\n"), /^\.knit\/config\.json：.*worktree\/setup/);
+  });
+});
+
+[null, [], "npm ci"].forEach((worktree) => {
+  test(`worktree 必须是对象：${JSON.stringify(worktree)}`, (t) => {
+    const loaded = loadConfig(projectWithConfig(t, JSON.stringify({ worktree })));
+    assert.equal(loaded.config, null);
+    assert.match(loaded.problems.join("\n"), /^\.knit\/config\.json：.*worktree/);
+  });
+});
+
 test("配置写错时指出问题", (t) => {
   const cases = [
     ["{ not json", "不是合法的 JSON"],
     ['{ "handof": {} }', "handof"],
     ['{ "handoff": { "fileBytes": 0 } }', "fileBytes"],
     ['{ "model": "p/m" }', "model"],
+    ['{ "worktree": { "autoMerge": true } }', "autoMerge"],
+    ['{ "worktree": { "setp": [] } }', "setp"],
   ];
   for (const [content, expected] of cases) {
     const loaded = loadConfig(projectWithConfig(t, content));

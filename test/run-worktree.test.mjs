@@ -14,6 +14,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
 import { readyTask, runProject } from "./helpers/run.mjs";
+import { nodeCommand, setupConfig } from "./helpers/setup.mjs";
 
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 const workflowOf = (root) => parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
@@ -219,6 +220,97 @@ test("相对 KNIT_HOME 按主检出定位，快照、执行和状态使用同一
   const line = `Worktree: ${worktree}（${branchOf(task)}）`;
   assert.ok(knit(root, "run", "status", task.id).stdout.split("\n").includes(line));
   assert.ok(knit(root, "context", task.id).stdout.split("\n").includes(line));
+});
+
+test("目录丢失后重新运行准备命令，原分支提交和旧执行记录保留", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const first = prepare(root, task).run;
+  assert.deepEqual(finish(root, task, first), []);
+  const worktree = expectedWorktree(root, task);
+  writeFileSync(join(worktree, "saved.txt"), "original progress");
+  commitAll(worktree, "saved progress");
+  const head = git(worktree, "rev-parse", "HEAD");
+  rmSync(worktree, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  setupConfig(root, [nodeCommand("require('node:fs').writeFileSync('rebuilt.txt', require('node:fs').readFileSync('saved.txt'))")]);
+  const rebuilt = prepare(root, task);
+  assert.deepEqual(rebuilt.problems, []);
+  assert.equal(readFileSync(join(worktree, "rebuilt.txt"), "utf8"), "original progress");
+  assert.equal(git(worktree, "rev-parse", "HEAD"), head);
+  assert.equal(JSON.parse(filesOf(root, task)[1]).runs[0].id, first.id);
+});
+
+test("重建目录的准备命令失败时强制撤回新目录，但不删已有分支和旧执行记录", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const first = prepare(root, task).run;
+  assert.deepEqual(finish(root, task, first), []);
+  const worktree = expectedWorktree(root, task);
+  writeFileSync(join(worktree, "saved.txt"), "original progress");
+  commitAll(worktree, "saved progress");
+  const head = git(worktree, "rev-parse", "HEAD");
+  rmSync(worktree, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  setupConfig(root, [nodeCommand("require('node:fs').writeFileSync('unfinished.txt', 'unfinished'); process.exit(24)")]);
+  const before = filesOf(root, task);
+  const refused = prepare(root, task);
+  assert.equal(refused.run, null);
+  assert.match(refused.problems.join("\n"), /退出码[：: ]+24/);
+  assert.equal(existsSync(worktree), false);
+  assert.equal(git(root, "rev-parse", branchOf(task)), head);
+  assert.deepEqual(filesOf(root, task), before);
+  assert.equal(existsSync(join(root, first.dir, "before.json")), true);
+  setupConfig(root, [nodeCommand("require('node:fs').writeFileSync('ready.txt', 'ready')")]);
+  assert.deepEqual(prepare(root, task).problems, []);
+  assert.equal(git(worktree, "rev-parse", "HEAD"), head);
+  assert.equal(readFileSync(join(worktree, "ready.txt"), "utf8"), "ready");
+});
+
+["需求没确认", "依赖没完成", "有执行在跑", "没有模型", "没有提交", "资料不存在", "资料没提交", "角色文件不存在"].forEach((reason) => {
+  test(`准备命令不在其它拒绝条件下运行：${reason}`, (t) => {
+    const root = reason === "没有提交" ? project(t) : runProject(t);
+    if (reason === "没有提交") {
+      git(root, "init", "-q");
+      assert.equal(knit(root, "init").code, 0);
+    }
+    const dependency = reason === "依赖没完成" || reason === "有执行在跑" ? readyTask(root) : null;
+    const task = readyTask(root, reason === "依赖没完成" ? { dependsOn: [dependency.id] } : {});
+    if (reason === "有执行在跑") assert.deepEqual(prepare(root, dependency).problems, []);
+    if (reason === "需求没确认") {
+      const path = join(root, task.dir, "task.md");
+      writeFileSync(path, `${readFileSync(path, "utf8")}\n改过的需求\n`);
+    }
+    if (reason === "资料不存在" || reason === "资料没提交") {
+      if (reason === "资料没提交") writeFileSync(join(root, "new-material.md"), "new material");
+      const path = join(root, task.dir, "task.md");
+      writeFileSync(path, `${readFileSync(path, "utf8")}\n- \`new-material.md\` — 资料\n`);
+      assert.equal(knit(root, "task", "ready", task.id).code, 0);
+    }
+    if (reason === "角色文件不存在") rmSync(join(root, ".knit/agents/implement.md"));
+    if (reason === "没有模型") {
+      const provider = process.env.PI_PROVIDER;
+      const model = process.env.PI_MODEL;
+      delete process.env.PI_PROVIDER;
+      delete process.env.PI_MODEL;
+      t.after(() => {
+        if (provider !== undefined) process.env.PI_PROVIDER = provider;
+        if (model !== undefined) process.env.PI_MODEL = model;
+      });
+    }
+    setupConfig(root, [nodeCommand("require('node:fs').writeFileSync(require('node:path').join(process.env.KNIT_HOME, 'setup-ran'), 'bad')")]);
+    assert.notEqual(loadConfig(root).config, null);
+    const before = filesOf(root, task);
+    const trees = git(root, "worktree", "list", "--porcelain");
+    const refused = prepare(root, task, {
+      model: reason === "没有提交" ? "fake/model" : null,
+      ...(reason === "没有模型" ? { workflow: { ...workflowOf(root), stages: workflowOf(root).stages.map((stage) => ({ ...stage, model: null })) } } : {}),
+    });
+    assert.equal(refused.run, null);
+    assert.equal(existsSync(join(process.env.KNIT_HOME, "setup-ran")), false);
+    assert.equal(existsSync(expectedWorktree(root, task)), false);
+    assert.equal(git(root, "branch", "--list", branchOf(task)), "");
+    assert.equal(git(root, "worktree", "list", "--porcelain"), trees);
+    assert.deepEqual(filesOf(root, task), before);
+  });
 });
 
 test("主会话直接完成任务不建 Worktree", (t) => {

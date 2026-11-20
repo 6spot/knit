@@ -2,6 +2,7 @@
  * 派发一个环节的第一步：检查能不能派发，把交给执行者的内容和工作区的记录存下来，
  * 在任务的执行记录里登记这一次。不能派发时说明原因，不登记执行。
  */
+import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -43,6 +44,8 @@ export interface PreparedRun {
   readonly model: string;
   /** 最后用的思考等级；null 时让 Pi 自己取缺省。 */
   readonly thinking: ThinkingLevel | null;
+  /** 这次新建目录后运行的准备命令数；没运行时不带这个字段。 */
+  readonly setupCommands?: number;
 }
 
 export type PrepareRunResult =
@@ -107,7 +110,8 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   const worktree = taskWorktree(root, stored.dir);
   const preparedWorktree = ensureWorktree(root, worktree);
   if (preparedWorktree.problems.length > 0) return refuse(...preparedWorktree.problems);
-  const refusePrepared = (...problems: string[]) => refuse(...problems, ...rollbackWorktree(root, worktree, preparedWorktree));
+  const refusePrepared = (problems: readonly string[], force = false) =>
+    refuse(...problems, ...rollbackWorktree(root, worktree, preparedWorktree, force));
 
   const counted = countedRuns(record);
   const last = counted.at(-1);
@@ -122,7 +126,20 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
     own: own === undefined || own === last ? null : reportOf(root, own),
     limits: input.config.handoff,
   });
-  if (handoff.problems.length > 0) return refusePrepared(...handoff.problems);
+  if (handoff.problems.length > 0) return refusePrepared(handoff.problems);
+
+  const setup = preparedWorktree.created ? input.config.worktree?.setup ?? [] : [];
+  const setupProblems = setup.reduce<string[]>((problems, command) => {
+    if (problems.length > 0) return problems;
+    const result = spawnSync(command, { cwd: worktree.path, shell: true, encoding: "utf8", maxBuffer: Infinity });
+    if (result.status === 0) return [];
+    return [
+      `准备命令失败：${command}\n退出码：${result.status ?? -1}` +
+      (result.signal === null ? "" : `（信号：${result.signal}）`) +
+      `\n${result.stdout ?? ""}${result.stderr ?? ""}${result.error?.message ?? ""}`,
+    ];
+  }, []);
+  if (setupProblems.length > 0) return refusePrepared(setupProblems, true);
 
   const id = `r-${randomBytes(6).toString("hex")}`;
   const conflicts = saveTask(
@@ -147,7 +164,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
       ],
     },
   );
-  if (conflicts.length > 0) return refusePrepared(...conflicts);
+  if (conflicts.length > 0) return refusePrepared(conflicts, setup.length > 0);
 
   const dir = `${RUNS_DIR}/${id}`;
   mkdirSync(join(root, dir), { recursive: true });
@@ -155,7 +172,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
-  return { run: { id, dir, stage, worktree, model, thinking }, problems: [] };
+  return { run: { id, dir, stage, worktree, model, thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
 }
 
 /**
