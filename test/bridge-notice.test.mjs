@@ -83,6 +83,48 @@ test("结束时发一条消息", async (t) => {
   assert.equal(bridge.messages.length, 1);
 });
 
+test("两个任务同时执行，桥接各等一次结束并各发一条通知", async (t) => {
+  const tasks = [];
+  t.after(async () => {
+    await bridge.fire("session_shutdown", { reason: "reload" });
+    tasks.filter((task) => lastRun(dir, task)?.endedAt === null).forEach((task) => {
+      const cancelled = knit(dir, "run", "cancel", task.id);
+      assert.equal(cancelled.code, 0, cancelled.stderr);
+    });
+    await Promise.all(tasks.filter((task) => lastRun(dir, task) !== undefined).map((task) => ended(dir, task)));
+    await waitUntil(() => tasks.every((task) => waitersOf(task).length === 0), "全部 knit run wait 退出");
+  });
+  const { dir, bridge, outside, task } = await bridged(t, (outside) => ({ waitFor: join(outside, "go") }));
+  tasks.push(task, readyTask(dir));
+  const first = await bridge.tool("knit_run", { action: "start", taskId: tasks[0].id });
+  assert.equal(first.isError, undefined, text(first));
+  const second = await bridge.tool("knit_run", { action: "start", taskId: tasks[1].id });
+  assert.equal(second.isError, undefined, text(second));
+  await waitUntil(() => tasks.every((task) => waitersOf(task).length === 1 && pgrep(lastRun(dir, task).id).length === 2), "两个执行者和两个按任务等待的进程都在跑");
+  tasks.forEach((task) => {
+    assert.equal(lastRun(dir, task).endedAt, null);
+    assert.match(knit(dir, "run", "status", task.id).stdout, /正在跑: 实现/);
+  });
+  assert.deepEqual(bridge.messages, []);
+
+  writeFileSync(join(outside, "go"), "");
+  await Promise.all(tasks.map((task) => ended(dir, task)));
+  await waitUntil(() => bridge.messages.length === 2, "每个任务各收到一条通知");
+  const expected = tasks.map((task) => ({
+    message: {
+      customType: "knit.run-ended",
+      content: `Knit 的执行结束了：\n${knit(dir, "run", "status", task.id).stdout.trimEnd()}`,
+      display: true,
+    },
+    options: { deliverAs: "followUp", triggerTurn: true },
+  }));
+  const byContent = (first, second) => first.message.content.localeCompare(second.message.content);
+  assert.deepEqual([...bridge.messages].sort(byContent), expected.sort(byContent));
+  await waitUntil(() => tasks.every((task) => waitersOf(task).length === 0), "全部 knit run wait 退出");
+  await sleep(1500);
+  assert.equal(bridge.messages.length, 2);
+});
+
 test("自己取消的不通知", async (t) => {
   const { dir, bridge, task } = await bridged(t, (outside) => ({ waitFor: join(outside, "never") }));
 

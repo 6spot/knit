@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
 import { assembleHandoff } from "../dist/application/handoff.js";
-import { prepareRun, RUNS_DIR, unfinishedRun } from "../dist/application/run-prepare.js";
+import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { takeSnapshot } from "../dist/application/workspace.js";
 import { parseTaskDocument, requirementDigest } from "../dist/domain/task-document.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
@@ -67,11 +67,11 @@ test("能派发时存好交接内容并登记", (t) => {
     sessionFile: null,
   });
   assert.equal(record.runs[0].requirementDigest, record.confirmedDigest);
-  assert.deepEqual(unfinishedRun(dir), { taskId: task.id, runId: run.id });
+  assert.equal(record.runs[0].endedAt, null);
 
   // 失败的执行不算数：再准备还是实现环节；另外给了 model 时用给的
   endLastRun(dir, task, { failure: "执行者中途退出" });
-  assert.equal(unfinishedRun(dir), null);
+  assert.equal(recordOf(dir, task).runs[0].endedAt, "2026-11-15T02:00:00.000Z");
   const again = prepare(dir, task.id, { model: "other/big-model" });
   assert.deepEqual(again.problems, []);
   assert.equal(again.run.stage.id, "implement");
@@ -99,16 +99,18 @@ test("不能派发时说明原因，什么都不写", (t) => {
   assert.equal(existsSync(join(process.env.KNIT_HOME, "worktrees")), false);
   assert.deepEqual([first, dependent, second].map((task) => filesOf(dir, task)), before);
 
-  // 另一个任务有一次没结束的执行
+  // 这个任务自己有一次没结束的执行，拒绝后不增加记录或改写任务文件。
   const { run } = prepare(dir, first.id);
-  const others = [second].map((task) => filesOf(dir, task));
-  assert.deepEqual(prepare(dir, second.id), {
+  const running = filesOf(dir, first);
+  assert.deepEqual(prepare(dir, first.id), {
     run: null,
     problems: [`任务 ${first.id} 的执行 ${run.id} 还没有结束；等它结束，或运行 knit run cancel ${first.id}`],
   });
   assert.deepEqual(runDirs(dir), [run.id]);
+  assert.deepEqual(filesOf(dir, first), running);
+  assert.equal(recordOf(dir, first).runs.length, 1);
   assert.equal(existsSync(worktreeOf(dir, second)), false);
-  assert.deepEqual([second].map((task) => filesOf(dir, task)), others);
+  assert.deepEqual(filesOf(dir, second), before[2]);
 });
 
 test("task.md 写坏了：说出哪里坏了，不建执行目录", (t) => {

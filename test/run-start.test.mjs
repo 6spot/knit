@@ -255,7 +255,7 @@ test("不能派发时不启动进程", (t) => {
   assert.equal(existsSync(join(dir, RUNS_DIR)), false);
 });
 
-test("执行者还在跑时不能再派发", async (t) => {
+test("同一个任务的执行者还在跑时不能再派发，提示不变且没有新的记录", async (t) => {
   const dir = runProject(t);
   const first = readyTask(dir);
   const second = readyTask(dir);
@@ -266,13 +266,17 @@ test("执行者还在跑时不能再派发", async (t) => {
   const started = pi.knit("run", "start", first.id);
   assert.equal(started.code, 0, started.stderr);
   const runId = startedRunId(started.stdout);
-  const refused = pi.knit("run", "start", second.id);
+  const before = ["task.md", "record.json"].map((file) => readFileSync(join(dir, first.dir, file), "utf8"));
+  const refused = pi.knit("run", "start", first.id);
   assert.equal(refused.code, 1);
+  assert.equal(refused.stdout, "");
   assert.equal(
     refused.stderr,
     `任务 ${first.id} 的执行 ${runId} 还没有结束；等它结束，或运行 knit run cancel ${first.id}\n`,
   );
   assert.equal(lastRun(dir, first).endedAt, null);
+  assert.deepEqual(["task.md", "record.json"].map((file) => readFileSync(join(dir, first.dir, file), "utf8")), before);
+  assert.equal(JSON.parse(before[1]).runs.length, 1);
 
   writeFileSync(gate, "");
   assert.equal((await finished(dir, first, runId)).failure, null);

@@ -52,15 +52,6 @@ export type PrepareRunResult =
   | { readonly run: PreparedRun; readonly problems: readonly [] }
   | { readonly run: null; readonly problems: readonly string[] };
 
-/** 没归档的任务里一次还没结束的执行；同一时间只跑一个执行者，所以最多一个。 */
-export function unfinishedRun(root: string): { taskId: string; runId: string } | null {
-  for (const task of scanTasks(root)) {
-    const run = task.archived ? undefined : task.record?.runs.find((item) => item.endedAt === null);
-    if (task.document !== null && run !== undefined) return { taskId: task.document.frontmatter.id, runId: run.id };
-  }
-  return null;
-}
-
 export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   const { root, taskId } = input;
   const refuse = (...problems: string[]): PrepareRunResult => ({ run: null, problems });
@@ -82,10 +73,10 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
     return dependency === "done" || dependency === "delivered" ? [] : [`依赖的任务还没有完成：${id}（${dependency}）`];
   });
   if (waiting.length > 0) return refuse(...waiting);
-  const running = unfinishedRun(root);
-  if (running !== null) {
+  const running = record.runs.find((run) => run.endedAt === null);
+  if (running !== undefined) {
     return refuse(
-      `任务 ${running.taskId} 的执行 ${running.runId} 还没有结束；等它结束，或运行 knit run cancel ${running.taskId}`,
+      `任务 ${taskId} 的执行 ${running.id} 还没有结束；等它结束，或运行 knit run cancel ${taskId}`,
     );
   }
   const step = nextStep(input.workflow, document.frontmatter.verification, record);

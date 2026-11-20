@@ -272,9 +272,9 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
       git(root, "init", "-q");
       assert.equal(knit(root, "init").code, 0);
     }
-    const dependency = reason === "依赖没完成" || reason === "有执行在跑" ? readyTask(root) : null;
+    const dependency = reason === "依赖没完成" ? readyTask(root) : null;
     const task = readyTask(root, reason === "依赖没完成" ? { dependsOn: [dependency.id] } : {});
-    if (reason === "有执行在跑") assert.deepEqual(prepare(root, dependency).problems, []);
+    if (reason === "有执行在跑") assert.deepEqual(prepare(root, task).problems, []);
     if (reason === "需求没确认") {
       const path = join(root, task.dir, "task.md");
       writeFileSync(path, `${readFileSync(path, "utf8")}\n改过的需求\n`);
@@ -306,8 +306,8 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
     });
     assert.equal(refused.run, null);
     assert.equal(existsSync(join(process.env.KNIT_HOME, "setup-ran")), false);
-    assert.equal(existsSync(expectedWorktree(root, task)), false);
-    assert.equal(git(root, "branch", "--list", branchOf(task)), "");
+    assert.equal(existsSync(expectedWorktree(root, task)), reason === "有执行在跑");
+    assert.equal(git(root, "branch", "--list", branchOf(task)), reason === "有执行在跑" ? `+ ${branchOf(task)}` : "");
     assert.equal(git(root, "worktree", "list", "--porcelain"), trees);
     assert.deepEqual(filesOf(root, task), before);
   });

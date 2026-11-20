@@ -16,12 +16,12 @@
 - 第 8 节「完成与交付」：完成的条件，交付的预览、归档和提交。
 - 第 9 节「命令与工具」：命令行和桥接的三个工具、每轮注入什么。
 - 第 10 节「用 Knit 开发 Knit」：安装版、模板来源和 `knit init --force` 的行为。
-- 第 11 节「不做与延后」：延后的 Worktree 并行和引导任务，以及去掉的功能。
+- 第 11 节「不做与延后」：Worktree 隔离、并行与交付已实现，以及不再做的功能。
 
 ## 研究
 
 - [research/RESEARCH.md](research/RESEARCH.md)：旧 Knit 的调研依据。
-- [research/WORKTREE.md](research/WORKTREE.md)：旧 Knit 的 Worktree 规则，Worktree 并行加回时参考。
+- [research/WORKTREE.md](research/WORKTREE.md)：旧 Knit 的 Worktree 规则，只作历史参考。
 - [research/REX-PANE.md](research/REX-PANE.md)：Rex 窗格的接口和核实记录，现行。
 
 ## 验证记录

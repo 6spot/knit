@@ -1,0 +1,61 @@
+{
+  "confirmedDigest": "71701ab77778fafdd357ffd00158f4c935195abd8d1c6052b267bac48c2a9eeb",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-6c0f400ea0f3",
+      "stage": "implement",
+      "startedAt": "2026-11-20T17:29:10.439Z",
+      "endedAt": "2026-11-20T17:40:03.364Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "71701ab77778fafdd357ffd00158f4c935195abd8d1c6052b267bac48c2a9eeb",
+      "changedPaths": [
+        "docs/README.md",
+        "docs/design/DESIGN.md",
+        "src/application/run-prepare.ts",
+        "src/cli/run.ts",
+        "test/bridge-notice.test.mjs",
+        "test/run-parallel.test.mjs",
+        "test/run-prepare.test.mjs",
+        "test/run-start.test.mjs",
+        "test/run-worktree.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-6c0f400ea0f3/session/2026-11-20T17-29-11-034Z_52be479a-b713-47e2-aace-5df948cf8157.jsonl"
+    },
+    {
+      "id": "r-57e3de17de3e",
+      "stage": "review",
+      "startedAt": "2026-11-20T17:40:19.330Z",
+      "endedAt": "2026-11-20T17:47:22.840Z",
+      "verdict": "changes_requested",
+      "failure": null,
+      "requirementDigest": "71701ab77778fafdd357ffd00158f4c935195abd8d1c6052b267bac48c2a9eeb",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-57e3de17de3e/session/2026-11-20T17-40-19-872Z_a8b5351f-a663-4670-b7db-a0053a930a3b.jsonl"
+    },
+    {
+      "id": "r-79cc073c3ac1",
+      "stage": "implement",
+      "startedAt": "2026-11-20T17:58:17.513Z",
+      "endedAt": "2026-11-20T18:01:30.411Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "71701ab77778fafdd357ffd00158f4c935195abd8d1c6052b267bac48c2a9eeb",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-79cc073c3ac1/session/2026-11-20T17-58-18-064Z_cf2a569b-4a50-459f-b493-a58b2d0b357c.jsonl"
+    },
+    {
+      "id": "r-95a2498d637d",
+      "stage": "review",
+      "startedAt": "2026-11-20T18:01:52.484Z",
+      "endedAt": "2026-11-20T18:04:57.974Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "71701ab77778fafdd357ffd00158f4c935195abd8d1c6052b267bac48c2a9eeb",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-95a2498d637d/session/2026-11-20T18-01-53-029Z_860f738f-20db-4210-9240-d0c52933443c.jsonl"
+    }
+  ],
+  "authorization": "user:2e409f4f 任务完成就归档提交"
+}

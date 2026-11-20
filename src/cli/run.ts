@@ -219,7 +219,7 @@ export function registerRunCommands(program: Command): void {
           "SIGKILL",
           stubborn.map((item) => item.pid),
         );
-        // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，别的任务也派发不了。
+        // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，这个任务也无法再派发。
         await stillAlive(stubborn, Date.now() + 5000);
       };
       // 发信号之前取：后台进程先退出的话就找不到它启动的 Pi 了。
