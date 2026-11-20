@@ -5,18 +5,18 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { checkSchema } from "../contracts/schema.js";
 import { THINKING_LEVELS, ThinkingLevelSchema, type ThinkingLevel, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
 import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
-import { currentStatus, requirementDigest } from "../domain/task-document.js";
+import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, type HandoffReport } from "./handoff.js";
-import { saveTask, scanTasks } from "./task-store.js";
+import { saveTask, scanTasks, type StoredTask } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
 import { ensureWorktree, rollbackWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
 
@@ -67,11 +67,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   if (status === "draft") return refuse(`需求还没有确认，或确认之后改过；先运行 knit task ready ${taskId}`);
   if (status !== "ready" && status !== "active") return refuse(`任务已经结束（${status}），不能再派发`);
   // 依赖的任务已经归档的也算在内。
-  const waiting = document.frontmatter.dependsOn.flatMap((id) => {
-    const dependency = tasks.find((task) => task.document?.frontmatter.id === id)?.document?.frontmatter.status;
-    if (dependency === undefined) return [`依赖的任务不存在：${id}`];
-    return dependency === "done" || dependency === "delivered" ? [] : [`依赖的任务还没有完成：${id}（${dependency}）`];
-  });
+  const waiting = document.frontmatter.dependsOn.flatMap((id) => dependencyProblems(root, tasks, id));
   if (waiting.length > 0) return refuse(...waiting);
   const running = record.runs.find((run) => run.endedAt === null);
   if (running !== undefined) {
@@ -164,6 +160,36 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
   return { run: { id, dir, stage, worktree, model, thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
+}
+
+function dependencyProblems(root: string, tasks: readonly StoredTask[], id: string): string[] {
+  const dependency = tasks.find((task) => task.document?.frontmatter.id === id);
+  const status = dependency?.document?.frontmatter.status;
+  if (dependency === undefined || status === undefined) {
+    const branches = gitSync(["for-each-ref", "--format=%(refname)", "refs/heads/knit/"], root).stdout
+      .split("\n")
+      .filter((reference) => reference !== "")
+      .filter((reference) => gitSync(["grep", "-l", "-z", "-F", "-e", id, reference, "--", ":(glob).knit/tasks/**/task.md"], root).stdout
+        .split("\0")
+        .some((file) => {
+          const path = file.slice(reference.length + 1);
+          // 别的分支可能带着归档，正文也可能举例写了这个 ID；只认对应目录的开头字段。
+          return reference === `refs/heads/knit/${basename(dirname(path))}` &&
+            parseTaskDocument(gitSync(["show", `${reference}:${path}`], root).stdout).document?.frontmatter.id === id;
+        }))
+      .map((reference) => reference.slice("refs/heads/".length));
+    return [
+      `主检出里找不到依赖的任务：${id}；可能已经在任务分支上交付、还没有合并，也可能确实不存在；交付并合并之后再派发` +
+      branches.map((branch) => `\n任务分支：${branch}；在主检出里运行 git merge ${branch}`).join(""),
+    ];
+  }
+  if (status === "cancelled") return [`依赖的任务还没有完成：${id}（${status}）`];
+  if (status !== "delivered") return [`依赖的任务还没有交付：${id}（${status}）；交付并合并之后再派发`];
+  const branch = taskWorktree(root, dependency.dir).branch;
+  const reference = `refs/heads/${branch}`;
+  if (gitSync(["show-ref", "--verify", "--quiet", reference], root).code !== 0) return [];
+  if (gitSync(["merge-base", "--is-ancestor", reference, "HEAD"], root).code === 0) return [];
+  return [`依赖的任务已经交付，但任务分支还没有合并进主检出的当前分支：${id}（${branch}）；在主检出里运行 git merge ${branch}，合并之后再派发`];
 }
 
 /**

@@ -89,7 +89,7 @@ test("不能派发时说明原因，什么都不写", (t) => {
 
   const refused = [
     [prepare(dir, draft), `需求还没有确认，或确认之后改过；先运行 knit task ready ${draft}`],
-    [prepare(dir, dependent.id), `依赖的任务还没有完成：${first.id}（ready）`],
+    [prepare(dir, dependent.id), `依赖的任务还没有交付：${first.id}（ready）；交付并合并之后再派发`],
     [prepare(dir, first.id, { model: "big-model" }), "--model 要写成 provider/模型：big-model"],
     [prepare(dir, first.id, { thinking: "ultra" }), "思考等级只允许 off／minimal／low／medium／high／xhigh／max：ultra"],
     [prepare(dir, "k-000000000000"), "没有任务 k-000000000000；用 knit task list 查看现有任务"],
