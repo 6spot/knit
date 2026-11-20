@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
@@ -9,7 +9,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { doneTask } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -33,10 +33,6 @@ function run(dir, task, verdict, change) {
     sessionFile: null,
   });
   assert.deepEqual(problems, []);
-  // 本测试只核对现有主检出交付预览：手工带回夹具成果，不实现 Worktree 交付。
-  if (existsSync(join(worktreeOf(dir, task), "src"))) {
-    cpSync(join(worktreeOf(dir, task), "src"), join(dir, "src"), { recursive: true });
-  }
 }
 
 test("在 Git 仓库里列出要提交的文件和提示", (t) => {
@@ -54,10 +50,13 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
   run(dir, task, "pass", (cwd) => writeFileSync(join(cwd, "src/b.ts"), "b\n"));
   const closed = knit(dir, "task", "close", task.id, "--result", "做完了\n\n都验证过", "--paths", "src/gone.ts");
   assert.equal(closed.code, 0, closed.stderr);
-  writeFileSync(join(dir, "other.txt"), "other\n");
+  writeFileSync(join(worktreeOf(dir, task), "other.txt"), "other\n");
+  // 主检出中的同名文件和无关改动不能影响预览。
+  writeFileSync(join(dir, "src/b.ts"), "main only\n");
+  writeFileSync(join(dir, "main-only.txt"), "main only\n");
   const message = join(dir, ".knit/.runtime/message.txt");
   writeFileSync(message, "\nfeat: 加问候语\n\n说明一行\n\n");
-  const before = [git(dir, "status", "--porcelain"), ...filesOf(dir, task)];
+  const before = [git(dir, "status", "--porcelain"), git(worktreeOf(dir, task), "status", "--porcelain"), ...filesOf(dir, task)];
 
   const preview = knit(dir, "deliver", task.id, "--preview", "--message-file", message);
 
@@ -65,7 +64,9 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
     code: 0,
     stdout: [
       `任务: 加问候语（${task.id}）`,
-      `归档: ${task.dir} → ${archived(task)}`,
+      `归档: ${task.dir} → ${join(worktreeOf(dir, task), archived(task))}`,
+      worktreeLine(dir, task).trimEnd(),
+      "提交在任务分支上，不会合并进主检出的分支",
       "提交的文件:",
       "  src/a.ts",
       "  src/b.ts（审查改过）",
@@ -86,7 +87,7 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
     ].join("\n"),
     stderr: "",
   });
-  assert.deepEqual([git(dir, "status", "--porcelain"), ...filesOf(dir, task)], before);
+  assert.deepEqual([git(dir, "status", "--porcelain"), git(worktreeOf(dir, task), "status", "--porcelain"), ...filesOf(dir, task)], before);
 
   const missing = knit(dir, "deliver", task.id, "--preview", "--message-file", join(dir, "nope.txt"));
   assert.deepEqual(resultOf(missing), { code: 1, stdout: "", stderr: `读不到提交文案：${join(dir, "nope.txt")}\n` });
@@ -99,7 +100,7 @@ test("审查通过之后又改过的文件标出来", (t) => {
   mkdirSync(join(dir, "src"));
   const task = readyTask(dir);
   commitAll(dir, "task");
-  const write = (path, text, cwd = dir) => {
+  const write = (path, text, cwd = worktreeOf(dir, task)) => {
     mkdirSync(join(cwd, "src"), { recursive: true });
     writeFileSync(join(cwd, path), text);
   };
@@ -148,7 +149,7 @@ test("最后一次审查没有通过时不标", (t) => {
     writeFileSync(join(cwd, "src/a.ts"), "1\n");
   });
   run(dir, task, "blocked", () => {});
-  writeFileSync(join(dir, "src/a.ts"), "2\n");
+  writeFileSync(join(worktreeOf(dir, task), "src/a.ts"), "2\n");
   const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--reason", "用户要求直接完成");
   assert.equal(closed.code, 0, closed.stderr);
 

@@ -156,11 +156,11 @@ export function archiveDirOf(stored: StoredTask): string {
   return `${ARCHIVE_DIR}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}/${basename(stored.dir)}`;
 }
 
-/** 把任务目录移到当月的归档目录，返回移动后的目录。不提交。 */
-export function archiveTask(root: string, stored: StoredTask): string {
+/** 把任务目录移到目标检出当月的归档目录，返回移动后的相对目录。不提交。 */
+export function archiveTask(root: string, stored: StoredTask, targetRoot = root): string {
   const dir = archiveDirOf(stored);
-  mkdirSync(dirname(join(root, dir)), { recursive: true });
-  renameSync(join(root, stored.dir), join(root, dir));
+  mkdirSync(dirname(join(targetRoot, dir)), { recursive: true });
+  renameSync(join(root, stored.dir), join(targetRoot, dir));
   return dir;
 }
 

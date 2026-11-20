@@ -10,10 +10,13 @@ import { gitSync } from "../infrastructure/process.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, scanTasks, type StoredTask } from "./task-store.js";
 import { fingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
+import { taskWorktree, type TaskWorktree } from "./worktree.js";
 
 export interface DeliveryPreview {
   /** 归档之后的任务目录。 */
   readonly archiveDir: string;
+  /** 存在任务 Worktree 时在这里归档和提交，否则沿用主检出。 */
+  readonly worktree: TaskWorktree | null;
   /** 项目不在 Git 仓库里时是 null：只归档，不提交。 */
   readonly commit: {
     readonly files: readonly {
@@ -35,6 +38,13 @@ export interface DeliveryPreview {
 
 export function insideGit(root: string): boolean {
   return gitSync(["rev-parse", "--is-inside-work-tree"], root).code === 0;
+}
+
+/** 只用派发时的位置算法定位，不建 Worktree。 */
+export function deliveryWorktree(root: string, taskDir: string): TaskWorktree | null {
+  if (!insideGit(root)) return null;
+  const worktree = taskWorktree(root, taskDir);
+  return existsSync(join(worktree.path, ".git")) ? worktree : null;
 }
 
 /** 这些路径里现在有改动的文件：含新增、删除和没有跟踪的，不含被 Git 忽略的；目录列出里面的文件。 */
@@ -64,12 +74,14 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
       : [{ id: frontmatter.id, status: frontmatter.status }];
   });
   const archiveDir = archiveDirOf(stored);
-  if (!insideGit(root)) return { archiveDir, commit: null, openChildren };
+  if (!insideGit(root)) return { archiveDir, worktree: null, commit: null, openChildren };
+  const worktree = deliveryWorktree(root, stored.dir);
+  const workspace = worktree?.path ?? root;
 
   const runs = stored.record?.runs ?? [];
   const recorded = stored.record === null ? [] : recordedPaths(stored.record);
   const reviewed = new Set(runs.filter((run) => run.verdict !== null).flatMap((run) => run.changedPaths));
-  const files = changedAmong(root, recorded);
+  const files = changedAmong(workspace, recorded);
   // 和完成任务时一样：失败的执行、需求改之前的执行都不算数。
   const lastReview = stored.record === null ? undefined : countedRuns(stored.record).findLast((run) => run.verdict !== null);
   const passedFile = lastReview?.verdict === "pass" ? join(root, RUNS_DIR, lastReview.id, "after.json") : null;
@@ -80,17 +92,18 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
       : null;
   return {
     archiveDir,
+    worktree,
     commit: {
       files: files.map((path) => ({
         path,
         reviewed: reviewed.has(path),
-        changedAfterReview: passed !== null && passed[path] !== fingerprint(root, path),
+        changedAfterReview: passed !== null && passed[path] !== fingerprint(workspace, path),
       })),
-      taskDir: gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], root).code !== 0,
+      taskDir: gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0,
       unchanged: recorded.filter(
         (path) => !files.some((file) => file === path || file.startsWith(path.endsWith("/") ? path : `${path}/`)),
       ),
-      others: changedAmong(root, ["."]).filter(
+      others: changedAmong(workspace, ["."]).filter(
         (path) => !files.includes(path) && !path.startsWith(`${stored.dir}/`) && !path.startsWith(RUNTIME_PREFIX),
       ).length,
     },
