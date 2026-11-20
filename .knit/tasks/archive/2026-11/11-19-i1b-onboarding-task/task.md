@@ -1,8 +1,8 @@
 ---
 id: k-759b948a5d61
 title: I1b 初始化后生成一个完善开发规范的任务
-status: active
-stage: implement
+status: delivered
+stage: null
 verification: self
 parent: k-19c962be9fb8
 dependsOn:
@@ -43,6 +43,10 @@ createdAt: 2026-11-18T17:22:55.111Z
 
 先改测试再改代码。
 
+续跑说明：上一轮 `r-5f861db2a268` 已留下实现，但因执行期间 `.knit/workflow.yaml` 与启动快照不同被记为失败。当前 `HEAD` 为 `353ead2`，已包含上轮实现及工作流配置；本轮从该基线核对完成条件，需要修正时仍先改测试再改代码。保留现有工作流配置，不改写旧执行记录，不扩大到修复保护检查机制。
+
+旧报告在 `.knit/.runtime/runs/r-5f861db2a268/report.md`，原始工具输出在同目录 `session/`。报告记载改前测试为 275/275、改后为 277/277。请核对原始输出及当前代码、输入是否一致；没有变化且证据完整的检查沿用原结果，不为保护检查失败重复运行。证据缺失或代码、输入改变时补跑受影响的检查，并区分本轮运行与沿用的结果，不把当前 277 个测试误写成原始改前基线。
+
 ## 完成条件
 
 - 在空目录里运行 `knit init`：`knit task list` 里正好有一个任务，标题是「完善项目的开发规范」，状态 `draft`；它的 `task.md` 正文和模板逐字相同；输出的最后一行以 `初始化任务: ` 开头。
@@ -65,3 +69,9 @@ createdAt: 2026-11-18T17:22:55.111Z
 参考：Trellis 的 `trellis init` 在第一次初始化或任务目录为空时生成 `00-bootstrap-guidelines` 任务；任务正文要求先读项目已有的约定文件，再看真实代码，写“代码现在怎么做”而不是“应该怎么做”（`packages/cli/src/commands/init.ts`，提交 f089cb3）。
 
 交付：提交文案首行建议 `feat: create a task for the project standards on knit init`。
+
+## 结果
+
+已核对完成条件，保留 HEAD 353ead2 中的实现：无任何任务（含归档）时，knit init 创建 P1/self/draft 的「完善项目的开发规范」任务，正文来自 assets/templates/tasks/bootstrap-standards.md，仅创建时追加提示；重复 init、init --force 及取消归档后均不再创建。初始化测试、设计和演练 setup.sh 已相应更新，桥接测试无需修改，未删除测试。本轮执行 r-c545a1c122c1 正常结束，业务文件改动 0 个。
+验证：核对上轮原始会话及当前源码，沿用改前 npm test 275/275、最终 Rex 环境 277/277（fail 0）、typecheck 退出码 0、pack:check 通过、refusals.sh 退出码 0、setup/cancel 唯一任务查找检查。主会话另在 macOS Terminal（TERM_PROGRAM=Apple_Terminal，/dev/ttys007）补跑 npm test，277/277、fail 0、退出码 0；日志在 .knit/.runtime/validation/i1b-r-c545a1c122c1/ordinary-terminal-npm-test.log。git diff --check 通过，演练 logs 无工作区改动。
+未验证：真实用户编写和批准规范的交互，需要模型的完整 cancel.sh 演练。本轮未提交、推送或归档。旧保护检查失败记录保留，现有工作流配置未回退。
