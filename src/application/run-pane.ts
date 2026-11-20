@@ -41,7 +41,7 @@ export async function runInPane(input: RunInPaneInput): Promise<PaneOutcome | nu
   );
   let pane: RexPane;
   try {
-    pane = openPane(host, { label: `knit ${input.runId}`, command, cwd: input.root });
+    pane = openPane(host, { label: `knit ${input.runId}`, command, cwd: input.pi.cwd });
   } catch (error) {
     return fallBack((error as Error).message);
   }

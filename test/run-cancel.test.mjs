@@ -11,7 +11,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -65,7 +65,7 @@ test("停掉正在跑的执行", async (t) => {
   writeFileSync(script, JSON.stringify(stuck));
   assert.equal(start().status, 0);
   const run = lastRun(dir, task);
-  await waitUntil(() => existsSync(join(dir, "src/a.ts")), "假 Pi 写出 src/a.ts");
+  await waitUntil(() => existsSync(join(worktreeOf(dir, task), "src/a.ts")), "假 Pi 写出 src/a.ts");
   const { pid } = JSON.parse(readFileSync(join(dir, RUNS_DIR, run.id, "worker.json"), "utf8"));
   assert.equal(processesOf(run.id).length, 2);
 
@@ -82,7 +82,8 @@ test("停掉正在跑的执行", async (t) => {
   assert.equal(alive(pid), false);
   // 命令返回时后台进程和假 Pi 都已经不在了，不需要再等。
   assert.equal(processesOf(run.id).length, 0);
-  assert.ok(existsSync(join(dir, "src/a.ts")));
+  assert.ok(existsSync(join(worktreeOf(dir, task), "src/a.ts")));
+  assert.equal(existsSync(join(dir, "src/a.ts")), false);
 
   // 再派发时做的还是这个环节；这一次让它做完，不留后台进程。
   writeFileSync(script, JSON.stringify({}));
@@ -117,7 +118,7 @@ test("执行者不理会 SIGTERM 时等到它被结束", async (t) => {
   const run = lastRun(dir, task);
   // 测试中途失败时，这个假 Pi 自己不会退出。
   t.after(() => spawnSync("pkill", ["-9", "-f", run.id]));
-  await waitUntil(() => existsSync(join(dir, "src/a.ts")), "假 Pi 写出 src/a.ts");
+  await waitUntil(() => existsSync(join(worktreeOf(dir, task), "src/a.ts")), "假 Pi 写出 src/a.ts");
   assert.equal(processesOf(run.id).length, 2);
 
   const cancelled = knit(dir, "run", "cancel", task.id);

@@ -7,7 +7,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const fileOf = (dir, task, file) => readFileSync(join(dir, task.dir, file), "utf8");
@@ -39,8 +39,8 @@ test("正常结束时记下结论和改动文件", (t) => {
   const started = lastRun(dir, task);
   const taskFile = fileOf(dir, task, "task.md");
 
-  put(dir, "src/a.ts", "export const a = 1;\n");
-  put(dir, `${task.dir}/plan.md`, "# 计划\n");
+  put(worktreeOf(dir, task), "src/a.ts", "export const a = 1;\n");
+  put(worktreeOf(dir, task), `${task.dir}/plan.md`, "# 计划\n");
   put(dir, `${run.dir}/worker.log`, "started\n");
   assert.deepEqual(finish(dir, task, run, { verdict: "pass", sessionFile: `${run.dir}/session.jsonl` }), []);
 
@@ -64,8 +64,8 @@ test("提交了改动或改了受保护的文件时记为失败", (t) => {
   const task = readyTask(dir);
 
   const committed = prepare(dir, task);
-  put(dir, "src/a.ts", "export const a = 1;\n");
-  commitAll(dir, "executor commit");
+  put(worktreeOf(dir, task), "src/a.ts", "export const a = 1;\n");
+  commitAll(worktreeOf(dir, task), "executor commit");
   assert.deepEqual(finish(dir, task, committed, { verdict: "pass" }), []);
   const first = lastRun(dir, task);
   assert.equal(first.verdict, null);
@@ -73,8 +73,8 @@ test("提交了改动或改了受保护的文件时记为失败", (t) => {
   assert.deepEqual(first.changedPaths, ["src/a.ts"]);
 
   const guarded = prepare(dir, task);
-  put(dir, ".knit/standards/development.md", "改过的规范\n");
-  put(dir, "src/b.ts", "export const b = 2;\n");
+  put(worktreeOf(dir, task), ".knit/standards/development.md", "改过的规范\n");
+  put(worktreeOf(dir, task), "src/b.ts", "export const b = 2;\n");
   assert.deepEqual(finish(dir, task, guarded, { verdict: "pass" }), []);
   const second = lastRun(dir, task);
   assert.equal(second.verdict, null);
@@ -86,7 +86,7 @@ test("调用方给的失败原因照记，结束过的不能再结束", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
   const run = prepare(dir, task);
-  put(dir, "src/a.ts", "export const a = 1;\n");
+  put(worktreeOf(dir, task), "src/a.ts", "export const a = 1;\n");
 
   assert.deepEqual(finish(dir, task, run, { verdict: "pass", failure: "已取消" }), []);
   const ended = lastRun(dir, task);

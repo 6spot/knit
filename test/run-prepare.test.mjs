@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
 import { assembleHandoff } from "../dist/application/handoff.js";
@@ -9,7 +9,7 @@ import { takeSnapshot } from "../dist/application/workspace.js";
 import { parseTaskDocument, requirementDigest } from "../dist/domain/task-document.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (dir, edit = (text) => text) =>
   parseWorkflow(edit(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8"))).workflow;
@@ -43,12 +43,12 @@ test("能派发时存好交接内容并登记", (t) => {
   const { run, problems } = prepare(dir, task.id, { workflow, thinking: "high" });
   assert.deepEqual(problems, []);
   assert.match(run.id, /^r-[0-9a-f]{12}$/);
-  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], model: "fake/model", thinking: "high" });
+  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], worktree: { path: worktreeOf(dir, task), branch: `knit/${basename(task.dir)}` }, model: "fake/model", thinking: "high" });
   assert.deepEqual(readdirSync(join(dir, run.dir)).sort(), ["before.json", "message.md", "system.md"]);
   assert.ok(readFileSync(join(dir, run.dir, "system.md"), "utf8").startsWith(`${expected.systemPrompt}\n\n<rules>\n`));
   assert.equal(readFileSync(join(dir, run.dir, "message.md"), "utf8"), expected.firstMessage);
-  // before.json 是登记之后拍的：和现在的工作区没有差别
-  assert.deepEqual(JSON.parse(readFileSync(join(dir, run.dir, "before.json"), "utf8")), takeSnapshot(dir));
+  // before.json 记录执行者的检出，不含主检出里的任务和运行资料。
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, run.dir, "before.json"), "utf8")), takeSnapshot(worktreeOf(dir, task)));
 
   const after = documentOf(dir, task);
   assert.deepEqual(after, { ...document, frontmatter: { ...document.frontmatter, status: "active", stage: "implement" } });

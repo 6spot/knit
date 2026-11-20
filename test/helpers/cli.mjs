@@ -10,10 +10,23 @@ delete process.env.REX_BLOCK;
 
 const cli = new URL("../../dist/cli/knit.js", import.meta.url).pathname;
 
+const homes = new WeakMap();
+
 /** 在临时目录里建一个带 `.knit/` 的项目，测试结束时删除。 */
 export function project(t) {
+  if (!homes.has(t)) {
+    const home = mkdtempSync(join(tmpdir(), "knit-test-home-"));
+    const previous = process.env.KNIT_HOME;
+    homes.set(t, home);
+    process.env.KNIT_HOME = home;
+    t.after(() => {
+      if (previous === undefined) delete process.env.KNIT_HOME;
+      if (previous !== undefined) process.env.KNIT_HOME = previous;
+      rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    });
+  }
   const dir = mkdtempSync(join(tmpdir(), "knit-next-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   mkdirSync(join(dir, ".knit"));
   return dir;
 }

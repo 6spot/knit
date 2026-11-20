@@ -11,7 +11,7 @@ import { RUNS_DIR } from "../dist/application/run-prepare.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeLine } from "./helpers/run.mjs";
 
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 const text = (result) => result.content[0].text;
@@ -69,7 +69,7 @@ test("派发后立即返回，之后能看到结果", async (t) => {
   const started = await bridge.tool("knit_run", { action: "start", taskId: task.id });
   assert.equal(started.isError, undefined, text(started));
   const runId = lastRun(dir, task).id;
-  assert.equal(text(started), `已派发 ${task.id}：实现（${runId}）\n会话记录：${RUNS_DIR}/${runId}/session/`);
+  assert.equal(text(started), `已派发 ${task.id}：实现（${runId}）\n${worktreeLine(dir, task)}会话记录：${RUNS_DIR}/${runId}/session/`);
 
   await waitUntil(() => lastRun(dir, task).endedAt !== null, `执行 ${runId} 结束`);
   await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);

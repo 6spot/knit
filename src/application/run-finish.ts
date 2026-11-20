@@ -8,6 +8,7 @@ import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask, saveTask } from "./task-store.js";
 import { changesBetween, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
+import { taskWorktree } from "./worktree.js";
 
 export interface FinishRunInput {
   readonly root: string;
@@ -34,7 +35,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
     return [`执行 ${runId} 不在任务 ${taskId} 的记录里，或者已经结束`];
   }
   const beforeFile = join(root, RUNS_DIR, runId, "before.json");
-  const after = existsSync(beforeFile) ? takeSnapshot(root) : null;
+  const after = existsSync(beforeFile) ? takeSnapshot(taskWorktree(root, stored.dir).path) : null;
   const changes =
     after === null
       ? { changedPaths: [], head: null }

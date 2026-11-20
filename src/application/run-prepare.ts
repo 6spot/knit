@@ -1,6 +1,6 @@
 /**
  * 派发一个环节的第一步：检查能不能派发，把交给执行者的内容和工作区的记录存下来，
- * 在任务的执行记录里登记这一次。不能派发时说明原因，什么都不写。
+ * 在任务的执行记录里登记这一次。不能派发时说明原因，不登记执行。
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,6 +17,7 @@ import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, type HandoffReport } from "./handoff.js";
 import { saveTask, scanTasks } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
+import { ensureWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
 
 /** 一次执行的目录是 `<RUNS_DIR>/<run-id>`。 */
 export const RUNS_DIR = ".knit/.runtime/runs";
@@ -37,6 +38,7 @@ export interface PreparedRun {
   /** 执行目录，相对项目根。 */
   readonly dir: string;
   readonly stage: WorkflowStage;
+  readonly worktree: TaskWorktree;
   /** 最后用的模型。 */
   readonly model: string;
   /** 最后用的思考等级；null 时让 Pi 自己取缺省。 */
@@ -112,6 +114,12 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
     limits: input.config.handoff,
   });
   if (handoff.problems.length > 0) return refuse(...handoff.problems);
+  if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
+    return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
+  }
+  const worktree = taskWorktree(root, stored.dir);
+  const worktreeProblems = ensureWorktree(root, worktree);
+  if (worktreeProblems.length > 0) return refuse(...worktreeProblems);
 
   const id = `r-${randomBytes(6).toString("hex")}`;
   const conflicts = saveTask(
@@ -143,9 +151,8 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   // 规则不计入交接的字节上限。
   writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
-  // 在写回任务之后拍：任务自己的两个文件的变化不会算成执行者的改动。
-  writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(root), null, 2)}\n`);
-  return { run: { id, dir, stage, model, thinking }, problems: [] };
+  writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
+  return { run: { id, dir, stage, worktree, model, thinking }, problems: [] };
 }
 
 /**

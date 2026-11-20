@@ -8,7 +8,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { findTask } from "../dist/application/task-store.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const occurrences = (text, part) => text.split(part).length - 1;
@@ -46,8 +46,8 @@ test("返工和再审时两份报告都拿到", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
   const implement = prepare(dir, task);
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src/a.ts"), "export const a = 1;\n");
+  mkdirSync(join(worktreeOf(dir, task), "src"));
+  writeFileSync(join(worktreeOf(dir, task), "src/a.ts"), "export const a = 1;\n");
   finish(dir, task, implement, "第一次实现的报告。\n");
   const review = prepare(dir, task);
   finish(dir, task, review, "第一轮审查：a 的值不对。\n", "changes_requested");
@@ -64,7 +64,7 @@ test("返工和再审时两份报告都拿到", (t) => {
     rework.message,
   );
 
-  writeFileSync(join(dir, "src/a.ts"), "export const a = 2;\n");
+  writeFileSync(join(worktreeOf(dir, task), "src/a.ts"), "export const a = 2;\n");
   finish(dir, task, rework, "返工的实现报告。\n");
   const again = prepare(dir, task);
   assert.equal(again.stage.id, "review");

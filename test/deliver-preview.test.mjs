@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
@@ -9,7 +9,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { doneTask } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -22,7 +22,7 @@ function run(dir, task, verdict, change) {
   const workflow = parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
   const prepared = prepareRun({ root: dir, taskId: task.id, workflow, config: loadConfig(dir).config, model: null });
   assert.deepEqual(prepared.problems, []);
-  change();
+  change(worktreeOf(dir, task));
   const problems = finishRun({
     root: dir,
     taskId: task.id,
@@ -33,6 +33,10 @@ function run(dir, task, verdict, change) {
     sessionFile: null,
   });
   assert.deepEqual(problems, []);
+  // 本测试只核对现有主检出交付预览：手工带回夹具成果，不实现 Worktree 交付。
+  if (existsSync(join(worktreeOf(dir, task), "src"))) {
+    cpSync(join(worktreeOf(dir, task), "src"), join(dir, "src"), { recursive: true });
+  }
 }
 
 test("在 Git 仓库里列出要提交的文件和提示", (t) => {
@@ -46,8 +50,8 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
   const childId = child.stdout.split("\n")[0].replace("已创建 ", "");
   commitAll(dir, "tasks");
 
-  run(dir, task, null, () => writeFileSync(join(dir, "src/a.ts"), "a2\n"));
-  run(dir, task, "pass", () => writeFileSync(join(dir, "src/b.ts"), "b\n"));
+  run(dir, task, null, (cwd) => writeFileSync(join(cwd, "src/a.ts"), "a2\n"));
+  run(dir, task, "pass", (cwd) => writeFileSync(join(cwd, "src/b.ts"), "b\n"));
   const closed = knit(dir, "task", "close", task.id, "--result", "做完了\n\n都验证过", "--paths", "src/gone.ts");
   assert.equal(closed.code, 0, closed.stderr);
   writeFileSync(join(dir, "other.txt"), "other\n");
@@ -95,14 +99,17 @@ test("审查通过之后又改过的文件标出来", (t) => {
   mkdirSync(join(dir, "src"));
   const task = readyTask(dir);
   commitAll(dir, "task");
-  const write = (path, text) => writeFileSync(join(dir, path), text);
+  const write = (path, text, cwd = dir) => {
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    writeFileSync(join(cwd, path), text);
+  };
   const fileLines = () => {
     const lines = knit(dir, "deliver", task.id, "--preview").stdout.split("\n");
     return lines.slice(lines.indexOf("提交的文件:") + 1, lines.indexOf("结果:"));
   };
 
-  run(dir, task, null, () => ["src/a.ts", "src/b.ts"].forEach((path) => write(path, "1\n")));
-  run(dir, task, "pass", () => write("src/c.ts", "1\n"));
+  run(dir, task, null, (cwd) => ["src/a.ts", "src/b.ts"].forEach((path) => write(path, "1\n", cwd)));
+  run(dir, task, "pass", (cwd) => write("src/c.ts", "1\n", cwd));
   const reviewId = JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs.at(-1).id;
   write("src/a.ts", "2\n");
   write("src/c.ts", "2\n");
@@ -136,7 +143,10 @@ test("最后一次审查没有通过时不标", (t) => {
   const task = readyTask(dir);
   commitAll(dir, "task");
 
-  run(dir, task, null, () => writeFileSync(join(dir, "src/a.ts"), "1\n"));
+  run(dir, task, null, (cwd) => {
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    writeFileSync(join(cwd, "src/a.ts"), "1\n");
+  });
   run(dir, task, "blocked", () => {});
   writeFileSync(join(dir, "src/a.ts"), "2\n");
   const closed = knit(dir, "task", "close", task.id, "--result", "做完了", "--reason", "用户要求直接完成");

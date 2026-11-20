@@ -7,7 +7,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { RUNS_DIR } from "../dist/application/run-prepare.js";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -101,7 +101,9 @@ test("主会话在 Rex 里时，执行者在窗格里做完", async (t) => {
   assert.equal(state.params.state, "minimized");
   const { label, options } = layer.params.layout.block;
   assert.equal(label, `knit ${run.id}`);
-  assert.equal(options.cwd, realpathSync(dir));
+  assert.equal(options.cwd, worktreeOf(dir, task));
+  assert.equal(readFileSync(join(worktreeOf(dir, task), "src/a.ts"), "utf8"), "export const a = 1;\n");
+  assert.equal(existsSync(join(dir, "src/a.ts")), false);
   assert.equal(options.shell, undefined);
   assert.deepEqual(options.exit, { on_completion: true });
   const { command } = options;
@@ -258,7 +260,7 @@ test("后台进程不在了、窗格里的执行者还在时，状态里指出�
   const status = rex.knit("run", "status", task.id);
   assert.equal(
     status.stdout,
-    `任务: 加问候语（${task.id}）\n状态: active(implement)\n` +
+    `任务: 加问候语（${task.id}）\n状态: active(implement)\n${worktreeLine(dir, task)}` +
       `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.id} 记为失败\n` +
       `窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉\n`,
   );
@@ -297,7 +299,7 @@ test("取消时窗格里的执行者也被停掉；窗格被关掉时记为失�
   rex.script({ writes: [{ path: "src/a.ts", content: "export const a = 1;\n" }], waitFor: join(rex.outside, "never") });
 
   const first = start(rex, dir, task);
-  await waitUntil(() => existsSync(join(dir, "src/a.ts")), "假 Pi 写出 src/a.ts");
+  await waitUntil(() => existsSync(join(worktreeOf(dir, task), "src/a.ts")), "假 Pi 写出 src/a.ts");
   // 后台进程和窗格里的假 Pi。
   assert.equal(processesOf(first.id).length, 2);
   const cancelled = rex.knit("run", "cancel", task.id);
@@ -339,4 +341,5 @@ test("执行者还没有在窗格里开始就取消时，它不会再开始", as
   await waitUntil(() => processesOf(run.id).length === 0, "窗格里的 Pi 退出");
   assert.deepEqual(rex.piLog().filter((line) => line.message !== undefined), []);
   assert.ok(!existsSync(join(dir, "src/a.ts")));
+  assert.ok(!existsSync(join(worktreeOf(dir, task), "src/a.ts")));
 });

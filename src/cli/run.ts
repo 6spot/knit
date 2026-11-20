@@ -9,6 +9,7 @@ import { finishRun } from "../application/run-finish.js";
 import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
 import { aliveAmong, livePane, liveWorker, type WorkerProcess, workerProcesses } from "../application/run-process.js";
 import { findTask } from "../application/task-store.js";
+import { taskWorktree } from "../application/worktree.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
@@ -78,9 +79,14 @@ export function statusLines(
   record: TaskRecord,
 ): string[] {
   const last = record.runs.at(-1);
+  const stored = findTask(root, document.frontmatter.id);
+  const worktree = stored == null ? null : taskWorktree(root, stored.dir);
   return [
     `任务: ${document.frontmatter.title}（${document.frontmatter.id}）`,
     `状态: ${shownStatus(document, record).text}`,
+    ...(worktree !== null && existsSync(join(worktree.path, ".git"))
+      ? [`Worktree: ${worktree.path}（${worktree.branch}）`]
+      : []),
     ...runLines(root, workflow, document.frontmatter.id, last),
     // 有执行还没结束时不给下一步。
     ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
@@ -148,7 +154,11 @@ export function registerRunCommands(program: Command): void {
       // 以后靠启动标识确认这个进程号还是原来那个进程。
       const identity = { pid: worker.pid, start: worker.pid === undefined ? null : procStartTicks(worker.pid) };
       writeFileSync(join(root, started.dir, "worker.json"), `${JSON.stringify(identity, null, 2)}\n`);
-      process.stdout.write(`已派发 ${id}：${started.stage.name}（${started.id}）\n会话记录：${started.dir}/session/\n`);
+      process.stdout.write(
+        `已派发 ${id}：${started.stage.name}（${started.id}）\n` +
+        `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
+        `会话记录：${started.dir}/session/\n`,
+      );
     });
 
   run

@@ -13,6 +13,7 @@ import { finishRun } from "./run-finish.js";
 import { runInPane } from "./run-pane.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask } from "./task-store.js";
+import { taskWorktree } from "./worktree.js";
 
 export interface ExecuteRunInput {
   readonly root: string;
@@ -39,10 +40,11 @@ const BUILTIN_TOOLS = {
 /** 返回 finishRun 的结果：问题的列表，空的表示记好了。 */
 export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
   const { root, taskId, runId, workflow } = input;
-  const run = findTask(root, taskId)?.record?.runs.find((item) => item.id === runId && item.endedAt === null);
+  const stored = findTask(root, taskId);
+  const run = stored?.record?.runs.find((item) => item.id === runId && item.endedAt === null);
   const stage = workflow.stages.find((item) => item.id === run?.stage);
   // 记录里没有这次执行时，finishRun 会说明。
-  if (stage === undefined) {
+  if (stage === undefined || stored == null) {
     const failure = "执行的环节不在流程里";
     return finishRun({ root, taskId, runId, workflow, verdict: null, failure, sessionFile: null });
   }
@@ -53,7 +55,7 @@ export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
     provider: input.model.slice(0, slash),
     modelId: input.model.slice(slash + 1),
     thinkingLevel: input.thinking ?? undefined,
-    cwd: root,
+    cwd: taskWorktree(root, stored.dir).path,
     sessionDir: join(dir, "session"),
     ...runtimeTools(stage.tools),
   };

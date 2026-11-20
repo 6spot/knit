@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { taskWorktree } from "../../dist/application/worktree.js";
 import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task-document.js";
 import { knit } from "./cli.mjs";
 import { commitAll, gitProject } from "./git.mjs";
@@ -55,6 +56,12 @@ export function runProject(t) {
   commitAll(dir, "workflow");
   return dir;
 }
+
+export const worktreeOf = (root, task) => taskWorktree(root, task.dir).path;
+export const worktreeLine = (root, task) => {
+  const worktree = taskWorktree(root, task.dir);
+  return `Worktree: ${worktree.path}（${worktree.branch}）\n`;
+};
 
 /** 建一个任务，写上带一个场景的需求并确认；返回任务的 id 和目录（相对项目根）。 */
 export function readyTask(dir, { verification = "independent", dependsOn = [] } = {}) {

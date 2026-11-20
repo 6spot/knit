@@ -11,7 +11,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -98,7 +98,7 @@ test("正在跑和进程不在了分得出来", async (t) => {
 
   assert.equal(
     status(running, first.id),
-    `任务: 加问候语（${first.id}）\n状态: active(implement)\n` +
+    `任务: 加问候语（${first.id}）\n状态: active(implement)\n${worktreeLine(running, first)}` +
       `正在跑: 实现（${run.id}），开始于 ${run.startedAt}\n会话记录: ${RUNS_DIR}/${run.id}/session/\n`,
   );
 
@@ -107,7 +107,7 @@ test("正在跑和进程不在了分得出来", async (t) => {
   const lost = prepare(gone, second);
   assert.equal(
     status(gone, second.id),
-    `任务: 加问候语（${second.id}）\n状态: active(implement)\n` +
+    `任务: 加问候语（${second.id}）\n状态: active(implement)\n${worktreeLine(gone, second)}` +
       `执行 ${lost.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${second.id} 记为失败\n`,
   );
 
@@ -122,15 +122,16 @@ test("结束之后显示结果和下一步", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
   const head = `任务: 加问候语（${task.id}）\n`;
+  const worktree = worktreeLine(dir, task);
 
   const implement = prepare(dir, task);
-  write(dir, "src/a.ts", "export const a = 1;\n");
-  write(dir, "src/b.ts", "export const b = 2;\n");
+  write(worktreeOf(dir, task), "src/a.ts", "export const a = 1;\n");
+  write(worktreeOf(dir, task), "src/b.ts", "export const b = 2;\n");
   write(dir, `${implement.dir}/report.md`, "做完了。\n");
   finish(dir, task, implement);
   assert.equal(
     status(dir, task.id),
-    `${head}状态: active(implement)\n上一次: 实现（${implement.id}）\n结果: 正常结束\n` +
+    `${head}状态: active(implement)\n${worktree}上一次: 实现（${implement.id}）\n结果: 正常结束\n` +
       `报告: ${RUNS_DIR}/${implement.id}/report.md\n改动文件: 2 个\n下一步: 派发审查环节（knit run start ${task.id}）\n`,
   );
 
@@ -138,7 +139,7 @@ test("结束之后显示结果和下一步", (t) => {
   finish(dir, task, review, { verdict: "changes_requested" });
   assert.equal(
     status(dir, task.id),
-    `${head}状态: active(review)\n上一次: 审查（${review.id}）\n结论: changes_requested\n` +
+    `${head}状态: active(review)\n${worktree}上一次: 审查（${review.id}）\n结论: changes_requested\n` +
       `改动文件: 0 个\n下一步: 派发实现环节（knit run start ${task.id}）\n`,
   );
 
@@ -147,7 +148,7 @@ test("结束之后显示结果和下一步", (t) => {
   finish(dir, other, failed, { failure: "执行者中途退出" });
   assert.equal(
     status(dir, other.id),
-    `任务: 加问候语（${other.id}）\n状态: active(implement)\n上一次: 实现（${failed.id}）\n失败: 执行者中途退出\n` +
+    `任务: 加问候语（${other.id}）\n状态: active(implement)\n${worktreeLine(dir, other)}上一次: 实现（${failed.id}）\n失败: 执行者中途退出\n` +
       `改动文件: 0 个\n下一步: 派发实现环节（knit run start ${other.id}）\n`,
   );
 });

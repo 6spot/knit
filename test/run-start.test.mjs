@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { RUNS_DIR } from "../dist/application/run-prepare.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -71,7 +71,7 @@ test("派发后立即返回，执行者在后台做完", async (t) => {
   assert.equal(started.code, 0, started.stderr);
   const runId = lastRun(dir, task).id;
   const runDir = `${RUNS_DIR}/${runId}`;
-  assert.equal(started.stdout, `已派发 ${task.id}：实现（${runId}）\n会话记录：${runDir}/session/\n`);
+  assert.equal(started.stdout, `已派发 ${task.id}：实现（${runId}）\n${worktreeLine(dir, task)}会话记录：${runDir}/session/\n`);
   const worker = JSON.parse(readFileSync(join(dir, runDir, "worker.json"), "utf8"));
   assert.ok(Number.isInteger(worker.pid) && worker.pid > 0);
   assert.equal(typeof worker.start, "string");
@@ -79,6 +79,8 @@ test("派发后立即返回，执行者在后台做完", async (t) => {
   const run = await finished(dir, task, runId);
   assert.equal(run.failure, null);
   assert.deepEqual(run.changedPaths, ["src/a.ts"]);
+  assert.equal(readFileSync(join(worktreeOf(dir, task), "src/a.ts"), "utf8"), "export const a = 1;\n");
+  assert.equal(existsSync(join(dir, "src/a.ts")), false);
   assert.equal(readFileSync(join(dir, runDir, "report.md"), "utf8"), "做完了。");
   assert.equal(readFileSync(join(dir, runDir, "worker.log"), "utf8"), "");
 });
