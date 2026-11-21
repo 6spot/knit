@@ -1,21 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Command } from "commander";
 import { WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
-import { WORKFLOW_ANCHOR_NAMES, parseWorkflow, type WorkflowDefinition, type WorkflowStage } from "../domain/workflow.js";
+import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowStage } from "../domain/workflow.js";
+import { readWorkflow } from "../application/workflow-store.js";
 import { projectRoot } from "./root.js";
 
 /** 读取并校验项目的流程文件；文件不存在或有问题时把原因写到标准错误，返回 null。 */
 export function loadWorkflow(dir: string): WorkflowDefinition | null {
-  const file = join(projectRoot(dir), WORKFLOW_CONFIG_PATH);
-  if (!existsSync(file)) {
-    process.stderr.write(`${WORKFLOW_CONFIG_PATH} 不存在；运行 knit init 生成\n`);
-    return null;
-  }
-  const loaded = parseWorkflow(readFileSync(file, "utf8"));
-  if (loaded.workflow === null) {
-    process.stderr.write(loaded.validation.issues.map((issue) => `${issue.message}\n`).join(""));
-  }
+  const loaded = readWorkflow(projectRoot(dir));
+  if (loaded.workflow === null) process.stderr.write(loaded.problems.map((problem) => `${problem}\n`).join(""));
   return loaded.workflow;
 }
 

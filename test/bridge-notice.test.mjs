@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { scanTasks } from "../dist/application/task-store.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
@@ -26,7 +27,15 @@ const waitersOf = (task) => pgrep(`run wait ${task.id}`);
  */
 async function bridged(t, script) {
   const dir = runProject(t);
-  const bridge = await loadBridge(t, dir);
+  const bridge = await loadBridge(t, dir, {
+    onMessage: (message, options) => {
+      const run = scanTasks(dir).flatMap((task) => task.record?.runs ?? []).find((run) => message.content.includes(run.id));
+      assert.ok(run, "通知指向实际执行记录");
+      assert.notEqual(run.endedAt, null, "发送通知时终态已经入账");
+      assert.doesNotMatch(message.content, /^正在跑:/m);
+      assert.deepEqual(options, { deliverAs: "followUp", triggerTurn: true });
+    },
+  });
   commitAll(dir, "init");
   const outside = mkdtempSync(join(tmpdir(), "knit-fake-pi-"));
   const before = { KNIT_PI_BIN: process.env.KNIT_PI_BIN, KNIT_FAKE_PI: process.env.KNIT_FAKE_PI };

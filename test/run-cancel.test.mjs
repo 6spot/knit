@@ -97,6 +97,27 @@ test("停掉正在跑的执行", async (t) => {
   await waitUntil(() => processesOf(next.id).length === 0, "第二次的后台进程退出");
 });
 
+test("取消后台执行时连客户端启动的子进程一起停止，并结束 wait", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const script = join(process.env.KNIT_HOME, "script.json");
+  writeFileSync(script, JSON.stringify({ child: true, waitFor: join(process.env.KNIT_HOME, "never") }));
+  const started = spawnSync(process.execPath, [CLI, "run", "start", task.id, "--dir", dir], {
+    encoding: "utf8", env: { ...process.env, KNIT_PI_BIN: FAKE_PI, KNIT_FAKE_PI: script },
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const run = lastRun(dir, task);
+  t.after(() => spawnSync("pkill", ["-9", "-f", run.id]));
+  await waitUntil(() => processesOf(run.id).length === 3, "后台进程、客户端和它的子进程都在跑");
+
+  const cancelled = knit(dir, "run", "cancel", task.id);
+
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(lastRun(dir, task).failure, "已取消");
+  assert.equal(processesOf(run.id).length, 0);
+  assert.match(knit(dir, "run", "wait", task.id).stdout, /^失败: 已取消$/m);
+});
+
 test("执行者不理会 SIGTERM 时等到它被结束", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);

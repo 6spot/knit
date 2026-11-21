@@ -5,46 +5,33 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { interactivePiCommand, type PiRuntimeOptions } from "../adapters/pi/index.js";
-import { PANE_FILE, PANE_OUTCOME_FILE, type PaneOutcome } from "../adapters/pi/pane-worker.js";
+import type { AgentAdapter, AgentLaunch } from "../contracts/agent.js";
+import { PANE_FILE, PANE_OUTCOME_FILE, type SessionOutcome } from "./run-session.js";
 import { closePane, openPane, paneGone, type RexHost, type RexPane } from "../adapters/rex/pane.js";
-import type { WorkflowStage } from "../domain/workflow.js";
 
-const EXTENSION = fileURLToPath(new URL("../adapters/pi/pane-worker.js", import.meta.url));
 /** 窗格开出来之后等执行者开始的时间；本机上 Pi 约 1 秒开始。 */
 const START_TIMEOUT_MS = 20_000;
 
 export interface RunInPaneInput {
   readonly host: RexHost;
-  readonly root: string;
   readonly runId: string;
-  /** 执行目录的绝对路径。 */
-  readonly dir: string;
-  readonly stage: WorkflowStage;
-  /** provider/模型。 */
-  readonly model: string;
-  readonly pi: PiRuntimeOptions;
+  readonly launch: AgentLaunch;
+  readonly agent: AgentAdapter;
 }
 
 /** 返回这次执行的结果；null 表示没能在窗格里开始，原因已经写到标准错误（进 worker.log）。 */
-export async function runInPane(input: RunInPaneInput): Promise<PaneOutcome | null> {
-  const { host, dir } = input;
+export async function runInPane(input: RunInPaneInput): Promise<SessionOutcome | null> {
+  const host = input.host;
+  const dir = input.launch.dir;
   const fallBack = (reason: string): null => {
     process.stderr.write(`Rex 窗格用不了（${reason}），改在后台执行\n`);
     return null;
   };
-  const command = interactivePiCommand(
-    // 系统提示给文件的路径，Pi 自己读内容。
-    { ...input.pi, appendSystemPrompt: join(dir, "system.md"), extensionPaths: [EXTENSION] },
-    { KNIT_PANE_DIR: dir, KNIT_PANE_REPORT: JSON.stringify(input.stage.report), KNIT_PANE_MODEL: input.model },
-  );
-  let pane: RexPane;
-  try {
-    pane = openPane(host, { label: `knit ${input.runId}`, command, cwd: input.pi.cwd });
-  } catch (error) {
-    return fallBack((error as Error).message);
-  }
+  const command = input.agent.paneCommand(input.launch);
+  if (command === null) return fallBack("客户端不支持窗格执行");
+  const opened = openRunPane(host, { label: `knit ${input.runId}`, command, cwd: input.launch.cwd });
+  if (typeof opened === "string") return fallBack(opened);
+  const pane = opened;
   const closed = paneGone(host, pane);
   const started = join(dir, PANE_FILE);
   const deadline = Date.now() + START_TIMEOUT_MS;
@@ -63,5 +50,13 @@ export async function runInPane(input: RunInPaneInput): Promise<PaneOutcome | nu
   if (!existsSync(started)) return fallBack("执行者没有在窗格里开始");
   const outcome = join(dir, PANE_OUTCOME_FILE);
   if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: null };
-  return JSON.parse(readFileSync(outcome, "utf8")) as PaneOutcome;
+  return JSON.parse(readFileSync(outcome, "utf8")) as SessionOutcome;
+}
+
+function openRunPane(host: RexHost, options: Parameters<typeof openPane>[1]): RexPane | string {
+  try {
+    return openPane(host, options);
+  } catch (error) {
+    return (error as Error).message;
+  }
 }

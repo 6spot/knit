@@ -12,7 +12,7 @@ const cli = fileURLToPath(new URL("../../dist/cli/knit.js", import.meta.url));
  * `PATH` 最前面放一个指向 `dist/cli/knit.js` 的 `knit`，测试结束时改回去。
  * 返回 `{ tool, fire, entries, messages, definitions }`：调用工具、触发事件、会话记录、桥接发出的消息及工具声明。
  */
-export async function loadBridge(t, dir) {
+export async function loadBridge(t, dir, { onMessage = () => {} } = {}) {
   const bin = mkdtempSync(join(tmpdir(), "knit-bin-"));
   const path = process.env.PATH;
   t.after(() => {
@@ -36,7 +36,10 @@ export async function loadBridge(t, dir) {
     registerTool: (tool) => tools.set(tool.name, tool),
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     appendEntry: (customType, data) => entries.push({ type: "custom", id: `entry-${entries.length + 1}`, customType, data }),
-    sendMessage: (message, options) => messages.push({ message, options }),
+    sendMessage: (message, options) => {
+      onMessage(message, options);
+      messages.push({ message, options });
+    },
   });
 
   return {

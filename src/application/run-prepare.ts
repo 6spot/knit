@@ -32,6 +32,8 @@ export interface PrepareRunInput {
   readonly model: string | null;
   /** 临时指定的思考等级；没给时先用流程里的，再用主会话的。 */
   readonly thinking?: string | null;
+  /** 客户端边界观察到的主会话缺省值，不作为命令行覆盖。 */
+  readonly sessionDefaults?: { readonly model: string | null; readonly thinking: string | null };
 }
 
 export interface PreparedRun {
@@ -42,7 +44,7 @@ export interface PreparedRun {
   readonly worktree: TaskWorktree;
   /** 最后用的模型。 */
   readonly model: string;
-  /** 最后用的思考等级；null 时让 Pi 自己取缺省。 */
+  /** 最后用的思考等级；null 时让客户端自己取缺省。 */
   readonly thinking: ThinkingLevel | null;
   /** 这次新建目录后运行的准备命令数；没运行时不带这个字段。 */
   readonly setupCommands?: number;
@@ -81,12 +83,12 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   const stage = step.stage;
   const model =
     input.model ?? stage.model ??
-    (process.env.PI_PROVIDER && process.env.PI_MODEL ? `${process.env.PI_PROVIDER}/${process.env.PI_MODEL}` : null);
+    input.sessionDefaults?.model ?? null;
   if (model === null) {
     return refuse("没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型");
   }
   if (!new RegExp(WORKFLOW_MODEL_PATTERN).test(model)) return refuse(`--model 要写成 provider/模型：${model}`);
-  const thinking = input.thinking ?? stage.thinking ?? process.env.PI_REASONING_LEVEL ?? null;
+  const thinking = input.thinking ?? stage.thinking ?? input.sessionDefaults?.thinking ?? null;
   if (thinking !== null && !checkSchema(ThinkingLevelSchema, thinking)) {
     return refuse(`思考等级只允许 ${THINKING_LEVELS.join("／")}：${thinking}`);
   }

@@ -1,0 +1,55 @@
+{
+  "confirmedDigest": "3f9ffe2d5c4ec6f35073b18fcc4752b1e39b4cc28955028d7728abb33045567f",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-07285b6e5c0d",
+      "stage": "implement",
+      "startedAt": "2026-11-21T11:34:56.818Z",
+      "endedAt": "2026-11-21T11:56:03.428Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "3f9ffe2d5c4ec6f35073b18fcc4752b1e39b4cc28955028d7728abb33045567f",
+      "changedPaths": [
+        "docs/design/DESIGN.md",
+        "src/adapters/pi/execution.ts",
+        "src/adapters/pi/index.ts",
+        "src/adapters/pi/pane-worker.ts",
+        "src/application/run-control.ts",
+        "src/application/run-execute.ts",
+        "src/application/run-pane.ts",
+        "src/application/run-prepare.ts",
+        "src/application/run-process.ts",
+        "src/application/run-session.ts",
+        "src/application/workflow-store.ts",
+        "src/cli/run.ts",
+        "src/cli/workflow.ts",
+        "src/contracts/agent.ts",
+        "test/bridge-notice.test.mjs",
+        "test/handoff-worktree.test.mjs",
+        "test/helpers/bridge.mjs",
+        "test/helpers/fake-pi.mjs",
+        "test/run-cancel.test.mjs",
+        "test/run-execute-edges.test.mjs",
+        "test/run-execute.test.mjs",
+        "test/run-pane.test.mjs",
+        "test/run-report-retry.test.mjs",
+        "test/run-wait.test.mjs",
+        "test/run-worktree.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-07285b6e5c0d/session/2026-11-21T11-34-57-791Z_d566262d-df7d-4290-aec7-ee5d4d61ea96.jsonl"
+    },
+    {
+      "id": "r-c3f33c72e80c",
+      "stage": "review",
+      "startedAt": "2026-11-21T11:56:16.701Z",
+      "endedAt": "2026-11-21T12:01:16.132Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "3f9ffe2d5c4ec6f35073b18fcc4752b1e39b4cc28955028d7728abb33045567f",
+      "changedPaths": [],
+      "sessionFile": ".knit/.runtime/runs/r-c3f33c72e80c/session/2026-11-21T11-56-17-253Z_79f3dd6a-eeb0-4206-8d8d-143e848c5ca6.jsonl"
+    }
+  ],
+  "authorization": "user:2433982c 交付，然后开启下一个任务"
+}

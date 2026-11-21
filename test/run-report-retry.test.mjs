@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
+import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
@@ -50,7 +51,7 @@ function prepare(dir, task) {
   return run;
 }
 const execute = (dir, task, run) =>
-  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, piExecutable: FAKE_PI });
+  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, agent: new PiExecutionAdapter(FAKE_PI) });
 /** 准备出一次审查执行：先把实现那一次直接记成正常结束。 */
 function reviewRun(dir, task) {
   const implement = prepare(dir, task);

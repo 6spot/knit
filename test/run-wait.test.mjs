@@ -56,6 +56,45 @@ test("等到正在跑的执行结束", async (t) => {
   assert.match(output.stdout, /^上一次: 实现/m);
 });
 
+test("等待期间流程配置变坏时立即报错，执行者仍继续运行", async (t) => {
+  t.after(() => {
+    writeFileSync(file, original);
+    if (lastRun(dir, task).endedAt === null) knit(dir, "run", "cancel", task.id);
+  });
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const script = join(process.env.KNIT_HOME, "script.json");
+  const gate = join(process.env.KNIT_HOME, "go");
+  writeFileSync(script, JSON.stringify({ waitFor: gate }));
+  const started = spawnSync(process.execPath, [CLI, "run", "start", task.id, "--dir", dir], {
+    encoding: "utf8", env: { ...process.env, KNIT_PI_BIN: FAKE_PI, KNIT_FAKE_PI: script },
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const runId = lastRun(dir, task).id;
+  const file = join(dir, ".knit/workflow.yaml");
+  const original = readFileSync(file, "utf8");
+  const waiting = spawn(process.execPath, [CLI, "run", "wait", task.id, "--dir", dir], { stdio: ["ignore", "pipe", "pipe"] });
+  const output = { stdout: "", stderr: "", code: undefined };
+  waiting.stdout.on("data", (chunk) => (output.stdout += chunk));
+  waiting.stderr.on("data", (chunk) => (output.stderr += chunk));
+  waiting.on("close", (code) => (output.code = code));
+  t.after(() => waiting.kill());
+  await sleep(1500);
+  assert.equal(output.code, undefined);
+
+  writeFileSync(file, original.replace("version: 1", "version: 999"));
+  await waitUntil(() => output.code !== undefined, "wait 重新校验流程后退出");
+
+  assert.equal(output.code, 1);
+  assert.equal(output.stdout, "");
+  assert.notEqual(output.stderr, "");
+  assert.equal(lastRun(dir, task).endedAt, null);
+  writeFileSync(file, original);
+  writeFileSync(gate, "");
+  assert.match(knit(dir, "run", "wait", task.id).stdout, /^结果: 正常结束$/m);
+  await waitUntil(() => processesOf(runId).length === 0, "执行进程退出");
+});
+
 test("没有执行在跑时立即返回", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);

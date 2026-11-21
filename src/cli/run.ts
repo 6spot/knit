@@ -1,30 +1,21 @@
-import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import type { Command } from "commander";
+import { PiExecutionAdapter, piSessionDefaults } from "../adapters/pi/execution.js";
+import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
-import { finishRun } from "../application/run-finish.js";
-import { limitNotice, prepareRun, RUNS_DIR } from "../application/run-prepare.js";
-import { aliveAmong, livePane, liveWorker, type WorkerProcess, workerProcesses } from "../application/run-process.js";
+import { limitNotice, RUNS_DIR } from "../application/run-prepare.js";
+import { livePane, liveWorker } from "../application/run-process.js";
 import { findTask } from "../application/task-store.js";
 import { taskWorktree } from "../application/worktree.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { procStartTicks, signalProcessTree } from "../infrastructure/process.js";
+
 import { fail, knitRoot, loadTask, shownStatus } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
-
-/** 每 100 毫秒看一次，最多看到 `deadline`（毫秒时间戳），等到这些进程一个都不在；返回最后还在的。 */
-async function stillAlive(processes: readonly WorkerProcess[], deadline: number): Promise<WorkerProcess[]> {
-  const alive = aliveAmong(processes);
-  if (alive.length === 0 || Date.now() >= deadline) return alive;
-  await sleep(100);
-  return stillAlive(alive, deadline);
-}
 
 /** 一次执行的情况。 */
 function runLines(root: string, workflow: WorkflowDefinition, taskId: string, run: TaskRun | undefined): string[] {
@@ -99,23 +90,14 @@ export function statusLines(
  * 每秒重新读一次任务文件。不设超时：执行者卡住时一直等，要停就停掉这个命令或者 knit run cancel。
  */
 async function waitForRun(dir: string, id: string): Promise<string[] | null> {
-  const loaded = loadTask(dir, id);
-  if (loaded === null) return null;
-  const workflow = loadWorkflow(loaded.root);
-  if (workflow === null) {
-    process.exitCode = 1;
+  const root = knitRoot(dir);
+  if (root === null) return null;
+  const waited = await waitRun(root, id);
+  if (waited.task === null || waited.workflow === null) {
+    fail(waited.problems);
     return null;
   }
-  const running = loaded.record.runs.find((item) => item.endedAt === null);
-  if (running === undefined) return statusLines(loaded.root, workflow, loaded.document, loaded.record);
-  if (liveWorker(loaded.root, running.id) === null) {
-    // 后台进程先把结果写进记录再退出，它可能正好在上面读完记录之后结束：重新读一次才是最后的样子。
-    // 意外退出的记录里仍然没有结束时间，不等它：输出里有让人运行 knit run cancel 的那一行。
-    const settled = loadTask(dir, id);
-    return settled === null ? null : statusLines(settled.root, workflow, settled.document, settled.record);
-  }
-  await sleep(1000);
-  return waitForRun(dir, id);
+  return statusLines(root, waited.workflow, waited.task.document, waited.task.record);
 }
 
 export function registerRunCommands(program: Command): void {
@@ -137,24 +119,16 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const prepared = prepareRun({ root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking });
-      if (prepared.run === null) return fail(prepared.problems);
-      const { run: started } = prepared;
-      const log = openSync(join(root, started.dir, "worker.log"), "a");
-      const worker = spawn(
-        process.execPath,
-        [
-          process.argv[1]!, "run", "worker", started.id, "--task", id, "--model", started.model,
-          ...(started.thinking === null ? [] : ["--thinking", started.thinking]),
-          "--dir", root,
+      const prepared = startRun({
+        root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
+        sessionDefaults: piSessionDefaults(),
+        workerCommand: (started) => [
+          process.execPath, process.argv[1]!, "run", "worker", started.id, "--task", id, "--model", started.model,
+          ...(started.thinking === null ? [] : ["--thinking", started.thinking]), "--dir", root,
         ],
-        { detached: true, stdio: ["ignore", log, log] },
-      );
-      worker.unref();
-      closeSync(log);
-      // 以后靠启动标识确认这个进程号还是原来那个进程。
-      const identity = { pid: worker.pid, start: worker.pid === undefined ? null : procStartTicks(worker.pid) };
-      writeFileSync(join(root, started.dir, "worker.json"), `${JSON.stringify(identity, null, 2)}\n`);
+      });
+      if (prepared.run === null) return fail(prepared.problems);
+      const started = prepared.run;
       process.stdout.write(
         `已派发 ${id}：${started.stage.name}（${started.id}）\n` +
         `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
@@ -202,47 +176,12 @@ export function registerRunCommands(program: Command): void {
       }
       const { root } = loaded;
       const taskId = loaded.document.frontmatter.id;
-      const running = loaded.record.runs.find((item) => item.endedAt === null);
-      if (running === undefined) return fail([`任务 ${taskId} 没有正在跑的执行`]);
-      const worker = liveWorker(root, running.id);
-      // Pi 还在的话会接着改工作区，所以等这一串都退出，再对比改动文件。
-      const stop = async (chain: readonly WorkerProcess[]): Promise<void> => {
-        if (chain[0] === undefined) return;
-        signalProcessTree(
-          chain[0].pid,
-          "SIGTERM",
-          chain.map((item) => item.pid),
-        );
-        const stubborn = await stillAlive(chain, Date.now() + 5000);
-        if (stubborn[0] === undefined) return;
-        signalProcessTree(
-          stubborn[0].pid,
-          "SIGKILL",
-          stubborn.map((item) => item.pid),
-        );
-        // 再等完还有进程在也照样往下记：不记的话这次执行结束不了，这个任务也无法再派发。
-        await stillAlive(stubborn, Date.now() + 5000);
-      };
-      // 发信号之前取：后台进程先退出的话就找不到它启动的 Pi 了。
-      await stop(workerProcesses(root, running.id));
-      // 窗格里的 Pi 可能在这期间才登记：再找一次。更晚才起来的，会看到后台进程不在了，自己退出。
-      await stop(workerProcesses(root, running.id));
-      const problems = finishRun({
-        root,
-        taskId,
-        runId: running.id,
-        workflow,
-        verdict: null,
-        failure: worker === null ? "执行进程意外退出" : "已取消",
-        sessionFile: null,
-      });
-      if (problems.length > 0) return fail(problems);
-      const changed = findTask(root, taskId)?.record?.runs.find((item) => item.id === running.id)?.changedPaths ?? [];
-      const first =
-        worker === null
-          ? `执行 ${running.id} 的进程已经不在了，已记为失败`
-          : `已取消 ${taskId} 的执行 ${running.id}`;
-      process.stdout.write(`${first}\n改动文件: ${changed.length} 个\n`);
+      const result = await cancelRun({ root, taskId, workflow });
+      if (result.cancelled === null) return fail(result.problems);
+      const first = result.cancelled.workerMissing
+        ? `执行 ${result.cancelled.runId} 的进程已经不在了，已记为失败`
+        : `已取消 ${taskId} 的执行 ${result.cancelled.runId}`;
+      process.stdout.write(`${first}\n改动文件: ${result.cancelled.changedPaths.length} 个\n`);
     });
 
   run
@@ -266,7 +205,7 @@ export function registerRunCommands(program: Command): void {
         workflow,
         model: options.model,
         thinking: options.thinking,
-        piExecutable: process.env.KNIT_PI_BIN ?? "pi",
+        agent: new PiExecutionAdapter(process.env.KNIT_PI_BIN ?? "pi"),
         // 主会话在 Rex 里跑时，它启动的进程都带着这两个变量。
         rex:
           process.env.REX_SESSION && process.env.REX_BLOCK

@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
+import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
@@ -35,7 +36,7 @@ function script(t, contents) {
   });
   writeFileSync(file, JSON.stringify(contents));
 }
-const execute = (root, task, run) => executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, piExecutable: FAKE_PI });
+const execute = (root, task, run) => executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agent: new PiExecutionAdapter(FAKE_PI) });
 
 async function waitUntil(done) {
   const deadline = Date.now() + 10000;

@@ -4,3 +4,4 @@
 export * from "./connection.js";
 export * from "./native-file.js";
 export * from "./runtime.js";
+export * from "./execution.js";

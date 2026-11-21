@@ -10,7 +10,7 @@
  * 等 resumeOn 指的文件出现（当作用户接着输入了一句）再做第二轮。
  * stubborn 为真时不理会 SIGTERM，输入关闭时也不退出，只有 SIGKILL 能结束它。
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -42,6 +42,10 @@ if (script.stubborn) {
 }
 
 async function work() {
+  if (script.child && prompts === 0) {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", arg("--session-dir")], { stdio: "ignore" });
+    log({ child: child.pid });
+  }
   for (const write of script.writes ?? []) {
     mkdirSync(dirname(join(process.cwd(), write.path)), { recursive: true });
     writeFileSync(join(process.cwd(), write.path), write.content);
@@ -96,6 +100,8 @@ if (!args.includes("--mode")) {
     sendUserMessage: (text) => (pending = text),
   });
   handlers.session_start({ reason: "startup" }, ctx);
+  // 和 Pi 一样，事件派发结束后才处理扩展异步排入的下一轮。
+  await new Promise((resolve) => setImmediate(resolve));
   let aborted = script.aborted === true;
   while (pending !== null) {
     const message = pending;
@@ -117,6 +123,7 @@ if (!args.includes("--mode")) {
       message: script.modelError !== undefined ? failedMessage : successfulMessage(),
     });
     handlers.agent_settled({ aborted: false }, ctx);
+    await new Promise((resolve) => setImmediate(resolve));
   }
   // 扩展没有再发消息也没有要求退出时，界面停在那里等用户。
   await new Promise(() => setInterval(() => {}, 1000));

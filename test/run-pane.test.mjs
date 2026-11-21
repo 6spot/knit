@@ -189,6 +189,28 @@ test("窗格里的报告读不出来时补报一次", async (t) => {
   assert.equal(readFileSync(join(dir, RUNS_DIR, review.id, "report.md"), "utf8"), pass);
   const messages = rex.piLog().filter((line) => line.message !== undefined);
   assert.match(messages.at(-1).message, /^上一条消息里的报告读不出来：\n- 报告结尾没有能解析的 json 代码块\n/);
+  assert.equal(messages.length, 3); // 实现一轮、审查一轮、补报一轮。
+  assert.equal(rex.piLog().filter((line) => line.args !== undefined).length, 2); // 补报没有另起客户端。
+});
+
+test("窗格补报仍不合格时失败，只补一次并保留第二份报告", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const rex = inRex(t, dir);
+  rex.script({});
+  await finished(dir, task, start(rex, dir, task).id);
+  const cursor = rex.piLog().length;
+  rex.script({ texts: ["没有结论。", "还是没有结论。", '```json\n{"verdict":"pass"}\n```'] });
+
+  const run = start(rex, dir, task);
+  const ended = await finished(dir, task, run.id);
+
+  assert.equal(ended.verdict, null);
+  assert.equal(ended.failure, "报告读不出来：报告结尾没有能解析的 json 代码块");
+  assert.equal(readFileSync(join(dir, RUNS_DIR, run.id, "report.md"), "utf8"), "还是没有结论。");
+  const log = rex.piLog().slice(cursor);
+  assert.equal(log.filter((line) => line.args !== undefined).length, 1);
+  assert.equal(log.filter((line) => line.message !== undefined).length, 2);
 });
 
 test("模型不认识时窗格里的执行记为启动失败，不回退", async (t) => {
@@ -290,6 +312,8 @@ test("在窗格里中止之后执行不结束，接着输入就接着做完", as
   const ended = await finished(dir, task, run.id);
   assert.equal(ended.failure, null);
   assert.equal(readFileSync(join(dir, RUNS_DIR, run.id, "report.md"), "utf8"), "接着做完了。");
+  assert.equal(rex.piLog().filter((line) => line.args !== undefined).length, 1);
+  assert.equal(ended.sessionFile, `${RUNS_DIR}/${run.id}/session/fake.jsonl`);
 });
 
 test("取消时窗格里的执行者也被停掉；窗格被关掉时记为失败", async (t) => {
@@ -322,6 +346,23 @@ test("取消时窗格里的执行者也被停掉；窗格被关掉时记为失�
   assert.equal(closed.status, 0, closed.stderr);
   const ended = await finished(dir, task, second.id);
   assert.equal(ended.failure, "执行者的窗格关掉了，没有交报告");
+});
+
+test("取消窗格执行时连执行者启动的子进程一起停止", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const rex = inRex(t, dir);
+  rex.script({ child: true, waitFor: join(rex.outside, "never") });
+  const run = start(rex, dir, task);
+  t.after(() => spawnSync("pkill", ["-9", "-f", run.id]));
+  await waitUntil(() => processesOf(run.id).length === 3, "后台进程、窗格客户端和它的子进程都在跑");
+
+  const cancelled = rex.knit("run", "cancel", task.id);
+
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(lastRun(dir, task).failure, "已取消");
+  assert.equal(processesOf(run.id).length, 0);
+  assert.match(rex.knit("run", "wait", task.id).stdout, /^失败: 已取消$/m);
 });
 
 test("执行者还没有在窗格里开始就取消时，它不会再开始", async (t) => {

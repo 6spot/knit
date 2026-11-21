@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
+import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
@@ -41,7 +42,7 @@ test("下个环节的仓库资料取 Worktree 的内容，仍给相对路径", a
     if (previous !== undefined) process.env.KNIT_FAKE_PI = previous;
   });
   writeFileSync(script, JSON.stringify({ writes: [{ path: "docs/a.md", content: "# 资料\n\n## 依据\n\nWorktree 改过的内容\n\n## 其它\n\n不该附上\n" }] }));
-  assert.deepEqual(await executeRun({ root, taskId: task.id, runId: first.id, workflow: workflowOf(root), model: first.model, piExecutable: FAKE_PI }), []);
+  assert.deepEqual(await executeRun({ root, taskId: task.id, runId: first.id, workflow: workflowOf(root), model: first.model, agent: new PiExecutionAdapter(FAKE_PI) }), []);
   const review = prepare(root, task);
   assert.deepEqual(review.problems, []);
   assert.equal(review.run.stage.id, "review");
