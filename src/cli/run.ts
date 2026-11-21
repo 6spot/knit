@@ -61,6 +61,7 @@ function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: 
   const { id, verification } = document.frontmatter;
   const status = currentStatus(document, record);
   if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
+  if (status === "done") return [`下一步: 用户授权后交付（knit deliver ${id}）`];
   if (status !== "ready" && status !== "active") return [];
   const step = nextStep(workflow, verification, record);
   if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
