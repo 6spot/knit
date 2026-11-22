@@ -5,7 +5,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { standardsForStage } from "../domain/standards.js";
+import { standardsForStage, type Standard } from "../domain/standards.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import { referencesOf } from "../domain/task-references.js";
 import { projectRelative } from "../infrastructure/paths.js";
@@ -77,13 +77,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
   const plan = named(planPath) ? null : readText(input.root, planPath);
 
   const roleText = role === null ? [] : [trimBlankLines(role)];
-  const standardBlocks = standards
-    .filter((standard) => applicable.includes(standard) || named(standard.path))
-    .map((standard) => ({
-      tag: "standard",
-      attributes: { path: standard.path, title: standard.title },
-      content: standard.body,
-    }));
+  const includedStandards = standards.filter((standard) => applicable.includes(standard) || named(standard.path));
   const taskBlock = {
     tag: "task",
     attributes: { path: resolve(input.root, input.task.dir, "task.md") },
@@ -119,7 +113,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
         : { used: state.used, blocks: [...state.blocks, { ...part, content: notice }] };
     },
     {
-      used: [...roleText, ...standardBlocks.map((block) => block.content), taskBlock.content].reduce(
+      used: [...roleText, ...includedStandards.map((standard) => standard.body), taskBlock.content].reduce(
         (sum, text) => sum + Buffer.byteLength(text),
         0,
       ),
@@ -128,7 +122,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
   ).blocks;
 
   return {
-    systemPrompt: [...roleText, ...standardBlocks.map(render)].join("\n\n"),
+    systemPrompt: [...roleText, ...includedStandards.map(renderStandard)].join("\n\n"),
     // 工作位置说明不改变原有的资料字节预算。
     firstMessage: [
       `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；这些资料和报告按给出的绝对路径读取。`,
@@ -154,6 +148,10 @@ function reportBlock(tag: string, report: HandoffReport): Block {
     attributes: { stage: report.stage, path: report.path },
     content: `${changed}\n\n${trimBlankLines(report.text)}`,
   };
+}
+
+export function renderStandard(standard: Standard): string {
+  return render({ tag: "standard", attributes: { path: standard.path, title: standard.title }, content: standard.body });
 }
 
 function render(block: Block): string {

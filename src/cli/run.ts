@@ -1,93 +1,72 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import type { Command } from "commander";
 import { builtinAgents } from "../adapters/agents.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
 import { limitNotice, RUNS_DIR } from "../application/run-prepare.js";
-import { livePane, liveWorker } from "../application/run-process.js";
+import { buildTaskStatus, type SessionTaskStatus } from "../application/session-context.js";
 import { findTask } from "../application/task-store.js";
-import { taskWorktree } from "../application/worktree.js";
 import { checkSchema } from "../contracts/schema.js";
-import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
-import { nextStep } from "../domain/progress.js";
-import { currentStatus, type TaskDocument } from "../domain/task-document.js";
-import type { WorkflowDefinition } from "../domain/workflow.js";
-
-import { fail, knitRoot, loadTask, shownStatus } from "./task.js";
+import { fail, knitRoot, loadTask } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
 
 /** 一次执行的情况。 */
-function runLines(root: string, workflow: WorkflowDefinition, taskId: string, run: TaskRun | undefined): string[] {
+function runLines(task: SessionTaskStatus): string[] {
+  const run = task.last;
   if (run === undefined) return ["还没有派发过"];
   const dir = `${RUNS_DIR}/${run.id}`;
-  // 执行记录里的环节已经不在流程里时用它的 id。
-  const stage = workflow.stages.find((item) => item.id === run.stage)?.name ?? run.stage;
   const agent = `Agent: ${run.agent ?? "pi"}`;
   if (run.endedAt !== null) {
     return [
-      `上一次: ${stage}（${run.id}）`,
+      `上一次: ${task.stageName}（${run.id}）`,
       run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
-      ...(existsSync(join(root, dir, "report.md")) ? [`报告: ${dir}/report.md`] : []),
+      ...(task.report === null ? [] : [`报告: ${task.report}`]),
       `改动文件: ${run.changedPaths.length} 个`,
       agent,
     ];
   }
-  const pane = livePane(root, run.id) !== null;
-  return liveWorker(root, run.id) === null
+  return !task.worker
     ? [
-        `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`,
+        `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.frontmatter.id} 记为失败`,
         agent,
         // 窗格里的执行者由 Rex 启动，后台进程退出后仍可能在运行。
-        ...(pane
+        ...(task.pane
           ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
           : []),
       ]
     : [
-        `正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`,
+        `正在跑: ${task.stageName}（${run.id}），开始于 ${run.startedAt}`,
         `会话记录: ${dir}/session/`,
         agent,
-        ...(pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
+        ...(task.pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
       ];
 }
 
 /** “下一步”那一行，到返工上限时后面还跟着各轮的报告和可以走的路；任务已经结束时没有。 */
-function nextLine(workflow: WorkflowDefinition, document: TaskDocument, record: TaskRecord): string[] {
-  const { id, verification } = document.frontmatter;
-  const status = currentStatus(document, record);
+function nextLine(task: SessionTaskStatus): string[] {
+  const id = task.frontmatter.id;
+  const status = task.status;
   if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
   if (status === "done") return [`下一步: 用户授权后交付（knit deliver ${id}）`];
-  if (status !== "ready" && status !== "active") return [];
-  const step = nextStep(workflow, verification, record);
+  const step = task.next;
+  if (step === null) return [];
   if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
   if (step.kind === "limit") {
-    const [first, ...rest] = limitNotice(id, workflow, record, step);
+    const [first, ...rest] = limitNotice(id, task.workflow, task.record, step);
     return [`下一步: ${first}`, ...rest];
   }
   return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
 }
 
 /** `knit run status` 的输出：任务、状态、上一次或正在跑的执行、下一步。 */
-export function statusLines(
-  root: string,
-  workflow: WorkflowDefinition,
-  document: TaskDocument,
-  record: TaskRecord,
-): string[] {
-  const last = record.runs.at(-1);
-  const stored = findTask(root, document.frontmatter.id);
-  const worktree = stored == null ? null : taskWorktree(root, stored.dir);
+export function statusLines(task: SessionTaskStatus): string[] {
   return [
-    `任务: ${document.frontmatter.title}（${document.frontmatter.id}）`,
-    `状态: ${shownStatus(document, record).text}`,
-    ...(worktree !== null && existsSync(join(worktree.path, ".git"))
-      ? [`Worktree: ${worktree.path}（${worktree.branch}）`]
-      : []),
-    ...runLines(root, workflow, document.frontmatter.id, last),
-    // 有执行还没结束时不给下一步。
-    ...(last?.endedAt === null ? [] : nextLine(workflow, document, record)),
+    `任务: ${task.frontmatter.title}（${task.frontmatter.id}）`,
+    `状态: ${task.status === "active" ? `active(${task.frontmatter.stage})` : task.status}`,
+    ...(task.worktree === null ? [] : [`Worktree: ${task.worktree.path}（${task.worktree.branch}）`]),
+    ...runLines(task),
+    ...(task.last?.endedAt === null ? [] : nextLine(task)),
   ];
 }
 
@@ -103,7 +82,7 @@ async function waitForRun(dir: string, id: string): Promise<string[] | null> {
     fail(waited.problems);
     return null;
   }
-  return statusLines(root, waited.workflow, waited.task.document, waited.task.record);
+  return statusLines(buildTaskStatus(root, findTask(root, id)?.dir ?? null, waited.workflow, waited.task.document, waited.task.record));
 }
 
 export function registerRunCommands(program: Command): void {
@@ -159,7 +138,7 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const lines = statusLines(loaded.root, workflow, loaded.document, loaded.record);
+      const lines = statusLines(buildTaskStatus(loaded.root, loaded.stored.dir, workflow, loaded.document, loaded.record));
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 

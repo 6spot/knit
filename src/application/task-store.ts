@@ -76,6 +76,25 @@ export function findTask(root: string, id: string): StoredTask | null {
   return scanTasks(root).find((task) => task.id === id) ?? null;
 }
 
+export interface LoadedTask {
+  readonly root: string;
+  readonly stored: StoredTask;
+  readonly document: TaskDocument;
+  readonly record: TaskRecord;
+}
+
+export interface TaskRefusal {
+  readonly kind: "refused";
+  readonly problems: readonly string[];
+}
+
+export function readTask(root: string, id: string): { kind: "loaded"; task: LoadedTask } | TaskRefusal {
+  const stored = findTask(root, id);
+  if (stored === null) return { kind: "refused", problems: [`没有任务 ${id}；用 knit task list 查看现有任务`] };
+  if (stored.document === null || stored.record === null) return { kind: "refused", problems: stored.problems };
+  return { kind: "loaded", task: { root, stored, document: stored.document, record: stored.record } };
+}
+
 /** 建目录并写入 task.md；record.json 等第一次有内容要记时再建。 */
 export function createTask(root: string, input: NewTask): CreateTaskResult {
   const known = new Set(scanTasks(root).map((task) => task.document?.frontmatter.id));
