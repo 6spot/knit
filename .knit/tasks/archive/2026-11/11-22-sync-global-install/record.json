@@ -1,0 +1,9 @@
+{
+  "confirmedDigest": "bfd623027d113d8ffacbf446fc51a7cf92e590473cdb56299fcfa7f4a96b13eb",
+  "changedPaths": [
+    ".knit/agents/review.md",
+    ".pi/extensions/knit.ts"
+  ],
+  "runs": [],
+  "authorization": "用户明确授权：这两个我都授权"
+}

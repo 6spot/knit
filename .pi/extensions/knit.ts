@@ -82,6 +82,8 @@ interface RunParams {
   taskId: string;
   model?: string;
   thinking?: string;
+  instruction?: string;
+  fresh?: boolean;
 }
 
 interface DeliverParams {
@@ -104,7 +106,7 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_task",
     label: "Knit task",
     description:
-      "管理 Knit 任务。new 创建任务（要有 title），use 选中一个任务（之后每一轮都能看到它的状态和当前环节的规范；不带 taskId 是取消选中；新建的任务不会自动选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      "管理 Knit 任务。可以全程在会话里讨论，不要求先建任务。只有用户明确要求创建任务时才用 new 建草稿（要有 title），随后用普通的读写工具把已经讨论清楚的需求写入返回路径的 task.md；在当轮回复中给出任务标题、编号、task.md 链接、draft 草稿状态及当前会话是否已选中。new 保持当前的任务选择，不自动选中新任务；创建失败时说明原因，当前讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
@@ -130,13 +132,15 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_run",
     label: "Knit run",
     description:
-      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
+      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息。并行审查全部结束后，按通知里的报告和结论裁决，用 instruction 把修改清单交给下一次 start；fresh 为 true 时强制新会话；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
     parameters: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["start", "status", "cancel"] },
         taskId: { type: "string" },
         model: { type: "string" },
+        instruction: { type: "string", description: "start 时交给执行者的裁决或修改清单" },
+        fresh: { type: "boolean", description: "start 时强制用完整交接新开会话" },
         thinking: { type: "string", enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
       },
       required: ["action", "taskId"],
@@ -162,21 +166,29 @@ export default function knitBridge(pi: Pi): void {
     execute: (_toolCallId, params, _signal, _onUpdate, ctx) => deliver(params, ctx),
   });
 
-  // 每一轮都把选中任务的状态、下一步和当前环节的规范写进系统提示里自己的那一段。
-  // 放系统提示而不是消息：Pi 压缩会话时保留系统提示。不缓存，每一轮运行一次命令。
+  // 每一轮都提供讨论规范，再按选择补充任务信息和环节规范。
+  // 放系统提示而不是消息：Pi 压缩会话时保留系统提示。不缓存，每轮读取；任务读不出时仍读取讨论规范。
   pi.on("before_agent_start", async (event, ctx) => {
     const sections = event.systemPromptOptions?.sections;
     if (sections === undefined) return;
     const taskId = selectedTask(ctx);
+    const context = await runKnit(["context", ...(taskId === null ? [] : [taskId])]);
     if (taskId === null) {
-      sections.knit = "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中一个。";
+      sections.knit = [
+        context.code === 0 ? context.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${context.stderr.trimEnd()}`,
+        "没有选中 Knit 任务。可以直接讨论需求；用户明确要求建任务时，用 knit_task 的 new 创建草稿。用 list 查看任务，use 选中或取消选择。",
+      ].join("\n");
       return;
     }
-    const context = await runKnit(["context", taskId]);
-    sections.knit =
-      context.code === 0
-        ? context.stdout.trimEnd()
-        : `选中的 Knit 任务 ${taskId} 读不出来：\n${context.stderr.trimEnd()}`;
+    if (context.code === 0) {
+      sections.knit = context.stdout.trimEnd();
+      return;
+    }
+    const discussion = await runKnit(["context"]);
+    sections.knit = [
+      discussion.code === 0 ? discussion.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${discussion.stderr.trimEnd()}`,
+      `选中的 Knit 任务 ${taskId} 读不出来：\n${context.stderr.trimEnd()}`,
+    ].join("\n");
   });
 
   // 会话重新加载或重开之后不接着等：结果在下一轮的系统提示里能看到，也可以用 status 查。
@@ -227,17 +239,22 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
   const result = await runKnit(
     [
       "run", params.action, params.taskId,
-      ...(params.action === "start" ? [...single("--model", params.model), ...single("--thinking", params.thinking)] : []),
+      ...(params.action === "start" ? [
+        ...single("--model", params.model),
+        ...single("--thinking", params.thinking),
+        ...(params.instruction === undefined ? [] : [`--instruction=${params.instruction}`]),
+        ...(params.fresh ? ["--fresh"] : []),
+      ] : []),
     ],
     params.action === "start"
-      ? { ...process.env, PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
+      ? { ...process.env, KNIT_SESSION_AGENT: "pi", PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
       : process.env,
   );
   if (params.action === "start" && result.code === 0) notifyWhenEnded(pi, waiting, params.taskId);
   return toResult(result);
 }
 
-/** 在后台等这个任务的执行结束，结束时给主会话发一条消息并触发一轮。 */
+/** run wait 等到整批成员入账，stdout 包含各自的报告路径和结果。每次派发只启动一个等待进程。 */
 function notifyWhenEnded(pi: Pi, waiting: Map<string, ChildProcess>, taskId: string): void {
   // 上一次执行刚结束、它的等待还没退出时：换成等这一次的。
   stopWaiting(waiting, taskId);
