@@ -1,11 +1,11 @@
 # Knit 的流程：讨论（主会话）→ 下面的环节 → 收尾（主会话）。
 # 手工改这个文件，改完运行 knit workflow validate。
 #
-# model            执行者用的模型，写成 provider/模型。环节里也可以写，只管那个环节。
-#                  派发时依次用 --model、环节的、顶层的、主会话当前的模型。
+# model            Pi 环节的流程缺省模型，写成 provider/模型。环节或执行器里也可以写。
+#                  派发时依次用 --model、执行器/环节值、流程顶层、主会话当前的模型。
 #                  不在 Pi 会话里、又哪里都没写时才拒绝派发。
-# thinking         思考等级：off、minimal、low、medium、high、xhigh、max。环节里也可以写。
-#                  派发时依次用 --thinking、环节的、顶层的、主会话当前的等级。
+# thinking         Pi 环节的流程缺省思考等级：off、minimal、low、medium、high、xhigh、max。
+#                  派发时依次用 --thinking、执行器/环节值、流程顶层、主会话当前的等级。
 #                  哪里都没有时用 Pi 自己的缺省，不拒绝派发。
 # maxRepairRounds  返工上限，不写是 5。
 #
@@ -14,12 +14,23 @@
 #   agent      pi 或 antigravity；不写用派发入口的客户端，普通终端用 pi
 #   model      Pi 用 provider/模型；antigravity 用 agy 的模型 ID
 #   thinking   antigravity 支持 low、medium、high、xhigh、max，传给 --effort
-#              antigravity 只用本次覆盖和环节值，未指定时由 agy 决定
-#   prompt     角色文件
-#   tools      能力：read、write、exec、external、network；不写是全部
+#              antigravity 只用本次覆盖和执行器/环节值，未指定时由 agy 决定
+#   prompt     角色文件；多执行器环节下作为各成员的共享缺省角色文件
+#   resume     布尔值，默认 false；设为 true 时，同需求返工优先恢复该环节上次原生会话续聊
+#              （Pi 用 --session，antigravity 用 --conversation），不可用或加 --fresh 自动回退新会话
+#   tools      能力：read、write、exec、external、network；不写或写 all 是全部放开，[] 是全部禁用
+#              配置 2 个及以上 executors 时必须显式列出且不得含 write（如 [read, exec]）
+#   executors  非空列表，用于单环节多模型并行（对抗审查等），与环节顶层的 agent/model/thinking 互斥：
+#                - id: 可选，环节内唯一标识，省略时按序号取 executor-1、executor-2
+#                  agent: pi 或 antigravity
+#                  model: 该成员的模型
+#                  thinking: 该成员的思考等级
+#                  prompt: 可选，覆盖环节共享的 prompt
+#              并行批次全员 pass 才通过；任一 changes_requested/blocked/失败交回主会话裁决汇总，
+#              主会话可带 --instruction 派发返工
 #   report     报告结尾要给出的字段；带 verdict 的环节是审查环节
 #   onVerdict  按结论去哪个环节；没写的结论走顺序的下一个
-#   maxVisits  第一次之后最多再进入几次；不写用 maxRepairRounds
+#   maxVisits  第一次之后最多再进入几次；不写用 maxRepairRounds，null 表示不设上限
 version: 1
 # model: provider/模型
 # thinking: high
@@ -27,13 +38,25 @@ stages:
   - id: implement
     name: 实现
     prompt: .knit/agents/implement.md
+    # resume: true
     tools: [read, write, exec]
   - id: review
     name: 审查
     # agent: antigravity
+    # model: gemini-3.8-flash-low
     # thinking: max
     prompt: .knit/agents/review.md
     tools: [read, write, exec]
+    # 多模型只读并行对抗审查示例（启用时删掉上面的单执行器 agent/model/thinking，并去掉 tools 里的 write）：
+    # tools: [read, exec]
+    # executors:
+    #   - id: pi-review
+    #     agent: pi
+    #     thinking: max
+    #   - id: agy-review
+    #     agent: antigravity
+    #     model: gemini-3.8-flash-low
+    #     thinking: high
     report:
       verdict: [pass, changes_requested, blocked]
     onVerdict:
