@@ -23,6 +23,7 @@ export const CORE_TEMPLATES = [
 
 const HOST_BRIDGES = [
   { host: "pi", templates: ["pi/extensions/knit.ts"] },
+  { host: "workbuddy", templates: ["workbuddy/knit-hook.sh", "workbuddy/settings.json"] },
   { host: "agy", templates: [
     "agents/plugins/knit/plugin.json",
     "agents/plugins/knit/hooks.json",
@@ -55,7 +56,7 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
   mkdirSync(join(root, ".knit", "tasks"), { recursive: true });
   const bridges = HOST_BRIDGES.flatMap(({ host, templates }) => {
     const items = templates.map((template) => ({ template, target: `.${template}`, restore: true }));
-    return hosts[host] || (force && items.some((item) => existsSync(join(root, item.target)))) ? items : [];
+    return hosts[host] || (force && items.some((item) => installedBridge(root, item.target))) ? items : [];
   });
   const templates = [...CORE_TEMPLATES, ...bridges];
   const missing = templates.filter((item) => !existsSync(join(root, item.target)));
@@ -84,6 +85,24 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
     backupDir: changed.length === 0 ? null : backupDir,
     task: scanTasks(root).length > 0 ? null : createStandardsTask(root),
   };
+}
+
+function installedBridge(root: string, target: string): boolean {
+  const path = join(root, target);
+  if (!existsSync(path)) return false;
+  if (target !== ".workbuddy/settings.json") return true;
+  // 设置文件由项目共用，只有事件钩子引用启动脚本才表示启用了桥接。
+  try {
+    type Group = { hooks?: { type?: string; command?: string }[] };
+    const settings: { hooks?: Record<string, Group[]> } | null = JSON.parse(readFileSync(path, "utf8"));
+    return ["SessionStart", "UserPromptSubmit", "PreToolUse"].some((event) => {
+      const groups = settings?.hooks?.[event];
+      return Array.isArray(groups) && groups.some((group) => Array.isArray(group?.hooks) && group.hooks.some((hook) =>
+        hook?.type === "command" && typeof hook.command === "string" && /(?:^|[/'"\s])\.workbuddy\/knit-hook\.sh(?=["'\s]|$)/.test(hook.command)));
+    });
+  } catch {
+    return false;
+  }
 }
 
 function createStandardsTask(root: string): InitResult["task"] {

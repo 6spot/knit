@@ -29,9 +29,15 @@ registerStandardsCommands(program);
 registerRunCommands(program);
 registerContextCommand(program);
 registerDeliverCommand(program);
-program.command("hook", { hidden: true }).command("agy <event>").action(async (event: string) => {
+const hook = program.command("hook", { hidden: true });
+hook.command("agy <event>").action(async (event: string) => {
   const { agyHostHook } = await import("../adapters/antigravity/host-hook.js");
   const result = await agyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
   process.stdout.write(`${JSON.stringify(result)}\n`);
+});
+hook.command("workbuddy <event>", { hidden: true }).action(async (event: string) => {
+  const { workbuddyHostHook } = await import("../adapters/workbuddy/host-hook.js");
+  const result = await workbuddyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
+  if (result !== null) process.stdout.write(`${JSON.stringify(result)}\n`);
 });
 await program.parseAsync();

@@ -10,7 +10,7 @@ Knit 管一个项目的开发周期，只做五件事：
 2. **规范**：保存项目的开发规范，按环节交给智能体。
 3. **交接**：派执行者做某个环节时，只给它这个环节需要的内容。
 4. **交付**：用户授权后，把任务归档；项目在 Git 仓库里时，再把这个任务的改动提交成一次提交。Git 不是必须的。
-5. **接入 Pi**：在主会话里提供少量工具和一小段每轮状态。
+5. 在 Pi、Antigravity 和 WorkBuddy 的**主会话**中提供项目上下文和 Knit 命令入口。
 
 四条原则：
 
@@ -25,6 +25,9 @@ Knit 管一个项目的开发周期，只做五件事：
 项目根/
   AGENTS.md                 项目自己的文件，Knit 不写入
   .pi/extensions/knit.ts    knit init --pi 生成的 Pi 桥接
+  .workbuddy/               knit init --workbuddy 生成的桌面主会话桥接
+    settings.json           项目级钩子声明
+    knit-hook.sh            为钩子准备 PATH 并启动安装版 knit
   .agents/plugins/knit/     knit init --agy 生成的 Antigravity 主会话插件
     plugin.json             插件名 knit
     hooks.json              主会话钩子
@@ -204,6 +207,8 @@ createdAt: 2026-11-14T13:36:56Z
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 角色文件和规范仍从主检出读，系统提示里的路径和内容不变。
 - Pi 主会话的规范放在桥接维护的系统提示里。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 只匹配 `run_command`，由同一命令入口处理任务选择、派发和交付授权。插件直接使用钩子和 CLI，无需 MCP 服务。讨论规范和补充的环节规范各按路径排序。
+- WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 同时注入上下文和桌面等待说明。会话选择与内容摘要由共用宿主钩子内核维护，普通目录及内容未变的轮次均零输出。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
+- WorkBuddy 的 `PreToolUse` 精确匹配 `Bash`。`knit context --use` 和 `--unuse` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
 放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
@@ -484,7 +489,7 @@ Pi 和 Antigravity 按 Agent 名在 `src/adapters/agents.ts` 登记。派发读�
 命令行：
 
 ```
-knit init [--pi] [--agy] [--force]
+knit init [--pi] [--agy] [--workbuddy] [--force]
 knit task new | ready | close | cancel | list | show
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]
@@ -492,13 +497,18 @@ knit run status | wait | cancel 都按任务 id
 knit context [任务]                      讨论规范；指定任务时追加任务信息和环节的补充规范
 knit context --use <任务> | --unuse       选中或清除当前宿主会话的任务
 knit hook agy <事件>                     Antigravity 插件钩子的入口
+knit hook workbuddy <事件>               WorkBuddy 项目钩子的隐藏入口
 knit deliver <任务> --authorization <引用> [--message-file <文件>]
 knit deliver <任务> --preview [--message-file <文件>]
 knit standards list
 knit workflow show | validate
 ```
 
-`knit init` 默认只生成 `.knit/`。可在首次初始化或以后补装时使用 `--pi`、`--agy`，也可组合为 `knit init --pi --agy`。
+`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy` 可以任意组合。
+
+WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
+
+WorkBuddy 通过 Bash 调用 `knit run start <任务>`，派发后立即返回。工作流决定执行者和模型，缺省执行者为 `pi`。支持后台等待时用 `run_in_background: true` 运行 `knit run wait <任务>` 并等待完成通知。沙箱拒绝后台等待或无法唤醒时，可用 `knit run wait <任务> --timeout 60` 短等，也可报告已派发，等用户下一轮发言自动刷新选中任务的状态。若派发受沙箱限制，可由用户批准本次豁免或在终端继续。
 
 Antigravity 主会话通过 `run_command` 调用 Knit CLI。`knit run start <任务>` 成功后，主会话立即用后台 `run_command` 运行 `knit run wait <任务>`，由后台命令完成通知唤醒会话并读取整批结果。
 
@@ -522,10 +532,11 @@ Pi 桥接有 3 个工具：
 
 1. 管理本仓库的是安装版（`npm run pack:install` 装到全局），桥接调用安装版。工作区的 `dist` 可以随意重建。
 2. 升级安装版是显式的一步，在一个任务交付之后做。
-3. 核心文件和宿主桥接的模板都在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用 Pi 或 Antigravity 时加上对应开关。
+3. 核心文件和宿主桥接的模板都在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用宿主时加上 `--pi`、`--agy` 或 `--workbuddy`。
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
 6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、规范和任务保留原样。
+7. WorkBuddy 以 `.workbuddy/knit-hook.sh` 或三个项目钩子中任一命令对该脚本的引用识别已启用的桥接。项目已有自定义 `.workbuddy/settings.json` 时，普通安装保留该文件，可从模板合入三个钩子。`--force --workbuddy` 备份后恢复整份模板。Antigravity 执行者可以读取项目的 `.workbuddy/`，该目录受写保护。
 
 ## 11. 不做与延后
 
@@ -549,7 +560,7 @@ Worktree 隔离、不同任务并行和任务分支交付见第 7、8 节。环�
 | 分支绑定、adopt、rebind | — | 不持久化绑定：派发过的任务按算法定位 Worktree 和任务分支交付，其它任务在主检出的当前分支交付 |
 | `order` 字段、`task next`、`task order` | 93 个任务里 13 个用过 | 按优先级和创建时间排 |
 | `gc`、`storage`、`locks`、`unlock`、`doctor`、`session` | `doctor` 用过 1 次 | 无 |
-| `AGENTS.md` 受管块 | 6,052 字节，与每轮注入重复 | 没有桥接的客户端收不到主会话规则；目前只支持 Pi |
+| `AGENTS.md` 受管块 | 6,052 字节，与每轮注入重复 | 主会话接收规则需要安装第 9 节对应的宿主桥接 |
 | `knit start` | 用量未查 | 直接运行 `pi` |
 | 流程的修改子命令与 `knit_workflow` 工具 | 命令行部分 606 行；工具调用 0 次 | 手工改 `workflow.yaml` |
 | 流程配置出错时的降级 | — | 改为拒绝派发并指出行号 |

@@ -692,6 +692,19 @@ test("新 Worktree 合并大小写不同的插件父目录时仍指出同级插�
   assert.equal(lastRun(f.root, f.task), undefined);
 });
 
+test("WorkBuddy 主会话桥接可与 AGY 执行者共存，项目钩子只读", isolated, async (t) => {
+  const f = fixture(t, { tools: "all" });
+  runKnit(f.root, "init", "--workbuddy");
+  commitAll(f.root, "WorkBuddy bridge fixture");
+  const paths = [".workbuddy/settings.json", ".workbuddy/knit-hook.sh"];
+  f.start({ configReads: paths, configWrites: paths });
+  const run = await f.ended();
+  assert.equal(run.verdict, "pass", run.failure);
+  const [init] = readRows(f.transcripts()[0]);
+  assert.deepEqual(init.configReads, ["allowed", "allowed"]);
+  assert.deepEqual(init.configWrites, ["EPERM", "EPERM"]);
+});
+
 const configuredMcp = { mcpServers: { demo: { command: "/usr/bin/true" } } };
 const plugin = { name: "demo", version: "1.0.0" };
 const enabledPlugins = [{ name: "demo", enabled: true }];

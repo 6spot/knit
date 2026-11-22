@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -91,6 +91,41 @@ for (const flags of [["--agy"], ["--pi", "--agy"]]) {
     } });
   });
 }
+
+test("WorkBuddy 可单独或组合安装，强制恢复仅处理启用的桥接", (t) => {
+  for (const flags of [["--workbuddy"], ["--pi", "--agy", "--workbuddy"]]) {
+    const dir = emptyDir(t);
+    assert.equal(knit(dir, "init", ...flags).code, 0);
+    assert.deepEqual(readdirSync(dir).sort(), flags.includes("--pi") ? [".agents", ".knit", ".pi", ".workbuddy"] : [".knit", ".workbuddy"]);
+    const settings = ".workbuddy/settings.json";
+    const launcher = ".workbuddy/knit-hook.sh";
+    assert.equal(readFileSync(join(dir, settings), "utf8"), template(settings.slice(1)));
+    writeFileSync(join(dir, launcher), "custom script");
+    rmSync(join(dir, settings));
+    assert.equal(knit(dir, "init").code, 0);
+    assert.equal(existsSync(join(dir, settings)), false);
+    const restored = knit(dir, "init", "--force");
+    assert.equal(restored.code, 0, restored.stderr);
+    assert.equal(readFileSync(join(dir, restored.stdout.match(/^备份: (.+)\/$/m)[1], launcher), "utf8"), "custom script");
+    assert.equal(readFileSync(join(dir, launcher), "utf8"), template(launcher.slice(1)));
+    assert.equal(readFileSync(join(dir, settings), "utf8"), template(settings.slice(1)));
+  }
+  const dir = emptyDir(t);
+  mkdirSync(join(dir, ".workbuddy"));
+  const settings = join(dir, ".workbuddy/settings.json");
+  const ownSettings = JSON.stringify({ permissions: { deny: ["Read(./.workbuddy/knit-hook.sh)"] } });
+  writeFileSync(settings, ownSettings);
+  assert.equal(knit(dir, "init", "--force").code, 0);
+  assert.equal(readFileSync(settings, "utf8"), ownSettings);
+  assert.deepEqual(readdirSync(join(dir, ".workbuddy")), ["settings.json"]);
+  assert.equal(knit(dir, "init", "--force", "--workbuddy").code, 0);
+  assert.equal(readFileSync(settings, "utf8"), template("workbuddy/settings.json"));
+
+  const launcher = join(dir, ".workbuddy/knit-hook.sh");
+  rmSync(launcher);
+  assert.equal(knit(dir, "init", "--force").code, 0);
+  assert.equal(readFileSync(launcher, "utf8"), template("workbuddy/knit-hook.sh"));
+});
 
 test("已有的文件不动，缺的补上", (t) => {
   const dir = emptyDir(t);
