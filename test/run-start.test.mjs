@@ -315,3 +315,36 @@ test("同一个任务的执行者还在跑时不能再派发，提示不变且�
   assert.equal(next.code, 0, next.stderr);
   assert.equal((await finished(dir, second, startedRunId(next.stdout))).failure, null);
 });
+
+test("派发后台执行者时剥离宿主单次沙箱注入的临时 NODE_OPTIONS 与 broker 变量", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const shim = join(dir, ".knit/.runtime-test-node-brokered-fs-shim.cjs");
+  writeFileSync(shim, "");
+  t.after(() => rmSync(shim, { force: true }));
+  const pi = fakePi(t, dir, {
+    NODE_OPTIONS: `--require ${shim}`,
+    CODEBUDDY_BROKERED_FS_HOOK_ENABLED: "1",
+    CODEBUDDY_SAFE_DELETE_SANDBOX: "1",
+    SANDBOX_CENTER_IPC_ADDRESS: "/tmp/dead-broker.sock",
+  });
+  const dump = join(pi.outside, "env.json");
+  pi.script({
+    commands: [[
+      process.execPath, "-e",
+      'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({ nodeOptions: process.env.NODE_OPTIONS ?? null, broker: process.env.CODEBUDDY_BROKERED_FS_HOOK_ENABLED ?? null, safeDelete: process.env.CODEBUDDY_SAFE_DELETE_SANDBOX ?? null, ipc: process.env.SANDBOX_CENTER_IPC_ADDRESS ?? null }))',
+      dump,
+    ]],
+  });
+  const started = pi.knit("run", "start", task.id);
+  assert.equal(started.code, 0, started.stderr);
+  const runId = startedRunId(started.stdout);
+  const done = await finished(dir, task, runId);
+  assert.equal(done.failure, null);
+  assert.deepEqual(JSON.parse(readFileSync(dump, "utf8")), {
+    nodeOptions: null,
+    broker: null,
+    safeDelete: null,
+    ipc: null,
+  });
+});

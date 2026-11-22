@@ -38,6 +38,7 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
   assert.equal(first.hookEventName, "SessionStart");
   assert.match(first.additionalContext, /discussion\.md/);
   assert.match(first.additionalContext, /run_in_background: true[\s\S]*--timeout 60[\s\S]*下一轮/);
+  assert.match(first.additionalContext, /dangerouslyDisableSandbox: true/);
   assert.equal(hook(prompt), null);
   symlinkSync(cli, join(plain, "knit"));
   const select = (command) => {

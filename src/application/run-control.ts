@@ -15,13 +15,34 @@ import { liveWorker, startingWorker, stopRunProcesses } from "./run-process.js";
 import { findTask } from "./task-store.js";
 import { readWorkflow } from "./workflow-store.js";
 
+const EPHEMERAL_HOST_SANDBOX_ENV = [
+  "CODEBUDDY_BROKERED_FS_HOOK_ENABLED",
+  "CODEBUDDY_SAFE_DELETE_SANDBOX",
+  "CODEBUDDY_SAFE_DELETE_BIN_DIR",
+  "CODEBUDDY_SAFE_DELETE_BULK_GUARD",
+  "CODEBUDDY_SAFE_DELETE_BROKER_DELETE",
+  "CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR",
+  "CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD",
+  "SANDBOX_CENTER_IPC_ADDRESS",
+] as const;
+
+const EPHEMERAL_NODE_SHIM = /sandbox-center-runtime-kit|node-language-shim|node-brokered-fs-shim|node-safe-delete-shim/;
+
+/** 清理宿主单次 Bash 沙箱注入的临时 broker 环境变量，避免 detached 执行者在命令返回后崩溃或超时。 */
+function workerEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
+  for (const key of EPHEMERAL_HOST_SANDBOX_ENV) delete env[key];
+  if (typeof env.NODE_OPTIONS === "string" && EPHEMERAL_NODE_SHIM.test(env.NODE_OPTIONS)) delete env.NODE_OPTIONS;
+  return env;
+}
+
 export function startRun(input: PrepareRunInput & {
   readonly workerCommand: (run: PreparedRun) => readonly string[];
 }): PrepareRunResult {
   return prepareRun(input, (run) => {
     const log = openSync(join(input.root, run.dir, "worker.log"), "a");
     const command = input.workerCommand(run);
-    const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log] });
+    const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log], env: workerEnv() });
     worker.unref();
     closeSync(log);
     atomicWrite({

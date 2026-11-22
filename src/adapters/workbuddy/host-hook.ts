@@ -6,7 +6,7 @@ import { shellQuote } from "../../infrastructure/process.js";
 const guidance = [
   "WorkBuddy 主会话通过 Bash 调用 Knit。用 knit context --use <id> 选中任务。knit run start <id> 派发后立即返回，执行者和模型由流程选择，缺省执行者为 pi。",
   "用 Bash 的 run_in_background: true 运行 knit run wait <id>，等待任务完成通知。沙箱不支持后台等待或无法自动唤醒时，可用 knit run wait <id> --timeout 60 短等，或告知用户已派发，下一轮会自动刷新选中任务的状态。",
-  "若派发受到桌面沙箱的路径或网络限制，可请用户批准本次命令的沙箱豁免，或在终端继续。",
+  "knit run start <id> 需要启动独立后台执行进程，请直接传 dangerouslyDisableSandbox: true 在沙箱外执行；若受桌面沙箱或权限限制，可请用户批准本次命令或在终端继续。",
 ].join("\n");
 
 function record(value: unknown): Record<string, unknown> | undefined {
