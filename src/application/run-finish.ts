@@ -26,6 +26,7 @@ export interface FinishRunInput {
   /** 调用方已经知道的失败原因（启动失败、被取消等）；没有时是 null。 */
   readonly failure: string | null;
   readonly sessionFile: string | null;
+  readonly resumeId?: string | null;
 }
 
 /** 返回问题的列表；空的表示记好了。 */
@@ -92,6 +93,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
             failure,
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
+            resumeId: input.resumeId ?? null,
             sessionFile: recordedSessionPath(root, input.sessionFile ?? readSessionFile(dir)),
           }
           : item,

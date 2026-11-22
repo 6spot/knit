@@ -12,6 +12,7 @@ const runOf = (id, failure) => ({
   requirementDigest: "x",
   changedPaths: [],
   sessionFile: null,
+  resumeId: null,
 });
 
 test("带失败原因的记录写出再读回不变", () => {
@@ -34,8 +35,15 @@ test("带失败原因的记录写出再读回不变", () => {
       "requirementDigest",
       "changedPaths",
       "sessionFile",
+      "resumeId",
     ]);
   }
+});
+
+test("旧记录省略 resumeId 时按 null 读", () => {
+  const { resumeId, ...oldRun } = runOf("r-1", null);
+  const record = { confirmedDigest: "x", changedPaths: [], runs: [oldRun], authorization: null };
+  assert.equal(parseTaskRecord(JSON.stringify(record)).record.runs[0].resumeId, null);
 });
 
 test("缺少失败原因字段的记录读不进来", () => {

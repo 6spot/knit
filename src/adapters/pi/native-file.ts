@@ -3,10 +3,8 @@
  * Pi 将原生记录保存为 JSONL，首行 {type:"session", id, cwd, ...}；
  * 恢复前先核对文件存在与身份，不能只信 CLI 对不存在路径返回成功。
  */
-import { readdirSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { LfFrameDecoder } from "../../contracts/frames.js";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface NativeSessionIdentity {
   id: string;
@@ -18,19 +16,21 @@ export interface NativeFileCheck {
   exists: boolean;
   identity: NativeSessionIdentity | null;
   entryCount: number;
+  /** 读完整个文件后，是否有上一轮交接及助手回复。 */
+  hasConversation?: boolean;
+  /** Pi 首轮记录的 Knit 系统提示原文，用于恢复相同的系统上下文。 */
+  systemPrompt?: string;
   problem:
     | null
     | "not_a_file"
     | "empty"
     | "no_session_header"
     | "id_mismatch"
+    | "invalid_entry"
     | "unreadable";
 }
 
-function firstSessionLine(content: string): NativeSessionIdentity | null {
-  const decoder = new LfFrameDecoder();
-  const [first] = decoder.push(new TextEncoder().encode(content));
-  if (first === undefined) return null;
+function firstSessionLine(first: string): NativeSessionIdentity | null {
   try {
     const header = JSON.parse(first) as Record<string, unknown>;
     if (header.type !== "session" || typeof header.id !== "string" || header.id === "") {
@@ -47,13 +47,17 @@ function firstSessionLine(content: string): NativeSessionIdentity | null {
 }
 
 /** 只读检查：不打开可写会话、不触发原生追加。 */
-export async function checkNativeSessionFile(
+export async function checkNativeSessionFile(filePath: string, expectedNativeId: string): Promise<NativeFileCheck> {
+  return inspectNativeSessionFile(filePath, expectedNativeId);
+}
+
+export function inspectNativeSessionFile(
   filePath: string,
-  expectedNativeId: string,
-): Promise<NativeFileCheck> {
+  expectedNativeId?: string,
+): NativeFileCheck {
   let info;
   try {
-    info = await stat(filePath);
+    info = statSync(filePath);
   } catch {
     return { exists: false, identity: null, entryCount: 0, problem: null };
   }
@@ -62,19 +66,56 @@ export async function checkNativeSessionFile(
   }
   let content: string;
   try {
-    content = await readFile(filePath, "utf-8");
+    content = readFileSync(filePath, "utf-8");
   } catch {
     return { exists: true, identity: null, entryCount: 0, problem: "unreadable" };
   }
-  const identity = firstSessionLine(content);
+  const lines = content.trimEnd().split("\n");
+  const identity = firstSessionLine(lines[0]!);
   if (identity === null) {
     return { exists: true, identity: null, entryCount: 0, problem: "empty" };
   }
-  if (identity.id !== expectedNativeId) {
+  if (expectedNativeId !== undefined && identity.id !== expectedNativeId) {
     return { exists: true, identity, entryCount: 0, problem: "id_mismatch" };
   }
-  const entryCount = content.split("\n").filter((line) => line.trim() !== "").length;
-  return { exists: true, identity, entryCount, problem: null };
+  const history: { user?: true; assistant?: true; systemPrompt?: string } = {};
+  try {
+    const valid = lines.slice(1).every((line) => {
+      const entry = JSON.parse(line) as { type?: unknown; message?: { role?: unknown; sections?: { addendum?: unknown } } } | null;
+      if (entry?.type === "message") {
+        const role = entry.message?.role;
+        if (role === "user" || role === "assistant") history[role] = true;
+        const addendum = entry.message?.sections?.addendum;
+        if (role === "system" && history.systemPrompt === undefined && typeof addendum === "string") {
+          history.systemPrompt = /^<addendum>\n([\s\S]*)\n<\/addendum>$/.exec(addendum)?.[1];
+        }
+      }
+      return typeof entry?.type === "string";
+    });
+    if (!valid) return { exists: true, identity, entryCount: 0, problem: "invalid_entry" };
+  } catch {
+    return { exists: true, identity, entryCount: 0, problem: "invalid_entry" };
+  }
+  return { exists: true, identity, entryCount: lines.length, problem: null, hasConversation: !!(history.user && history.assistant), systemPrompt: history.systemPrompt };
+}
+
+/** 同一份 addendum 在 Pi 的原生记录中只出现一次，省略启动参数会让 Pi 清空它。 */
+export function piResumeSystemPrompt(file: string, systemFile: string): string {
+  const original = inspectNativeSessionFile(file).systemPrompt;
+  if (original === undefined || readFileSync(systemFile, "utf8").trim() === original) return systemFile;
+  const initialFile = join(dirname(file), "..", "system.md");
+  try {
+    if (readFileSync(initialFile, "utf8").trim() === original) return initialFile;
+  } catch {
+    // 单独保存的原生 JSONL 也可用，首轮执行目录可能已经清理。
+  }
+  return original;
+}
+
+export function verifiedPiResumeId(file: string | null, nativeId: string | null): string | null {
+  if (!file || !nativeId) return null;
+  const check = inspectNativeSessionFile(file, nativeId);
+  return check.hasConversation ? file : null;
 }
 
 /** Pi 默认会话目录：`--<cwd 去掉首分隔符并替换分隔符>--`（与客户端一致）。 */

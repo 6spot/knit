@@ -24,6 +24,21 @@ const log = (line) => {
 const send = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const respond = (id, data = {}) => send({ type: "response", id, success: true, data });
 const texts = script.texts ?? ["做完了。"];
+const requestedFile = args.includes("--session") ? arg("--session") : null;
+const sessionFile = requestedFile ?? join(arg("--session-dir"), "fake.jsonl");
+const sessionId = requestedFile ? JSON.parse(readFileSync(requestedFile, "utf8").split("\n")[0]).id : arg("--session-id");
+if (requestedFile && script.rejectResume) process.exit(1);
+if (script.nativeSession && !requestedFile) {
+  mkdirSync(dirname(sessionFile), { recursive: true });
+  const prompt = arg("--append-system-prompt");
+  const system = existsSync(prompt) ? readFileSync(prompt, "utf8") : prompt;
+  const entries = [
+    { type: "session", version: 3, id: sessionId, cwd: process.cwd() },
+    { type: "model_change", id: "30caa012", parentId: null, provider: arg("--provider"), modelId: arg("--model") },
+    { type: "message", message: { role: "system", content: "", sections: { addendum: `<addendum>\n${system.trim()}\n</addendum>` } } },
+  ];
+  writeFileSync(sessionFile, entries.map((entry) => JSON.stringify(entry) + "\n").join(""));
+}
 const failedMessage = { role: "assistant", content: [], stopReason: "error", errorMessage: script.modelError };
 const retryMessages = (script.retryErrors ?? []).map((errorMessage) => ({
   role: "assistant",
@@ -41,7 +56,7 @@ if (script.stubborn) {
   setInterval(() => {}, 1000);
 }
 
-async function work() {
+async function work(message) {
   if (script.child && prompts === 0) {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", arg("--session-dir")], { stdio: "ignore" });
     log({ child: child.pid });
@@ -53,6 +68,10 @@ async function work() {
   for (const [program, ...rest] of script.commands ?? []) spawnSync(program, rest, { cwd: process.cwd(), stdio: "ignore" });
   while (script.waitFor && !existsSync(script.waitFor)) await new Promise((resolve) => setTimeout(resolve, 20));
   lastText = texts[Math.min(prompts, texts.length - 1)];
+  if (script.nativeSession) {
+    const messages = [{ role: "user", content: [{ type: "text", text: message }] }, successfulMessage()];
+    appendFileSync(sessionFile, messages.map((entry) => JSON.stringify({ type: "message", message: entry }) + "\n").join(""));
+  }
   prompts += 1;
 }
 
@@ -70,7 +89,7 @@ async function onPrompt(id, message) {
       errorMessage: message.errorMessage,
     });
   });
-  await work();
+  await work(message);
   if (script.modelError !== undefined) {
     lastText = "";
     send({ type: "message_end", message: failedMessage });
@@ -87,17 +106,21 @@ if (!args.includes("--mode")) {
   if (script.startDelay) await new Promise((resolve) => setTimeout(resolve, script.startDelay));
   const { default: extension } = await import(arg("--extension"));
   const handlers = {};
-  // Pi 收到终端信号后，还要异步执行 session_shutdown 回调。
-  const shutdownOnSignal = (signal) => setImmediate(() => {
-    log({ shutdownSignal: signal });
-    process.exit(0);
-  });
-  process.once("SIGHUP", shutdownOnSignal);
-  if (!script.stubborn) process.once("SIGTERM", shutdownOnSignal);
+  // 取消时进程组和 PID 都会收到信号，Pi 的异步 session_shutdown 只执行一次。
+  const shutdownOnSignal = (signal) => {
+    if (process.exitCode !== undefined) return;
+    process.exitCode = 0;
+    setImmediate(() => {
+      log({ shutdownSignal: signal });
+      process.exit(0);
+    });
+  };
+  process.on("SIGHUP", shutdownOnSignal);
+  if (!script.stubborn) process.on("SIGTERM", shutdownOnSignal);
   const branch = [];
   let pending = null;
   const ctx = {
-    sessionManager: { getBranch: () => branch, getSessionFile: () => join(arg("--session-dir"), "fake.jsonl") },
+    sessionManager: { getBranch: () => branch, getSessionFile: () => sessionFile, getSessionId: () => sessionId },
     modelRegistry: { find: () => (script.failStart ? undefined : {}) },
     ui: { notify: (text) => log({ notify: text }) },
     shutdown: () => setImmediate(() => process.exit(0)),
@@ -124,7 +147,7 @@ if (!args.includes("--mode")) {
       continue;
     }
     branch.push(...retryMessages.map((message) => ({ type: "message", message })));
-    await work();
+    await work(message);
     branch.push({
       type: "message",
       message: script.modelError !== undefined ? failedMessage : successfulMessage(),
@@ -140,7 +163,7 @@ const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   const { id, type, message } = JSON.parse(line);
   if (type === "get_state") {
-    respond(id, { sessionId: arg("--session-id"), sessionFile: null, model: { provider: arg("--provider"), id: arg("--model") } });
+    respond(id, { sessionId, sessionFile: script.nativeSession ? sessionFile : null, model: { provider: arg("--provider"), id: arg("--model") } });
   } else if (type === "set_model" && script.failStart) {
     send({ type: "response", id, success: false, error: "Model not found" });
   } else if (type === "get_last_assistant_text") {

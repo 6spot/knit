@@ -57,6 +57,7 @@ export interface WorkflowStage extends Pick<WorkflowExecutor, "agent" | "model" 
   name: string;
   /** 本步说明；缺省 null。 */
   description: string | null;
+  resume: boolean;
   readonly sharedPrompt?: string;
   executors: readonly WorkflowExecutor[];
   /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
@@ -509,6 +510,7 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): W
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
+    resume: stage.resume ?? false,
     executors,
     agent: single?.agent ?? null,
     model: single?.model ?? null,

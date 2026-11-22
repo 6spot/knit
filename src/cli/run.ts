@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Option, type Command } from "commander";
 import { builtinAgents } from "../adapters/agents.js";
 import { RexPaneHost } from "../adapters/rex/pane.js";
@@ -6,6 +7,7 @@ import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
 import { arbitrationNotice, limitNotice, RUNS_DIR } from "../application/run-prepare.js";
+import { readResume } from "../application/run-session.js";
 import { buildTaskStatus, type SessionTaskStatus } from "../application/session-context.js";
 import { checkSchema } from "../contracts/schema.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
@@ -22,6 +24,7 @@ function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][
       `上一次: ${task.stageName}（${run.id}）`,
       run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
       ...(member.report === null || run.batchId ? [] : [`报告: ${member.report}`]),
+      ...(member.sessionNotice && run.sessionFile ? [`会话记录: ${run.sessionFile}`] : []),
       `改动文件: ${run.changedPaths.length} 个`,
       agent,
     ];
@@ -38,7 +41,7 @@ function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][
       ]
     : [
         `正在跑: ${task.stageName}（${run.id}），开始于 ${run.startedAt}`,
-        `会话记录: ${dir}/session/`,
+        `会话记录: ${member.sessionFile ?? `${dir}/session/`}`,
         agent,
         ...(member.pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
       ];
@@ -70,6 +73,7 @@ export function statusLines(task: SessionTaskStatus): string[] {
     ...(task.members.length ? task.members.flatMap((member) => [
       ...(member.run.batchId ? [`执行器: ${member.run.executor ?? member.run.id}`, `报告: ${member.path}`] : []),
       ...runLines(task, member),
+      ...(member.sessionNotice ? [member.sessionNotice] : []),
     ]) : ["还没有派发过"]),
     ...(task.members.some(({ run }) => run.endedAt === null) ? [] : nextLine(task)),
   ];
@@ -98,11 +102,12 @@ export function registerRunCommands(program: Command): void {
     .description("派发任务的下一个环节；等 Worktree 准备命令完成后返回，执行者在后台跑")
     .addOption(new Option("--instruction <文本>", "主会话的裁决或修改清单").conflicts("instructionFile"))
     .option("--instruction-file <文件>", "读取主会话修改指令")
+    .option("--fresh", "强制使用全新会话和完整交接")
     .option("--stage <环节>", "主会话裁决时指定派发环节")
     .option("--model <模型>", "这一次用的模型（Pi 用 provider/模型，agy 用模型 ID）")
     .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; stage?: string; dir: string }) => {
+    .action((id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; fresh?: boolean; stage?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const { config, problems } = loadConfig(root);
@@ -117,7 +122,7 @@ export function registerRunCommands(program: Command): void {
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
         instruction: options.instructionFile === undefined ? options.instruction : readFileSync(options.instructionFile, "utf8"),
-        stage: options.stage,
+        stage: options.stage, fresh: options.fresh,
         sessionDefaults: { agent: sessionAgent, ...builtinAgents[sessionAgent].sessionDefaults() },
         checkAgent: (agent, capabilities, worktree) => builtinAgents[agent].checkDispatch?.(root, worktree.path, worktree.branch, capabilities) ?? null,
         workerCommand: (started) => [
@@ -131,7 +136,7 @@ export function registerRunCommands(program: Command): void {
         `已派发 ${id}：${started.stage.name}（${started.id}）${started.executor ? ` ${started.executor}` : ""}\n` +
         `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
         (started.setupCommands === undefined ? "" : `已运行准备命令：${started.setupCommands} 条\n`) +
-        `会话记录：${started.dir}/session/\n`,
+        (readResume(join(root, started.dir)) ? `会话记录位置见 knit run status ${id}\n` : `会话记录：${started.dir}/session/\n`),
       ));
     });
 

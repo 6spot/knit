@@ -11,14 +11,16 @@ export interface AgentLaunch {
   readonly cwd: string;
   readonly dir: string;
   readonly protectedPaths?: readonly string[];
+  readonly resume?: { readonly resumeId: string; readonly messageFile: string };
 }
 
 export type AgentResult =
   | { readonly report: string; readonly failure: null }
-  | { readonly report: null; readonly failure: string };
+  | { readonly report: null; readonly failure: string; readonly startupFailure?: true };
 
 export interface AgentSession {
   readonly sessionFile: string | null;
+  readonly resumeId: string | null;
   /** null 表示启动成功，否则给出客户端的失败原因。 */
   start(): Promise<string | null>;
   /** 在原会话发送消息，等客户端真正结束这一轮后返回。 */
@@ -27,6 +29,8 @@ export interface AgentSession {
 }
 
 export interface AgentAdapter {
+  /** 返回原生恢复不可用的原因。缺省表示客户端不支持。 */
+  checkResume?(resumeId: string, cwd: string): string | null;
   createSession(input: AgentLaunch): AgentSession;
   /** 交互客户端的完整启动命令；不支持交互时返回 null。 */
   paneCommand(input: AgentLaunch): readonly string[] | null;

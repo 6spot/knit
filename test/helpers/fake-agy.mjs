@@ -15,7 +15,12 @@ if (args.includes("--version")) {
 }
 const script = JSON.parse(process.env.KNIT_FAKE_AGY);
 const cwd = process.cwd();
-const conversationId = randomUUID();
+const requestedId = args.includes("--conversation") ? args[args.indexOf("--conversation") + 1] : null;
+if (requestedId && script.rejectResume) process.exit(1);
+const conversationId = requestedId && !script.ignoreResume ? requestedId : randomUUID();
+const conversations = join(homedir(), ".gemini/antigravity-cli/conversations");
+mkdirSync(conversations, { recursive: true });
+writeFileSync(join(conversations, `${conversationId}.db`), "", { flag: "a" });
 const brain = join(homedir(), ".gemini/antigravity-cli/brain");
 mkdirSync(brain, { recursive: true });
 const transcriptPath = join(brain, `${conversationId}.jsonl`);
@@ -115,7 +120,7 @@ if (interactive) {
     hook("Stop", { fullyIdle: true, executionNum: 1, terminationReason: "max_steps_exceeded" });
     process.exit(0);
   }
-  const reply = stop(script.retry ? "KNIT_AGY_SUBMIT\n缺少结论" : submit, 1);
+  const reply = stop(script.responses?.[0] ?? (script.retry ? "KNIT_AGY_SUBMIT\n缺少结论" : submit), 1);
   if (script.retry) {
     assert.equal(reply.decision, "continue");
     turn(reply.reason);

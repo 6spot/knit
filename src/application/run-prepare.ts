@@ -9,14 +9,15 @@ import { basename, dirname, join, resolve } from "node:path";
 import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
 import { validateAgentTarget } from "../domain/agent-target.js";
-import { completedBatches, dispatchLimit, nextStep, type NextStep } from "../domain/progress.js";
+import { completedBatches, countedRuns, dispatchLimit, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowExecutor, WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
-import { assembleHandoff, type HandoffReport } from "./handoff.js";
+import { assembleHandoff, resumeMessage, type HandoffReport } from "./handoff.js";
+import { logSessionMode } from "./run-session.js";
 import { withTaskRunLock } from "./run-lock.js";
 import { saveTask, scanTasks, type LoadedTask, type StoredTask } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
@@ -29,6 +30,7 @@ export interface PrepareRunInput {
   readonly root: string;
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
+  readonly fresh?: boolean;
   readonly instruction?: string;
   readonly stage?: string;
   readonly config: ProjectConfig;
@@ -168,7 +170,9 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
     runs.forEach((run, index) => {
       const dir = join(root, run.dir);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "system.md"), `${handoffs[index]!.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
+      const rules = stageRules(input.workflow, stage);
+      writeFileSync(join(dir, "system.md"), `${handoffs[index]!.systemPrompt}\n\n${rules}`);
+      prepareResumeHandoff(dir, input, record, run, reports, rules);
       writeFileSync(join(dir, "message.md"), handoffs[index]!.firstMessage);
       atomicWrite({ path: join(dir, "before.json"), data: snapshot });
     });
@@ -184,6 +188,21 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
     }))] });
   if (conflicts.length) return discard(conflicts);
   return { run: runs[0]!, runs, problems: [] };
+}
+
+function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string): void {
+  if (input.fresh) return logSessionMode(dir, "新会话（指定了 --fresh）");
+  if (!run.stage.resume) return;
+  const prior = countedRuns(record).findLast((item) => item.stage === run.stage.id && item.executor === run.executor &&
+    (item.agent ?? DEFAULT_AGENT) === run.agent && item.resumeId != null);
+  if (prior?.resumeId) {
+    const inlineLimits = run.stage.tools !== null && !run.stage.tools.includes("read") ? input.config.handoff : undefined;
+    writeFileSync(join(dir, "resume-id.txt"), prior.resumeId);
+    writeFileSync(join(dir, "resume-message.md"), resumeMessage(input.instruction, reports, rules, inlineLimits));
+    return;
+  }
+  const last = record.runs.findLast((item) => item.stage === run.stage.id);
+  if (last) logSessionMode(dir, `已自动回退新会话（${last.requirementDigest !== record.confirmedDigest ? "需求摘要已变更" : "没有匹配的可恢复执行"}）`);
 }
 
 function resolveExecutor(input: PrepareRunInput, executor: WorkflowExecutor) {

@@ -14,7 +14,7 @@ export function parseTaskRecord(json: string | null): TaskRecordParse {
   const value = parseJson(json);
   if (value instanceof SyntaxError) return { record: null, problems: [`不是合法的 JSON：${value.message}`] };
   if (!checkSchema(TaskRecordSchema, value)) return { record: null, problems: schemaProblems(TaskRecordSchema, value) };
-  return { record: value, problems: [] };
+  return { record: { ...value, runs: value.runs.map((run) => ({ ...run, resumeId: run.resumeId ?? null })) }, problems: [] };
 }
 
 export function renderTaskRecord(record: TaskRecord): string {
@@ -34,6 +34,7 @@ export function renderTaskRecord(record: TaskRecord): string {
       requirementDigest: run.requirementDigest,
       changedPaths: run.changedPaths,
       sessionFile: run.sessionFile,
+      resumeId: run.resumeId ?? null,
     })),
     authorization: record.authorization,
   };

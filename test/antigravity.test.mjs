@@ -39,7 +39,7 @@ async function until(predicate) {
   assert.fail("等了 10 秒");
 }
 
-function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", rex = false, failure = false, environment = {} } = {}) {
+function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", extraStages = "", rex = false, failure = false, environment = {} } = {}) {
   const root = runProject(t);
   const dir = mkdtempSync("/private/tmp/knit-test-agy-");
   const home = join(dir, "home");
@@ -60,7 +60,7 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
   Object.assign(process.env, env);
   const report = stage === "review" ? "    report:\n      verdict: [pass, changes_requested, blocked]\n" : "";
   const configure = () => writeFileSync(join(root, ".knit/workflow.yaml"),
-    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}${tools === null ? "" : `    tools: ${tools}\n`}${report}`);
+    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}${tools === null ? "" : `    tools: ${tools}\n`}${report}${extraStages}`);
   configure();
   commitAll(root, "agy workflow");
   const task = readyTask(root);
@@ -88,6 +88,49 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
     }),
     transcripts: () => existsSync(brain) ? readdirSync(brain).map((path) => join(brain, path)) : [],
   };
+}
+
+for (const mode of ["stream", "pane", "missing", "incompatible", "wrong-id"]) {
+  test(`Antigravity 沙箱内返工会话 ${mode}`, isolated, async (t) => {
+    const pane = mode === "pane" || mode === "incompatible";
+    const f = fixture(t, { stage: "implement", tools: "[]", options: "    resume: true\n    prompt: .knit/agents/implement.md\n",
+      rex: pane, extraStages: "  - id: review\n    agent: antigravity\n    tools: []\n    report: {verdict: [changes_requested, pass]}\n    onVerdict: {changes_requested: implement}\n" });
+    f.start({});
+    const first = await f.ended();
+    assert.equal(first.failure, null);
+    assert.match(first.resumeId, /^[a-f0-9-]{36}$/);
+    assert.notEqual(first.resumeId, first.sessionFile);
+    f.start({ responses: ['KNIT_AGY_SUBMIT\n审查意见\n```json\n{"verdict":"changes_requested"}\n```'] });
+    const review = await f.ended();
+    assert.equal(review.verdict, "changes_requested", review.failure);
+    if (mode === "missing") rmSync(join(f.state, "conversations", `${first.resumeId}.db`));
+    f.start({ rejectResume: mode === "incompatible", ignoreResume: mode === "wrong-id" }, "--instruction", "修复两处边界");
+    const repair = await f.ended();
+    assert.equal(repair.failure, null);
+    const rows = readRows(join(f.brain, `${repair.resumeId}.jsonl`));
+    const args = rows.findLast((row) => row.type === "INIT").args;
+    const message = rows.findLast((row) => row.type === "USER_INPUT").content;
+    const status = runKnit(f.root, "run", "status", f.task.id);
+    assert.match(message, /修复两处边界/);
+    assert.ok(existsSync(join(runDir(f.root, repair), "report.md")));
+    assert.deepEqual(repair.changedPaths, []);
+    if (mode === "stream" || mode === "pane") {
+      assert.equal(repair.resumeId, first.resumeId);
+      assert.equal(args[args.indexOf("--conversation") + 1], first.resumeId);
+      assert.ok(message.includes(join(runDir(f.root, review), "report.md")));
+      assert.match(message, /审查意见/);
+      assert.doesNotMatch(message, /<task |你是实现环节的执行者/);
+      assert.match(status, /续聊原会话/);
+      return;
+    }
+    assert.notEqual(repair.resumeId, first.resumeId);
+    assert.equal(args.includes("--conversation"), false);
+    assert.match(message, /你是实现环节的执行者/);
+    assert.match(message, /<task /);
+    const reason = { missing: /对话不存在/, incompatible: /会话退出/, "wrong-id": /与请求不一致/ }[mode];
+    assert.match(status, reason);
+    assert.match(readFileSync(join(runDir(f.root, repair), "worker.log"), "utf8"), reason);
+  });
 }
 
 function addDetachedService(f) {

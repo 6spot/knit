@@ -67,6 +67,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
   assert.deepEqual(implement, {
     id: "implement",
     name: "实现",
+    resume: false,
     description: null,
     agent: null,
     model: null,
@@ -81,6 +82,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
   assert.deepEqual(review, {
     id: "review",
     name: "审查",
+    resume: false,
     description: null,
     agent: null,
     model: null,
@@ -99,6 +101,7 @@ test("最简阶段使用 id 作为显示名，其余字段取安全缺省", () =
   assert.deepEqual(workflow.stages[0], {
     id: "implement",
     name: "implement",
+    resume: false,
     description: null,
     agent: null,
     model: null,

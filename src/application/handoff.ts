@@ -109,12 +109,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
         return { used: state.used, blocks: [...state.blocks, { ...part, content: "这是一个目录，没有附上内容。" }] };
       }
       const bytes = Buffer.byteLength(part.content);
-      const notice =
-        bytes > limits.fileBytes
-          ? `这份资料有 ${bytes} 字节，超过单个文件的上限 ${limits.fileBytes} 字节，没有附上；需要时按路径自己读。`
-          : state.used + bytes > limits.totalBytes
-            ? `加上这份资料会超过一次交接的上限 ${limits.totalBytes} 字节，没有附上；需要时按路径自己读。`
-            : null;
+      const notice = attachmentNotice(bytes, state.used, limits);
       return notice === null
         ? { used: state.used + bytes, blocks: [...state.blocks, { ...part, content: part.content }] }
         : { used: state.used, blocks: [...state.blocks, { ...part, content: notice }] };
@@ -142,6 +137,24 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       ...materials.problems,
     ],
   };
+}
+
+function attachmentNotice(bytes: number, used: number, limits: HandoffLimits): string | null {
+  if (bytes > limits.fileBytes) return `这份资料有 ${bytes} 字节，超过单个文件的上限 ${limits.fileBytes} 字节，没有附上；需要时按路径自己读。`;
+  if (used + bytes > limits.totalBytes) return `加上这份资料会超过一次交接的上限 ${limits.totalBytes} 字节，没有附上；需要时按路径自己读。`;
+  return null;
+}
+
+/** 无读取工具的执行者无法打开报告路径，按交接预算随消息附上报告。 */
+export function resumeMessage(instruction: string | undefined, reports: readonly HandoffReport[], rules: string, inlineLimits?: HandoffLimits): string {
+  const instructions = instruction ? [render({ tag: "main-instruction", attributes: {}, content: instruction })] : [];
+  const previous = reports.reduce((state, report) => {
+    const reference = `${report.executor ?? report.stage}（${report.failure ?? report.verdict ?? "正常结束"}）的报告：${report.path}`;
+    const bytes = Buffer.byteLength(report.text);
+    const include = inlineLimits && attachmentNotice(bytes, state.used, inlineLimits) === null;
+    return { used: state.used + (include ? bytes : 0), messages: [...state.messages, include ? `${reference}\n${report.text}` : reference] };
+  }, { used: Buffer.byteLength(instruction ?? "") + Buffer.byteLength(rules), messages: [] as string[] });
+  return [...instructions, ...previous.messages, rules].join("\n\n");
 }
 
 /** 一份报告：先是改动的文件，再是原文。 */

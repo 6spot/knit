@@ -66,6 +66,7 @@ test("能派发时存好交接内容并登记", (t) => {
     requirementDigest: requirementDigest(after),
     changedPaths: [],
     sessionFile: null,
+    resumeId: null,
   });
   assert.equal(record.runs[0].requirementDigest, record.confirmedDigest);
   assert.equal(record.runs[0].endedAt, null);

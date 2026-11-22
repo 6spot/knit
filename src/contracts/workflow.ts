@@ -138,6 +138,7 @@ export const WorkflowStageConfigSchema = obj({
   id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
   name: opt(str()),
   description: opt(str()),
+  resume: opt(bool()),
   ...executorTargetFields,
   /** 与阶段的 agent/model/thinking 互斥，每项的 prompt 缺省取阶段 prompt。 */
   executors: opt(arr(WorkflowExecutorConfigSchema, { minItems: 1 })),

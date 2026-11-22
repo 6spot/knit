@@ -1,5 +1,6 @@
 /** Pi 窗格扩展：采集原生事件，通过执行接口交给 Knit 共用会话流程。 */
-import type { AgentResult, AgentSession } from "../../contracts/agent.js";
+import { verifiedPiResumeId } from "./native-file.js";
+import type { AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import type { ReportFieldType } from "../../contracts/workflow.js";
 import { modelFailure } from "../../domain/report.js";
 import { runPaneSession } from "../../application/run-session.js";
@@ -14,6 +15,7 @@ interface Context {
   readonly sessionManager: {
     getBranch(): readonly { readonly type: string; readonly message?: Message }[];
     getSessionFile(): string | undefined;
+    getSessionId(): string;
   };
   readonly modelRegistry: { find(provider: string, modelId: string): unknown };
   readonly ui: { notify(text: string, kind: "info" | "warning" | "error"): void };
@@ -29,6 +31,7 @@ interface Pi {
 export default function paneWorker(pi: Pi): void {
   const dir = process.env.KNIT_PANE_DIR!;
   const declared = JSON.parse(process.env.KNIT_PANE_REPORT!) as Record<string, ReportFieldType>;
+  const resume = process.env.KNIT_PANE_RESUME ? JSON.parse(process.env.KNIT_PANE_RESUME) as AgentLaunch["resume"] : undefined;
   const model = process.env.KNIT_PANE_MODEL!;
   const pending: { resolve?: (result: AgentResult) => void } = {};
 
@@ -36,8 +39,11 @@ export default function paneWorker(pi: Pi): void {
     if (event.reason !== "startup") return;
     const createSession = (): AgentSession => ({
       get sessionFile() { return ctx.sessionManager.getSessionFile() ?? null; },
-      start: async () => ctx.modelRegistry.find(model.slice(0, model.indexOf("/")), model.slice(model.indexOf("/") + 1))
-        ? null : `Pi 里没有模型 ${model}`,
+      get resumeId() { return verifiedPiResumeId(ctx.sessionManager.getSessionFile() ?? null, ctx.sessionManager.getSessionId()); },
+      start: async () => {
+        if (resume && resume.resumeId !== verifiedPiResumeId(ctx.sessionManager.getSessionFile() ?? null, ctx.sessionManager.getSessionId())) return "Pi 窗格未打开指定的原生会话";
+        return ctx.modelRegistry.find(model.slice(0, model.indexOf("/")), model.slice(model.indexOf("/") + 1)) ? null : `Pi 里没有模型 ${model}`;
+      },
       prompt: (message) => new Promise<AgentResult>((resolve) => {
         pending.resolve = resolve;
         pi.sendUserMessage(message);
@@ -45,7 +51,7 @@ export default function paneWorker(pi: Pi): void {
       stop: async () => ctx.shutdown(),
     });
     // 不等待执行结束：Pi 要先退出 session_start / agent_settled 事件派发才能开始下一轮。
-    void runPaneSession({ dir, declared, createSession, hostClient: ctx });
+    void runPaneSession({ dir, declared, resume, createSession, hostClient: ctx });
   });
 
   pi.on("agent_settled", (event, ctx) => {

@@ -74,6 +74,95 @@ async function finished(dir, task, runId) {
   return lastRun(dir, task);
 }
 
+for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected", "fresh", "changed", "legacy", "other-agent"]) {
+  test(`实现经双人审查返工，Pi 会话模式 ${mode}`, async (t) => {
+    const root = runProject(t);
+    const file = join(root, ".knit/workflow.yaml");
+    writeFileSync(file, readFileSync(file, "utf8").replace("  - id: implement", "  - id: implement\n    resume: true")
+      .replace("    name: 审查", "    name: 审查\n    executors: [{id: first}, {id: second}]").replace("    tools: [read, write, exec]\n    report:", "    tools: [read]\n    report:"));
+    const task = readyTask(root);
+    const rex = inRex(t, root, mode === "pane" ? {} : { REX_BLOCK: "" });
+    const dispatch = async (script, ...args) => {
+      rex.script({ nativeSession: true, ...script });
+      const started = rex.knit("run", "start", task.id, ...args);
+      assert.equal(started.code, 0, started.stderr);
+      if (script.waitFor) {
+        try {
+          await waitUntil(() => rex.piLog().some((line) => line.message?.includes("修复两处边界")), "返工指令已送达");
+          assert.ok(started.stdout.includes(`knit run status ${task.id}`));
+          const active = lastRun(root, task);
+          const sessionPath = mode === "rejected" ? `${RUNS_DIR}/${active.id}/session/` : readFileSync(join(root, RUNS_DIR, active.id, "resume-id.txt"), "utf8");
+          assert.ok(rex.knit("run", "status", task.id).stdout.includes(`会话记录: ${sessionPath}\n`));
+        } finally {
+          writeFileSync(script.waitFor, "");
+        }
+      }
+      const waited = rex.knit("run", "wait", task.id);
+      assert.equal(waited.code, 0, waited.stderr);
+      const run = lastRun(root, task);
+      assert.equal(run.failure, null, run.failure);
+      return run;
+    };
+    const first = await dispatch({});
+    assert.ok(first.resumeId && existsSync(first.resumeId));
+    await dispatch({ texts: ['审查发现问题\n```json\n{"verdict":"changes_requested"}\n```'] });
+    const reviews = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8")).runs.slice(-2);
+    if (mode === "pane") writeFileSync(join(root, ".knit/agents/implement.md"), "你是实现环节的执行者。仅用于全新会话。\n");
+    if (mode === "legacy" || mode === "other-agent") {
+      const path = join(root, task.dir, "record.json");
+      const record = JSON.parse(readFileSync(path, "utf8"));
+      if (mode === "legacy") delete record.runs[0].resumeId;
+      if (mode === "other-agent") record.runs[0].agent = "antigravity";
+      writeFileSync(path, JSON.stringify(record));
+    }
+    if (mode === "deleted") rmSync(first.resumeId);
+    if (mode === "corrupt") writeFileSync(first.resumeId, "broken\n", { flag: "a" });
+    if (mode === "truncated") {
+      const lines = readFileSync(first.resumeId, "utf8").trimEnd().split("\n");
+      const firstMessage = lines.findIndex((line) => JSON.parse(line).type === "message");
+      assert.ok(firstMessage > 1);
+      writeFileSync(first.resumeId, lines.slice(0, firstMessage).join("\n") + "\n");
+    }
+    if (mode === "changed") {
+      const path = join(root, task.dir, "task.md");
+      writeFileSync(path, readFileSync(path, "utf8").replace("加一个问候语。", "修改后的问候语。"));
+      assert.equal(rex.knit("task", "ready", task.id).code, 0);
+    }
+    const repair = await dispatch({ rejectResume: mode === "rejected", writes: [{ path: "repair.txt", content: mode }],
+      waitFor: ["rpc", "pane", "rejected"].includes(mode) ? join(rex.outside, "finish-repair") : undefined },
+      "--instruction", "修复两处边界", ...(mode === "fresh" ? ["--fresh"] : []));
+    const dir = join(root, RUNS_DIR, repair.id);
+    const args = rex.piLog().findLast((line) => line.args).args;
+    const message = rex.piLog().findLast((line) => line.message).message;
+    const status = rex.knit("run", "status", task.id).stdout;
+    assert.deepEqual(repair.changedPaths, ["repair.txt"]);
+    assert.match(message, /修复两处边界/);
+    assert.match(readFileSync(join(dir, "system.md"), "utf8"), /你是实现环节的执行者/);
+    assert.match(readFileSync(join(dir, "message.md"), "utf8"), /<task /);
+    assert.equal(readFileSync(join(dir, "report.md"), "utf8"), "做完了。");
+    assert.ok(status.includes(`会话记录: ${repair.sessionFile}\n`));
+    if (["rpc", "pane"].includes(mode)) {
+      assert.equal(repair.resumeId, first.resumeId);
+      assert.equal(args[args.indexOf("--session") + 1], first.resumeId);
+      assert.ok(args.includes("--append-system-prompt"));
+      const systemFile = args[args.indexOf("--append-system-prompt") + 1];
+      assert.equal(readFileSync(systemFile, "utf8"), readFileSync(join(root, RUNS_DIR, first.id, "system.md"), "utf8"));
+      assert.equal(message, readFileSync(join(dir, "resume-message.md"), "utf8"));
+      assert.doesNotMatch(message, /<task |加一个问候语|你是实现环节的执行者|审查发现问题/);
+      for (const run of reviews) assert.ok(message.includes(join(root, RUNS_DIR, run.id, "report.md")));
+      assert.match(message, /最后一条消息.*报告/);
+      assert.match(status, /续聊原会话/);
+      return;
+    }
+    assert.notEqual(repair.resumeId, first.resumeId);
+    assert.ok(args.includes("--append-system-prompt") && !args.includes("--session"));
+    assert.equal(message, readFileSync(join(dir, "message.md"), "utf8"));
+    const reason = { deleted: /文件不存在/, corrupt: /文件损坏/, truncated: /缺少历史交接/, rejected: /启动失败/, fresh: /--fresh/, changed: /摘要已变更/, legacy: /没有匹配的可恢复执行/, "other-agent": /没有匹配的可恢复执行/ }[mode];
+    assert.match(status, reason);
+    assert.match(readFileSync(join(dir, "worker.log"), "utf8"), reason);
+  });
+}
+
 test("同一宿主打开两个窗格时各自等待、读取结果并关闭", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "knit-pane-host-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

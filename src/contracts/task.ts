@@ -42,6 +42,7 @@ export const TaskRunSchema = obj({
   requirementDigest: str({ minLength: 1 }),
   changedPaths: arr(str({ minLength: 1 })),
   sessionFile: nullable(str({ minLength: 1 })),
+  resumeId: opt(nullable(str({ minLength: 1 }))),
 });
 export type TaskRun = Static<typeof TaskRunSchema>;
 

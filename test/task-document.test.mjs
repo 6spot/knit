@@ -149,8 +149,9 @@ test("record.json：空记录、往返和格式问题", () => {
     runs: [
       {
         sessionFile: null,
-        changedPaths: ["next/src/a.ts"],
+        resumeId: "native-id",
         requirementDigest: sha256Text("需求"),
+        changedPaths: ["next/src/a.ts"],
         verdict: "pass",
         failure: null,
         endedAt: null,
@@ -175,6 +176,7 @@ test("record.json：空记录、往返和格式问题", () => {
     "requirementDigest",
     "changedPaths",
     "sessionFile",
+    "resumeId",
   ]);
 
   const cases = [

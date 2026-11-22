@@ -1,10 +1,11 @@
 /** Knit 执行接口的 Pi CLI 实现；原生协议、启动参数和权限映射不出适配器。 */
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import type { ToolCapability } from "../../contracts/workflow.js";
 import { modelFailure } from "../../domain/report.js";
+import { inspectNativeSessionFile, piResumeSystemPrompt, verifiedPiResumeId } from "./native-file.js";
 import { interactivePiCommand, PiAgentRuntime, type PiRuntimeOptions } from "./runtime.js";
 
 const BUILTIN_TOOLS = {
@@ -23,19 +24,34 @@ export function piSessionDefaults() {
 export class PiExecutionAdapter implements AgentAdapter {
   constructor(private readonly executablePath: string) {}
 
+  checkResume(resumeId: string, cwd: string): string | null {
+    const check = inspectNativeSessionFile(resumeId);
+    if (!check.exists) return "Pi 原生会话文件不存在";
+    if (check.problem) return `Pi 原生会话文件损坏（${check.problem}）`;
+    if (!check.hasConversation) return "Pi 原生会话缺少历史交接或助手回复";
+    return check.identity?.cwd === cwd || check.identity?.cwd === realpathSync.native(cwd) ? null : "Pi 原生会话的 Worktree 不匹配";
+  }
+
   createSession(input: AgentLaunch): AgentSession {
+    const systemFile = join(input.dir, "system.md");
     return new PiExecutionSession(new PiAgentRuntime({
       ...this.options(input),
-      appendSystemPrompt: readFileSync(join(input.dir, "system.md"), "utf8"),
-    }));
+      appendSystemPrompt: input.resume ? piResumeSystemPrompt(input.resume.resumeId, systemFile) : readFileSync(systemFile, "utf8"),
+    }), input.resume?.resumeId);
   }
 
   paneCommand(input: AgentLaunch): readonly string[] {
+    const systemFile = join(input.dir, "system.md");
     return interactivePiCommand({
       ...this.options(input),
-      appendSystemPrompt: join(input.dir, "system.md"),
+      appendSystemPrompt: input.resume ? piResumeSystemPrompt(input.resume.resumeId, systemFile) : systemFile,
       extensionPaths: [fileURLToPath(new URL("./pane-worker.js", import.meta.url))],
-    }, { KNIT_PANE_DIR: input.dir, KNIT_PANE_MODEL: input.model!, KNIT_PANE_REPORT: JSON.stringify(input.report) });
+    }, {
+      KNIT_PANE_DIR: input.dir,
+      KNIT_PANE_MODEL: input.model!,
+      KNIT_PANE_REPORT: JSON.stringify(input.report),
+      KNIT_PANE_RESUME: input.resume ? JSON.stringify(input.resume) : "",
+    });
   }
 
   private options(input: AgentLaunch): PiRuntimeOptions {
@@ -46,6 +62,7 @@ export class PiExecutionAdapter implements AgentAdapter {
       modelId: model.slice(model.indexOf("/") + 1),
       thinkingLevel: input.thinking ?? undefined,
       cwd: input.cwd,
+      sessionFile: input.resume?.resumeId,
       sessionDir: join(input.dir, "session"),
       ...runtimeTools(input.capabilities),
     };
@@ -53,13 +70,16 @@ export class PiExecutionAdapter implements AgentAdapter {
 }
 
 class PiExecutionSession implements AgentSession {
-  constructor(private readonly runtime: PiAgentRuntime) {}
+  constructor(private readonly runtime: PiAgentRuntime, private readonly requestedFile?: string) {}
+
+  get resumeId() { return verifiedPiResumeId(this.runtime.sessionFile, this.runtime.nativeSessionId); }
 
   get sessionFile() { return this.runtime.sessionFile; }
 
   async start(): Promise<string | null> {
     const started = await this.runtime.start();
-    return started.ok ? null : started.detail;
+    if (!started.ok) return started.detail;
+    return this.requestedFile && this.resumeId !== this.requestedFile ? "Pi 启动时未打开指定的原生会话" : null;
   }
 
   async prompt(message: string): Promise<AgentResult> {

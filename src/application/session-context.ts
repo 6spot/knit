@@ -7,6 +7,7 @@ import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { livePane, liveWorker, startingWorker } from "./run-process.js";
+import { readSessionFile, readSessionNotice } from "./run-session.js";
 import { loadStandards } from "./standards-store.js";
 import { readTask, shownTaskDirectory, taskCommit, type TaskRefusal } from "./task-store.js";
 import { readWorkflow } from "./workflow-store.js";
@@ -18,8 +19,10 @@ export function buildTaskStatus(root: string, dir: string | null, workflow: Work
   const active = record.runs.find((run) => run.endedAt === null);
   const member = batchId === undefined ? active ?? record.runs.at(-1) : record.runs.find((run) => run.batchId === batchId);
   const members = batchOf(record, member).map((run) => {
+    const runDir = join(root, RUNS_DIR, run.id);
     const path = `${RUNS_DIR}/${run.id}/report.md`;
-    return { run, path, report: run.endedAt !== null && existsSync(join(root, path)) ? path : null,
+    return { run, path, sessionNotice: readSessionNotice(runDir), sessionFile: run.endedAt === null ? readSessionFile(runDir) : run.sessionFile,
+      report: run.endedAt !== null && existsSync(join(root, path)) ? path : null,
       starting: startingWorker(root, document.frontmatter.id, run),
       pane: run.endedAt === null && livePane(root, run.id) !== null,
       worker: run.endedAt === null && liveWorker(root, run.id) !== null };

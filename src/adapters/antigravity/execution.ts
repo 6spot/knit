@@ -19,6 +19,11 @@ const TEMP_PATH = "agy-temp-path";
 const CLEANUP_ERROR = "agy-cleanup-error";
 
 export class AntigravityExecutionAdapter implements AgentAdapter {
+  checkResume(resumeId: string): string | null {
+    return basename(resumeId) === resumeId && existsSync(join(homedir(), ".gemini/antigravity-cli/conversations", `${resumeId}.db`))
+      ? null : "Antigravity 原生对话不存在";
+  }
+
   createSession(input: AgentLaunch): AgentSession {
     return new AgySession(input, agyExecutable(), false);
   }
@@ -30,7 +35,7 @@ export class AntigravityExecutionAdapter implements AgentAdapter {
 }
 
 export async function runAgyPane(input: AgentLaunch, executable: string): Promise<void> {
-  await runPaneSession({ dir: input.dir, declared: input.report, createSession: () => new AgySession(input, executable, true) });
+  await runPaneSession({ dir: input.dir, declared: input.report, resume: input.resume, createSession: () => new AgySession(input, executable, true) });
 }
 
 export function cleanAgyRuntime(cwd: string, dir: string): void {
@@ -112,6 +117,8 @@ class AgySession implements AgentSession {
   private broker: AgyBroker | null = null;
   private temp: string | null = null;
   private nativeFile: string | null = null;
+  private conversationId: string | null = null;
+  private resumeTimer?: NodeJS.Timeout;
   private streamFile: string | null = null;
   private requestedSubmit = false;
   private stderr = "";
@@ -128,6 +135,8 @@ class AgySession implements AgentSession {
     this.original = input;
     this.input = { ...input, cwd: realpathSync.native(input.cwd), root: realpathSync.native(input.root), dir: realpathSync.native(input.dir) };
   }
+
+  get resumeId() { return this.conversationId; }
 
   get sessionFile(): string | null { return this.streamFile ?? this.nativeFile; }
 
@@ -157,8 +166,11 @@ class AgySession implements AgentSession {
   prompt(message: string): Promise<AgentResult> {
     this.turn = Promise.withResolvers<AgentResult>();
     if (this.child === null) {
-      const system = readFileSync(join(this.input.dir, "system.md"), "utf8");
-      const first = `${system}\n\n${TURN_INSTRUCTIONS}\n\n${message}`;
+      const first = [
+        ...(this.input.resume ? [] : [readFileSync(join(this.input.dir, "system.md"), "utf8")]),
+        TURN_INSTRUCTIONS, message,
+      ].join("\n\n");
+      if (this.input.resume) this.resumeTimer = setTimeout(() => this.startupError("等待 Antigravity 确认恢复的原生对话超时"), 30_000);
       this.launch(first);
       if (!this.pane) this.send(first);
     } else if (this.pane) {
@@ -175,6 +187,7 @@ class AgySession implements AgentSession {
   }
 
   private async close(): Promise<void> {
+    clearTimeout(this.resumeTimer);
     this.stopReply?.resolve({});
     this.broker?.stop();
     const child = this.child;
@@ -231,21 +244,37 @@ class AgySession implements AgentSession {
       cli: { home: homedir(), temporary: this.temp!, external: permits(this.input.capabilities, "external") },
       network: true, write: permits(this.input.capabilities, "write") });
     const child = spawn(SANDBOX, ["-p", profile, this.executable!, "--settings", join(this.input.dir, "agy-settings.json"),
+      ...(this.input.resume ? ["--conversation", this.input.resume.resumeId] : []),
       ...(this.input.model === null ? [] : [`--model=${this.input.model}`]),
       ...(this.input.thinking === null ? [] : [`--effort=${this.input.thinking}`]),
       ...(this.pane ? ["--prompt-interactive", first] : ["--disable-slash-commands", "--input-format", "stream-json", "--output-format", "stream-json"]),
     ], { cwd: this.input.cwd, env: { ...process.env, ...this.broker!.hookEnv, TMPDIR: this.temp!, AGY_CLI_DISABLE_AUTO_UPDATE: "true" }, stdio: this.pane ? "inherit" : "pipe" });
     this.child = child;
-    child.on("error", (error) => this.turn.resolve({ report: null, failure: `Antigravity 启动失败：${error.message}` }));
-    child.on("close", (code, signal) => this.turn.resolve({ report: null,
-      failure: this.pane && (code === 0 || signal === "SIGHUP" || signal === "SIGTERM") ? "执行者的窗格关掉了，没有交报告" :
-        `Antigravity 会话退出（${signal ?? code}）${this.stderr.trim() ? `：${this.stderr.trim()}` : ""}` }));
+    child.on("error", (error) => this.startupError(`Antigravity 启动失败：${error.message}`));
+    child.on("close", (code, signal) => this.startupError(
+      this.pane && (code === 0 || signal === "SIGHUP" || signal === "SIGTERM") ? "执行者的窗格关掉了，没有交报告" :
+        `Antigravity 会话退出（${signal ?? code}）${this.stderr.trim() ? `：${this.stderr.trim()}` : ""}`));
     if (!this.pane) {
       this.streamFile = join(dir, "agy.jsonl");
-      child.stdin!.on("error", (error) => this.turn.resolve({ report: null, failure: `Antigravity 输入已关闭：${error.message}` }));
+      child.stdin!.on("error", (error) => this.startupError(`Antigravity 输入已关闭：${error.message}`));
       child.stderr!.setEncoding("utf8").on("data", (data: string) => { this.stderr = (this.stderr + data).slice(-8192); });
       createInterface({ input: child.stdout! }).on("line", (line) => this.background(line));
     }
+  }
+
+  private startupError(failure: string): void {
+    this.turn.resolve({ report: null, failure, ...(this.input.resume && !this.conversationId ? { startupFailure: true } : {}) });
+  }
+
+  private observeConversation(id: unknown): boolean {
+    if (typeof id !== "string" || !id.trim()) return true;
+    if (this.input.resume && id !== this.input.resume.resumeId) {
+      this.startupError(`Antigravity 打开的原生对话 ${id} 与请求不一致`);
+      return false;
+    }
+    clearTimeout(this.resumeTimer);
+    this.conversationId = id;
+    return true;
   }
 
   private send(message: string): void {
@@ -255,6 +284,7 @@ class AgySession implements AgentSession {
   private background(line: string): void {
     appendFileSync(this.streamFile!, `${line}\n`);
     const event = object(line);
+    if (!this.observeConversation(event?.conversation_id ?? object(event?.result)?.conversation_id)) return;
     const step = object(event?.step_update);
     if (event?.event === "step_update" && step?.state === "ERROR") {
       const error = errorText(object(step.tool_info)?.error);
@@ -262,6 +292,7 @@ class AgySession implements AgentSession {
     }
     if (event?.event !== "result") return;
     const result = object(event.result) ?? {};
+    if (this.input.resume && !this.conversationId) return this.startupError(errorText(result.error) || "Antigravity 未确认原生对话 ID");
     const denied = Array.isArray(result.denied_actions) ? result.denied_actions : [];
     const currentDenied = denied.slice(this.denied.every((entry, index) => JSON.stringify(entry) === JSON.stringify(denied[index])) ? this.denied.length : 0);
     this.denied = denied;
@@ -277,15 +308,21 @@ class AgySession implements AgentSession {
   }
 
   private async hook(event: string, payload: AgyObject): Promise<AgyObject> {
+    if (!this.observeConversation(payload.conversationId)) return { decision: "deny", reason: "恢复的对话 ID 不匹配" };
     if (typeof payload.transcriptPath === "string" && payload.transcriptPath.trim()) {
       const file = resolve(this.input.cwd, payload.transcriptPath.replace(/^~\//, `${homedir()}/`));
       if (file !== this.nativeFile) {
         atomicWrite({ path: join(this.input.dir, SESSION_FILE_LOCATOR), data: Buffer.from(file) });
         this.nativeFile = file;
-        this.transcriptCursor = 0;
+        this.transcriptCursor = this.input.resume && event === "SessionStart" && existsSync(file)
+          ? readFileSync(file, "utf8").trimEnd().split("\n").filter(Boolean).length : 0;
       }
     }
     if (!this.pane || event !== "Stop" || payload.fullyIdle !== true) return {};
+    if (this.input.resume && !this.conversationId) {
+      this.startupError("Antigravity 窗格未确认原生对话 ID");
+      return {};
+    }
     const reason = errorText(payload.error);
     const termination = typeof payload.terminationReason === "string" ? payload.terminationReason : "";
     if (/abort|cancel|interrupt/i.test(termination)) return {};

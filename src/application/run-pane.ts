@@ -47,10 +47,13 @@ export async function runInPane<Pane>(input: RunInPaneInput<Pane>): Promise<Sess
   // 但程序很快就失败时 Rex 会把它留着。
   host.close(opened.pane);
   await closed;
-  if (!existsSync(started)) return fallBack("执行者没有在窗格里开始");
+  if (!existsSync(started)) {
+    if (input.launch.resume) return { verdict: null, failure: "恢复时执行者没有在窗格里开始", startupFailure: true, resumeId: null, sessionFile: null };
+    return fallBack("执行者没有在窗格里开始");
+  }
   await stopPaneProcesses(dir);
   const outcome = join(dir, PANE_OUTCOME_FILE);
-  if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: readSessionFile(dir) };
+  if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: readSessionFile(dir), resumeId: null };
   return JSON.parse(readFileSync(outcome, "utf8")) as SessionOutcome;
 }
 
