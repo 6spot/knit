@@ -76,7 +76,7 @@ exec ${client} "$1"
         return;
       }
       const payload = object(request.payload) ?? {};
-      const reply = Promise.resolve().then(() => request.event === "PreToolUse" ? this.gate(payload) : this.handle(String(request.event), payload));
+      const reply = this.handle(request.event, payload).then((result) => request.event === "PreToolUse" ? this.gate(payload) : result);
       void reply.then((result) => socket.end(JSON.stringify(result)), (error: unknown) => {
         socket.end(JSON.stringify({ error: String(error) }));
       });

@@ -2,11 +2,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
-import { runPaneSession } from "../../application/run-session.js";
+import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-session.js";
+import { atomicWrite } from "../../infrastructure/atomic.js";
 import { AgyBroker } from "./broker.js";
 import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
 import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, transcriptTurn, TURN_INSTRUCTIONS } from "./protocol.js";
@@ -55,6 +56,8 @@ class AgySession implements AgentSession {
   private broker: AgyBroker | null = null;
   private temp: string | null = null;
   private nativeFile: string | null = null;
+  private streamFile: string | null = null;
+  private requestedSubmit = false;
   private stderr = "";
   private turn = Promise.withResolvers<AgentResult>();
   private stopReply: ReturnType<typeof Promise.withResolvers<AgyObject>> | null = null;
@@ -70,7 +73,7 @@ class AgySession implements AgentSession {
     this.input = { ...input, cwd: realpathSync.native(input.cwd) };
   }
 
-  get sessionFile(): string | null { return this.nativeFile; }
+  get sessionFile(): string | null { return this.streamFile ?? this.nativeFile; }
 
   async start(): Promise<string | null> {
     if (this.executable === null) return "找不到 agy";
@@ -167,7 +170,7 @@ class AgySession implements AgentSession {
       failure: this.pane && (code === 0 || signal === "SIGHUP" || signal === "SIGTERM") ? "执行者的窗格关掉了，没有交报告" :
         `Antigravity 会话退出（${signal ?? code}）${this.stderr.trim() ? `：${this.stderr.trim()}` : ""}` }));
     if (!this.pane) {
-      this.nativeFile = join(dir, "agy.jsonl");
+      this.streamFile = join(dir, "agy.jsonl");
       child.stdin!.on("error", (error) => this.turn.resolve({ report: null, failure: `Antigravity 输入已关闭：${error.message}` }));
       child.stderr!.setEncoding("utf8").on("data", (data: string) => { this.stderr = (this.stderr + data).slice(-8192); });
       createInterface({ input: child.stdout! }).on("line", (line) => this.background(line));
@@ -179,7 +182,7 @@ class AgySession implements AgentSession {
   }
 
   private background(line: string): void {
-    appendFileSync(this.nativeFile!, `${line}\n`);
+    appendFileSync(this.streamFile!, `${line}\n`);
     const event = object(line);
     const step = object(event?.step_update);
     if (event?.event === "step_update" && step?.state === "ERROR") {
@@ -196,19 +199,29 @@ class AgySession implements AgentSession {
     if (result.status === "SUCCESS" && error) errors.push(error);
     const failure = result.status === "SUCCESS" ? "" : error || String(result.status ?? "缺少后台状态");
     const outcome = resultOf(result.response, errors, currentDenied, failure);
-    if (outcome !== null) this.turn.resolve(outcome);
+    if (outcome !== null) return this.turn.resolve(outcome);
+    if (this.requestedSubmit) return this.turn.resolve({ report: null, failure: `Antigravity 后台追问后仍未以 ${SUBMIT} 提交报告` });
+    this.requestedSubmit = true;
+    this.send(`后台无法接收交互输入。请完成工作，在回复第一行写 ${SUBMIT}，其余行输出完整报告。`);
   }
 
   private async hook(event: string, payload: AgyObject): Promise<AgyObject> {
+    if (typeof payload.transcriptPath === "string" && payload.transcriptPath.trim()) {
+      const file = resolve(this.input.cwd, payload.transcriptPath.replace(/^~\//, `${homedir()}/`));
+      if (file !== this.nativeFile) {
+        atomicWrite({ path: join(this.input.dir, SESSION_FILE_LOCATOR), data: Buffer.from(file) });
+        this.nativeFile = file;
+        this.transcriptCursor = 0;
+      }
+    }
     if (!this.pane || event !== "Stop" || payload.fullyIdle !== true) return {};
-    const file = typeof payload.transcriptPath === "string" ? payload.transcriptPath.replace(/^~\//, `${homedir()}/`) : "";
     const reason = errorText(payload.error);
     const termination = typeof payload.terminationReason === "string" ? payload.terminationReason : "";
     if (/abort|cancel|interrupt/i.test(termination)) return {};
-    const turn = file && existsSync(file) ? transcriptTurn(file, file === this.nativeFile ? this.transcriptCursor : 0) :
+    const file = this.nativeFile;
+    const turn = file && existsSync(file) ? transcriptTurn(file, this.transcriptCursor) :
       { response: undefined, errors: [], denied: [], cursor: 0 };
     this.transcriptCursor = turn.cursor;
-    this.nativeFile = file || this.nativeFile;
     const errors = permissionError(reason) ? [...turn.errors, reason] : turn.errors;
     const failure = permissionError(reason) ? "" : reason || (/error|max_steps_exceeded|terminal_custom_hook/i.test(termination) ? termination : "");
     const outcome = resultOf(turn.response, errors, turn.denied, failure);

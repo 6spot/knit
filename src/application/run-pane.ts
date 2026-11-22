@@ -8,7 +8,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentAdapter, AgentLaunch } from "../contracts/agent.js";
 import type { PaneHost, PaneOptions } from "../contracts/pane.js";
 import { PANE_FILE, stopPaneProcesses } from "./run-process.js";
-import { PANE_OUTCOME_FILE, type SessionOutcome } from "./run-session.js";
+import { PANE_OUTCOME_FILE, readSessionFile, type SessionOutcome } from "./run-session.js";
 
 /** 窗格开出来之后等执行者开始的时间；本机上 Pi 约 1 秒开始。 */
 const START_TIMEOUT_MS = 20_000;
@@ -50,7 +50,7 @@ export async function runInPane<Pane>(input: RunInPaneInput<Pane>): Promise<Sess
   if (!existsSync(started)) return fallBack("执行者没有在窗格里开始");
   await stopPaneProcesses(dir);
   const outcome = join(dir, PANE_OUTCOME_FILE);
-  if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: null };
+  if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: readSessionFile(dir) };
   return JSON.parse(readFileSync(outcome, "utf8")) as SessionOutcome;
 }
 

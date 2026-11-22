@@ -1,5 +1,5 @@
 /** Knit 共用执行入口：Worktree 中启动客户端，优先窗格、回退后台，最后结算执行。 */
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join } from "node:path";
 import type { AgentLaunch, AgentRegistry } from "../contracts/agent.js";
 import type { PaneHost } from "../contracts/pane.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -43,12 +43,5 @@ export async function executeRun<Pane>(input: ExecuteRunInput<Pane>): Promise<st
   const result =
     (input.paneHost ? await runInPane({ host: input.paneHost, runId: input.runId, launch, agent }) : null) ??
     await runAgentSession({ session: agent.createSession(launch), declared: stage.report, dir: launch.dir });
-  const session = result.sessionFile === null ? null : relative(input.root, result.sessionFile);
-  return finishRun({
-    ...input,
-    ...result,
-    sessionFile: session === null || session.startsWith("..") || isAbsolute(session)
-      ? result.sessionFile
-      : session.split(sep).join("/"),
-  });
+  return finishRun({ ...input, ...result });
 }

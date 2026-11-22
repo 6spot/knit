@@ -29,12 +29,13 @@ export function resultOf(response: unknown, errors: readonly string[], denied: r
   const marker = text.split(/\r?\n/, 1)[0];
   const denial = denied.length === 0 ? [] : [`denied_actions: ${JSON.stringify(denied)}`];
   if (failure) return { report: null, failure: `Antigravity 执行出错：${[failure, ...errors, ...denial].join("；")}` };
+  if (marker === SUBMIT) return { report: text.slice(SUBMIT.length).trimStart(), failure: null };
   if (marker === WAITING) return null;
   if (marker === BLOCKED || errors.some(permissionError) || denial.length > 0) {
     const detail = [marker === BLOCKED ? text.slice(BLOCKED.length).trim() : "", ...errors, ...denial].filter(Boolean);
     return { report: null, failure: ["Antigravity 权限阻塞", detail.join("；")].filter(Boolean).join("：") };
   }
-  return marker === SUBMIT ? { report: text.slice(SUBMIT.length).trimStart(), failure: null } : null;
+  return null;
 }
 
 export function transcriptTurn(path: string, cursor: number) {

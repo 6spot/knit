@@ -3,11 +3,12 @@
  * 记下结束时间、结论或失败原因、改动的文件。执行者提交了改动或改了受保护的文件，记为失败。
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { AgentRegistry } from "../contracts/agent.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { RUNS_DIR } from "./run-prepare.js";
+import { readSessionFile } from "./run-session.js";
 import { findTask, saveTask } from "./task-store.js";
 import { changesBetween, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
 import { taskWorktree } from "./worktree.js";
@@ -65,7 +66,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
             failure,
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
-            sessionFile: input.sessionFile,
+            sessionFile: recordedSessionPath(root, input.sessionFile ?? readSessionFile(dir)),
           }
         : item,
     ),
@@ -76,4 +77,10 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
   }
   // 任务文件在读入之后被别人改过时重新读一遍再做。
   return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1);
+}
+
+function recordedSessionPath(root: string, file: string | null): string | null {
+  if (file === null || !isAbsolute(file)) return file;
+  const path = relative(root, file);
+  return path.startsWith("..") || isAbsolute(path) ? file : path.split(sep).join("/");
 }

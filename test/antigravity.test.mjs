@@ -33,7 +33,7 @@ async function until(predicate) {
   assert.fail("等了 10 秒");
 }
 
-function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", rex = false, failure = false } = {}) {
+function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", rex = false, failure = false } = {}) {
   const root = runProject(t);
   const dir = mkdtempSync("/private/tmp/knit-test-agy-");
   const home = join(dir, "home");
@@ -52,8 +52,9 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
   }
   const previous = Object.fromEntries([...Object.keys(env), "KNIT_FAKE_AGY", "KNIT_SESSION_AGENT"].map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
+  const report = stage === "review" ? "    report:\n      verdict: [pass, changes_requested, blocked]\n" : "";
   const configure = () => writeFileSync(join(root, ".knit/workflow.yaml"),
-    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: review\n${agent}${options}    tools: ${tools}\n    report:\n      verdict: [pass, changes_requested, blocked]\n`);
+    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}    tools: ${tools}\n${report}`);
   configure();
   commitAll(root, "agy workflow");
   const task = readyTask(root);
@@ -131,6 +132,57 @@ test("后台同一 stream 会话只补报一次，省略 agy 参数，run wait �
   assert.match(runKnit(f.root, "run", "wait", f.task.id), /^Agent: antigravity$/m);
   await sleep(250);
   assert.equal(bridge.messages.length, 1);
+});
+
+const waiting = "KNIT_AGY_WAITING\n请提供测试输入";
+const unmarked = "审查完成\n```json\n{\"verdict\":\"pass\"}\n```";
+for (const { stage, responses, failure } of [
+  { stage: "implement", responses: [unmarked, "KNIT_AGY_SUBMIT\n完成实现"] },
+  { stage: "implement", responses: [waiting, waiting], failure: true },
+  { stage: "review", responses: [waiting, "KNIT_AGY_SUBMIT\n缺少结论", `KNIT_AGY_SUBMIT\n${unmarked}`] },
+  { stage: "review", responses: [unmarked, ""], failure: true },
+]) {
+  test(`后台 ${stage} 漏标或等待后在原会话追问，${failure ? "再次未提交时退出" : "提交后校验报告"}`, isolated, async (t) => {
+    const f = fixture(t, { stage, tools: "[]" });
+    f.start({ responses });
+    const run = await f.ended();
+    const rows = readRows(f.transcripts()[0]);
+    const messages = rows.filter((row) => row.type === "USER_INPUT");
+    assert.deepEqual(messages.length, responses.length);
+    assert.match(messages[1].content, /后台.*第一行.*KNIT_AGY_SUBMIT.*完整报告/);
+    if (messages.length === 3) assert.match(messages[2].content, /不要重新做一遍/);
+    assert.ok(!alive(rows[0].pid));
+    const report = join(runDir(f.root, run), "report.md");
+    if (failure) {
+      assert.match(run.failure, /后台追问后仍未.*提交报告/);
+      assert.equal(run.verdict, null);
+      assert.ok(!existsSync(report));
+      return;
+    }
+    assert.equal(run.failure, null);
+    assert.equal(run.verdict, stage === "review" ? "pass" : null);
+    assert.equal(readFileSync(report, "utf8"), responses.at(-1).split("\n").slice(1).join("\n"));
+  });
+}
+
+test("后台明确报告权限阻塞时保留模型与工具的原因", isolated, async (t) => {
+  const f = fixture(t, { tools: "[]" });
+  f.start({ denied: true, responses: ["KNIT_AGY_PERMISSION_BLOCKED\n必要操作被拒"] });
+  assert.match((await f.ended()).failure, /Antigravity 权限阻塞：必要操作被拒.*deny rule.*denied_actions/);
+});
+
+test("Rex 同轮被钩子拒绝和用户拒批后仍可提交有效报告", isolated, async (t) => {
+  const f = fixture(t, { rex: true });
+  f.start({ tools: [
+    { name: "search_web", args: {} },
+    { name: "run_command", args: { CommandLine: "pwd" }, decline: true },
+  ] });
+  const run = await f.ended();
+  assert.equal(run.verdict, "pass", run.failure);
+  const rows = readRows(run.sessionFile);
+  assert.equal(rows.filter((row) => row.type === "USER_INPUT").length, 1);
+  assert.deepEqual(rows.filter((row) => row.status === "ERROR").map((row) => row.error.message),
+    ["Knit：search_web 需要 network", "User declined the tool call"]);
 });
 
 test("Rex 创建窗格失败时保留 Agent 和覆盖值，SUCCESS 保留 denied_actions 和工具错误", isolated, async (t) => {
@@ -239,11 +291,24 @@ test("Rex 窗格已启动后退出，执行结算失败且不回退", isolated, 
   assert.equal(f.transcripts().length, 1);
 });
 
+test("Rex 在 SessionStart 后取消，从定位文件回填原生转录", isolated, async (t) => {
+  const f = fixture(t, { rex: true, tools: "[]" });
+  f.start({ pauseAfterStart: true });
+  const dir = runDir(f.root, lastRun(f.root, f.task));
+  const locator = join(dir, "session-file.txt");
+  await until(() => existsSync(locator));
+  assert.deepEqual(f.transcripts(), [readFileSync(locator, "utf8")]);
+  runKnit(f.root, "run", "cancel", f.task.id);
+  const run = await f.ended();
+  assert.equal(run.failure, "已取消");
+  assert.equal(run.sessionFile, f.transcripts()[0]);
+});
+
 test("Rex 关掉仍在执行命令的窗格时停止进程再结算", isolated, async (t) => {
   const f = fixture(t, { rex: true });
   const cwd = worktreeOf(f.root, f.task);
   const pidFile = join(cwd, "child.pid");
-  f.start({ tools: [{ name: "run_command", args: { Cwd: cwd, CommandLine: "/bin/sleep 60 & echo $! > child.pid; wait" } }] });
+  f.start({ pathFromTool: true, tools: [{ name: "run_command", args: { Cwd: cwd, CommandLine: "/bin/sleep 60 & echo $! > child.pid; wait" } }] });
   const pid = await until(() => existsSync(pidFile) && Number(readFileSync(pidFile, "utf8")));
   const file = readdirSync(join(f.dir, "layers"))[0];
   execFileSync(join(f.dir, "rex"), ["api", "call", "session.close_layer", JSON.stringify({
@@ -253,7 +318,7 @@ test("Rex 关掉仍在执行命令的窗格时停止进程再结算", isolated, 
   assert.match(run.failure, /窗格关掉了/);
   assert.ok(!alive(pid));
   assert.ok(!existsSync(join(cwd, ".agents/hooks.json")));
-  assert.equal(f.transcripts().length, 1);
+  assert.deepEqual(f.transcripts(), [run.sessionFile]);
 });
 
 test("组合缺少隔离能力，派发前无 Worktree 或执行记录", isolated, (t) => {

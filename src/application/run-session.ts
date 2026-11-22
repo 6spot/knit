@@ -1,5 +1,5 @@
 /** 后台与窗格共用的会话执行：启动、读取报告、在原会话补报一次，然后停止客户端。 */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSession } from "../contracts/agent.js";
 import type { ReportFieldType } from "../contracts/workflow.js";
@@ -8,6 +8,12 @@ import { atomicWrite } from "../infrastructure/atomic.js";
 import { registerPane } from "./run-process.js";
 
 export const PANE_OUTCOME_FILE = "outcome.json";
+export const SESSION_FILE_LOCATOR = "session-file.txt";
+
+export function readSessionFile(dir: string): string | null {
+  const locator = join(dir, SESSION_FILE_LOCATOR);
+  return existsSync(locator) ? readFileSync(locator, "utf8") : null;
+}
 
 export interface SessionOutcome extends ReportOutcome {
   readonly sessionFile: string | null;

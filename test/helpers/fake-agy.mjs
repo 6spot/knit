@@ -48,18 +48,25 @@ const configReads = script.configReads?.map((file) => {
     return error.code;
   }
 });
-row({ type: "INIT", args, cwd, settings, configReads });
-hook("SessionStart");
+row({ type: "INIT", args, cwd, settings, configReads, pid: process.pid });
+hook("SessionStart", script.pathFromTool ? { transcriptPath: null } : {});
+if (script.pauseAfterStart) await sleep(60_000);
 
 function tools() {
   if (!script.tools) return;
   const checks = script.tools.map((spec) => {
     const result = hook("PreToolUse", { toolCall: { name: spec.name, args: spec.args } });
-    if (result.decision === "deny") return { decision: result.decision };
+    if (result.decision === "deny") {
+      row({ type: "TOOL", status: "ERROR", error: { message: result.reason } });
+      return { decision: result.decision };
+    }
     if (spec.name === "run_command") {
       row({ type: "APPROVAL", result });
       assert.match(result.overwrite.CommandLine, /^\/private\/tmp\/knit-agy-exec-[\w-]+\/run-command [a-f0-9-]+$/);
-      if (spec.decline) return { decision: result.decision, declined: true };
+      if (spec.decline) {
+        row({ type: "TOOL", status: "ERROR", error: { message: "User declined the tool call" } });
+        return { decision: result.decision, declined: true };
+      }
       const command = spawnSync("/bin/sh", ["-c", result.overwrite.CommandLine], { encoding: "utf8", timeout: 7000 });
       return { decision: result.decision, stdout: command.stdout, stderr: command.stderr, code: command.status };
     }
@@ -120,7 +127,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   } });
   emit({ event: "result", result: {
     conversation_id: conversationId, status: "SUCCESS",
-    response: script.retry && (messages.length === 1 || script.invalidAgain) ? "KNIT_AGY_SUBMIT\n缺少结论" : submit,
+    response: script.responses?.[messages.length - 1] ?? (script.denied ? "必要的工具操作被拒绝" :
+      script.retry && (messages.length === 1 || script.invalidAgain) ? "KNIT_AGY_SUBMIT\n缺少结论" : submit),
     ...(script.denied ? { error: "Tool permission denied", denied_actions: [{ action: "write_file", display_name: "Edit" }] } : {}),
   } });
 }
