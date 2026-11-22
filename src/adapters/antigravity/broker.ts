@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
+import { shellQuote } from "../../infrastructure/process.js";
 import { executorEnv } from "../pi/session-env.js";
 import { COMMAND_CLIENT, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
@@ -18,9 +19,7 @@ const NETWORK_TOOLS = new Set(["search_web", "read_url_content", "open_browser_u
 const EXTERNAL_TOOLS = new Set(["call_mcp_tool", "list_resources", "read_resource", "list_plugin_accounts"]);
 const LOCAL_TOOLS = new Set(["ask_question", "finish", "list_permissions", "wait", "wait_5_seconds"]);
 
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
+export { shellQuote };
 
 export class AgyBroker {
   private readonly hooksKey = randomUUID();

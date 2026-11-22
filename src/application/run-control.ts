@@ -39,8 +39,9 @@ interface RunTaskResult {
   readonly problems: readonly string[];
 }
 
-/** 无总超时；后台进程消失时重读记录，正常结束与意外退出都结束等待。 */
-export async function waitRun(root: string, taskId: string, batchId?: string): Promise<RunTaskResult & {
+/** 每次轮询沿用原批次和截止时间。没有截止时间时等到结束或进程消失。 */
+export async function waitRun(root: string, taskId: string, batchId?: string, deadline?: number): Promise<RunTaskResult & {
+  readonly timedOut?: boolean;
   readonly workflow: WorkflowDefinition | null;
   readonly batchId?: string;
 }> {
@@ -55,8 +56,10 @@ export async function waitRun(root: string, taskId: string, batchId?: string): P
   if (running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null)) {
     return { ...readRunTask(root, taskId), ...watched };
   }
-  await sleep(1000);
-  return waitRun(root, taskId, watched.batchId);
+  const remaining = deadline === undefined ? Infinity : deadline - Date.now();
+  if (remaining <= 0) return { ...loaded, ...watched, timedOut: true };
+  await sleep(Math.min(1000, remaining));
+  return waitRun(root, taskId, watched.batchId, deadline);
 }
 
 export async function cancelRun(input: {

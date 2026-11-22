@@ -6,6 +6,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 /**
  * 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的「lstart|comm」文本
  * （lstart 只精确到秒，追加可执行名降低同秒 PID 复用误判；同平台自洽）。

@@ -51,7 +51,15 @@ test("等到正在跑的执行结束", async (t) => {
   waiting.on("close", (code) => (output.code = code));
   t.after(() => waiting.kill());
 
-  await sleep(1500);
+  const before = Date.now();
+  const limited = spawnSync(process.execPath, [CLI, "run", "wait", task.id, "--dir", dir, "--timeout", "1"], {
+    encoding: "utf8", timeout: 10_000,
+  });
+  assert.ok(Date.now() - before >= 1000);
+  assert.equal(limited.status, 0, limited.error?.message ?? limited.stderr);
+  assert.match(limited.stdout, /^正在跑: 实现/m);
+  assert.match(limited.stdout, /批次仍在运行/);
+  assert.equal(lastRun(dir, task).endedAt, null);
   assert.deepEqual(output, { stdout: "", stderr: "", code: undefined });
 
   writeFileSync(join(outside, "go"), "");
@@ -168,6 +176,12 @@ test("没有执行在跑时立即返回", (t) => {
   const status = knit(dir, "run", "status", task.id);
   assert.equal(status.code, 0, status.stderr);
   assert.deepEqual(knit(dir, "run", "wait", task.id), status);
+  assert.deepEqual(knit(dir, "run", "wait", task.id, "--timeout", "1"), status);
+  for (const value of ["0", "-1", "1.5", "1e2"]) {
+    const invalid = knit(dir, "run", "wait", task.id, "--timeout", value);
+    assert.equal(invalid.code, 1);
+    assert.match(invalid.stderr, /正整数秒数/);
+  }
 
   const missing = knit(dir, "run", "wait", "k-000000000000");
   assert.deepEqual(missing, { code: 1, stdout: "", stderr: knit(dir, "run", "status", "k-000000000000").stderr });
