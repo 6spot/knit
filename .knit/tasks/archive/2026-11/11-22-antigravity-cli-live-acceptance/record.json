@@ -1,0 +1,13 @@
+{
+  "confirmedDigest": "85b3a006bb32acfe4ed9747b5dba77b9438c0056b876b97ad6ce9c6de8176901",
+  "changedPaths": [
+    "docs/design/DESIGN.md",
+    "src/adapters/antigravity/broker.ts",
+    "src/adapters/antigravity/execution.ts",
+    "src/adapters/antigravity/isolation.ts",
+    "test/antigravity.test.mjs",
+    "test/helpers/fake-agy.mjs"
+  ],
+  "runs": [],
+  "authorization": "授权归档并本地提交验收子任务，再关闭、归档并本地提交父任务"
+}

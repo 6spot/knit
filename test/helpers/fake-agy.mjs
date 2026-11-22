@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,7 +20,9 @@ const brain = join(homedir(), ".gemini/antigravity-cli/brain");
 mkdirSync(brain, { recursive: true });
 const transcriptPath = join(brain, `${conversationId}.jsonl`);
 const row = (data) => appendFileSync(transcriptPath, `${JSON.stringify(data)}\n`);
-const hookConfig = JSON.parse(readFileSync(".agents/hooks.json", "utf8")).knit;
+const hooksFile = ".agents/hooks.json";
+if (!lstatSync(hooksFile).isFile()) throw new Error("agy did not discover the Worktree hooks file");
+const hookConfig = JSON.parse(readFileSync(hooksFile, "utf8")).knit;
 const settings = JSON.parse(readFileSync(args[args.indexOf("--settings") + 1], "utf8"));
 const hook = (event, payload = {}) => {
   const entry = event === "PreToolUse" ? hookConfig[event][0].hooks[0] : hookConfig[event][0];
@@ -56,6 +58,7 @@ function tools() {
     if (result.decision === "deny") return { decision: result.decision };
     if (spec.name === "run_command") {
       row({ type: "APPROVAL", result });
+      assert.match(result.overwrite.CommandLine, /^\/private\/tmp\/knit-agy-exec-[\w-]+\/run-command [a-f0-9-]+$/);
       if (spec.decline) return { decision: result.decision, declined: true };
       const command = spawnSync("/bin/sh", ["-c", result.overwrite.CommandLine], { encoding: "utf8", timeout: 7000 });
       return { decision: result.decision, stdout: command.stdout, stderr: command.stderr, code: command.status };

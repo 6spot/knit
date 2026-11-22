@@ -169,7 +169,12 @@ test("Rex 等追加输入，以原命令显示批准与拒绝，并在原会话�
     ["force_ask", [`command(${allow})`]], ["force_ask", [`command(${reject})`]],
   ]);
   assert.ok(transcript[0].args.includes("--model=stage-model") && transcript[0].args.includes("--effort=medium"));
-  assert.deepEqual(transcript[0].settings.permissions, { ...permissions, deny: [...permissions.deny, "mcp(*)", "read_url(*)", "execute_url(*)"] });
+  const commandEntry = transcript.find((row) => row.type === "APPROVAL").result.overwrite.CommandLine.split(" ")[0];
+  assert.deepEqual(transcript[0].settings.permissions, {
+    ...permissions,
+    allow: [...permissions.allow, `command(${commandEntry})`],
+    deny: [...permissions.deny, "mcp(*)", "read_url(*)", "execute_url(*)"],
+  });
   assert.equal(transcript.filter((row) => row.type === "USER_INPUT").length, 3);
   assert.ok(!existsSync(join(cwd, ".agents/hooks.json")));
 });

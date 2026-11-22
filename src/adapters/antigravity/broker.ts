@@ -2,11 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { once } from "node:events";
-import { lstatSync, realpathSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { lstatSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
-import { commandScope, commandScopeRule, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
+import { COMMAND_CLIENT, commandScope, commandScopeRule, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
 
 const entry = fileURLToPath(new URL("./client.js", import.meta.url));
@@ -34,11 +34,21 @@ export class AgyBroker {
     private readonly handle: (event: string, payload: AgyObject) => Promise<AgyObject>,
   ) {}
 
+  get commandPrefix(): string {
+    return join(dirname(this.socketPath), COMMAND_CLIENT);
+  }
+
   hookCommand(event: string): string {
     return [process.execPath, entry, this.socketPath, "hook", event, this.hooksKey].map(shellQuote).join(" ");
   }
 
   async start(): Promise<void> {
+    if (permits(this.launch.capabilities, "exec")) {
+      const client = [process.execPath, entry, this.socketPath, "command"].map(shellQuote).join(" ");
+      writeFileSync(this.commandPrefix, `#!/bin/sh
+exec ${client} "$1"
+`, { mode: 0o500, flag: "wx" });
+    }
     this.server.listen(this.socketPath);
     await once(this.server, "listening");
   }
@@ -104,7 +114,8 @@ export class AgyBroker {
         decision: this.interactive ? "force_ask" : "auto_approve",
         reason: `执行命令 ${args.CommandLine}`,
         permissionOverrides: [`command(${args.CommandLine})`],
-        overwrite: { CommandLine: [process.execPath, entry, this.socketPath, "command", key].map(shellQuote).join(" "), Cwd: this.launch.cwd },
+        // agy 1.5.13 does not launch the quoted replacement command after approval.
+        overwrite: { CommandLine: `${this.commandPrefix} ${key}` },
       };
     }
     if (name === "command_status" || (name === "manage_task" && args.Action === "status")) {

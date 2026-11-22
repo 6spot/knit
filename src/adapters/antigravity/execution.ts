@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -42,11 +42,11 @@ export async function runAgyPane(input: AgentLaunch, executable: string): Promis
 
 export function cleanAgyRuntime(cwd: string, dir: string): void {
   const hook = join(cwd, HOOKS);
-  try {
-    if (readlinkSync(hook) === join(dir, HOOK_TARGET)) unlinkSync(hook);
-  } catch (error) {
-    if (!["ENOENT", "EINVAL"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
-  }
+  const generated = join(dir, HOOK_TARGET);
+  const entry = lstatSync(hook, { throwIfNoEntry: false });
+  const owned = entry?.isSymbolicLink() ? readlinkSync(hook) === generated :
+    entry?.isFile() && existsSync(generated) && readFileSync(hook).equals(readFileSync(generated));
+  if (owned) unlinkSync(hook);
   const locator = join(dir, TEMP_PATH);
   if (!existsSync(locator)) return;
   const path = readFileSync(locator, "utf8");
@@ -91,12 +91,14 @@ class AgySession implements AgentSession {
       this.broker = new AgyBroker(this.input, join(this.temp, "tool.sock"), this.pane, (event, payload) => this.hook(event, payload));
       await this.broker.start();
       const command = (event: string) => ({ type: "command", command: this.broker!.hookCommand(event), timeout: 10 });
-      writeFileSync(join(this.input.dir, HOOK_TARGET), JSON.stringify({ knit: {
+      const generated = join(this.input.dir, HOOK_TARGET);
+      writeFileSync(generated, JSON.stringify({ knit: {
         SessionStart: [command("SessionStart")], Stop: [command("Stop")],
         PreToolUse: [{ matcher: ".*", hooks: [command("PreToolUse")] }],
       } }), { mode: 0o600 });
       mkdirSync(join(this.input.cwd, ".agents"), { recursive: true });
-      symlinkSync(join(this.input.dir, HOOK_TARGET), join(this.input.cwd, HOOKS));
+      // agy 1.5.13 ignores hooks linked out of the Worktree.
+      copyFileSync(generated, join(this.input.cwd, HOOKS), constants.COPYFILE_EXCL);
       return null;
     } catch (error) {
       return String(error);
@@ -149,6 +151,7 @@ class AgySession implements AgentSession {
         ...nativePermissions,
         allow: [
           ...(Array.isArray(nativePermissions?.allow) ? nativePermissions.allow : []),
+          ...(permits(this.input.capabilities, "exec") ? [`command(${this.broker!.commandPrefix})`] : []),
           ...(this.pane || !permits(this.input.capabilities, "read") ? [] : [`read_file(${this.input.cwd})`]),
           ...(this.pane || !permits(this.input.capabilities, "write") ? [] : [`write_file(${this.input.cwd})`]),
         ],

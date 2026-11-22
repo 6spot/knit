@@ -9,6 +9,7 @@ import { gitSync } from "../../infrastructure/process.js";
 
 export const SANDBOX = "/usr/bin/sandbox-exec";
 export const COMMAND_TEMP_PREFIX = "knit-agy-exec-";
+export const COMMAND_CLIENT = "run-command";
 const COMMAND_TRACKER = fileURLToPath(new URL("./command-processes", import.meta.url));
 const CUSTOMIZATION_DIR = ".agents";
 const COMPAT_CUSTOMIZATION_DIRS = [".agent", "_agents", "_agent"];
@@ -184,7 +185,10 @@ export function sandboxProfile(input: {
     ...(input.cli === undefined ? [
       `(deny file-read-data ${subpath(input.dir)})`,
       ...(input.socket === undefined ? [] : [`(deny network-outbound (remote unix-socket ${literal(input.socket)}))`]),
-    ] : [`(deny file-read-data ${temporaryInputs.join(" ")})`]),
+    ] : [
+      `(deny file-write* ${literal(join(input.cli.temporary, COMMAND_CLIENT))})`,
+      `(deny file-read-data ${temporaryInputs.join(" ")})`,
+    ]),
     ...(input.network ? [] : ["(deny network*)"]),
   ].join("\n");
 }
