@@ -6,92 +6,27 @@ import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
-import { arbitrationNotice, limitNotice, RUNS_DIR } from "../application/run-prepare.js";
+import { RUNS_DIR } from "../application/run-prepare.js";
 import { readResume } from "../application/run-session.js";
-import { buildTaskStatus, type SessionTaskStatus } from "../application/session-context.js";
+import { buildTaskStatus } from "../application/session-context.js";
+import { statusLines } from "../application/session-output.js";
 import { checkSchema } from "../contracts/schema.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
 import { fail, knitRoot, loadTask } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
 
-/** 一次执行的情况。 */
-function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][number]): string[] {
-  const run = member.run;
-  const dir = `${RUNS_DIR}/${run.id}`;
-  const agent = `Agent: ${run.agent ?? "pi"}`;
-  if (run.endedAt !== null) {
-    return [
-      `上一次: ${task.stageName}（${run.id}）`,
-      run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
-      ...(member.report === null || run.batchId ? [] : [`报告: ${member.report}`]),
-      ...(member.sessionNotice && run.sessionFile ? [`会话记录: ${run.sessionFile}`] : []),
-      `改动文件: ${run.changedPaths.length} 个`,
-      agent,
-    ];
-  }
-  if (member.starting) return [`正在启动: ${task.stageName}（${run.id}）`, agent];
-  return !member.worker
-    ? [
-        `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.frontmatter.id} 记为失败`,
-        agent,
-        // 窗格里的执行者由 Rex 启动，后台进程退出后仍可能在运行。
-        ...(member.pane
-          ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
-          : []),
-      ]
-    : [
-        `正在跑: ${task.stageName}（${run.id}），开始于 ${run.startedAt}`,
-        `会话记录: ${member.sessionFile ?? `${dir}/session/`}`,
-        agent,
-        ...(member.pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
-      ];
-}
+export { statusLines };
 
-/** “下一步”那一行，到返工上限时后面还跟着各轮的报告和可以走的路；任务已经结束时没有。 */
-function nextLine(task: SessionTaskStatus): string[] {
-  const id = task.frontmatter.id;
-  const status = task.status;
-  if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
-  if (status === "done") return [`下一步: 用户授权后交付（knit deliver ${id}）`];
-  const step = task.next;
-  if (step === null || step.kind === "running") return [];
-  if (step.kind === "arbitrate") return [`下一步: ${arbitrationNotice(id, step).join("\n")}`];
-  if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
-  if (step.kind === "limit") {
-    const [first, ...rest] = limitNotice(id, task.workflow, task.record, step);
-    return [`下一步: ${first}`, ...rest];
-  }
-  return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
-}
-
-/** `knit run status` 的输出：任务、状态、上一次或正在跑的执行、下一步。 */
-export function statusLines(task: SessionTaskStatus): string[] {
-  return [
-    `任务: ${task.frontmatter.title}（${task.frontmatter.id}）`,
-    `状态: ${task.status === "active" ? `active(${task.frontmatter.stage})` : task.status}`,
-    ...(task.worktree === null ? [] : [`Worktree: ${task.worktree.path}（${task.worktree.branch}）`]),
-    ...(task.members.length ? task.members.flatMap((member) => [
-      ...(member.run.batchId ? [`执行器: ${member.run.executor ?? member.run.id}`, `报告: ${member.path}`] : []),
-      ...runLines(task, member),
-      ...(member.sessionNotice ? [member.sessionNotice] : []),
-    ]) : ["还没有派发过"]),
-    ...(task.members.some(({ run }) => run.endedAt === null) ? [] : nextLine(task)),
-  ];
-}
-
-/**
- * 等任务正在跑的执行结束，返回这时候的 `statusLines`；读不出任务或流程时报错并返回 null。
- * 每秒重新读一次任务文件。不设超时：执行者卡住时一直等，要停就停掉这个命令或者 knit run cancel。
- */
-async function waitForRun(dir: string, id: string): Promise<string[] | null> {
+async function waitForRun(dir: string, id: string, timeout?: number): Promise<string[] | null> {
   const root = knitRoot(dir);
   if (root === null) return null;
-  const waited = await waitRun(root, id);
+  const waited = await waitRun(root, id, undefined, timeout === undefined ? undefined : Date.now() + timeout * 1000);
   if (waited.task === null || waited.workflow === null) {
     fail(waited.problems);
     return null;
   }
-  return statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId));
+  const lines = statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId));
+  return waited.timedOut ? [...lines, `等待 ${timeout} 秒后批次仍在运行，可再次运行 knit run wait ${id}`] : lines;
 }
 
 export function registerRunCommands(program: Command): void {
@@ -160,8 +95,12 @@ export function registerRunCommands(program: Command): void {
     .command("wait <id>")
     .description("等任务正在跑的执行结束，然后显示和 status 一样的内容；没有执行在跑时立即返回")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action(async (id: string, options: { dir: string }) => {
-      const lines = await waitForRun(options.dir, id);
+    .option("--timeout <秒>", "最多等待的秒数（正整数）")
+    .action(async (id: string, options: { dir: string; timeout?: string }) => {
+      if (options.timeout !== undefined && (!/^[1-9]\d*$/.test(options.timeout) || !Number.isSafeInteger(Number(options.timeout)))) {
+        return fail(["--timeout 需要正整数秒数"]);
+      }
+      const lines = await waitForRun(options.dir, id, options.timeout === undefined ? undefined : Number(options.timeout));
       if (lines !== null) process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 

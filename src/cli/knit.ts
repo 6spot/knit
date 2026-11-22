@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Command } from "commander";
 import { registerContextCommand } from "./context.js";
@@ -28,4 +29,9 @@ registerStandardsCommands(program);
 registerRunCommands(program);
 registerContextCommand(program);
 registerDeliverCommand(program);
-program.parse();
+program.command("hook", { hidden: true }).command("agy <event>").action(async (event: string) => {
+  const { agyHostHook } = await import("../adapters/antigravity/host-hook.js");
+  const result = await agyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+});
+await program.parseAsync();
