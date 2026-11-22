@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInPane } from "../dist/application/run-pane.js";
 import { RUNS_DIR } from "../dist/application/run-prepare.js";
 import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
@@ -72,6 +73,38 @@ async function finished(dir, task, runId) {
   await waitUntil(() => processesOf(runId).length === 0, `执行 ${runId} 的进程退出`);
   return lastRun(dir, task);
 }
+
+test("同一宿主打开两个窗格时各自等待、读取结果并关闭", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "knit-pane-host-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const panes = new Map();
+  const closed = [];
+  const host = {
+    open({ cwd, label }) {
+      const pane = Promise.withResolvers();
+      panes.set(label, pane);
+      writeFileSync(join(cwd, "pane.json"), JSON.stringify({ pid: 2147483647, start: null }));
+      writeFileSync(join(cwd, "outcome.json"), JSON.stringify({ verdict: "pass", failure: null, sessionFile: join(cwd, "session.jsonl") }));
+      return pane;
+    },
+    waitClosed: (pane) => pane.promise,
+    close: (pane) => closed.push(pane),
+  };
+  const agent = { paneCommand: () => ["fixture"], createSession: () => assert.fail("窗格已经启动") };
+  const [first, second] = ["first", "second"].map((runId) => {
+    const dir = join(root, runId);
+    mkdirSync(dir);
+    return runInPane({ host, agent, runId, launch: { root, cwd: dir, dir, model: null, thinking: null, capabilities: null, report: {} } });
+  });
+  const secondPane = panes.get("knit second");
+  secondPane.resolve();
+  assert.equal((await second).sessionFile, join(root, "second/session.jsonl"));
+  assert.deepEqual(closed, [secondPane]);
+  const firstPane = panes.get("knit first");
+  firstPane.resolve();
+  assert.equal((await first).sessionFile, join(root, "first/session.jsonl"));
+  assert.deepEqual(closed, [secondPane, firstPane]);
+});
 
 test("主会话在 Rex 里时，执行者在窗格里做完", async (t) => {
   const dir = runProject(t);
@@ -346,6 +379,7 @@ test("取消时窗格里的执行者也被停掉；窗格被关掉时记为失�
   assert.equal(closed.status, 0, closed.stderr);
   const ended = await finished(dir, task, second.id);
   assert.equal(ended.failure, "执行者的窗格关掉了，没有交报告");
+  assert.deepEqual(rex.piLog().filter((line) => line.shutdownSignal).map((line) => line.shutdownSignal), ["SIGTERM", "SIGHUP"]);
 });
 
 test("取消窗格执行时连执行者启动的子进程一起停止", async (t) => {

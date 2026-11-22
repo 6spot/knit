@@ -10,7 +10,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (root) => parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
 const prepare = (root, task) => prepareRun({ root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null });
@@ -101,7 +101,7 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   assert.deepEqual(dispatched.problems, []);
   const worktree = dispatched.run.worktree;
   writeFileSync(join(worktree.path, "dependency.txt"), "delivered dependency code\n");
-  assert.deepEqual(finishRun({ root, taskId: dependency.id, runId: dispatched.run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null }), []);
+  assert.deepEqual(finishRun({ agents, root, taskId: dependency.id, runId: dispatched.run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null }), []);
   const closed = knit(root, "task", "close", dependency.id, "--result", "实现已验证");
   assert.equal(closed.code, 0, closed.stderr);
   const message = join(project(t), "message.txt");

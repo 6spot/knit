@@ -3,17 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
-import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
-const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const lastRun = (dir, task) => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs.at(-1);
 
@@ -54,11 +51,12 @@ function prepare(dir, task) {
   return run;
 }
 const execute = (dir, task, run) =>
-  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, agent: new PiExecutionAdapter(FAKE_PI) });
+  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, agents });
 /** 准备出一次审查执行：先把实现那一次直接记成正常结束。 */
 function reviewRun(dir, task) {
   const implement = prepare(dir, task);
   const finished = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: implement.id,

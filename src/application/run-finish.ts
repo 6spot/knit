@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { builtinAgents } from "../adapters/agents.js";
+import type { AgentRegistry } from "../contracts/agent.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask, saveTask } from "./task-store.js";
@@ -12,6 +12,7 @@ import { changesBetween, protectedChanges, takeSnapshot, type WorkspaceSnapshot 
 import { taskWorktree } from "./worktree.js";
 
 export interface FinishRunInput {
+  readonly agents: AgentRegistry;
   readonly root: string;
   readonly taskId: string;
   readonly runId: string;
@@ -37,7 +38,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
   }
   const cwd = taskWorktree(root, stored.dir).path;
   const dir = join(root, RUNS_DIR, runId);
-  builtinAgents[run.agent ?? "pi"].cleanRun?.(cwd, dir);
+  input.agents[run.agent ?? "pi"].cleanRun?.(cwd, dir);
   const beforeFile = join(dir, "before.json");
   const after = existsSync(beforeFile) ? takeSnapshot(cwd) : null;
   const changes =

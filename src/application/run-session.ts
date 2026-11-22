@@ -5,15 +5,35 @@ import type { AgentSession } from "../contracts/agent.js";
 import type { ReportFieldType } from "../contracts/workflow.js";
 import { type ReportOutcome, reportOutcome, reportRetryMessage } from "../domain/report.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
+import { registerPane } from "./run-process.js";
 
-export const PANE_FILE = "pane.json";
 export const PANE_OUTCOME_FILE = "outcome.json";
 
 export interface SessionOutcome extends ReportOutcome {
   readonly sessionFile: string | null;
 }
 
-export function writePaneOutcome(dir: string, outcome: SessionOutcome): void {
+export async function runPaneSession(input: {
+  readonly dir: string;
+  readonly declared: Readonly<Record<string, ReportFieldType>>;
+  readonly createSession: () => AgentSession;
+  /** 运行在交互客户端内时，由客户端处理终端信号。后台已经退出时，请它关闭界面。 */
+  readonly hostClient?: { shutdown(): void };
+}): Promise<void> {
+  if (!registerPane(input.dir)) return input.hostClient?.shutdown();
+  const session = input.createSession();
+  const signals = input.hostClient === undefined ? ["SIGHUP", "SIGTERM"] as const : [];
+  const shutDown = () => { void session.stop().finally(() => process.exit(1)); };
+  signals.forEach((signal) => process.once(signal, shutDown));
+  await runAgentSession({
+    session,
+    dir: input.dir,
+    declared: input.declared,
+    publish: (outcome) => writePaneOutcome(input.dir, outcome),
+  }).finally(() => signals.forEach((signal) => process.off(signal, shutDown)));
+}
+
+function writePaneOutcome(dir: string, outcome: SessionOutcome): void {
   atomicWrite({ path: join(dir, PANE_OUTCOME_FILE), data: Buffer.from(`${JSON.stringify(outcome, null, 2)}\n`) });
 }
 

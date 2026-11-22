@@ -13,7 +13,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const crossDeviceDir = process.env.KNIT_TEST_CROSS_DEVICE_DIR;
 const crossDeviceSkip = crossDeviceDir === undefined || statSync(crossDeviceDir).dev === statSync(tmpdir()).dev
@@ -42,7 +42,7 @@ function completed(t, tracked = false, ignored = false, crossDeviceDir = null, b
   const worktree = taskWorktree(root, task.dir);
   mkdirSync(join(worktree.path, "src"), { recursive: true });
   writeFileSync(join(worktree.path, "src/a.txt"), "worker result\n");
-  assert.deepEqual(finishRun({ root, taskId: task.id, runId: prepared.run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
+  assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: prepared.run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
   const closed = knit(root, "task", "close", task.id, "--result", "主检出当前的成果和验证");
   assert.equal(closed.code, 0, closed.stderr);
   const message = join(project(t), "message.txt");

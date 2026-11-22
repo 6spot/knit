@@ -11,7 +11,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -36,6 +36,7 @@ function prepare(dir, task) {
 }
 function finish(dir, task, run, { verdict = null, failure = null } = {}) {
   const problems = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: run.id,

@@ -4,7 +4,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
 import { RUNS_DIR } from "./run-prepare.js";
-import { PANE_FILE } from "./run-session.js";
+
+export const PANE_FILE = "pane.json";
 
 /** 一个进程：进程号会被别的进程重新用上，启动标识一样才是原来那个。 */
 export interface WorkerProcess {

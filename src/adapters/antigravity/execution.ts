@@ -6,8 +6,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
-import { runAgentSession, writePaneOutcome } from "../../application/run-session.js";
-import { registerPane } from "../../application/run-process.js";
+import { runPaneSession } from "../../application/run-session.js";
 import { AgyBroker } from "./broker.js";
 import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
 import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, transcriptTurn, TURN_INSTRUCTIONS } from "./protocol.js";
@@ -27,17 +26,7 @@ export class AntigravityExecutionAdapter implements AgentAdapter {
 }
 
 export async function runAgyPane(input: AgentLaunch, executable: string): Promise<void> {
-  if (!registerPane(input.dir)) return;
-  const session = new AgySession(input, executable, true);
-  const shutDown = () => { void session.stop().finally(() => process.exit(1)); };
-  process.once("SIGHUP", shutDown);
-  process.once("SIGTERM", shutDown);
-  await runAgentSession({ session, dir: input.dir, declared: input.report,
-    publish: (outcome) => writePaneOutcome(input.dir, outcome),
-  }).finally(() => {
-    process.off("SIGHUP", shutDown);
-    process.off("SIGTERM", shutDown);
-  });
+  await runPaneSession({ dir: input.dir, declared: input.report, createSession: () => new AgySession(input, executable, true) });
 }
 
 export function cleanAgyRuntime(cwd: string, dir: string): void {

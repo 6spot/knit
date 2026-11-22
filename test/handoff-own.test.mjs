@@ -8,7 +8,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { findTask } from "../dist/application/task-store.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const occurrences = (text, part) => text.split(part).length - 1;
@@ -29,6 +29,7 @@ function prepare(dir, task) {
 function finish(dir, task, run, report, verdict = null) {
   writeFileSync(join(dir, run.dir, "report.md"), report);
   const problems = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: run.id,

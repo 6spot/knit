@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import type { AgentRegistry } from "../contracts/agent.js";
 import type { TaskRecord } from "../contracts/task.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -49,6 +50,7 @@ export async function waitRun(root: string, taskId: string): Promise<RunTaskResu
 }
 
 export async function cancelRun(input: {
+  readonly agents: AgentRegistry;
   readonly root: string;
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;

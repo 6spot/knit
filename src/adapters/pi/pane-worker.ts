@@ -2,8 +2,7 @@
 import type { AgentResult, AgentSession } from "../../contracts/agent.js";
 import type { ReportFieldType } from "../../contracts/workflow.js";
 import { modelFailure } from "../../domain/report.js";
-import { registerPane } from "../../application/run-process.js";
-import { runAgentSession, writePaneOutcome } from "../../application/run-session.js";
+import { runPaneSession } from "../../application/run-session.js";
 
 interface Message {
   readonly role: string;
@@ -35,8 +34,7 @@ export default function paneWorker(pi: Pi): void {
 
   pi.on("session_start", (event, ctx) => {
     if (event.reason !== "startup") return;
-    if (!registerPane(dir)) return ctx.shutdown();
-    const session: AgentSession = {
+    const createSession = (): AgentSession => ({
       get sessionFile() { return ctx.sessionManager.getSessionFile() ?? null; },
       start: async () => ctx.modelRegistry.find(model.slice(0, model.indexOf("/")), model.slice(model.indexOf("/") + 1))
         ? null : `Pi 里没有模型 ${model}`,
@@ -45,9 +43,9 @@ export default function paneWorker(pi: Pi): void {
         pi.sendUserMessage(message);
       }),
       stop: async () => ctx.shutdown(),
-    };
+    });
     // 不等待执行结束：Pi 要先退出 session_start / agent_settled 事件派发才能开始下一轮。
-    void runAgentSession({ session, dir, declared, publish: (outcome) => writePaneOutcome(dir, outcome) });
+    void runPaneSession({ dir, declared, createSession, hostClient: ctx });
   });
 
   pi.on("agent_settled", (event, ctx) => {

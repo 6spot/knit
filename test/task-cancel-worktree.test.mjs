@@ -12,14 +12,14 @@ import { gitSync } from "../dist/infrastructure/process.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 function dispatch(root) {
   const task = readyTask(root, { verification: "self" });
   const workflow = parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
   const prepared = prepareRun({ root, taskId: task.id, workflow, config: loadConfig(root).config, model: null });
   assert.deepEqual(prepared.problems, []);
-  assert.deepEqual(finishRun({ root, taskId: task.id, runId: prepared.run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
+  assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: prepared.run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
   return { task, worktree: taskWorktree(root, task.dir) };
 }
 

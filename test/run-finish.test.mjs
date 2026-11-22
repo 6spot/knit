@@ -7,7 +7,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const fileOf = (dir, task, file) => readFileSync(join(dir, task.dir, file), "utf8");
@@ -24,7 +24,7 @@ function prepare(dir, task) {
   return run;
 }
 const finish = (dir, task, run, { verdict = null, failure = null, sessionFile = null } = {}) =>
-  finishRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), verdict, failure, sessionFile });
+  finishRun({ agents, root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), verdict, failure, sessionFile });
 function put(dir, path, text) {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
   writeFileSync(join(dir, path), text);

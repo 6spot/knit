@@ -9,7 +9,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { doneTask } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -24,6 +24,7 @@ function run(dir, task, verdict, change) {
   assert.deepEqual(prepared.problems, []);
   change(worktreeOf(dir, task));
   const problems = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: prepared.run.id,

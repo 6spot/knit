@@ -5,19 +5,16 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
 import { basename, join, relative } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
-import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 import { nodeCommand, setupConfig } from "./helpers/setup.mjs";
 
-const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 const workflowOf = (root) => parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
 const expectedWorktree = (root, task) => join(process.env.KNIT_HOME, "worktrees",
   `${basename(realpathSync(root))}-${createHash("sha256").update(realpathSync(root)).digest("hex").slice(0, 8)}`, basename(task.dir));
@@ -25,7 +22,7 @@ const branchOf = (task) => `knit/${basename(task.dir)}`;
 const filesOf = (root, task) => ["task.md", "record.json"].map((file) => readFileSync(join(root, task.dir, file), "utf8"));
 const lastRun = (root, task) => JSON.parse(filesOf(root, task)[1]).runs.at(-1);
 const prepare = (root, task, extra = {}) => prepareRun({ root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null, ...extra });
-const finish = (root, task, run) => finishRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null });
+const finish = (root, task, run) => finishRun({ agents, root, taskId: task.id, runId: run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null });
 function script(t, contents) {
   const file = join(process.env.KNIT_HOME, "pi-script.json");
   const previous = process.env.KNIT_FAKE_PI;
@@ -36,7 +33,7 @@ function script(t, contents) {
   });
   writeFileSync(file, JSON.stringify(contents));
 }
-const execute = (root, task, run) => executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agent: new PiExecutionAdapter(FAKE_PI) });
+const execute = (root, task, run) => executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agents });
 
 async function waitUntil(done) {
   const deadline = Date.now() + 10000;

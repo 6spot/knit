@@ -59,7 +59,7 @@ if (method === "session.describe_block") {
   const { pid } = JSON.parse(readFileSync(layerFile(name), "utf8"));
   rmSync(layerFile(name));
   // 真的 Rex 发的是 SIGHUP，Pi 收到之后退出。
-  if (alive(pid)) process.kill(pid, "SIGTERM");
+  if (alive(pid)) process.kill(pid, "SIGHUP");
   process.stdout.write(JSON.stringify({ revision: 3 }));
 } else {
   fail(`unknown method ${method}`, 1);

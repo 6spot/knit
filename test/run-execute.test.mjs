@@ -3,16 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
-import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
-const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const lastRun = (dir, task) => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs.at(-1);
 
@@ -50,11 +47,12 @@ function prepare(dir, task) {
   return run;
 }
 const execute = (dir, task, run) =>
-  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, agent: new PiExecutionAdapter(FAKE_PI) });
+  executeRun({ root: dir, taskId: task.id, runId: run.id, workflow: workflowOf(dir), model: run.model, agents });
 /** 准备出一次审查执行：先把实现那一次直接记成正常结束。 */
 function reviewRun(dir, task) {
   const implement = prepare(dir, task);
   const finished = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: implement.id,
@@ -67,6 +65,64 @@ function reviewRun(dir, task) {
   const review = prepare(dir, task);
   assert.equal(review.stage.id, "review");
   return review;
+}
+
+for (const mode of ["开窗失败", "启动超时"]) {
+  test(`注入的窗格宿主${mode}时回退后台，并通过同一注册表结算`, async (t) => {
+    const root = runProject(t);
+    const task = readyTask(root);
+    const run = prepare(root, task);
+    const dir = join(root, run.dir);
+    const calls = [];
+    const pane = Promise.withResolvers();
+    const paneHost = {
+      open(options) {
+        calls.push(options);
+        // 自定义宿主也可能抛出普通 JavaScript 值。
+        if (mode === "开窗失败") throw null;
+        return pane;
+      },
+      waitClosed(handle) {
+        assert.equal(handle, pane);
+        queueMicrotask(() => t.mock.timers.tick(20_001));
+        return pane.promise;
+      },
+      close(handle) {
+        assert.equal(handle, pane);
+        calls.push("close");
+        handle.resolve();
+      },
+    };
+    const adapter = {
+      paneCommand(launch) {
+        assert.equal(launch.root, root);
+        return ["fixture"];
+      },
+      createSession(launch) {
+        assert.equal(launch.root, root);
+        calls.push("background");
+        return { sessionFile: null, start: async () => null, prompt: async () => ({ report: "后台完成", failure: null }), stop: async () => {} };
+      },
+    };
+    const registry = { ...agents, pi: {
+      ...agents.pi,
+      createAdapter: () => adapter,
+      cleanRun(cwd, runDir) {
+        assert.deepEqual([cwd, runDir], [run.worktree.path, dir]);
+        calls.push("clean");
+      },
+    } };
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    assert.deepEqual(await executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agents: registry, paneHost }), []);
+    assert.deepEqual(calls, [
+      { label: `knit ${run.id}`, cwd: run.worktree.path, command: ["fixture"] },
+      ...(mode === "启动超时" ? ["close"] : []), "background", "clean",
+    ]);
+    assert.equal(readFileSync(join(dir, "report.md"), "utf8"), "后台完成");
+    const ended = lastRun(root, task);
+    assert.notEqual(ended.endedAt, null);
+    assert.equal(ended.failure, null);
+  });
 }
 
 test("做完之后存下报告，记下结论和改动文件", async (t) => {

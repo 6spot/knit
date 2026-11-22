@@ -2,29 +2,26 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { executeRun } from "../dist/application/run-execute.js";
-import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const workflowOf = (root) => parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
 const prepare = (root, task, extra = {}) => prepareRun({ root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null, ...extra });
 const message = (root, run) => readFileSync(join(root, run.dir, "message.md"), "utf8");
 const files = (root, task) => ["task.md", "record.json"].map((file) => readFileSync(join(root, task.dir, file), "utf8"));
-const finish = (root, task, run) => finishRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null });
+const finish = (root, task, run) => finishRun({ agents, root, taskId: task.id, runId: run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null });
 function nameMaterials(root, task, paths) {
   const path = join(root, task.dir, "task.md");
   writeFileSync(path, `${readFileSync(path, "utf8")}\n${paths.map((named) => `- \`${named}\` — 资料`).join("\n")}\n`);
   assert.equal(knit(root, "task", "ready", task.id).code, 0);
 }
 
-const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
 
 test("下个环节的仓库资料取 Worktree 的内容，仍给相对路径", async (t) => {
   const root = runProject(t);
@@ -42,7 +39,7 @@ test("下个环节的仓库资料取 Worktree 的内容，仍给相对路径", a
     if (previous !== undefined) process.env.KNIT_FAKE_PI = previous;
   });
   writeFileSync(script, JSON.stringify({ writes: [{ path: "docs/a.md", content: "# 资料\n\n## 依据\n\nWorktree 改过的内容\n\n## 其它\n\n不该附上\n" }] }));
-  assert.deepEqual(await executeRun({ root, taskId: task.id, runId: first.id, workflow: workflowOf(root), model: first.model, agent: new PiExecutionAdapter(FAKE_PI) }), []);
+  assert.deepEqual(await executeRun({ root, taskId: task.id, runId: first.id, workflow: workflowOf(root), model: first.model, agents }), []);
   const review = prepare(root, task);
   assert.deepEqual(review.problems, []);
   assert.equal(review.run.stage.id, "review");

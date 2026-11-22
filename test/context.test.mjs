@@ -10,7 +10,7 @@ import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-docum
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const REQUIREMENT =
   "## 目标与范围\n\n加一个问候语。\n\n## 完成条件\n\n### Requirement: 问候\n#### Scenario: 打招呼\n- WHEN 运行程序\n- THEN 输出问候语\n\n## 待澄清\n\n## 相关资料";
@@ -42,7 +42,7 @@ function ranStage(dir, id, verdict) {
   const workflow = workflowOf(dir);
   const { run, problems } = prepareRun({ root: dir, taskId: id, workflow, config: loadConfig(dir).config, model: null });
   assert.deepEqual(problems, []);
-  assert.deepEqual(finishRun({ root: dir, taskId: id, runId: run.id, workflow, verdict, failure: null, sessionFile: null }), []);
+  assert.deepEqual(finishRun({ agents, root: dir, taskId: id, runId: run.id, workflow, verdict, failure: null, sessionFile: null }), []);
 }
 
 /** 先给完整讨论规范，再给状态与目录；返回任务的补充规范。 */

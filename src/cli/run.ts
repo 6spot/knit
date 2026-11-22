@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { builtinAgents } from "../adapters/agents.js";
+import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
@@ -165,7 +166,7 @@ export function registerRunCommands(program: Command): void {
       }
       const { root } = loaded;
       const taskId = loaded.document.frontmatter.id;
-      const result = await cancelRun({ root, taskId, workflow });
+      const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents });
       if (result.cancelled === null) return fail(result.problems);
       const first = result.cancelled.workerMissing
         ? `执行 ${result.cancelled.runId} 的进程已经不在了，已记为失败`
@@ -194,11 +195,10 @@ export function registerRunCommands(program: Command): void {
         workflow,
         model: options.model ?? null,
         thinking: options.thinking,
-        // 主会话在 Rex 里跑时，它启动的进程都带着这两个变量。
-        rex:
-          process.env.REX_SESSION && process.env.REX_BLOCK
-            ? { session: process.env.REX_SESSION, block: process.env.REX_BLOCK }
-            : null,
+        agents: builtinAgents,
+        paneHost: process.env.REX_SESSION && process.env.REX_BLOCK
+          ? new RexPaneHost(process.env.REX_SESSION, process.env.REX_BLOCK)
+          : null,
       });
       if (problems.length > 0) fail(problems);
     });

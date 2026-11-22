@@ -87,6 +87,13 @@ if (!args.includes("--mode")) {
   if (script.startDelay) await new Promise((resolve) => setTimeout(resolve, script.startDelay));
   const { default: extension } = await import(arg("--extension"));
   const handlers = {};
+  // Pi 收到终端信号后，还要异步执行 session_shutdown 回调。
+  const shutdownOnSignal = (signal) => setImmediate(() => {
+    log({ shutdownSignal: signal });
+    process.exit(0);
+  });
+  process.once("SIGHUP", shutdownOnSignal);
+  if (!script.stubborn) process.once("SIGTERM", shutdownOnSignal);
   const branch = [];
   let pending = null;
   const ctx = {

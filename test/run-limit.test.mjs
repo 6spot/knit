@@ -8,7 +8,7 @@ import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const prepare = (dir, task) =>
@@ -20,6 +20,7 @@ function runOnce(dir, task, stage, { verdict = null, failure = null } = {}) {
   assert.deepEqual(problems, []);
   assert.equal(run.stage.id, stage);
   const finished = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: run.id,

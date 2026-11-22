@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { builtinAgents } from "../../dist/adapters/agents.js";
+import { PiExecutionAdapter } from "../../dist/adapters/pi/execution.js";
 import { taskWorktree } from "../../dist/application/worktree.js";
 import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task-document.js";
 import { knit } from "./cli.mjs";
 import { commitAll, gitProject } from "./git.mjs";
+
+export const agents = {
+  ...builtinAgents,
+  pi: { ...builtinAgents.pi, createAdapter: () => new PiExecutionAdapter(fileURLToPath(new URL("./fake-pi.mjs", import.meta.url))) },
+};
 
 const WORKFLOW = `version: 1
 model: fake/model

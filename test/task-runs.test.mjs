@@ -7,7 +7,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const REFUSED = "独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>\n";
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
@@ -27,6 +27,7 @@ function prepare(dir, task) {
 }
 function finish(dir, task, run, { verdict = null, failure = null } = {}) {
   const problems = finishRun({
+    agents,
     root: dir,
     taskId: task.id,
     runId: run.id,

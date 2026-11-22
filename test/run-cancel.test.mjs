@@ -11,7 +11,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -176,6 +176,7 @@ test("没有正在跑的执行时说明", (t) => {
   const ended = readyTask(dir);
   const run = prepare(dir, ended);
   const finished = finishRun({
+    agents,
     root: dir,
     taskId: ended.id,
     runId: run.id,
