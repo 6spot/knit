@@ -132,6 +132,24 @@ test("桥接 start 把 ctx.model 作为环境交给 CLI，执行者用主会话�
   });
 });
 
+test("桥接 start 原样传递多行修改清单并强制新会话", async (t) => {
+  const { dir, bridge, outside } = await bridged(t, () => ({}));
+  const task = readyTask(dir);
+  const instruction = "--修订第一项\n保留引号 ' 和空格";
+  const schema = bridge.definitions.find((tool) => tool.name === "knit_run").parameters;
+  assert.equal(schema.properties.instruction.type, "string");
+  assert.equal(schema.properties.fresh.type, "boolean");
+  const started = await bridge.tool("knit_run", { action: "start", taskId: task.id, instruction, fresh: true });
+  assert.equal(started.isError, undefined, text(started));
+  const runId = lastRun(dir, task).id;
+  await waitUntil(() => lastRun(dir, task).endedAt !== null, "实现结束");
+  assert.equal(lastRun(dir, task).failure, null);
+  const events = readFileSync(join(outside, "pi.jsonl"), "utf8").trimEnd().split("\n").map((line) => JSON.parse(line));
+  assert.ok(events.some((event) => event.message?.includes(`<main-instruction>\n${instruction}\n</main-instruction>`)));
+  assert.match(readFileSync(join(dir, RUNS_DIR, runId, "worker.log"), "utf8"), /新会话（指定了 --fresh）/);
+  await bridge.fire("session_shutdown");
+});
+
 test("取消正在跑的执行", async (t) => {
   const { dir, bridge } = await bridged(t, (outside) => ({ waitFor: join(outside, "never") }));
   const task = readyTask(dir);

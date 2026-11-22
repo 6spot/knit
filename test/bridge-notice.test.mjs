@@ -134,6 +134,38 @@ test("两个任务同时执行，桥接各等一次结束并各发一条通知",
   assert.equal(bridge.messages.length, 2);
 });
 
+test("同一批审查等最后一名结束才通知，列出两个报告和各自的结论", async (t) => {
+  const { dir, bridge, outside, task } = await bridged(t, () => ({ texts: ['```json\n{"verdict":"pass"}\n```'] }));
+  const gate = join(outside, "release");
+  writeFileSync(join(outside, "slow.json"), JSON.stringify({ waitFor: gate, texts: ['```json\n{"verdict":"changes_requested"}\n```'] }));
+  const launcher = join(outside, "pi");
+  writeFileSync(launcher, `#!/bin/sh\nfor arg do\n  if [ "$arg" = slow ]; then export KNIT_FAKE_PI="$(dirname "$0")/slow.json"; fi\ndone\nexec "${FAKE_PI}" "$@"\n`, { mode: 0o755 });
+  process.env.KNIT_PI_BIN = launcher;
+  writeFileSync(join(dir, ".knit/workflow.yaml"), ["version: 1", "stages:", "  - id: review", "    tools: [read]",
+    "    executors: [{id: first, model: fake/fast}, {id: second, model: fake/slow}]",
+    "    report: {verdict: [pass, changes_requested]}", ""].join("\n"));
+  const runs = () => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs;
+  const started = await bridge.tool("knit_run", { action: "start", taskId: task.id });
+  assert.equal(started.isError, undefined, text(started));
+  try {
+    await waitUntil(() => runs()[0].endedAt !== null, "第一名已入账");
+    assert.equal(runs()[1].endedAt, null);
+    await sleep(1500); // 跨过 wait 的一次轮询。
+    assert.deepEqual(bridge.messages, []);
+  } finally {
+    writeFileSync(gate, "");
+  }
+  await waitUntil(() => bridge.messages.length > 0, "批次结束通知");
+  const [notice] = bridge.messages;
+  assert.equal(notice.message.customType, "knit.run-ended");
+  assert.deepEqual(runs().map((run) => run.verdict), ["pass", "changes_requested"]);
+  for (const run of runs()) {
+    assert.ok(notice.message.content.includes(`${run.executor}（pi）：${run.verdict}，.knit/.runtime/runs/${run.id}/report.md`));
+  }
+  await waitUntil(() => waitersOf(task).length === 0, "批次等待退出");
+  assert.equal(bridge.messages.length, 1);
+});
+
 test("自己取消的不通知", async (t) => {
   const { dir, bridge, task } = await bridged(t, (outside) => ({ waitFor: join(outside, "never") }));
 

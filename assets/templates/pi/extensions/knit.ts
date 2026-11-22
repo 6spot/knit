@@ -82,6 +82,8 @@ interface RunParams {
   taskId: string;
   model?: string;
   thinking?: string;
+  instruction?: string;
+  fresh?: boolean;
 }
 
 interface DeliverParams {
@@ -130,13 +132,15 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_run",
     label: "Knit run",
     description:
-      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
+      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息。并行审查全部结束后，按通知里的报告和结论裁决，用 instruction 把修改清单交给下一次 start；fresh 为 true 时强制新会话；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
     parameters: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["start", "status", "cancel"] },
         taskId: { type: "string" },
         model: { type: "string" },
+        instruction: { type: "string", description: "start 时交给执行者的裁决或修改清单" },
+        fresh: { type: "boolean", description: "start 时强制用完整交接新开会话" },
         thinking: { type: "string", enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
       },
       required: ["action", "taskId"],
@@ -235,7 +239,12 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
   const result = await runKnit(
     [
       "run", params.action, params.taskId,
-      ...(params.action === "start" ? [...single("--model", params.model), ...single("--thinking", params.thinking)] : []),
+      ...(params.action === "start" ? [
+        ...single("--model", params.model),
+        ...single("--thinking", params.thinking),
+        ...(params.instruction === undefined ? [] : [`--instruction=${params.instruction}`]),
+        ...(params.fresh ? ["--fresh"] : []),
+      ] : []),
     ],
     params.action === "start"
       ? { ...process.env, KNIT_SESSION_AGENT: "pi", PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
@@ -245,7 +254,7 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
   return toResult(result);
 }
 
-/** 在后台等这个任务的执行结束，结束时给主会话发一条消息并触发一轮。 */
+/** run wait 等到整批成员入账，stdout 包含各自的报告路径和结果。每次派发只启动一个等待进程。 */
 function notifyWhenEnded(pi: Pi, waiting: Map<string, ChildProcess>, taskId: string): void {
   // 上一次执行刚结束、它的等待还没退出时：换成等这一次的。
   stopWaiting(waiting, taskId);
