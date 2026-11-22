@@ -80,6 +80,18 @@ test("能派发时存好交接内容并登记", (t) => {
   assert.equal(recordOf(dir, task).runs.length, 2);
 });
 
+test("省略 agent 时配置逐字段接受，派发按实际客户端校验", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const { workflow, validation } = parseWorkflow("version: 1\nstages:\n  - id: implement\n    model: agy-id\n    thinking: minimal\n");
+  assert.deepEqual(validation.issues, []);
+  const input = { root, taskId: task.id, workflow, config: loadConfig(root).config, model: null };
+  assert.deepEqual(prepareRun(input).problems, ["--model 要写成 provider/模型：agy-id"]);
+  const sessionDefaults = { agent: "antigravity", model: null, thinking: null };
+  assert.deepEqual(prepareRun({ ...input, sessionDefaults }).problems, ["思考等级只允许 low／medium／high／xhigh／max：minimal"]);
+  assert.deepEqual(recordOf(root, task).runs, []);
+});
+
 test("不能派发时说明原因，什么都不写", (t) => {
   const dir = runProject(t);
   const draft = knit(dir, "task", "new", "--title", "还没确认").stdout.split("\n")[0].replace("已创建 ", "");

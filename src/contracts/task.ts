@@ -2,8 +2,7 @@
  * 任务的两个文件：`task.md` 的开头字段和 `record.json` 的结构。
  * 解析和写回在 domain/task-document.ts、domain/task-record.ts。
  */
-import { arr, nullable, obj, oneOf, opt, str, type JsonSchema, type Static } from "@earendil-works/pi-schema";
-import { schemaErrors } from "./schema.js";
+import { arr, nullable, obj, oneOf, opt, str, type Static } from "@earendil-works/pi-schema";
 import { AgentNameSchema, WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 
 export const TASK_ID_PATTERN = "^k-[0-9a-f]{12}$";
@@ -50,14 +49,3 @@ export const TaskRecordSchema = obj({
   authorization: nullable(str({ minLength: 1 })),
 });
 export type TaskRecord = Static<typeof TaskRecordSchema>;
-
-/** 结构不对的地方，一处一句话，句子里带着出问题的字段。 */
-export function schemaProblems(schema: JsonSchema, value: unknown): string[] {
-  return schemaErrors(schema, value).map((error) => {
-    const field = error.path.slice(1);
-    if (field === "") return `应当是一组字段：${error.message}`;
-    if (error.keyword === "required") return `缺少字段 ${field}`;
-    if (error.keyword === "additionalProperties") return `多了字段 ${field}`;
-    return `字段 ${field} 的值不对：${error.message}`;
-  });
-}

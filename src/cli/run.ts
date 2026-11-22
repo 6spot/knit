@@ -11,7 +11,7 @@ import { findTask } from "../application/task-store.js";
 import { taskWorktree } from "../application/worktree.js";
 import { checkSchema } from "../contracts/schema.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
-import { AgentNameSchema } from "../contracts/workflow.js";
+import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -126,7 +126,7 @@ export function registerRunCommands(program: Command): void {
         return;
       }
       const session = process.env.KNIT_SESSION_AGENT;
-      const sessionAgent = checkSchema(AgentNameSchema, session) ? session : "pi";
+      const sessionAgent = checkSchema(AgentNameSchema, session) ? session : DEFAULT_AGENT;
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
         sessionDefaults: { agent: sessionAgent, ...builtinAgents[sessionAgent].sessionDefaults() },

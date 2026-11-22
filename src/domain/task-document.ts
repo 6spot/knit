@@ -4,9 +4,8 @@
  */
 import { parseDocument, stringify } from "yaml";
 import { sha256Text } from "../contracts/digest.js";
-import { checkSchema } from "../contracts/schema.js";
+import { checkSchema, schemaProblems } from "../contracts/schema.js";
 import {
-  schemaProblems,
   TaskFrontmatterSchema,
   type TaskFrontmatter,
   type TaskRecord,

@@ -7,8 +7,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
-import { checkSchema } from "../contracts/schema.js";
-import { AGY_EFFORT_LEVELS, AGY_MODEL_PATTERN, THINKING_LEVELS, ThinkingLevelSchema, type AgentName, type ThinkingLevel, type ToolCapability, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
+import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
+import { validateAgentTarget } from "../domain/agent-target.js";
 import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
@@ -28,9 +28,9 @@ export interface PrepareRunInput {
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
   readonly config: ProjectConfig;
-  /** 调用方临时指定的模型（provider/模型）；null 时先用流程里的，再用主会话的。 */
+  /** 本次派发的模型覆盖值。null 时按实际 Agent 的规格取值。 */
   readonly model: string | null;
-  /** 临时指定的思考等级；没给时先用流程里的，再用主会话的。 */
+  /** 本次派发的思考等级覆盖值。省略时按实际 Agent 的规格取值。 */
   readonly thinking?: string | null;
   /** 客户端边界观察到的主会话缺省值，不作为命令行覆盖。 */
   readonly sessionDefaults?: { readonly agent?: AgentName; readonly model: string | null; readonly thinking: string | null };
@@ -43,8 +43,8 @@ export interface PreparedRun {
   readonly dir: string;
   readonly stage: WorkflowStage;
   readonly worktree: TaskWorktree;
-  /** 最后用的模型。 */
   readonly agent: AgentName;
+  /** 生效的模型。null 时由客户端取缺省。 */
   readonly model: string | null;
   /** 最后用的思考等级；null 时让客户端自己取缺省。 */
   readonly thinking: ThinkingLevel | null;
@@ -83,21 +83,17 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   if (step.kind === "close") return refuse(`所有环节都做完了；核对之后运行 knit task close ${taskId}`);
   if (step.kind === "limit") return refuse(...limitNotice(taskId, input.workflow, record, step));
   const stage = step.stage;
-  const agent = stage.agent ?? input.sessionDefaults?.agent ?? "pi";
-  const pi = agent === "pi";
-  const defaults = input.sessionDefaults?.agent === "antigravity" ? undefined : input.sessionDefaults;
-  const model = input.model ?? stage.model ?? (pi ? input.workflow.model ?? defaults?.model : null) ?? null;
-  if (pi && model === null) {
-    return refuse("没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型");
-  }
-  if (model !== null && !new RegExp(pi ? WORKFLOW_MODEL_PATTERN : AGY_MODEL_PATTERN).test(model)) {
-    return refuse(`--model 要写成 ${pi ? "provider/模型" : "Antigravity 模型 ID"}：${model}`);
-  }
-  const thinking = input.thinking ?? stage.thinking ?? (pi ? input.workflow.thinking ?? defaults?.thinking : null) ?? null;
-  const levels: readonly string[] = pi ? THINKING_LEVELS : AGY_EFFORT_LEVELS;
-  if (thinking !== null && (!checkSchema(ThinkingLevelSchema, thinking) || !levels.includes(thinking))) {
-    return refuse(`思考等级只允许 ${levels.join("／")}：${thinking}`);
-  }
+  const sessionAgent = input.sessionDefaults?.agent ?? DEFAULT_AGENT;
+  const agent = stage.agent ?? sessionAgent;
+  const spec = AGENT_SPECS[agent];
+  const workflowDefaults = spec.inheritsWorkflowDefaults ? input.workflow : null;
+  const session = spec.inheritsWorkflowDefaults && agent === sessionAgent ? input.sessionDefaults : null;
+  const model = input.model ?? stage.model ?? workflowDefaults?.model ?? session?.model ?? null;
+  const requestedThinking = input.thinking ?? stage.thinking ?? workflowDefaults?.thinking ?? session?.thinking ?? null;
+  if (model === null && spec.modelRequired) return refuse(spec.missingModelMessage);
+  const target = validateAgentTarget({ agent, model, thinking: requestedThinking });
+  if (target.modelProblem !== null) return refuse(`--model ${target.modelProblem}：${model}`);
+  if (target.thinkingProblem !== null) return refuse(`思考等级${target.thinkingProblem}：${requestedThinking}`);
 
   if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
     return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
@@ -175,7 +171,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
-  return { run: { id, dir, stage, worktree, agent, model, thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
+  return { run: { id, dir, stage, worktree, agent, model, thinking: target.thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
 }
 
 function dependencyProblems(root: string, tasks: readonly StoredTask[], id: string): string[] {

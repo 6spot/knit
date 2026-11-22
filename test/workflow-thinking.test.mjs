@@ -36,6 +36,14 @@ test("思考等级由顶层提供缺省，环节的只管本环节，show 显示
   );
 });
 
+test("show 对 Antigravity 同时显示模型和思考等级的 agy 缺省", (t) => {
+  const source = "version: 1\nmodel: provider/model\nthinking: off\nstages:\n  - id: review\n    agent: antigravity\n";
+  const shown = workflowCommand(t, "show", source);
+  assert.equal(shown.code, 0, shown.stderr);
+  assert.match(shown.stdout, /^     模型: （用 agy 的缺省）$/m);
+  assert.match(shown.stdout, /^     思考等级: （用 agy 的缺省）$/m);
+});
+
 LEVELS.forEach((level) => {
   test(`顶层和环节都接受 Pi 思考等级 ${level}`, (t) => {
     const source = `version: 1\nthinking: ${level}\nstages:\n  - id: implement\n    thinking: ${level}\n`;

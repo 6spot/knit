@@ -1,7 +1,7 @@
 /**
  * `.knit/workflow.yaml` 配置契约（设计 §4／§9／§10）。
- * 本模块只描述 YAML 的原始结构与校验结果；
- * 解析、语义校验与默认值在 domain/workflow.ts。
+ * 描述 YAML 配置、内置 Agent 的参数规格和校验结果。
+ * 工作流解析与语义校验在 domain/workflow.ts。
  *
  * 约定：
  * - 注释不属于配置值，也不参与任何比较。
@@ -77,17 +77,48 @@ export function isReportEnum(type: ReportFieldType): type is string[] {
 export const WORKFLOW_STAGE_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
 export const WORKFLOW_STAGE_ID_REGEX = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** 执行者的模型：`provider/模型`，第一个 `/` 的前后都不为空。 */
-export const WORKFLOW_MODEL_PATTERN = "^[^/]+/.+$";
-export const AGY_MODEL_PATTERN = "^(?:[A-Za-z0-9][A-Za-z0-9._:-]*|gemini-api://[^\\s]+/models/[A-Za-z0-9._:-]+)$";
 export const AgentNameSchema = union([lit("pi"), lit("antigravity")]);
 export type AgentName = Static<typeof AgentNameSchema>;
-export const AGY_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const DEFAULT_AGENT = "pi";
 
-/** Pi 的 --thinking 接受的等级。 */
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const effortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
+export const THINKING_LEVELS = ["off", "minimal", ...effortLevels] as const;
 export const ThinkingLevelSchema = union(THINKING_LEVELS.map((level) => lit(level)));
 export type ThinkingLevel = Static<typeof ThinkingLevelSchema>;
+
+export type AgentSpec = {
+  readonly modelPattern: RegExp;
+  readonly modelFormat: string;
+  readonly thinkingLevels: readonly ThinkingLevel[];
+  readonly inheritsWorkflowDefaults: boolean;
+  readonly modelDefaultLabel: string;
+  readonly thinkingDefaultLabel: string;
+} & (
+  | { readonly modelRequired: true; readonly missingModelMessage: string }
+  | { readonly modelRequired: false }
+);
+
+export const AGENT_SPECS: Readonly<Record<AgentName, AgentSpec>> = {
+  pi: {
+    modelPattern: /^[^/]+\/.+$/,
+    modelFormat: "provider/模型",
+    modelRequired: true,
+    missingModelMessage: "没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型",
+    thinkingLevels: THINKING_LEVELS,
+    inheritsWorkflowDefaults: true,
+    modelDefaultLabel: "（没有指定，用主会话的模型）",
+    thinkingDefaultLabel: "（没有指定，用主会话的等级）",
+  },
+  antigravity: {
+    modelPattern: /^(?:[A-Za-z0-9][A-Za-z0-9._:-]*|gemini-api:\/\/[^\s]+\/models\/[A-Za-z0-9._:-]+)$/,
+    modelFormat: "Antigravity 模型 ID",
+    modelRequired: false,
+    thinkingLevels: effortLevels,
+    inheritsWorkflowDefaults: false,
+    modelDefaultLabel: "（用 agy 的缺省）",
+    thinkingDefaultLabel: "（用 agy 的缺省）",
+  },
+};
 
 /** 单个阶段；未知字段视为拼写错误，整体判为非法配置。 */
 export const WorkflowStageConfigSchema = obj({
@@ -112,9 +143,9 @@ export type WorkflowStageConfig = Static<typeof WorkflowStageConfigSchema>;
 /** 完整配置文件；version 先由 domain 预检，能用更稳定的原因码区分版本问题。 */
 export const WorkflowConfigSchema = obj({
   version: lit(WORKFLOW_CONFIG_VERSION),
-  /** 所有环节的执行者缺省用的模型。 */
-  model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
-  /** 所有环节的执行者缺省用的思考等级。 */
+  /** 供继承流程缺省的 Agent 使用的模型。 */
+  model: opt(str({ pattern: AGENT_SPECS[DEFAULT_AGENT].modelPattern.source })),
+  /** 供继承流程缺省的 Agent 使用的思考等级。 */
   thinking: opt(ThinkingLevelSchema),
   /** 返工上限：没写 maxVisits 的环节用它；不写是 DEFAULT_MAX_REPAIR_ROUNDS。 */
   maxRepairRounds: opt(int({ minimum: 0 })),

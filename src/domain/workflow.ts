@@ -13,17 +13,17 @@
  */
 import { isMap, isNode, isScalar, isSeq, LineCounter, parseDocument, type Node, type YAMLError } from "yaml";
 import type { ValidationError } from "@earendil-works/pi-schema";
-import { schemaErrors } from "../contracts/schema.js";
+import { checkSchema, schemaErrors } from "../contracts/schema.js";
+import { validateAgentTarget } from "./agent-target.js";
 import {
   WORKFLOW_ANCHORS,
   WORKFLOW_CONFIG_VERSION,
   WORKFLOW_STAGE_ID_REGEX,
   WORKFLOW_VERDICT_ANCHOR,
   TOOLS_ALL_REGEX,
-  AGY_EFFORT_LEVELS,
-  AGY_MODEL_PATTERN,
-  THINKING_LEVELS,
-  WORKFLOW_MODEL_PATTERN,
+  AGENT_SPECS,
+  AgentNameSchema,
+  DEFAULT_AGENT,
   type AgentName,
   WorkflowConfigSchema,
   isReportEnum,
@@ -175,20 +175,19 @@ export function parseWorkflow(source: string): WorkflowLoadResult {
 function agentParameterIssues(stages: readonly unknown[], positions: SourcePositions): WorkflowIssue[] {
   return stages.flatMap((stage, index) => {
     if (!isRecord(stage)) return [];
-    const stagePath = `/stages/${index}`;
+    const target = validateAgentTarget({
+      agent: checkSchema(AgentNameSchema, stage.agent) ? stage.agent : null,
+      model: typeof stage.model === "string" ? stage.model : null,
+      thinking: typeof stage.thinking === "string" ? stage.thinking : null,
+    });
     const issues: WorkflowIssue[] = [];
-    if (typeof stage.model === "string") {
-      const pi = new RegExp(WORKFLOW_MODEL_PATTERN).test(stage.model);
-      const agy = new RegExp(AGY_MODEL_PATTERN).test(stage.model);
-      if (!(stage.agent === "pi" ? pi : stage.agent === "antigravity" ? agy : pi || agy)) {
-        const path = `${stagePath}/model`;
-        const format = stage.agent === "antigravity" ? "Antigravity 模型 ID" : "provider/模型";
-        issues.push(makeIssue("invalid_model", positions.at(path), path, `${readablePath(path)} 要写成 ${format}`));
-      }
+    if (target.modelProblem !== null) {
+      const path = `/stages/${index}/model`;
+      issues.push(makeIssue("invalid_model", positions.at(path), path, `${readablePath(path)} ${target.modelProblem}`));
     }
-    if (stage.agent === "antigravity" && (stage.thinking === "off" || stage.thinking === "minimal")) {
-      const path = `${stagePath}/thinking`;
-      issues.push(makeIssue("invalid_thinking", positions.at(path), path, `${readablePath(path)} 只允许 ${AGY_EFFORT_LEVELS.join("／")}`));
+    if (target.thinkingProblem !== null) {
+      const path = `/stages/${index}/thinking`;
+      issues.push(makeIssue("invalid_thinking", positions.at(path), path, `${readablePath(path)} ${target.thinkingProblem}`));
     }
     return issues;
   });
@@ -580,12 +579,13 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
     case "invalid_max_visits":
       return `${path} 必须是非负整数或 null`;
     case "invalid_agent":
-      return `${path} 只允许 pi／antigravity`;
+      return `${path} 只允许 ${Object.keys(AGENT_SPECS).join("／")}`;
     case "invalid_model":
-      return `${path} ${error.path === "/model" ? "要写成 provider/模型" : "必须是模型 ID 字符串"}`;
+      return `${path} ${error.path === "/model" ? `要写成 ${AGENT_SPECS[DEFAULT_AGENT].modelFormat}` : "必须是模型 ID 字符串"}`;
     case "invalid_thinking": {
       const stageAgent = valueAtPointer(raw, error.path.replace(/\/thinking$/, "/agent"));
-      return `${path} 只允许 ${(stageAgent === "antigravity" ? AGY_EFFORT_LEVELS : THINKING_LEVELS).join("／")}`;
+      const spec = AGENT_SPECS[checkSchema(AgentNameSchema, stageAgent) ? stageAgent : DEFAULT_AGENT];
+      return `${path} 只允许 ${spec.thinkingLevels.join("／")}`;
     }
     case "invalid_max_repair_rounds":
       return "maxRepairRounds 必须是非负整数";

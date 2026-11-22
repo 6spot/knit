@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
+import { AGENT_SPECS, DEFAULT_AGENT, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowStage } from "../domain/workflow.js";
 import { readWorkflow } from "../application/workflow-store.js";
 import { projectRoot } from "./root.js";
@@ -22,13 +22,15 @@ function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefin
   );
   const jumps = Object.entries(stage.onVerdict).map((entry) => `${entry[0]} → ${entry[1]}`);
   const tools = stage.tools === null ? "全部放开" : stage.tools.length === 0 ? "全部禁用" : stage.tools.join("、");
+  const spec = AGENT_SPECS[stage.agent ?? DEFAULT_AGENT];
+  const defaults = spec.inheritsWorkflowDefaults ? workflow : null;
   return [
     `  ${index + 1}. ${stage.id}（${stage.name}）`,
     ...(stage.description === null ? [] : [`     说明: ${stage.description}`]),
     `     角色文件: ${stage.prompt ?? "（没有指定）"}`,
-    `     Agent: ${stage.agent ?? "（由派发入口决定，普通终端用 pi）"}`,
-    `     模型: ${stage.model ?? (stage.agent === "antigravity" ? "（用 agy 的缺省）" : workflow.model ?? "（没有指定，用主会话的模型）")}`,
-    `     思考等级: ${stage.thinking ?? (stage.agent === "antigravity" ? "（用 agy 的缺省）" : workflow.thinking ?? "（没有指定，用主会话的等级）")}`,
+    `     Agent: ${stage.agent ?? `（由派发入口决定，普通终端用 ${DEFAULT_AGENT}）`}`,
+    `     模型: ${stage.model ?? defaults?.model ?? spec.modelDefaultLabel}`,
+    `     思考等级: ${stage.thinking ?? defaults?.thinking ?? spec.thinkingDefaultLabel}`,
     `     工具: ${tools}`,
     ...(report.length === 0 ? [] : [`     报告字段: ${report.join("、")}`]),
     ...(jumps.length === 0 ? [] : [`     按结论跳转: ${jumps.join("；")}`]),

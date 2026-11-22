@@ -23,3 +23,14 @@ export function checkSchema<S extends JsonSchema>(schema: S, value: unknown): va
 export function schemaErrors(schema: JsonSchema, value: unknown): readonly ValidationError[] {
   return validatorFor(schema).errors(value);
 }
+
+/** 结构不对的地方，一处一句话，句子里带着出问题的字段。 */
+export function schemaProblems(schema: JsonSchema, value: unknown): string[] {
+  return schemaErrors(schema, value).map((error) => {
+    const field = error.path.slice(1);
+    if (field === "") return `应当是一组字段：${error.message}`;
+    if (error.keyword === "required") return `缺少字段 ${field}`;
+    if (error.keyword === "additionalProperties") return `多了字段 ${field}`;
+    return `字段 ${field} 的值不对：${error.message}`;
+  });
+}
