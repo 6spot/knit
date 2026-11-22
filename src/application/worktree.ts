@@ -56,45 +56,46 @@ export function rollbackWorktree(root: string, worktree: TaskWorktree, prepared:
   return deleted.code === 0 ? [] : [deleted.stderr.trimEnd()];
 }
 
+export type WorktreeCleanup = { readonly worktree: TaskWorktree } & (
+  | { kind: "absent" }
+  | { kind: "retained"; failedAt: "status" | "remove"; error: string }
+  | { kind: "removed" | "pruned"; discardedFiles: number; branch: "absent" | "deleted" }
+  | { kind: "removed" | "pruned"; discardedFiles: number; branch: "retained"; error: string }
+);
+
 /** 取消并归档成功之后强制清理；Git 拒绝时只报告，不能撤回取消。 */
-export function cleanCancelledWorktree(root: string, worktree: TaskWorktree): string[] {
+export function cleanCancelledWorktree(root: string, worktree: TaskWorktree): WorktreeCleanup {
   const present = existsSync(worktree.path);
   const branchExists = gitSync(["show-ref", "--verify", "--quiet", `refs/heads/${worktree.branch}`], root).code === 0;
-  if (!present && !branchExists) return [];
+  if (!present && !branchExists) return { kind: "absent", worktree };
   // NUL 分隔支持文件名中的换行；逐个列出未跟踪文件，不把目录算作一个文件。
   const status = present ? gitSync(["status", "--porcelain=v1", "--no-renames", "--untracked-files=all", "-z"], worktree.path) : null;
   if (status !== null && status.code !== 0) {
-    return [
-      `清理未完成，Worktree 和分支保留: ${worktree.path}（${worktree.branch}）`,
-      (status.stdout + status.stderr).trimEnd(),
-    ];
+    return { kind: "retained", worktree, failedAt: "status", error: status.stdout + status.stderr };
   }
   const removed = gitSync(present ? ["worktree", "remove", "--force", worktree.path] : ["worktree", "prune"], root);
   if (removed.code !== 0) {
-    return [
-      `清理被 Git 拒绝，Worktree 和分支保留: ${worktree.path}（${worktree.branch}）`,
-      (removed.stdout + removed.stderr).trimEnd(),
-    ];
+    return { kind: "retained", worktree, failedAt: "remove", error: removed.stdout + removed.stderr };
   }
   const changedFiles = status?.stdout.split("\0").filter((entry) => entry !== "").length ?? 0;
-  const lines = present
-    ? [`已删除 Worktree: ${worktree.path}`, ...(changedFiles > 0 ? [`已丢弃未提交的改动（${changedFiles} 个文件）`] : [])]
-    : [`Worktree 目录已不在: ${worktree.path}（已运行 git worktree prune）`];
-  if (!branchExists) return lines;
-  const deleted = gitSync(["branch", "-D", worktree.branch], root);
-  return [
-    ...lines,
-    ...(deleted.code === 0
-      ? [`已删除分支: ${worktree.branch}`]
-      : [`清理被 Git 拒绝，分支保留: ${worktree.branch}（主检出: ${root}）`, (deleted.stdout + deleted.stderr).trimEnd()]),
-  ];
+  return cleanBranch(root, worktree, present ? "removed" : "pruned", changedFiles, branchExists ? "-D" : null);
 }
 
+function cleanBranch(root: string, worktree: TaskWorktree, kind: "removed" | "pruned", discardedFiles: number, flag: "-d" | "-D" | null): WorktreeCleanup {
+  if (flag === null) return { kind, worktree, discardedFiles, branch: "absent" };
+  const deleted = gitSync(["branch", flag, worktree.branch], root);
+  return deleted.code === 0
+    ? { kind, worktree, discardedFiles, branch: "deleted" }
+    : { kind, worktree, discardedFiles, branch: "retained", error: deleted.stdout + deleted.stderr };
+}
+
+export type WorktreeIntegration = { readonly targetBranch: string; readonly worktree: TaskWorktree } & (
+  | { merged: true; cleanup: WorktreeCleanup }
+  | { merged: false; error: string; abort: { ok: true } | { ok: false; error: string } | null }
+);
+
 /** 交付已经成功；后续失败只报告，不撤回交付，也不强制清理。 */
-export function mergeAndCleanWorktree(root: string, worktree: TaskWorktree, targetBranch: string): {
-  readonly merged: boolean;
-  readonly lines: readonly string[];
-} {
+export function mergeAndCleanWorktree(root: string, worktree: TaskWorktree, targetBranch: string): WorktreeIntegration {
   const merged = gitSync(["merge", "--no-edit", worktree.branch], root);
   if (merged.code !== 0) {
     // 覆盖本地改动等拒绝不会进入合并状态，不能对它运行 --abort。
@@ -102,38 +103,14 @@ export function mergeAndCleanWorktree(root: string, worktree: TaskWorktree, targ
       ? gitSync(["merge", "--abort"], root)
       : null;
     return {
-      merged: false,
-      lines: [
-        `合并没有成功: ${worktree.branch} → ${targetBranch}`,
-        (merged.stdout + merged.stderr).trimEnd(),
-        ...(aborted === null ? [] : aborted.code === 0
-          ? ["已放弃这次合并（git merge --abort）"]
-          : ["放弃合并失败:", (aborted.stdout + aborted.stderr).trimEnd()]),
-        `任务已经交付，提交保留在任务分支 ${worktree.branch}；Worktree 保留在 ${worktree.path}`,
-        "由主会话把以上 Git 错误原样给用户看并问他怎么处理；不自己解决冲突，不强行合并",
-      ],
+      merged: false, worktree, targetBranch, error: merged.stdout + merged.stderr,
+      abort: aborted === null ? null : aborted.code === 0 ? { ok: true } : { ok: false, error: aborted.stdout + aborted.stderr },
     };
   }
   const removed = gitSync(["worktree", "remove", worktree.path], root);
-  if (removed.code !== 0) {
-    return {
-      merged: true,
-      lines: [
-        `已合并 ${worktree.branch} → ${targetBranch}`,
-        `清理被 Git 拒绝，Worktree 和分支保留: ${worktree.path}（${worktree.branch}）`,
-        (removed.stdout + removed.stderr).trimEnd(),
-      ],
-    };
-  }
-  const deleted = gitSync(["branch", "-d", worktree.branch], root);
   return {
-    merged: true,
-    lines: [
-      `已合并 ${worktree.branch} → ${targetBranch}`,
-      `已删除 Worktree: ${worktree.path}`,
-      ...(deleted.code === 0
-        ? [`已删除分支: ${worktree.branch}`]
-        : [`清理被 Git 拒绝，分支保留: ${worktree.branch}（主检出: ${root}）`, (deleted.stdout + deleted.stderr).trimEnd()]),
-    ],
+    merged: true, worktree, targetBranch,
+    cleanup: removed.code === 0 ? cleanBranch(root, worktree, "removed", 0, "-d")
+      : { kind: "retained", worktree, failedAt: "remove", error: removed.stdout + removed.stderr },
   };
 }

@@ -2,25 +2,21 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
 import {
-  archiveTask,
   createTask,
-  findTask,
-  saveTask,
+  readTask,
   scanTasks,
-  type StoredTask,
+  type LoadedTask,
 } from "../application/task-store.js";
-import { cleanCancelledWorktree, taskWorktree } from "../application/worktree.js";
+import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
+import { cleanupLines } from "./worktree.js";
 import {
   TASK_PRIORITIES,
   TASK_VERIFICATIONS,
   type TaskFrontmatter,
   type TaskRecord,
-  type TaskStatus,
 } from "../contracts/task.js";
-import { countedRuns } from "../domain/progress.js";
-import { currentStatus, requirementDigest, type TaskDocument } from "../domain/task-document.js";
+import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
-import { projectRelative } from "../infrastructure/paths.js";
 import { gitSync } from "../infrastructure/process.js";
 import { projectRoot } from "./root.js";
 
@@ -37,66 +33,16 @@ export function knitRoot(dir: string): string | null {
   return null;
 }
 
-interface LoadedTask {
-  readonly root: string;
-  readonly stored: StoredTask;
-  readonly document: TaskDocument;
-  readonly record: TaskRecord;
-}
-
 /** 按 id 读出一个任务；项目、任务不存在或文件有格式问题时报错并返回 null。 */
 export function loadTask(dir: string, id: string): LoadedTask | null {
   const root = knitRoot(dir);
   if (root === null) return null;
-  const stored = findTask(root, id);
-  if (stored === null) {
-    fail([`没有任务 ${id}；用 knit task list 查看现有任务`]);
+  const result = readTask(root, id);
+  if (result.kind === "refused") {
+    fail(result.problems);
     return null;
   }
-  if (stored.document === null || stored.record === null) {
-    fail(stored.problems);
-    return null;
-  }
-  return { root, stored, document: stored.document, record: stored.record };
-}
-
-/** 需求部分里挡住确认的地方，每处后面跟着怎么改；没有时是空数组。 */
-function readyProblems(document: TaskDocument): string[] {
-  const clarify = clarifyStateOf(document.requirement);
-  const scenarios = scenarioStateOf(document.requirement);
-  const unwritten = document.frontmatter.verification === "independent" && scenarios.scenarios.length === 0;
-  return [
-    ...(clarify.blocking > 0
-      ? [
-          `「待澄清」里还有 ${clarify.blocking} 项 [blocking]：`,
-          ...clarify.blockingItems.map((item) => `  - ${item}`),
-          "  和用户定下来之后，把结论写进正文并删掉这一行。",
-        ]
-      : []),
-    ...(scenarios.issues.length > 0
-      ? [`「完成条件」的场景有 ${scenarios.issues.length} 处写法问题：`, ...scenarios.issues.map((issue) => `  - ${issue.message}`)]
-      : []),
-    ...(unwritten
-      ? ["独立审查的任务必须把完成条件写成场景；另一条路是把 task.md 开头的 verification 改成 self。"]
-      : []),
-    ...(scenarios.issues.length > 0 || unwritten ? ["场景的写法：", SCENARIO_FORMAT_EXAMPLE] : []),
-  ];
-}
-
-/** 这个状态的任务为什么不能记为完成，以及下一步；可以完成时是 null。 */
-function closeRefusal(status: TaskStatus, id: string): string | null {
-  if (status === "ready" || status === "active") return null;
-  if (status === "draft") return `需求还没有确认，或确认之后改过；先运行 knit task ready ${id}`;
-  if (status === "done") return "任务已经完成；要改总结直接编辑 task.md 的「结果」";
-  return `任务已经结束（${status}），不能再记为完成`;
-}
-
-/** 任务有执行还没结束时为什么不能完成或取消：执行者结束时要往任务里写结果。没有这样的执行时是 null。 */
-function unfinishedRunRefusal(record: TaskRecord, id: string): string | null {
-  const running = record.runs.find((run) => run.endedAt === null);
-  return running === undefined
-    ? null
-    : `任务 ${id} 的执行 ${running.id} 还没有结束；等它结束，或运行 knit run cancel ${id}`;
+  return result.task;
 }
 
 /** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
@@ -106,6 +52,23 @@ export function shownStatus(document: TaskDocument, record: TaskRecord): { text:
     text: status === "active" ? `active(${document.frontmatter.stage})` : status,
     stale: status !== document.frontmatter.status,
   };
+}
+
+function requirementLines(problems: RequirementProblems): string[] {
+  return [
+    ...(problems.blocking > 0
+      ? [
+          `「待澄清」里还有 ${problems.blocking} 项 [blocking]：`,
+          ...problems.blockingItems.map((item) => `  - ${item}`),
+          "  和用户定下来之后，把结论写进正文并删掉这一行。",
+        ]
+      : []),
+    ...(problems.scenarioIssues.length > 0
+      ? [`「完成条件」的场景有 ${problems.scenarioIssues.length} 处写法问题：`, ...problems.scenarioIssues.map((issue) => `  - ${issue}`)]
+      : []),
+    ...(problems.missingScenarios ? ["独立审查的任务必须把完成条件写成场景；另一条路是把 task.md 开头的 verification 改成 self。"] : []),
+    ...(problems.scenarioIssues.length > 0 || problems.missingScenarios ? ["场景的写法：", SCENARIO_FORMAT_EXAMPLE] : []),
+  ];
 }
 
 export function registerTaskCommands(program: Command): void {
@@ -225,27 +188,15 @@ export function registerTaskCommands(program: Command): void {
     .description("确认一个任务的需求")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { dir: string }) => {
-      const loaded = loadTask(options.dir, id);
-      if (loaded === null) return;
-      const status = currentStatus(loaded.document, loaded.record);
-      if (status === "ready") return void process.stdout.write("已确认，需求没有变化\n");
-      if (status === "active") {
-        return fail([`任务正在 ${loaded.document.frontmatter.stage} 环节，需求没有变化，不需要重新确认`]);
-      }
-      if (status !== "draft") return fail([`任务已经结束（${status}）；要继续做就新建一个任务`]);
-      const problems = readyProblems(loaded.document);
-      if (problems.length > 0) return fail(problems);
-      const conflicts = saveTask(
-        loaded.root,
-        loaded.stored,
-        { ...loaded.document, frontmatter: { ...loaded.document.frontmatter, status: "ready", stage: null } },
-        { ...loaded.record, confirmedDigest: requirementDigest(loaded.document) },
-      );
-      if (conflicts.length > 0) return fail(conflicts);
-      const assumed = clarifyStateOf(loaded.document.requirement).assumed;
+      const root = knitRoot(options.dir);
+      if (root === null) return;
+      const result = readyTask(root, id);
+      if (result.kind === "refused") return fail(result.problems);
+      if (result.kind === "invalidRequirement") return fail(requirementLines(result));
+      if (result.kind === "alreadyReady") return void process.stdout.write("已确认，需求没有变化\n");
       process.stdout.write(
-        `已确认 ${id}：${scenarioStateOf(loaded.document.requirement).scenarios.length} 个场景\n` +
-          (assumed > 0 ? `还有 ${assumed} 项 [assumed] 没有得到用户确认\n` : ""),
+        `已确认 ${id}：${result.scenarios} 个场景\n` +
+          (result.assumed > 0 ? `还有 ${result.assumed} 项 [assumed] 没有得到用户确认\n` : ""),
       );
     });
 
@@ -258,35 +209,10 @@ export function registerTaskCommands(program: Command): void {
     .option("--reason <理由>", "独立审查的任务没有审查通过的记录时，直接完成的理由")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { result: string; paths: string[]; reason?: string; dir: string }) => {
-      const loaded = loadTask(options.dir, id);
-      if (loaded === null) return;
-      const result = options.result.trim();
-      if (result === "") return fail(["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"]);
-      const refusal = closeRefusal(currentStatus(loaded.document, loaded.record), id);
-      if (refusal !== null) return fail([refusal]);
-      // 失败的执行、需求改之前的执行都不算数。
-      const unreviewed =
-        loaded.document.frontmatter.verification === "independent" &&
-        countedRuns(loaded.record).findLast((run) => run.verdict !== null)?.verdict !== "pass";
-      if (unreviewed && options.reason === undefined) {
-        return fail(["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"]);
-      }
-      const outside = options.paths.filter((path) => projectRelative(path) === null);
-      if (outside.length > 0) return fail(outside.map((path) => `--paths 要写项目内的相对路径：${path}`));
-      const running = unfinishedRunRefusal(loaded.record, id);
-      if (running !== null) return fail([running]);
-      const paths = options.paths.flatMap((path) => projectRelative(path) ?? []);
-      const conflicts = saveTask(
-        loaded.root,
-        loaded.stored,
-        {
-          frontmatter: { ...loaded.document.frontmatter, status: "done", stage: null },
-          requirement: loaded.document.requirement,
-          result: unreviewed ? `${result}\n\n没有经过独立审查，直接完成：${options.reason}` : result,
-        },
-        { ...loaded.record, changedPaths: [...new Set([...loaded.record.changedPaths, ...paths])].sort() },
-      );
-      if (conflicts.length > 0) return fail(conflicts);
+      const root = knitRoot(options.dir);
+      if (root === null) return;
+      const result = closeTask(root, id, options);
+      if (result.kind === "refused") return fail(result.problems);
       process.stdout.write(`已完成 ${id}\n`);
     });
 
@@ -296,26 +222,11 @@ export function registerTaskCommands(program: Command): void {
     .requiredOption("--reason <原因>", "为什么不做了")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { reason: string; dir: string }) => {
-      const loaded = loadTask(options.dir, id);
-      if (loaded === null) return;
-      const reason = options.reason.trim();
-      if (reason === "") return fail(["--reason 不能为空：写为什么不做了"]);
-      const status = loaded.document.frontmatter.status;
-      if (status === "delivered" || status === "cancelled") return fail([`任务已经结束（${status}），不能取消`]);
-      const running = unfinishedRunRefusal(loaded.record, id);
-      if (running !== null) return fail([running]);
-      const conflicts = saveTask(
-        loaded.root,
-        loaded.stored,
-        {
-          frontmatter: { ...loaded.document.frontmatter, status: "cancelled", stage: null },
-          requirement: loaded.document.requirement,
-          result: [...(loaded.document.result ? [loaded.document.result] : []), `已取消：${reason}`].join("\n\n"),
-        },
-        loaded.record,
-      );
-      if (conflicts.length > 0) return fail(conflicts);
-      process.stdout.write(`已取消 ${id}\n${archiveTask(loaded.root, loaded.stored)}\n`);
-      process.stdout.write(cleanCancelledWorktree(loaded.root, taskWorktree(loaded.root, loaded.stored.dir)).map((line) => `${line}\n`).join(""));
+      const root = knitRoot(options.dir);
+      if (root === null) return;
+      const result = cancelTask(root, id, options);
+      if (result.kind === "refused") return fail(result.problems);
+      const lines = [`已取消 ${id}`, result.archiveDir, ...cleanupLines(root, result.cleanup)];
+      process.stdout.write(`${lines.join("\n")}\n`);
     });
 }

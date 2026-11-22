@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/config.js";
+import { deliverTask } from "../dist/application/delivery.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { archiveDirOf } from "../dist/application/task-store.js";
@@ -47,7 +48,7 @@ function completed(t, tracked = false, ignored = false, crossDeviceDir = null, b
   const message = join(project(t), "message.txt");
   writeFileSync(message, "feat: deliver worker result\n\nTask: " + task.id + "\n");
   const deliver = (...args) => knit(root, "deliver", task.id, "--authorization", "user:delivery", "--message-file", message, ...args);
-  return { root, task, worktree, archive: archiveDirOf(task), deliver };
+  return { root, task, worktree, archive: archiveDirOf(task), deliver, message };
 }
 
 const taskFiles = (root, task) => ["task.md", "record.json"].map((file) => readFileSync(join(root, task.dir, file), "utf8"));
@@ -127,6 +128,25 @@ function autoMergeConfig(root, autoMerge = true) {
   assert.equal(delivered.stdout.includes("已删除"), false);
   assert.equal(delivered.stdout.includes("已放弃这次合并"), reason === "conflict");
 }));
+
+test("应用层返回自动合并冲突的原始 Git 输出，归档与提交保留在任务分支", (t) => {
+  const { root, task, worktree, archive, message } = completed(t, true, false, null, "base\n");
+  autoMergeConfig(root);
+  writeFileSync(join(root, "src/a.txt"), "main result\n");
+  git(root, "commit", "-qm", "main changes same line", "--only", "--", "src/a.txt");
+  const result = deliverTask(root, task.id, { authorization: "user:delivery", messageFile: message });
+  assert.equal(result.kind, "delivered");
+  assert.equal(result.integration.merged, false);
+  assert.deepEqual(result.integration.abort, { ok: true });
+  assert.match(result.integration.error, /CONFLICT \(content\): Merge conflict in src\/a.txt\n/);
+  assert.deepEqual(result.integration.worktree, worktree);
+  assert.equal(result.archiveRoot, worktree.path);
+  assert.equal(result.archiveDir, archive);
+  assert.equal(result.commit.summary, git(worktree.path, "log", "-1", "--format=%h %s"));
+  assert.equal(git(root, "rev-parse", worktree.branch), git(worktree.path, "rev-parse", "HEAD"));
+  assert.equal(existsSync(join(root, task.dir)), false);
+  assert.match(readFileSync(join(result.archiveRoot, result.archiveDir, "task.md"), "utf8"), /^status: delivered$/m);
+});
 
 test("Worktree 清理拒绝不强制，未入库文件和分支保留且退出码为 0", (t) => {
   const { root, worktree, archive, deliver } = completed(t);

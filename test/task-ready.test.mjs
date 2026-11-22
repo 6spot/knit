@@ -47,9 +47,9 @@ test("不满足时拒绝并说明怎么改，不写文件", (t) => {
   const dir = project(t);
   const cases = [
     [
-      requirementOf({ acceptance: TWO, clarify: "- [blocking] 上限是多少\n- [blocking] 超出时怎么办\n" }),
+      requirementOf({ acceptance: TWO, clarify: "- [blocking] 上限是多少\n- [blocking] 超出时怎么办\n- [blocking] 谁确认\n- [blocking] 第四项\n" }),
       {},
-      [/2 项 \[blocking\]/, /  - 上限是多少\n  - 超出时怎么办/, /把结论写进正文并删掉这一行/],
+      [/4 项 \[blocking\]/, /  - 上限是多少\n  - 超出时怎么办\n  - 谁确认\n  和用户/, /把结论写进正文并删掉这一行/],
     ],
     [
       requirementOf({ acceptance: `### Requirement: 需求\n${scenario("缺一步", "- WHEN 执行操作")}` }),
