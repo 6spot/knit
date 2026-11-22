@@ -71,6 +71,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
     agent: null,
     model: null,
     thinking: null,
+    executors: [{ id: "executor-1", agent: null, model: null, thinking: null, prompt: ".knit/agents/implement.md" }],
     prompt: ".knit/agents/implement.md",
     tools: ["read", "write", "exec"],
     report: {},
@@ -84,6 +85,7 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
     agent: null,
     model: null,
     thinking: null,
+    executors: [{ id: "executor-1", agent: null, model: null, thinking: null, prompt: ".knit/agents/review.md" }],
     prompt: ".knit/agents/review.md",
     tools: ["read", "write", "exec"],
     report: { verdict: ["pass", "changes_requested", "blocked"] },
@@ -101,12 +103,21 @@ test("最简阶段使用 id 作为显示名，其余字段取安全缺省", () =
     agent: null,
     model: null,
     thinking: null,
+    executors: [{ id: "executor-1", agent: null, model: null, thinking: null, prompt: null }],
     prompt: null,
     tools: null,
     report: {},
     onVerdict: {},
     maxVisits: DEFAULT_MAX_REPAIR_ROUNDS,
   });
+});
+
+test("单执行器列表与旧写法解析为相同定义，允许写权限", () => {
+  const base = "version: 1\nstages:\n  - id: review\n    tools: all\n";
+  const fields = ["agent: pi", "model: p/m", "thinking: high", "prompt: roles/review.md"];
+  const legacy = base + fields.map((field) => `    ${field}\n`).join("");
+  const listed = base + `    prompt: shared.md\n    executors:\n      - ${fields.join("\n        ")}\n`;
+  assert.deepEqual(assertValid(listed), assertValid(legacy));
 });
 
 test("maxRepairRounds 作为阶段缺省，显式 maxVisits 覆盖它", () => {

@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { AGENT_SPECS, DEFAULT_AGENT, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
-import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowStage } from "../domain/workflow.js";
+import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { readWorkflow } from "../application/workflow-store.js";
 import { projectRoot } from "./root.js";
 
@@ -16,21 +16,29 @@ function chainLine(workflow: WorkflowDefinition): string {
   return `流程: ${names.join(" → ")}`;
 }
 
+function executorLines(executor: WorkflowExecutor, workflow: WorkflowDefinition, parallel: boolean): string[] {
+  const spec = AGENT_SPECS[executor.agent ?? DEFAULT_AGENT];
+  const defaults = spec.inheritsWorkflowDefaults ? workflow : null;
+  const indent = parallel ? "       " : "     ";
+  return [
+    ...(parallel ? [`     执行器: ${executor.id}`] : []),
+    `${indent}角色文件: ${executor.prompt ?? "（没有指定）"}`,
+    `${indent}Agent: ${executor.agent ?? `（由派发入口决定，普通终端用 ${DEFAULT_AGENT}）`}`,
+    `${indent}模型: ${executor.model ?? defaults?.model ?? spec.modelDefaultLabel}`,
+    `${indent}思考等级: ${executor.thinking ?? defaults?.thinking ?? spec.thinkingDefaultLabel}`,
+  ];
+}
+
 function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefinition): string[] {
   const report = Object.entries(stage.report).map(
     (entry) => `${entry[0]}(${isReportEnum(entry[1]) ? entry[1].join("|") : entry[1]})`,
   );
   const jumps = Object.entries(stage.onVerdict).map((entry) => `${entry[0]} → ${entry[1]}`);
   const tools = stage.tools === null ? "全部放开" : stage.tools.length === 0 ? "全部禁用" : stage.tools.join("、");
-  const spec = AGENT_SPECS[stage.agent ?? DEFAULT_AGENT];
-  const defaults = spec.inheritsWorkflowDefaults ? workflow : null;
   return [
     `  ${index + 1}. ${stage.id}（${stage.name}）`,
     ...(stage.description === null ? [] : [`     说明: ${stage.description}`]),
-    `     角色文件: ${stage.prompt ?? "（没有指定）"}`,
-    `     Agent: ${stage.agent ?? `（由派发入口决定，普通终端用 ${DEFAULT_AGENT}）`}`,
-    `     模型: ${stage.model ?? defaults?.model ?? spec.modelDefaultLabel}`,
-    `     思考等级: ${stage.thinking ?? defaults?.thinking ?? spec.thinkingDefaultLabel}`,
+    ...stage.executors.flatMap((executor) => executorLines(executor, workflow, stage.executors.length > 1)),
     `     工具: ${tools}`,
     ...(report.length === 0 ? [] : [`     报告字段: ${report.join("、")}`]),
     ...(jumps.length === 0 ? [] : [`     按结论跳转: ${jumps.join("；")}`]),

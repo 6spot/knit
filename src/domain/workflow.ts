@@ -5,7 +5,7 @@
  * 读取流程：
  * 1. 用 yaml 解析文档；YAML 语法错误带行号。
  * 2. 预检 version 与 stages，再按 contracts/workflow.ts 的 schema 校验结构。
- * 3. 语义校验：阶段 id、锚点保留字、onVerdict 目标与声明值、回退环上限。
+ * 3. 校验执行器的参数、ID 和并行工具权限，再核对阶段 ID、onVerdict 跳转和回退环上限。
  * 4. 全部通过才返回流程定义；任一问题都不返回流程定义，只给出稳定问题码与全部问题。
  *
  * 注释只影响源文件行号，不影响 WorkflowDefinition；定义中不保存行号，
@@ -42,17 +42,22 @@ import {
 /** 缺省的返工上限；调用方可显式传入配置值。 */
 export const DEFAULT_MAX_REPAIR_ROUNDS = 5;
 
-export interface WorkflowStage {
+export interface WorkflowExecutor {
   id: string;
-  /** 显示名；配置缺省时等于 id。 */
-  name: string;
-  /** 本步说明；缺省 null。 */
-  description: string | null;
   agent: AgentName | null;
   model: string | null;
   thinking: ThinkingLevel | null;
   /** 项目相对提示词路径；缺省 null，表示用核心默认 agent 指令。 */
   prompt: string | null;
+}
+
+export interface WorkflowStage extends Pick<WorkflowExecutor, "agent" | "model" | "thinking" | "prompt"> {
+  id: string;
+  /** 显示名；配置缺省时等于 id。 */
+  name: string;
+  /** 本步说明；缺省 null。 */
+  description: string | null;
+  executors: readonly WorkflowExecutor[];
   /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
   tools: readonly ToolCapability[] | null;
   /** 额外报告字段；空对象表示只校验固定字段。 */
@@ -154,11 +159,11 @@ export function parseWorkflow(source: string): WorkflowLoadResult {
     ]);
   }
 
-  const structuralProblems = [
+  const fieldProblems = [
     ...schemaErrors(WorkflowConfigSchema, raw).map((error) => schemaIssue(error, positions, raw)),
-    ...agentParameterIssues(raw.stages, positions),
+    ...raw.stages.flatMap((stage: unknown, index) => stageExecutorIssues(stage, `/stages/${index}`, positions)),
   ];
-  if (structuralProblems.length > 0) return invalidResult(structuralProblems);
+  if (fieldProblems.length > 0) return invalidResult(fieldProblems);
 
   const config = raw as unknown as WorkflowConfig;
   const semanticProblems = validateSemantics(config, positions);
@@ -172,25 +177,66 @@ export function parseWorkflow(source: string): WorkflowLoadResult {
   };
 }
 
-function agentParameterIssues(stages: readonly unknown[], positions: SourcePositions): WorkflowIssue[] {
-  return stages.flatMap((stage, index) => {
-    if (!isRecord(stage)) return [];
-    const target = validateAgentTarget({
-      agent: checkSchema(AgentNameSchema, stage.agent) ? stage.agent : null,
-      model: typeof stage.model === "string" ? stage.model : null,
-      thinking: typeof stage.thinking === "string" ? stage.thinking : null,
-    });
-    const issues: WorkflowIssue[] = [];
-    if (target.modelProblem !== null) {
-      const path = `/stages/${index}/model`;
-      issues.push(makeIssue("invalid_model", positions.at(path), path, `${readablePath(path)} ${target.modelProblem}`));
-    }
-    if (target.thinkingProblem !== null) {
-      const path = `/stages/${index}/thinking`;
-      issues.push(makeIssue("invalid_thinking", positions.at(path), path, `${readablePath(path)} ${target.thinkingProblem}`));
-    }
-    return issues;
+function stageExecutorIssues(stage: unknown, pointer: string, positions: SourcePositions): WorkflowIssue[] {
+  if (!isRecord(stage)) return [];
+  if (stage.executors === undefined) return targetParameterIssues(stage, pointer, positions);
+
+  const issues = ["agent", "model", "thinking"].flatMap((field) => {
+    if (stage[field] === undefined) return [];
+    const path = `${pointer}/${field}`;
+    return [makeIssue("conflicting_executor_fields", positions.at(path), path,
+      `${readablePath(path)} 与 executors 互斥，请把 ${field} 写在对应的执行器中`)];
   });
+  if (!Array.isArray(stage.executors)) return issues;
+
+  const seen = new Set<string>();
+  stage.executors.forEach((executor: unknown, index) => {
+    if (!isRecord(executor)) return;
+    const item = `${pointer}/executors/${index}`;
+    issues.push(...targetParameterIssues(executor, item, positions));
+    if (executor.id !== undefined && typeof executor.id !== "string") return;
+    const id = executorId(executor.id, index);
+    if (seen.has(id)) {
+      const path = `${item}/id`;
+      issues.push(makeIssue("duplicate_executor_id", positions.at(path), path,
+        `${readablePath(path)} 的执行器 id "${id}" 重复，请指定环节内唯一的 id`));
+    }
+    seen.add(id);
+  });
+  if (stage.executors.length >= 2) {
+    const writeIndex = Array.isArray(stage.tools) ? stage.tools.indexOf("write") : -1;
+    if (stage.tools === undefined || writeIndex >= 0 || (typeof stage.tools === "string" && TOOLS_ALL_REGEX.test(stage.tools))) {
+      const path = `${pointer}/tools${writeIndex >= 0 ? `/${writeIndex}` : ""}`;
+      issues.push(makeIssue("parallel_stage_requires_readonly_tools", positions.at(path), path, parallelToolsMessage(readablePath(path))));
+    }
+  }
+  return issues;
+}
+
+function executorId(id: string | undefined, index: number): string {
+  return id ?? `executor-${index + 1}`;
+}
+
+function parallelToolsMessage(path: string): string {
+  return `${path} 所在的并行环节必须只读，不得含 write。请显式配置 tools: [read, exec] 或 tools: [read]`;
+}
+
+function targetParameterIssues(fields: Record<string, unknown>, pointer: string, positions: SourcePositions): WorkflowIssue[] {
+  const target = validateAgentTarget({
+    agent: checkSchema(AgentNameSchema, fields.agent) ? fields.agent : null,
+    model: typeof fields.model === "string" ? fields.model : null,
+    thinking: typeof fields.thinking === "string" ? fields.thinking : null,
+  });
+  const issues: WorkflowIssue[] = [];
+  if (target.modelProblem !== null) {
+    const path = `${pointer}/model`;
+    issues.push(makeIssue("invalid_model", positions.at(path), path, `${readablePath(path)} ${target.modelProblem}`));
+  }
+  if (target.thinkingProblem !== null) {
+    const path = `${pointer}/thinking`;
+    issues.push(makeIssue("invalid_thinking", positions.at(path), path, `${readablePath(path)} ${target.thinkingProblem}`));
+  }
+  return issues;
 }
 
 interface SourcePosition {
@@ -445,14 +491,23 @@ function workflowFromConfig(config: WorkflowConfig): WorkflowDefinition {
 }
 
 function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): WorkflowStage {
+  const executors = (stage.executors ?? [{ ...stage, id: undefined }]).map((executor, index) => ({
+    id: executorId(executor.id, index),
+    agent: executor.agent ?? null,
+    model: executor.model ?? null,
+    thinking: executor.thinking ?? null,
+    prompt: executor.prompt ?? stage.prompt ?? null,
+  }));
+  const single = executors.length === 1 ? executors[0] : undefined;
   return {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
-    agent: stage.agent ?? null,
-    model: stage.model ?? null,
-    thinking: stage.thinking ?? null,
-    prompt: stage.prompt ?? null,
+    executors,
+    agent: single?.agent ?? null,
+    model: single?.model ?? null,
+    thinking: single?.thinking ?? null,
+    prompt: single?.prompt ?? stage.prompt ?? null,
     tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
     onVerdict: { ...(stage.onVerdict ?? {}) },
@@ -542,15 +597,14 @@ function schemaIssueCode(pointer: string): WorkflowIssueCode {
   if (segments[0] === "thinking") return "invalid_thinking";
   if (segments[0] === "maxRepairRounds") return "invalid_max_repair_rounds";
   if (segments[0] === "stages" && segments.length >= 3) {
+    const executorField = segments[2] === "executors";
+    if (executorField && segments.length <= 4) return "invalid_executors";
+    const field = executorField ? segments[4] : segments[2];
+    if (field === "id") return executorField ? "invalid_executor_id" : "invalid_stage_id";
+    if (field === "agent") return "invalid_agent";
+    if (field === "model") return "invalid_model";
+    if (field === "thinking") return "invalid_thinking";
     switch (segments[2]) {
-      case "id":
-        return "invalid_stage_id";
-      case "agent":
-        return "invalid_agent";
-      case "model":
-        return "invalid_model";
-      case "thinking":
-        return "invalid_thinking";
       case "tools":
         return "invalid_tools";
       case "report":
@@ -570,6 +624,10 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
   const path = readablePath(error.path);
   if (code === "invalid_tools") return toolsIssueMessage(error.path, path, raw);
   switch (code) {
+    case "invalid_executors":
+      return `${path} 配置无效，executors 必须是非空数组，每项为执行器配置映射`;
+    case "invalid_executor_id":
+      return `${path} 不符合执行器 id 规则 ${WORKFLOW_STAGE_ID_REGEX.source}`;
     case "invalid_stage_id":
       return `${path} 缺失或不符合阶段 id 规则 ^[a-z][a-z0-9-]{0,31}$`;
     case "invalid_report":
@@ -598,8 +656,11 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
 }
 
 function toolsIssueMessage(pointer: string, path: string, raw: unknown): string {
+  const segments = pointerSegments(pointer);
+  const executors = valueAtPointer(raw, `/stages/${segments[1]}/executors`);
+  if (Array.isArray(executors) && executors.length >= 2) return parallelToolsMessage(path);
   const value = valueAtPointer(raw, pointer);
-  const isElement = pointerSegments(pointer).length > 3;
+  const isElement = segments.length > 3;
   if (isElement && typeof value === "string" && TOOLS_ALL_REGEX.test(value)) {
     return `${path} 不能在能力列表里写 all；全部放开请写标量 tools: all 或不写 tools，全部禁用写 tools: []`;
   }

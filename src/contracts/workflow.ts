@@ -7,7 +7,7 @@
  * - 注释不属于配置值，也不参与任何比较。
  * - `stages` 的顺序就是流转顺序；`discuss`／`deliver` 是内置锚点，不写进 stages。
  * - `tools` 不写或写标量 `all`（大小写不敏感）表示全部能力放开；空数组 `[]` 表示全部禁用；
- *   非空数组是白名单，列表里不能混入 `all`。
+ *   非空数组是白名单，列表里不能混入 `all`。多执行器并行时必须显式列出能力且不得包含 `write`。
  * - `report` 的值可以是 string／string[]／paths／bool，或非空字符串枚举数组。
  */
 import { arr, bool, int, lit, map, obj, opt, str, union, type Static } from "@earendil-works/pi-schema";
@@ -120,16 +120,27 @@ export const AGENT_SPECS: Readonly<Record<AgentName, AgentSpec>> = {
   },
 };
 
-/** 单个阶段；未知字段视为拼写错误，整体判为非法配置。 */
-export const WorkflowStageConfigSchema = obj({
-  id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
-  name: opt(str()),
-  description: opt(str()),
+const executorTargetFields = {
   agent: opt(AgentNameSchema),
   model: opt(str()),
   thinking: opt(ThinkingLevelSchema),
   /** 项目相对路径；文件是否存在不在这里判断。 */
   prompt: opt(str({ minLength: 1 })),
+};
+
+export const WorkflowExecutorConfigSchema = obj({
+  id: opt(str({ pattern: WORKFLOW_STAGE_ID_PATTERN })),
+  ...executorTargetFields,
+});
+
+/** 单个阶段；未知字段视为拼写错误，整体判为非法配置。 */
+export const WorkflowStageConfigSchema = obj({
+  id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
+  name: opt(str()),
+  description: opt(str()),
+  ...executorTargetFields,
+  /** 与阶段的 agent/model/thinking 互斥，每项的 prompt 缺省取阶段 prompt。 */
+  executors: opt(arr(WorkflowExecutorConfigSchema, { minItems: 1 })),
   /** 不写或 `all` = 全部放开；`[]` = 全部禁用；非空数组 = 白名单。 */
   tools: opt(StageToolsSchema),
   report: opt(map(ReportFieldTypeSchema)),
@@ -166,6 +177,11 @@ export const WORKFLOW_ISSUE_CODES = [
   "invalid_stage_id",
   "reserved_stage_id",
   "duplicate_stage_id",
+  "invalid_executors",
+  "conflicting_executor_fields",
+  "invalid_executor_id",
+  "duplicate_executor_id",
+  "parallel_stage_requires_readonly_tools",
   "invalid_tools",
   "invalid_report",
   "invalid_on_verdict",
