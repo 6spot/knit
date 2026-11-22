@@ -32,8 +32,11 @@ const required = [
   "README.md",
   "assets/templates/workflow.yaml",
   "assets/templates/pi/extensions/knit.ts",
+  "dist/adapters/antigravity/client.js",
+  "dist/adapters/antigravity/pane.js",
   "dist/adapters/pi/pane-worker.js",
   "dist/cli/knit.js",
+  ...(process.platform === "darwin" ? ["dist/adapters/antigravity/command-processes"] : []),
 ];
 for (const path of required) {
   check(paths.includes(path), `包含 ${path}`);
@@ -71,6 +74,10 @@ check(!compiledEntry.includes(process.cwd()), "编译入口不含本机仓库绝
 
 const binMode = statSync(new URL("../dist/cli/knit.js", import.meta.url)).mode;
 check((binMode & 0o111) === 0o111, "bin 入口保留执行位（可执行）");
+if (process.platform === "darwin") {
+  const trackerMode = statSync(new URL("../dist/adapters/antigravity/command-processes", import.meta.url)).mode;
+  check((trackerMode & 0o111) === 0o111, "macOS 命令进程跟踪器保留执行位（可执行）");
+}
 
 const run = spawnSync(process.execPath, [new URL("../dist/cli/knit.js", import.meta.url).pathname, "--version"], {
   encoding: "utf8",

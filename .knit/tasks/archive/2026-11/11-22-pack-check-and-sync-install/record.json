@@ -1,0 +1,8 @@
+{
+  "confirmedDigest": "80815609dc3d2a3aa4c9c11cdbf862d91b0d2a7fbe1db036f901d4c5067c3f8d",
+  "changedPaths": [
+    "scripts/pack-check.mjs"
+  ],
+  "runs": [],
+  "authorization": "用户明确授权：可以授权交付然后继续派发。你不用再问我了，一个一个逐个，都允许你授权交付和下一个继续开发"
+}
