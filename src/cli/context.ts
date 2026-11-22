@@ -19,6 +19,7 @@ export function registerContextCommand(program: Command): void {
       const lines = [
         ...standardLines("discuss", context.discussion),
         ...(task === null ? [] : [...statusLines(task.status), `目录: ${task.dir}`]),
+        ...(task?.commit == null ? [] : [`提交: ${task.commit}`]),
         ...(task?.supplement == null ? [] : standardLines(task.supplement.stage, task.supplement.standards)),
       ];
       process.stdout.write(`${lines.join("\n")}\n`);

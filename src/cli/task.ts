@@ -5,6 +5,8 @@ import {
   createTask,
   readTask,
   scanTasks,
+  shownTaskDirectory,
+  taskCommit,
   type LoadedTask,
 } from "../application/task-store.js";
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
@@ -17,7 +19,6 @@ import {
 } from "../contracts/task.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
-import { gitSync } from "../infrastructure/process.js";
 import { projectRoot } from "./root.js";
 
 export function fail(problems: readonly string[]): void {
@@ -156,14 +157,7 @@ export function registerTaskCommands(program: Command): void {
       const changed = [
         ...new Set([...loaded.record.changedPaths, ...loaded.record.runs.flatMap((run) => run.changedPaths)]),
       ].sort();
-      // 提交号不写进任务文件：交付的提交说明里有一行 Knit-Task，从 Git 记录里查。
-      const commit =
-        frontmatter.status === "delivered"
-          ? gitSync(
-              ["log", "-1", "--format=%h %s", "--fixed-strings", "--grep", `Knit-Task: ${frontmatter.id}`],
-              loaded.root,
-            )
-          : null;
+      const commit = taskCommit(loaded);
       const lines = [
         `标题: ${frontmatter.title}`,
         `ID: ${frontmatter.id}`,
@@ -172,9 +166,8 @@ export function registerTaskCommands(program: Command): void {
         `优先级: ${frontmatter.priority}`,
         `父任务: ${frontmatter.parent ?? "无"}`,
         `依赖: ${frontmatter.dependsOn.join(", ") || "无"}`,
-        `目录: ${loaded.stored.dir}`,
-        // 不在 Git 仓库里、仓库还没有提交、找不到这样的提交时都没有这一行。
-        ...(commit !== null && commit.code === 0 && commit.stdout.trim() !== "" ? [`提交: ${commit.stdout.trim()}`] : []),
+        `目录: ${shownTaskDirectory(loaded)}`,
+        ...(commit === null ? [] : [`提交: ${commit}`]),
         `完成条件: ${scenarios.scenarios.length} 个场景` +
           (scenarios.issues.length > 0 ? `，${scenarios.issues.length} 处写法问题` : ""),
         `待澄清: ${clarify.blocking} 项 blocking，${clarify.assumed} 项 assumed`,

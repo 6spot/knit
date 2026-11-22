@@ -3,12 +3,14 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
 import { parseTaskDocument, renderTaskDocument, type TaskDocument } from "../domain/task-document.js";
 import { parseTaskRecord, renderTaskRecord } from "../domain/task-record.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
+import { gitSync } from "../infrastructure/process.js";
+import { projectWorktreeRoot, taskWorktree } from "./worktree.js";
 
 export const TASKS_DIR = ".knit/tasks";
 export const ARCHIVE_DIR = `${TASKS_DIR}/archive`;
@@ -16,7 +18,8 @@ export const TASK_FILE = "task.md";
 export const RECORD_FILE = "record.json";
 
 export interface StoredTask {
-  /** 任务目录，相对项目根，用 `/` 分隔。 */
+  readonly storeRoot: string;
+  /** 任务目录，相对所在检出根，用 `/` 分隔。 */
   readonly dir: string;
   readonly archived: boolean;
   /** task.md 开头字段里的 id；文档解析不出来时是从 `id:` 那一行直接取的，连这一行都没有时是 null。 */
@@ -47,8 +50,8 @@ export function scanTasks(root: string): StoredTask[] {
   return [...storedTasks(root)];
 }
 
-function* storedTasks(root: string): Generator<StoredTask> {
-  for (const entry of taskDirectories(root)) {
+function* storedTasks(root: string, directories = taskDirectories(root)): Generator<StoredTask> {
+  for (const entry of directories) {
     const taskFile = readWithVersion(join(root, entry.dir, TASK_FILE));
     if (taskFile === null) continue;
     const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
@@ -56,6 +59,7 @@ function* storedTasks(root: string): Generator<StoredTask> {
     const document = parseTaskDocument(markdown);
     const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
     yield {
+      storeRoot: root,
       dir: entry.dir,
       archived: entry.archived,
       // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
@@ -78,6 +82,18 @@ export function findTask(root: string, id: string): StoredTask | null {
   for (const task of storedTasks(root)) {
     if (task.id === id) return task;
   }
+  const worktrees = projectWorktreeRoot(root);
+  for (const entry of directoryEntries(worktrees)) {
+    const checkout = join(worktrees, entry.name);
+    if (!entry.isDirectory()) {
+      const linkedRepo = entry.isSymbolicLink() ? gitCommonDirectory(checkout) : null;
+      if (linkedRepo === null || linkedRepo !== gitCommonDirectory(root)) continue;
+    }
+    // 其它任务的归档可能随建分支时的 HEAD 一起检出，只读该分支自己的交付。
+    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name))) {
+      if (task.id === id && task.document?.frontmatter.status === "delivered") return task;
+    }
+  }
   return null;
 }
 
@@ -86,6 +102,27 @@ export interface LoadedTask {
   readonly stored: StoredTask;
   readonly document: TaskDocument;
   readonly record: TaskRecord;
+}
+
+export function shownTaskDirectory(task: LoadedTask): string {
+  return task.root === task.stored.storeRoot ? task.stored.dir : join(task.stored.storeRoot, task.stored.dir);
+}
+
+/** 归档被忽略时它留在主检出，交付提交仍可能只在任务分支上。 */
+export function taskCommit(task: LoadedTask): string | null {
+  if (task.document.frontmatter.status !== "delivered") return null;
+  const id = task.document.frontmatter.id;
+  const log = (ref: string, skip = 0): string | null => {
+    // 正文也可能引用完整的标记行，只有 Git 解析出的文末字段才标识交付提交。
+    const [summary, ...taskIds] = gitSync([
+      "-c", "trailer.separators=:", "log", "-1", `--skip=${skip}`,
+      "--format=%h %s%x00%(trailers:key=Knit-Task,valueonly,separator=%x00)",
+      "--basic-regexp", "--grep", `^Knit-Task: ${id}$`, ref, "--",
+    ], task.root).stdout.trimEnd().split("\0");
+    if (!summary) return null;
+    return taskIds.includes(id) ? summary : log(ref, skip + 1);
+  };
+  return log("HEAD") ?? log(`refs/heads/${taskWorktree(task.root, task.stored.dir).branch}`);
 }
 
 export interface TaskRefusal {
@@ -102,7 +139,8 @@ export function readTask(root: string, id: string): { kind: "loaded"; task: Load
 
 /** 建目录并写入 task.md；record.json 等第一次有内容要记时再建。 */
 export function createTask(root: string, input: NewTask): CreateTaskResult {
-  const known = new Set(scanTasks(root).map((task) => task.document?.frontmatter.id));
+  const references = new Set(input.parent === null ? input.dependsOn : [input.parent, ...input.dependsOn]);
+  const known = new Set([...references].filter((id) => findTask(root, id)?.document != null));
   const problems = [
     ...(input.parent === null || known.has(input.parent) ? [] : [`--parent 指定的任务不存在：${input.parent}`]),
     ...input.dependsOn.filter((id) => !known.has(id)).map((id) => `--depends-on 指定的任务不存在：${id}`),
@@ -112,9 +150,12 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
   const now = new Date();
   const slug = input.slug.replace(/[^0-9A-Za-z_-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
   const base = [now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-") + `-${slug}`;
-  const taken = new Set(Array.from(taskDirectories(root), (entry) => basename(entry.dir)));
-  // 候选比已有目录多一个，所以一定有一个没被占用。
-  const name = [base, ...Array.from(taken, (_, index) => `${base}-${index + 2}`)].find((candidate) => !taken.has(candidate)) ?? base;
+  const refs = gitSync(["for-each-ref", "--format=%(refname:lstrip=3)", "refs/heads/knit/"], root);
+  if (refs.code !== 0 && (existsSync(join(root, ".git")) || gitCommonDirectory(root) !== null)) {
+    return { created: null, problems: [`无法读取本地任务分支：${refs.stderr.trimEnd()}`] };
+  }
+  const name = availableTaskName(root, base, refs.stdout.split("\n").filter(Boolean));
+  if (name === undefined) return { created: null, problems: [`无法分配任务目录名：${base}`] };
   const dir = `${TASKS_DIR}/${name}`;
   const id = `k-${randomBytes(6).toString("hex")}`;
   // 先建目录：atomicWrite 自己建的目录只有本人能进，而任务目录要入库。
@@ -144,11 +185,33 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
   return { created: { id, file: `${dir}/${TASK_FILE}` }, problems: [] };
 }
 
+function availableTaskName(root: string, base: string, refs: readonly string[]) {
+  const directories = [
+    join(root, TASKS_DIR),
+    ...directoryNames(join(root, ARCHIVE_DIR)).map((month) => join(root, ARCHIVE_DIR, month)),
+    projectWorktreeRoot(root),
+  ];
+  const branches = refs.map((ref) => ref.split("/", 1)[0]!);
+  const taken = new Set([...directories.flatMap((dir) => directoryEntries(dir).map((entry) => entry.name)), ...branches]);
+  // 打包后的引用按精确拼写查找，后来写的松散引用却可能遮住它。用已有的 HEAD 文件判断引用库的大小写。
+  const gitDir = branches.length > 0 ? gitCommonDirectory(root) : null;
+  const foldedBranches = new Set(gitDir !== null && existsSync(join(gitDir, "head")) ? branches.map((name) => name.toLowerCase()) : []);
+  return [base, ...Array.from(taken, (_, index) => `${base}-${index + 2}`)].find((name) =>
+    !taken.has(name) && !foldedBranches.has(name.toLowerCase()) &&
+    directories.every((dir) => lstatSync(join(dir, name), { throwIfNoEntry: false }) === undefined),
+  );
+}
+
+function gitCommonDirectory(root: string): string | null {
+  return gitSync(["rev-parse", "--path-format=absolute", "--git-common-dir"], root).stdout.trimEnd() || null;
+}
+
 /**
  * 把改过的两个文件写回。读入之后有文件被别人改过时不写，返回是哪个文件。
  * 先写 record.json 再写 task.md：中间断掉时状态和确认摘要对不上，任务按 draft 算，重新确认一次即可。
  */
 export function saveTask(root: string, stored: StoredTask, document: TaskDocument, record: TaskRecord): string[] {
+  if (root !== stored.storeRoot) return [`任务已在 Worktree 归档，只能读取：${join(stored.storeRoot, stored.dir)}`];
   const taskFile = join(root, stored.dir, TASK_FILE);
   const recordFile = join(root, stored.dir, RECORD_FILE);
   const changed = [
@@ -189,18 +252,27 @@ export function archiveTask(root: string, stored: StoredTask, targetRoot = root)
 }
 
 function* taskDirectories(root: string) {
-  for (const dir of subdirectories(root, TASKS_DIR)) {
-    if (dir !== ARCHIVE_DIR) yield { dir, archived: false };
+  for (const name of directoryNames(join(root, TASKS_DIR))) {
+    if (name !== "archive") yield { dir: `${TASKS_DIR}/${name}`, archived: false };
   }
-  for (const month of subdirectories(root, ARCHIVE_DIR)) {
-    for (const dir of subdirectories(root, month)) yield { dir, archived: true };
+  yield* archiveDirectories(root);
+}
+
+function* archiveDirectories(root: string, taskName?: string) {
+  for (const month of directoryNames(join(root, ARCHIVE_DIR))) {
+    const monthDir = `${ARCHIVE_DIR}/${month}`;
+    const names = taskName === undefined ? directoryNames(join(root, monthDir)) : [taskName];
+    for (const name of names) yield { dir: `${monthDir}/${name}`, archived: true };
   }
 }
 
-function subdirectories(root: string, relative: string): string[] {
-  if (!existsSync(join(root, relative))) return [];
-  return readdirSync(join(root, relative), { withFileTypes: true })
+function directoryEntries(path: string) {
+  return statSync(path, { throwIfNoEntry: false })?.isDirectory() ? readdirSync(path, { withFileTypes: true }) : [];
+}
+
+function directoryNames(path: string): string[] {
+  return directoryEntries(path)
     .filter((entry) => entry.isDirectory())
-    .map((entry) => `${relative}/${entry.name}`)
+    .map((entry) => entry.name)
     .sort();
 }

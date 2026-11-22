@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -146,6 +146,7 @@ test("应用层返回自动合并冲突的原始 Git 输出，归档与提交保
   assert.equal(git(root, "rev-parse", worktree.branch), git(worktree.path, "rev-parse", "HEAD"));
   assert.equal(existsSync(join(root, task.dir)), false);
   assert.match(readFileSync(join(result.archiveRoot, result.archiveDir, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.ok(knit(root, "context", task.id).stdout.includes(`目录: ${join(worktree.path, archive)}\n`));
 });
 
 test("Worktree 清理拒绝不强制，未入库文件和分支保留且退出码为 0", (t) => {
@@ -255,6 +256,99 @@ test("显式关闭 autoMerge 时预览和交付沿用原文", (t) => {
   assert.deepEqual(mainIdentity(root), before);
 });
 
+test("交付后同名任务使用新目录，取消只清理新任务", (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t);
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  const commit = git(root, "rev-parse", worktree.branch);
+  assert.equal(existsSync(join(root, task.dir)), false);
+  const create = () => knit(root, "task", "new", "--title", "新任务", "--slug", "task");
+  const created = create();
+  assert.equal(created.code, 0, created.stderr);
+  assert.equal(created.stdout.split("\n")[1], `${task.dir}-2/task.md`);
+  const cancelled = knit(root, "task", "cancel", created.stdout.split("\n")[0].replace("已创建 ", ""), "--reason", "取消新任务");
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(git(root, "rev-parse", worktree.branch), commit);
+  assert.equal(git(worktree.path, "rev-parse", "HEAD"), commit);
+  assert.match(readFileSync(join(worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
+
+  git(root, "branch", `${worktree.branch}-3`);
+  mkdirSync(`${worktree.path}-4`);
+  git(root, "branch", `${worktree.branch}-5/part`);
+  git(root, "pack-refs", "--all");
+  const packedRefs = join(root, ".git/packed-refs");
+  const originalRefs = readFileSync(packedRefs);
+  writeFileSync(packedRefs, "broken packed reference\n");
+  const refused = create();
+  writeFileSync(packedRefs, originalRefs);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /无法读取本地任务分支/);
+  assert.equal(existsSync(join(root, `${task.dir}-3`)), false);
+
+  const next = create();
+  assert.equal(next.code, 0, next.stderr);
+  assert.equal(next.stdout.split("\n")[1], `${task.dir}-6/task.md`);
+
+  const upper = knit(root, "task", "new", "--title", "不同大小写", "--slug", "TASK");
+  assert.equal(upper.code, 0, upper.stderr);
+  const upperDir = task.dir.replace(/-task$/, "-TASK");
+  const caseInsensitive = existsSync(worktree.path.replace(/-task$/, "-TASK"));
+  assert.equal(upper.stdout.split("\n")[1], `${upperDir}${caseInsensitive ? "-7" : ""}/task.md`);
+});
+
+test("合并前按 ID 读取 Worktree 归档并建立依赖，合并后优先读取主检出", (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t);
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  const commit = git(worktree.path, "log", "-1", "--format=%h %s");
+  git(root, "config", "trailer.separators", "=");
+  git(root, "commit", "-qm", "document a delivery marker", "-m", `Example:\nKnit-Task: ${task.id}\nEnd of example.`, "--allow-empty");
+  for (const args of [["context"], ["task", "show"], ["run", "status"]]) {
+    const result = knit(root, ...args, task.id);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /^状态: delivered$/m);
+    if (args[0] !== "run") {
+      assert.ok(result.stdout.includes(`目录: ${join(worktree.path, archive)}\n`), result.stdout);
+      assert.ok(result.stdout.includes(`提交: ${commit}\n`), result.stdout);
+    }
+  }
+  assert.equal(knit(root, "task", "list").stdout, "没有任务\n");
+  const refused = knit(root, "task", "cancel", task.id, "--reason", "已交付");
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /delivered/);
+  assert.equal(git(worktree.path, "status", "--porcelain"), "");
+
+  const child = knit(root, "task", "new", "--title", "子任务", "--parent", task.id, "--depends-on", task.id);
+  assert.equal(child.code, 0, child.stderr);
+  const childId = child.stdout.split("\n")[0].replace("已创建 ", "");
+  const ready = knit(root, "task", "ready", childId);
+  assert.equal(ready.code, 0, ready.stderr);
+  const blocked = knit(root, "run", "start", childId);
+  assert.equal(blocked.code, 1);
+  assert.ok(blocked.stderr.includes(`git merge ${worktree.branch}`), blocked.stderr);
+
+  git(root, "merge", "--no-edit", worktree.branch);
+  const shown = knit(root, "task", "show", task.id);
+  assert.equal(shown.code, 0, shown.stderr);
+  assert.ok(shown.stdout.includes(`目录: ${archive}\n`), shown.stdout);
+  assert.ok(shown.stdout.includes(`提交: ${commit}\n`), shown.stdout);
+  assert.equal(knit(root, "task", "list", "--archive").stdout.split(task.id).length - 1, 1);
+});
+
+test("任务 Worktree 在预期位置保留目录链接时仍能按 ID 读取归档", (t) => {
+  const { root, task, worktree, archive, deliver } = completed(t);
+  const delivered = deliver();
+  assert.equal(delivered.code, 0, delivered.stderr);
+  const moved = join(project(t), "moved-checkout");
+  git(root, "worktree", "move", worktree.path, moved);
+  symlinkSync(moved, worktree.path, "dir");
+
+  const context = knit(root, "context", task.id);
+  assert.equal(context.code, 0, context.stderr);
+  assert.ok(context.stdout.includes(`目录: ${join(worktree.path, archive)}\n`), context.stdout);
+  assert.ok(context.stdout.includes(`提交: ${git(moved, "log", "-1", "--format=%h %s")}\n`), context.stdout);
+});
+
 test("派发过的任务只在任务分支提交代码和归档，主检出 HEAD 不变", (t) => {
   const { root, task, worktree, archive, deliver } = completed(t);
   const main = mainIdentity(root);
@@ -350,6 +444,7 @@ test("被忽略的任务目录留在主检出归档，合并并删除 Worktree �
   assert.deepEqual(git(worktree.path, "show", "--name-only", "--format=", "HEAD").split("\n"), ["src/a.txt"]);
   assert.equal(existsSync(join(root, task.dir)), false);
   assert.equal(existsSync(join(worktree.path, archive)), false);
+  assert.ok(knit(root, "task", "show", task.id).stdout.includes(`提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\n`));
   git(root, "merge", worktree.branch);
   git(root, "worktree", "remove", worktree.path);
   assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);

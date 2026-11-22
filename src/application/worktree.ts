@@ -9,16 +9,19 @@ export interface TaskWorktree {
   readonly branch: string;
 }
 
+export function projectWorktreeRoot(root: string): string {
+  const realRoot = realpathSync(root);
+  return join(
+    resolve(realRoot, process.env.KNIT_HOME || join(homedir(), ".knit")),
+    "worktrees",
+    `${basename(realRoot)}-${createHash("sha256").update(realRoot).digest("hex").slice(0, 8)}`,
+  );
+}
+
 /** 位置和分支由主检出的真实路径、任务目录名计算，不存绑定关系。 */
 export function taskWorktree(root: string, taskDir: string): TaskWorktree {
-  const realRoot = realpathSync(root);
   return {
-    path: join(
-      resolve(realRoot, process.env.KNIT_HOME || join(homedir(), ".knit")),
-      "worktrees",
-      `${basename(realRoot)}-${createHash("sha256").update(realRoot).digest("hex").slice(0, 8)}`,
-      basename(taskDir),
-    ),
+    path: join(projectWorktreeRoot(root), basename(taskDir)),
     branch: `knit/${basename(taskDir)}`,
   };
 }

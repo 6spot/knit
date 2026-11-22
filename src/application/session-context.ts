@@ -8,7 +8,7 @@ import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { livePane, liveWorker } from "./run-process.js";
 import { loadStandards } from "./standards-store.js";
-import { readTask, type TaskRefusal } from "./task-store.js";
+import { readTask, shownTaskDirectory, taskCommit, type TaskRefusal } from "./task-store.js";
 import { readWorkflow } from "./workflow-store.js";
 import { taskWorktree } from "./worktree.js";
 
@@ -48,5 +48,7 @@ export function buildSessionContext(root: string, id?: string) {
   const supplement = stage === null || stage === "discuss" ? null : {
     stage, standards: standardsForStage(standards, stage).filter((standard) => !discussionPaths.has(standard.path)),
   };
-  return { kind: "context", discussion, task: { dir: stored.dir, status, supplement } } as const;
+  return { kind: "context", discussion, task: {
+    dir: shownTaskDirectory(loaded.task), commit: taskCommit(loaded.task), status, supplement,
+  } } as const;
 }
