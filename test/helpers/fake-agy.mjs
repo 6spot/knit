@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -62,15 +62,24 @@ function tools() {
     }
     if (spec.name === "run_command") {
       row({ type: "APPROVAL", result });
-      assert.match(result.overwrite.CommandLine, /^\/private\/tmp\/knit-agy-exec-[\w-]+\/run-command [a-f0-9-]+$/);
+      assert.match(result.overwrite.CommandLine, /^KNIT_AGY_REQUEST=[a-f0-9-]+ \/private\/tmp\/knit-agy-exec-[\w-]+\/run-command$/);
       if (spec.decline) {
         row({ type: "TOOL", status: "ERROR", error: { message: "User declined the tool call" } });
         return { decision: result.decision, declined: true };
+      }
+      if (spec.background) {
+        const [assignment, entry] = result.overwrite.CommandLine.split(" ");
+        const client = spawn(entry, [], { env: { ...process.env, KNIT_AGY_REQUEST: assignment.split("=")[1] }, stdio: "ignore" });
+        return { decision: result.decision, pid: client.pid };
       }
       const command = spawnSync("/bin/sh", ["-c", result.overwrite.CommandLine], { encoding: "utf8", timeout: 7000 });
       return { decision: result.decision, stdout: command.stdout, stderr: command.stderr, code: command.status };
     }
     try {
+      if (spec.name === "edit_file") {
+        const { Path, Target, Replacement } = spec.args;
+        writeFileSync(Path, readFileSync(Path, "utf8").replace(Target, Replacement));
+      }
       if (spec.name === "write_to_file") writeFileSync(spec.args.TargetFile, "native\n");
       return { decision: result.decision, text: spec.name === "view_file" ? readFileSync(spec.args.AbsolutePath, "utf8") : null };
     } catch (error) {

@@ -9,7 +9,7 @@ import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../..
 import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-session.js";
 import { atomicWrite } from "../../infrastructure/atomic.js";
 import { AgyBroker } from "./broker.js";
-import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
+import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, handoffReadPaths, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
 import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, transcriptTurn, TURN_INSTRUCTIONS } from "./protocol.js";
 
 const HOOK_TARGET = "agy-hooks.json";
@@ -51,6 +51,21 @@ export function cleanAgyRuntime(cwd: string, dir: string): void {
   rmSync(locator, { force: true });
 }
 
+async function sessionAskRules(rules: unknown, pane: boolean, entry: string | null): Promise<unknown[]> {
+  if (!pane || !Array.isArray(rules)) return [];
+  if (entry === null || rules.length === 0) return rules;
+  const { RE2JS } = await import("re2js");
+  return rules.filter((rule: unknown) => {
+    const target = typeof rule === "string" ? /^command\((.*)\)$/s.exec(rule.trim())?.[1]?.trim() : undefined;
+    if (target === "*" || target === entry) return false;
+    if (!target?.startsWith("regex:")) return true;
+    const pattern = target.slice("regex:".length).trim();
+    // The forwarder takes no arguments. agy anchors each regex to a whole command word.
+    if (/\s/.test(pattern)) return true;
+    try { return !RE2JS.matches(pattern, entry); } catch { return true; }
+  });
+}
+
 class AgySession implements AgentSession {
   private child: ChildProcess | null = null;
   private broker: AgyBroker | null = null;
@@ -70,7 +85,7 @@ class AgySession implements AgentSession {
 
   constructor(input: AgentLaunch, private readonly executable: string | null, private readonly pane: boolean) {
     this.original = input;
-    this.input = { ...input, cwd: realpathSync.native(input.cwd) };
+    this.input = { ...input, cwd: realpathSync.native(input.cwd), root: realpathSync.native(input.root), dir: realpathSync.native(input.dir) };
   }
 
   get sessionFile(): string | null { return this.streamFile ?? this.nativeFile; }
@@ -82,6 +97,7 @@ class AgySession implements AgentSession {
       writeFileSync(join(this.input.dir, TEMP_PATH), this.temp, { mode: 0o600 });
       this.broker = new AgyBroker(this.input, join(this.temp, "tool.sock"), this.pane, (event, payload) => this.hook(event, payload));
       await this.broker.start();
+      await this.writeSettings();
       const command = (event: string) => ({ type: "command", command: this.broker!.hookCommand(event), timeout: 10 });
       const generated = join(this.input.dir, HOOK_TARGET);
       writeFileSync(generated, JSON.stringify({ knit: {
@@ -130,25 +146,28 @@ class AgySession implements AgentSession {
     cleanAgyRuntime(this.original.cwd, this.original.dir);
   }
 
-  private launch(first: string): void {
-    const settings = join(this.input.dir, "agy-settings.json");
+  private async writeSettings(): Promise<void> {
     const nativeSettings = join(homedir(), ".gemini/antigravity-cli/settings.json");
     const nativePermissions = existsSync(nativeSettings) ? object(object(readFileSync(nativeSettings, "utf8"))?.permissions) : null;
-    const dir = join(this.input.dir, "session");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(settings, JSON.stringify({
+    const handoff = permits(this.input.capabilities, "read") ? handoffReadPaths(this.input.root) : [];
+    const exec = permits(this.input.capabilities, "exec");
+    writeFileSync(join(this.input.dir, "agy-settings.json"), JSON.stringify({
       trustedWorkspaces: [this.input.cwd], enableTerminalSandbox: false, allowNonWorkspaceAccess: false,
       toolPermission: "request-review", disableSlashCommands: true, agentMode: "", statusLine: { enabled: false }, title: { enabled: false },
       permissions: {
         ...nativePermissions,
+        ask: await sessionAskRules(nativePermissions?.ask, this.pane, exec ? this.broker!.commandPrefix : null),
         allow: [
           ...(Array.isArray(nativePermissions?.allow) ? nativePermissions.allow : []),
-          ...(permits(this.input.capabilities, "exec") ? [`command(${this.broker!.commandPrefix})`] : []),
+          ...(exec ? [`command(${this.broker!.commandPrefix})`] : []),
+          ...handoff.map((path) => `read_file(${path})`),
           ...(this.pane || !permits(this.input.capabilities, "read") ? [] : [`read_file(${this.input.cwd})`]),
           ...(this.pane || !permits(this.input.capabilities, "write") ? [] : [`write_file(${this.input.cwd})`]),
         ],
         deny: [
           ...(Array.isArray(nativePermissions?.deny) ? nativePermissions.deny : []),
+          ...handoff.map((path) => `write_file(${path})`),
+          `read_file(${this.input.dir})`,
           ...(permits(this.input.capabilities, "read") ? [] : ["read_file(*)"]),
           ...(permits(this.input.capabilities, "write") ? [] : ["write_file(*)"]),
           ...(permits(this.input.capabilities, "exec") ? [] : ["command(*)"]),
@@ -157,9 +176,14 @@ class AgySession implements AgentSession {
         ],
       },
     }));
+  }
+
+  private launch(first: string): void {
+    const dir = join(this.input.dir, "session");
+    mkdirSync(dir, { recursive: true });
     const profile = sandboxProfile({ cwd: this.input.cwd, dir: this.input.dir, paths: this.input.protectedPaths ?? [],
       cli: { home: homedir(), temporary: this.temp! }, network: true, write: permits(this.input.capabilities, "write") });
-    const child = spawn(SANDBOX, ["-p", profile, this.executable!, "--settings", settings,
+    const child = spawn(SANDBOX, ["-p", profile, this.executable!, "--settings", join(this.input.dir, "agy-settings.json"),
       ...(this.input.model === null ? [] : [`--model=${this.input.model}`]),
       ...(this.input.thinking === null ? [] : [`--effort=${this.input.thinking}`]),
       ...(this.pane ? ["--prompt-interactive", first] : ["--disable-slash-commands", "--input-format", "stream-json", "--output-format", "stream-json"]),

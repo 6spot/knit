@@ -26,5 +26,5 @@ if (kind === "hook") {
     if (typeof reply?.error === "string") console.error(reply.error);
     if (typeof reply?.code === "number") process.exitCode = reply.code;
   });
-  socket.end(JSON.stringify({ kind, key: value }));
+  socket.write(`${JSON.stringify({ kind, key: value })}\n`);
 }

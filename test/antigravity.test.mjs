@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { AntigravityExecutionAdapter } from "../dist/adapters/antigravity/execution.js";
 import { knit } from "./helpers/cli.mjs";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { commitAll } from "./helpers/git.mjs";
@@ -199,7 +200,8 @@ test("Rex 创建窗格失败时保留 Agent 和覆盖值，SUCCESS 保留 denied
 
 test("Rex 等追加输入，以原命令显示批准与拒绝，并在原会话补报", isolated, async (t) => {
   const f = fixture(t, { rex: true, options: "    model: stage-model\n    thinking: medium\n" });
-  const permissions = { allow: ["command(git status)"], ask: ["command(printf)"], deny: ["command(git push)"] };
+  const retainedAsk = ["write_file(*)", "command(git push)", "command(regex:git)", "command(regex:.* --version)"];
+  const permissions = { allow: ["command(git status)"], ask: ["command(*)", "command(regex:(?i)/private/tmp/knit-agy-exec-.*/RUN-COMMAND)", ...retainedAsk], deny: ["command(git push)"] };
   writeFileSync(join(f.state, "settings.json"), JSON.stringify({ permissions }));
   const cwd = worktreeOf(f.root, f.task);
   const gate = join(cwd, "input-ready");
@@ -218,14 +220,16 @@ test("Rex 等追加输入，以原命令显示批准与拒绝，并在原会话�
   assert.equal(run.verdict, "pass", run.failure);
   const transcript = readRows(run.sessionFile);
   assert.deepEqual(transcript.filter((row) => row.type === "APPROVAL").map((row) => [row.result.decision, row.result.permissionOverrides]), [
-    ["force_ask", [`command(${allow})`]], ["force_ask", [`command(${reject})`]],
+    ["ask", [`command(${allow})`]], ["ask", [`command(${reject})`]],
   ]);
   assert.ok(transcript[0].args.includes("--model=stage-model") && transcript[0].args.includes("--effort=medium"));
-  const commandEntry = transcript.find((row) => row.type === "APPROVAL").result.overwrite.CommandLine.split(" ")[0];
+  const commandEntry = transcript.find((row) => row.type === "APPROVAL").result.overwrite.CommandLine.split(" ").at(-1);
+  const handoff = [join(f.root, ".knit/tasks"), join(f.root, ".knit/.runtime/runs")].map((path) => realpathSync.native(path));
   assert.deepEqual(transcript[0].settings.permissions, {
-    ...permissions,
-    allow: [...permissions.allow, `command(${commandEntry})`],
-    deny: [...permissions.deny, "mcp(*)", "read_url(*)", "execute_url(*)"],
+    ask: retainedAsk,
+    allow: [...permissions.allow, `command(${commandEntry})`, ...handoff.map((dir) => `read_file(${dir})`)],
+    deny: [...permissions.deny, ...handoff.map((dir) => `write_file(${dir})`), `read_file(${realpathSync.native(runDir(f.root, run))})`,
+      "mcp(*)", "read_url(*)", "execute_url(*)"],
   });
   assert.equal(transcript.filter((row) => row.type === "USER_INPUT").length, 3);
   assert.ok(!existsSync(join(cwd, ".agents/hooks.json")));
@@ -256,6 +260,23 @@ test("后台正常结算前停止已脱离父进程和进程组的命令服务",
   const checks = readRows(f.transcripts()[0]).find((row) => row.type === "TOOL_CHECKS").checks;
   assert.equal(checks[0].code, 0, checks[0].stderr);
   assert.ok(!alive(pid), "执行已入账，脱离进程组的命令服务仍在运行");
+});
+
+test("后台命令的转发客户端被终止时，在会话结束前回收命令", isolated, async (t) => {
+  const f = fixture(t, { rex: true });
+  const cwd = worktreeOf(f.root, f.task);
+  const gate = join(cwd, "input-ready");
+  const pidFile = join(cwd, "command.pid");
+  f.start({ wait: gate, tools: [{ name: "run_command", args: { CommandLine: "echo $$ > command.pid; exec sleep 60" }, background: true }] });
+  const pid = await until(() => existsSync(pidFile) && Number(readFileSync(pidFile, "utf8")));
+  assert.ok(alive(pid));
+  const checks = readRows(f.transcripts()[0]).find((row) => row.type === "TOOL_CHECKS").checks;
+  process.kill(checks[0].pid, "SIGKILL");
+  await until(() => !alive(pid));
+  assert.equal(lastRun(f.root, f.task).endedAt, null);
+  writeFileSync(gate, "");
+  const run = await f.ended();
+  assert.equal(run.verdict, "pass", run.failure);
 });
 
 test("直接取消结束 agy、同组命令和已脱离父进程的服务，结果由 Pi 工具返回", isolated, async (t) => {
@@ -407,6 +428,73 @@ test("准备命令生成冲突的钩子时，在登记执行前撤回新 Worktre
   assert.equal(lastRun(f.root, f.task), undefined);
 });
 
+test("后台原生工具按实际路径读取交接资料，当前运行和主检出写入受保护", isolated, async (t) => {
+  const f = fixture(t);
+  const cwd = join(f.dir, "worktree");
+  const tasks = join(f.root, ".knit/tasks");
+  const runs = join(f.root, ".knit/.runtime/runs");
+  const dir = join(runs, "current");
+  const report = join(runs, "previous/report.md");
+  const plan = join(f.root, f.task.dir, "plan.md");
+  mkdirSync(join(runs, "previous"), { recursive: true });
+  mkdirSync(dir);
+  mkdirSync(join(cwd, ".knit"), { recursive: true });
+  writeFileSync(join(cwd, ".knit/workflow.yaml"), "original");
+  writeFileSync(join(cwd, "project.txt"), "original");
+  writeFileSync(join(dir, "system.md"), "fixture");
+  writeFileSync(report, "previous");
+  writeFileSync(plan, "plan");
+  symlinkSync(dir, join(tasks, "current-link"));
+  const permissions = { ask: ["command(*)", "write_file(*)"], deny: ["command(git push)"], allow: ["command(git status)"] };
+  writeFileSync(join(f.state, "settings.json"), JSON.stringify({ permissions }));
+  const view = (path) => ({ name: "view_file", args: { AbsolutePath: path } });
+  const edit = (path) => ({ name: "edit_file", args: { Path: path, Target: "original", Replacement: "edited" } });
+  const searches = [
+    ["list_dir", "DirectoryPath", {}],
+    ["find_by_name", "SearchDirectory", { Pattern: "*.txt" }],
+    ["grep_search", "SearchPath", { Query: "original" }],
+  ].flatMap(([name, field, args]) => [
+    { name, args }, { name, args: { ...args, [field]: "" } }, { name, args: { ...args, [field]: join(runs, "previous") } },
+  ]);
+  const session = new AntigravityExecutionAdapter().createSession({ root: f.root, cwd, dir, capabilities: ["read", "write", "exec"],
+    model: null, thinking: null, report: {} });
+  const cases = [
+    ...searches.map((tool) => [tool, "allow"]),
+    [view(plan), "allow"], [view(report), "allow"], [{ name: "read_file", args: { Path: "project.txt" } }, "allow"],
+    [view(join(dir, "system.md")), "deny"], [view(join(tasks, "current-link/system.md")), "deny"],
+    [view(join(f.root, ".knit/workflow.yaml")), "deny"], [view(f.home), "deny"],
+    [{ name: "grep_search", args: { SearchPath: runs, Query: "previous" } }, "deny"],
+    [{ name: "find_by_name", args: { SearchDirectory: dir, Pattern: "*.md" } }, "deny"],
+    [edit("project.txt"), "allow"], [edit(".knit/workflow.yaml"), "deny"], [edit(plan), "deny"], [edit(report), "deny"],
+    [{ name: "run_command", args: { CommandLine: "pwd", RunPersistent: true } }, "deny"],
+    [{ name: "run_command", args: { CommandLine: "pwd", RequestedTerminalID: "fixture" } }, "deny"],
+    [{ name: "run_command", args: { CommandLine: `echo overwrite > '${plan}' ; echo overwrite > '${report}'` } }, "auto_approve"],
+  ];
+  process.env.KNIT_FAKE_AGY = JSON.stringify({ tools: cases.map(([tool]) => tool) });
+  try {
+    assert.equal(await session.start(), null);
+    assert.equal((await session.prompt("fixture")).failure, null);
+  } finally {
+    await session.stop();
+  }
+  const rows = readRows(f.transcripts()[0]);
+  const settings = rows[0].settings;
+  assert.equal(settings.allowNonWorkspaceAccess, false);
+  assert.deepEqual(settings.trustedWorkspaces, [cwd]);
+  assert.deepEqual(settings.permissions.ask, []);
+  assert.ok(settings.permissions.deny.includes(permissions.deny[0]));
+  for (const rule of [permissions.allow[0], `read_file(${realpathSync.native(tasks)})`, `read_file(${realpathSync.native(runs)})`, `write_file(${cwd})`]) {
+    assert.ok(settings.permissions.allow.includes(rule), rule);
+  }
+  const checks = rows.find((row) => row.type === "TOOL_CHECKS").checks;
+  cases.forEach(([tool, decision], index) => assert.equal(checks[index].decision, decision, JSON.stringify(tool)));
+  assert.deepEqual(checks.filter((item) => typeof item.text === "string").map((item) => item.text), ["plan", "previous"]);
+  assert.equal(checks.at(-1).code, 1);
+  assert.match(checks.at(-1).stderr, /Operation not permitted/);
+  assert.deepEqual(["project.txt", ".knit/workflow.yaml", plan, report].map((path) =>
+    readFileSync(path.startsWith("/") ? path : join(cwd, path), "utf8")), ["edited", "original", "plan", "previous"]);
+});
+
 for (const capabilities of [[], ["read"], ["read", "write", "exec"]]) {
   test(`macOS 外层和命令沙箱约束 tools: [${capabilities.join(", ")}]`, isolated, async (t) => {
     const f = fixture(t, { tools: JSON.stringify(capabilities) });
@@ -461,8 +549,11 @@ for (const capabilities of [[], ["read"], ["read", "write", "exec"]]) {
       { name: "write_to_file", args: { TargetFile: join(cwd, "cli-state-link") } },
       { name: "command_status", args: { CommandId: "fixture-command" } },
       { name: "manage_task", args: { Action: "status", TaskId: "fixture-task" } },
+      { name: "manage_task", args: { Action: "list" } },
+      { name: "manage_task", args: { Action: "kill", TaskId: "fixture-task" } },
       { name: "manage_task", args: { Action: "send_input", TaskId: "fixture-task", Input: "fixture" } },
       { name: "write_to_file", args: { TargetFile: join(cwd, bridgePath) } },
+      { name: "list_dir", args: { DirectoryPath: join(f.root, f.task.dir) } },
     ] });
     const run = await f.ended();
     assert.equal(run.verdict, "pass", run.failure);
@@ -471,7 +562,8 @@ for (const capabilities of [[], ["read"], ["read", "write", "exec"]]) {
     const checks = rows.find((row) => row.type === "TOOL_CHECKS").checks;
     assert.equal(checks[8].decision, "deny");
     const commandStatus = capabilities.includes("exec") ? "allow" : "deny";
-    assert.deepEqual(checks.slice(9).map((item) => item.decision), [commandStatus, commandStatus, "deny", "deny"]);
+    assert.deepEqual(checks.slice(9).map((item) => item.decision), [commandStatus, commandStatus, commandStatus, commandStatus,
+      "deny", "deny", capabilities.includes("read") ? "allow" : "deny"]);
     assert.equal(readFileSync(join(cwd, bridgePath), "utf8"), "// Knit bridge fixture\n");
     assert.deepEqual(checks.slice(2, 7).map((item) => item.decision), Array(5).fill("deny"));
     assert.deepEqual(checks[0], capabilities.includes("read") ? { decision: "allow", text: "fixture" } : { decision: "deny" });

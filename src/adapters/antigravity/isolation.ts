@@ -154,6 +154,10 @@ export function stopCommandProcesses(scope: string): string | null {
   return result.status === 0 ? null : `Antigravity 命令进程回收失败：${result.error?.message ?? (result.stderr?.trim() || result.signal || result.status)}`;
 }
 
+export function handoffReadPaths(root: string): string[] {
+  return [join(root, ".knit/tasks"), join(root, ".knit/.runtime/runs")];
+}
+
 export function inside(root: string, path: string): boolean {
   const child = relative(root, path);
   return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
