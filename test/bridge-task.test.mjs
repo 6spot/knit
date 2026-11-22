@@ -34,8 +34,9 @@ const failed = (message) => ({ content: [{ type: "text", text: message }], detai
 
 test("初始化生成桥接", (t) => {
   const dir = emptyDir(t);
-  const first = knit(dir, "init");
+  const first = knit(dir, "init", "--pi");
   assert.equal(first.code, 0, first.stderr);
+  assert.deepEqual(readdirSync(dir).sort(), [".knit", ".pi"]);
   assert.equal(readFileSync(join(dir, BRIDGE), "utf8"), template);
   assert.match(first.stdout.split("下一步")[0], /^已生成:\n(  .+\n)*  \.pi\/extensions\/knit\.ts\n/);
 

@@ -24,7 +24,11 @@ Knit 管一个项目的开发周期，只做五件事：
 ```
 项目根/
   AGENTS.md                 项目自己的文件，Knit 不写入
-  .pi/extensions/knit.ts    桥接，knit init 生成
+  .pi/extensions/knit.ts    knit init --pi 生成的 Pi 桥接
+  .agents/plugins/knit/     knit init --agy 生成的 Antigravity 主会话插件
+    plugin.json             插件名 knit
+    hooks.json              主会话钩子
+    rules/AGENTS.md         主会话使用 Knit 命令的说明
   .knit/
     config.json             交接字节上限、Worktree 准备命令与自动合并开关
     workflow.yaml           流程：有哪些环节、顺序，各环节的模型、工具和角色文件，返工上限
@@ -199,7 +203,7 @@ createdAt: 2026-11-14T13:36:56Z
 - `.knit/tasks/` 下的点名资料（本任务的，和别的任务的，例如主任务的设计）、`task.md` 的需求部分、`plan.md` 和各次报告从主检出读，块上的路径给主检出里的绝对路径，章节路径保留 `#标题`。超过字节上限时仍只给路径和说明，执行者可以按绝对路径读到当前资料，不会读到 Worktree 里的旧任务副本。
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 角色文件和规范仍从主检出读，系统提示里的路径和内容不变。
-- 主会话：规范放在桥接维护的那一段系统提示里。任务选择、状态和规范内容不变时输出逐字不变，讨论规范和补充的环节规范各按路径排序。
+- Pi 主会话的规范放在桥接维护的系统提示里。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 只匹配 `run_command`，由同一命令入口处理任务选择、派发和交付授权。插件直接使用钩子和 CLI，无需 MCP 服务。讨论规范和补充的环节规范各按路径排序。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
 放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
@@ -480,19 +484,25 @@ Pi 和 Antigravity 按 Agent 名在 `src/adapters/agents.ts` 登记。派发读�
 命令行：
 
 ```
-knit init
+knit init [--pi] [--agy] [--force]
 knit task new | ready | close | cancel | list | show
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]
 knit run status | wait | cancel 都按任务 id
 knit context [任务]                      讨论规范；指定任务时追加任务信息和环节的补充规范
+knit context --use <任务> | --unuse       选中或清除当前宿主会话的任务
+knit hook agy <事件>                     Antigravity 插件钩子的入口
 knit deliver <任务> --authorization <引用> [--message-file <文件>]
 knit deliver <任务> --preview [--message-file <文件>]
 knit standards list
 knit workflow show | validate
 ```
 
-桥接有 3 个工具：
+`knit init` 默认只生成 `.knit/`。可在首次初始化或以后补装时使用 `--pi`、`--agy`，也可组合为 `knit init --pi --agy`。
+
+Antigravity 主会话通过 `run_command` 调用 Knit CLI。`knit run start <任务>` 成功后，主会话立即用后台 `run_command` 运行 `knit run wait <任务>`，由后台命令完成通知唤醒会话并读取整批结果。
+
+Pi 桥接有 3 个工具：
 
 | 工具 | 动作 |
 | --- | --- |
@@ -502,7 +512,7 @@ knit workflow show | validate
 
 - 工具的声明不随流程配置变化。
 - 桥接只做转交：每个动作对应一条 `knit` 命令，工具的结果就是命令的输出。桥接运行的是 `PATH` 上的 `knit`，不记录安装位置。
-- 工具的每个动作都要写明任务 id，不从“当前任务”里取。`use` 只有工具有、命令行没有：选中的任务写在 Pi 会话记录里，只决定每轮注入显示哪个任务。用 `new` 建的任务不自动选中，选中哪个只由 `use` 决定：一次建一批任务时，选中的不会被新建的换掉。
+- 工具的每个动作都要写明任务 id，不从“当前任务”里取。Pi 的 `use` 把选中的任务写在 Pi 会话记录里，只决定每轮注入显示哪个任务。用 `new` 建的任务不自动选中，选中哪个只由 `use` 决定：一次建一批任务时，选中的不会被新建的换掉。
 - 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>`，将返回的状态作为一条 `knit.run-ended` 消息发给发起派发的会话，使用 `deliverAs: "followUp"` 和 `triggerTurn: true`。空闲时触发新一轮，正在执行时由 Pi 排到当前执行结束后投递。并行审查只为整次派发启动一次等待，全部成员入账后，消息列出每位执行器的报告路径和结论或失败原因。若剩余 worker 都已意外退出，`wait` 返回异常状态和 `run cancel` 提示，主会话据此结算。主会话通过工具主动取消时，取消结果随工具返回，桥接停止这次等待，不再另发结束通知。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
 - `task.md` 正文、`plan.md`、`design.md`、规范文件和 `workflow.yaml` 都是普通文本，主会话用普通的读写工具直接改；格式在 `task ready`、`standards list` 和 `workflow validate` 时校验。
 - 用户可以全程在会话里讨论。用户明确要求创建任务时，主会话用 `knit_task` 的 `new` 建草稿，随后用普通读写工具把已讨论清楚的需求写入返回路径的 `task.md`；当轮回复给出标题、编号、`task.md` 链接、`draft` 草稿状态及当前会话是否已选中。创建保持当前任务选择，失败时说明原因，讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理；这些约定写在工具说明中，不解析用户消息来自动建任务。
@@ -512,10 +522,10 @@ knit workflow show | validate
 
 1. 管理本仓库的是安装版（`npm run pack:install` 装到全局），桥接调用安装版。工作区的 `dist` 可以随意重建。
 2. 升级安装版是显式的一步，在一个任务交付之后做。
-3. 模板只有一份来源：`assets/templates/`。本仓库的 `.knit/agents/`、`.knit/workflow.yaml` 和 `.pi/extensions/knit.ts` 是安装版 `knit init` 生成的副本。执行者改模板，不改副本；升级安装版后重新生成。
+3. 核心文件和宿主桥接的模板都在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用 Pi 或 Antigravity 时加上对应开关。
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
-6. `knit init` 不带 `--force` 时只补上没有的文件，已有的不动。`knit init --force` 只重新生成桥接、`workflow.yaml` 和角色文件，覆盖前把和模板不一样的备份到 `.knit/.runtime/backups/<时间>/`；`config.json`、`standards/` 和 `tasks/` 任何时候都不覆盖。强制覆盖就是恢复成初始内容：流程里改过的环节、模型、思考等级和返工上限都回到模板的样子。
+6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、规范和任务保留原样。
 
 ## 11. 不做与延后
 

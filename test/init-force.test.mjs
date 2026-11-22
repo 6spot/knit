@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TEMPLATES } from "../dist/application/init.js";
+import { CORE_TEMPLATES } from "../dist/application/init.js";
 import { knit } from "./helpers/cli.mjs";
 
-const targets = TEMPLATES.map((item) => item.target);
+const targets = CORE_TEMPLATES.map((item) => item.target);
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
 const listed = (title, paths) => [title, ...paths.map((path) => `  ${path}`)];
 
@@ -35,7 +35,8 @@ test("改过的先备份再恢复", (t) => {
 
   const result = knit(dir, "init", "--force");
   assert.equal(result.code, 0, result.stderr);
-  for (const item of TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
+  assert.deepEqual(readdirSync(dir), [".knit"]);
+  for (const item of CORE_TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
 
   const backups = readdirSync(join(dir, ".knit", ".runtime", "backups"));
   assert.equal(backups.length, 1);
@@ -59,6 +60,34 @@ test("改过的先备份再恢复", (t) => {
   assert.equal(again.code, 0, again.stderr);
   assert.equal(again.stdout, `${listed("已有，没有动:", targets).join("\n")}\n`);
   assert.deepEqual(readdirSync(join(dir, ".knit", ".runtime", "backups")), backups);
+});
+
+test("其它宿主文件不启用桥接，显式补装后按已有副本恢复整个插件", (t) => {
+  const dir = initialized(t);
+  const plugin = ".agents/plugins/knit";
+  mkdirSync(join(dir, ".agents/plugins/other"), { recursive: true });
+  mkdirSync(join(dir, ".pi/extensions"), { recursive: true });
+  assert.equal(knit(dir, "init", "--force").code, 0);
+  assert.equal(existsSync(join(dir, plugin)), false);
+  assert.equal(existsSync(join(dir, ".pi/extensions/knit.ts")), false);
+
+  assert.equal(knit(dir, "init", "--agy").code, 0);
+  const rules = `${plugin}/rules/AGENTS.md`;
+  writeFileSync(join(dir, rules), "项目的插件说明\n");
+  rmSync(join(dir, plugin, "plugin.json"));
+  rmSync(join(dir, plugin, "hooks.json"));
+  assert.equal(knit(dir, "init").code, 0);
+  assert.equal(existsSync(join(dir, plugin, "hooks.json")), false);
+
+  const restored = knit(dir, "init", "--force", "--pi");
+  assert.equal(restored.code, 0, restored.stderr);
+  for (const path of ["plugin.json", "hooks.json", "rules/AGENTS.md"]) {
+    assert.equal(readFileSync(join(dir, plugin, path), "utf8"), template(`${plugin.slice(1)}/${path}`));
+  }
+  assert.equal(readFileSync(join(dir, ".pi/extensions/knit.ts"), "utf8"), template("pi/extensions/knit.ts"));
+  const backup = join(dir, restored.stdout.match(/^备份: (.+)\/$/m)[1]);
+  assert.deepEqual(filesUnder(backup), [rules]);
+  assert.equal(readFileSync(join(backup, rules), "utf8"), "项目的插件说明\n");
 });
 
 test("配置、规范和任务不动", (t) => {

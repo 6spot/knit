@@ -4,11 +4,11 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TEMPLATES } from "../dist/application/init.js";
+import { CORE_TEMPLATES } from "../dist/application/init.js";
 import { parseTaskDocument } from "../dist/domain/task-document.js";
 import { knit } from "./helpers/cli.mjs";
 
-const targets = TEMPLATES.map((item) => item.target);
+const targets = CORE_TEMPLATES.map((item) => item.target);
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
 const listed = (title, paths) => [title, ...paths.map((path) => `  ${path}`)];
 /** `.knit/tasks/` 下进行中的任务的 task.md，相对项目根。 */
@@ -35,10 +35,11 @@ test("在空目录里初始化", (t) => {
     result.stdout,
     `${[
       ...listed("已生成:", targets),
-      `初始化任务: ${frontmatter.id}（${taskFile}）；在 Pi 里用 knit_task 的 use 选中它`,
+      `初始化任务: ${frontmatter.id}（${taskFile}）`,
     ].join("\n")}\n`,
   );
-  for (const item of TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
+  assert.deepEqual(readdirSync(dir), [".knit"]);
+  for (const item of CORE_TEMPLATES) assert.equal(readFileSync(join(dir, item.target), "utf8"), template(item.template));
   assert.deepEqual(readdirSync(join(dir, ".knit", "standards")).sort(), [
     "delivery.md",
     "discussion.md",
@@ -65,6 +66,31 @@ test("在空目录里初始化", (t) => {
   assert.equal(knit(dir, "workflow", "validate").code, 0);
   assert.equal(knit(dir, "task", "new", "--title", "试一下").code, 0);
 });
+
+for (const flags of [["--agy"], ["--pi", "--agy"]]) {
+  test(`空目录初始化 ${flags.join(" ")}`, (t) => {
+    const dir = emptyDir(t);
+    const result = knit(dir, "init", ...flags);
+    assert.equal(result.code, 0, result.stderr);
+    const pi = flags.includes("--pi");
+    assert.deepEqual(readdirSync(dir).sort(), pi ? [".agents", ".knit", ".pi"] : [".agents", ".knit"]);
+    if (pi) assert.equal(readFileSync(join(dir, ".pi/extensions/knit.ts"), "utf8"), template("pi/extensions/knit.ts"));
+
+    const agents = join(dir, ".agents");
+    const paths = readdirSync(agents, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name).slice(agents.length + 1)).sort();
+    assert.deepEqual(paths, ["plugins/knit/hooks.json", "plugins/knit/plugin.json", "plugins/knit/rules/AGENTS.md"]);
+    for (const path of paths) assert.equal(readFileSync(join(agents, path), "utf8"), template(`agents/${path}`));
+    assert.equal(JSON.parse(readFileSync(join(agents, "plugins/knit/plugin.json"))).name, "knit");
+    const command = (event) => ({ type: "command", command: `knit hook agy ${event}` });
+    assert.deepEqual(JSON.parse(readFileSync(join(agents, "plugins/knit/hooks.json"))), { knit: {
+      SessionStart: [command("SessionStart")],
+      PreInvocation: [command("PreInvocation")],
+      PreToolUse: [{ matcher: "run_command", hooks: [command("PreToolUse")] }],
+    } });
+  });
+}
 
 test("已有的文件不动，缺的补上", (t) => {
   const dir = emptyDir(t);

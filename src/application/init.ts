@@ -8,7 +8,7 @@ import { createTask, scanTasks } from "./task-store.js";
  * `template` 相对模板目录，`target` 相对项目根；顺序就是输出的顺序。
  * `restore` 为假的是项目自己的设置，强制初始化也不覆盖。
  */
-export const TEMPLATES = [
+export const CORE_TEMPLATES = [
   { template: "workflow.yaml", target: ".knit/workflow.yaml", restore: true },
   { template: "agents/implement.md", target: ".knit/agents/implement.md", restore: true },
   { template: "agents/review.md", target: ".knit/agents/review.md", restore: true },
@@ -19,8 +19,18 @@ export const TEMPLATES = [
   { template: "standards/task-writing.md", target: ".knit/standards/task-writing.md", restore: false },
   { template: "standards/task-splitting.md", target: ".knit/standards/task-splitting.md", restore: false },
   { template: "standards/delivery.md", target: ".knit/standards/delivery.md", restore: false },
-  { template: "pi/extensions/knit.ts", target: ".pi/extensions/knit.ts", restore: true },
 ] as const;
+
+const HOST_BRIDGES = [
+  { host: "pi", templates: ["pi/extensions/knit.ts"] },
+  { host: "agy", templates: [
+    "agents/plugins/knit/plugin.json",
+    "agents/plugins/knit/hooks.json",
+    "agents/plugins/knit/rules/AGENTS.md",
+  ] },
+] as const;
+
+type HostOptions = Partial<Record<(typeof HOST_BRIDGES)[number]["host"], boolean>>;
 
 // 编译后位于 dist/application/，往上两级是根目录。
 const TEMPLATE_DIR = new URL("../../assets/templates/", import.meta.url);
@@ -37,15 +47,20 @@ export interface InitResult {
 
 /**
  * 缺的文件按模板补上，已有的不动。`force` 时再把 `restore` 的文件里和模板不一样的恢复成模板，
- * 覆盖之前全部复制到备份目录。返回的数组保持 TEMPLATES 的顺序。
+ * 覆盖之前全部复制到备份目录。先处理核心模板，再按宿主分组处理桥接。
  * 项目里一个任务都没有（归档的也算）时，再建一个写开发规范的任务。
  */
-export function initProject(root: string, force = false): InitResult {
+export function initProject(root: string, force = false, hosts: HostOptions = {}): InitResult {
   mkdirSync(join(root, ".knit", "standards"), { recursive: true });
   mkdirSync(join(root, ".knit", "tasks"), { recursive: true });
-  const missing = TEMPLATES.filter((item) => !existsSync(join(root, item.target)));
+  const bridges = HOST_BRIDGES.flatMap(({ host, templates }) => {
+    const items = templates.map((template) => ({ template, target: `.${template}`, restore: true }));
+    return hosts[host] || (force && items.some((item) => existsSync(join(root, item.target)))) ? items : [];
+  });
+  const templates = [...CORE_TEMPLATES, ...bridges];
+  const missing = templates.filter((item) => !existsSync(join(root, item.target)));
   const changed = force
-    ? TEMPLATES.filter(
+    ? templates.filter(
         (item) =>
           item.restore &&
           !missing.includes(item) &&
@@ -65,7 +80,7 @@ export function initProject(root: string, force = false): InitResult {
   return {
     created: missing.map((item) => item.target),
     restored: changed.map((item) => item.target),
-    kept: TEMPLATES.filter((item) => !missing.includes(item) && !changed.includes(item)).map((item) => item.target),
+    kept: templates.filter((item) => !missing.includes(item) && !changed.includes(item)).map((item) => item.target),
     backupDir: changed.length === 0 ? null : backupDir,
     task: scanTasks(root).length > 0 ? null : createStandardsTask(root),
   };

@@ -1,0 +1,16 @@
+{
+  "knit": {
+    "SessionStart": [
+      { "type": "command", "command": "knit hook agy SessionStart" }
+    ],
+    "PreInvocation": [
+      { "type": "command", "command": "knit hook agy PreInvocation" }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [{ "type": "command", "command": "knit hook agy PreToolUse" }]
+      }
+    ]
+  }
+}
