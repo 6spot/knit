@@ -15,6 +15,8 @@ const CUSTOMIZATION_DIR = ".agents";
 const COMPAT_CUSTOMIZATION_DIRS = [".agent", "_agents", "_agent"];
 const CUSTOMIZATION_DIRS = [CUSTOMIZATION_DIR, ...COMPAT_CUSTOMIZATION_DIRS];
 export const HOOKS = join(CUSTOMIZATION_DIR, "hooks.json");
+const WORKSPACE_PLUGINS = join(CUSTOMIZATION_DIR, "plugins");
+const KNIT_PLUGIN = join(WORKSPACE_PLUGINS, "knit");
 const TEXT_SOURCES = new Set(["skills", "skills.json", "workflows", "agents", "agents.json", "rules", "rules.json"]);
 const SOURCE_NAMES = ["mcp_config.json", "plugins", "plugins.json", "hooks.json", ...TEXT_SOURCES];
 const WORKSPACE_EXTERNAL = [
@@ -45,13 +47,29 @@ export function permits(tools: readonly ToolCapability[] | null, tool: ToolCapab
   return tools === null || tools.includes(tool);
 }
 
-function configured(path: string, source = path): boolean {
-  if (!existsSync(path)) return false;
+// The isolation hook can be missing until startup. Follow existing directory links
+// before interpreting `..`, even when the final component does not exist yet.
+function diskTarget(path: string, linksLeft = 40): string | null {
+  if (existsSync(path)) return realpathSync.native(path);
+  if (linksLeft === 0) return null;
+  const parent = diskTarget(dirname(path), linksLeft);
+  if (parent === null) return null;
+  const entry = join(parent, basename(path));
+  if (!existsSync(parent) || !lstatSync(entry, { throwIfNoEntry: false })?.isSymbolicLink()) return entry;
+  const target = readlinkSync(entry);
+  return diskTarget(isAbsolute(target) ? target : `${parent}${sep}${target}`, linksLeft - 1);
+}
+
+function configuredSource(path: string, source = path, directoryConflict?: (names: string[]) => string | undefined): string | undefined {
+  if (!existsSync(path)) return undefined;
   try {
-    if (statSync(path).isDirectory()) return readdirSync(path).length > 0;
-    return configuredFile(source, () => readFileSync(path, "utf8"));
+    if (statSync(path).isDirectory()) {
+      const names = readdirSync(path);
+      return directoryConflict ? directoryConflict(names) : names.length > 0 ? source : undefined;
+    }
+    return configuredFile(source, () => readFileSync(path, "utf8")) ? source : undefined;
   } catch {
-    return true;
+    return source;
   }
 }
 
@@ -91,15 +109,19 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     return { mode: mode!, oid: oid!, name: line.slice(tab + 1) };
   });
   const trees = new Map([["", existing ? [] : treeEntries(ref)]]);
-  const trackedChildren = (parent: string) => {
+  const trackedChildren = (parent: string): ReturnType<typeof treeEntries> => {
     const cached = trees.get(parent);
     if (cached !== undefined) return cached;
-    const children = treeEntries(`${ref}:${parent}`);
+    const base = dirname(parent);
+    // A case-insensitive checkout merges directories whose Git paths differ only in case.
+    const children = trackedChildren(base === "." ? "" : base)
+      .filter((item) => item.mode === "040000" && samePath(item.name, basename(parent)))
+      .flatMap((item) => treeEntries(item.oid));
     trees.set(parent, children);
     return children;
   };
   const trackedChild = (parent: string, name: string) => trackedChildren(parent).find((item) => samePath(item.name, name));
-  const directory = existing ? realpathSync.native(cwd) : cwd;
+  const directory = diskTarget(cwd) ?? cwd;
   const agents = join(directory, CUSTOMIZATION_DIR);
   const custom = existing ? lstatSync(agents, { throwIfNoEntry: false }) : undefined;
   const trackedAgents = trackedChild("", CUSTOMIZATION_DIR);
@@ -109,21 +131,22 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     return `Antigravity 无法安装隔离钩子，Worktree 中已有 ${HOOKS} 或 .agents 不是普通目录`;
   }
   const canonicalAgents = custom === undefined ? agents : realpathSync.native(agents);
-  const hidesKnitHook = (path: string) => samePath(path, canonicalAgents) || samePath(path, join(canonicalAgents, "hooks.json"));
+  const hidesKnitHook = (target: string, source: string) => samePath(target, canonicalAgents) || samePath(target, join(canonicalAgents, "hooks.json")) ||
+    (source === KNIT_PLUGIN && inside(target, directory));
   const trackedTarget = (parts: readonly string[], parent = "", linksLeft = 40): string | null => {
     const [name, ...rest] = parts;
     if (name === undefined) return join(directory, parent);
     if (name === "" || name === ".") return trackedTarget(rest, parent, linksLeft);
     if (name === "..") {
-      return parent === "" ? resolve(directory, "..", ...rest) : trackedTarget(rest, parent.split(sep).slice(0, -1).join(sep), linksLeft);
+      return parent === "" ? trackedDiskTarget(dirname(directory), rest, linksLeft) : trackedTarget(rest, parent.split(sep).slice(0, -1).join(sep), linksLeft);
     }
     const item = trackedChild(parent, name);
     const path = join(parent, item?.name ?? name);
     if (item?.mode === "120000") {
       if (linksLeft === 0) return null;
       const link = gitSync(["cat-file", "blob", item.oid], root).stdout;
-      if (!isAbsolute(link)) return trackedTarget([...link.split(sep), ...rest], parent, linksLeft - 1);
-      return inside(directory, link) ? trackedTarget([...relative(directory, link).split(sep), ...rest], "", linksLeft - 1) : resolve(link, ...rest);
+      return isAbsolute(link) ? trackedDiskTarget(sep, [...link.split(sep), ...rest], linksLeft - 1)
+        : trackedTarget([...link.split(sep), ...rest], parent, linksLeft - 1);
     }
     if (rest.length === 0) return join(directory, path);
     if (item?.mode === "040000" || (item === undefined && samePath(join(directory, path), canonicalAgents))) {
@@ -131,18 +154,37 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     }
     return null;
   };
+  const trackedDiskTarget = (parent: string, parts: readonly string[], linksLeft: number): string | null => {
+    if (samePath(parent, directory)) return trackedTarget(parts, "", linksLeft);
+    const [name, ...rest] = parts;
+    if (name === undefined) return parent;
+    const path = join(parent, name);
+    const entry = lstatSync(path, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) {
+      if (linksLeft === 0) return null;
+      const link = readlinkSync(path);
+      return trackedDiskTarget(isAbsolute(link) ? sep : parent, [...link.split(sep), ...rest], linksLeft - 1);
+    }
+    if (entry && !entry.isDirectory() && rest.length) return null;
+    return trackedDiskTarget(entry ? realpathSync.native(path) : path, rest, linksLeft);
+  };
+  const workspaceTarget = (path: string) => existing ? join(directory, path) : trackedTarget(path.split(sep));
   const blockedWorkspaceInputs = permits(tools, "external") ? WORKSPACE_STARTUP : WORKSPACE_EXTERNAL;
-  const alias = [...COMPAT_CUSTOMIZATION_DIRS, ...blockedWorkspaceInputs].find((path) => {
+  const alias = [...COMPAT_CUSTOMIZATION_DIRS, ...blockedWorkspaceInputs, KNIT_PLUGIN].find((path) => {
     if (!existing) {
       const target = trackedTarget(path.split(sep));
-      return target !== null && hidesKnitHook(target);
+      return target !== null && hidesKnitHook(target, path);
     }
     const link = join(directory, path);
-    if (!statSync(dirname(link), { throwIfNoEntry: false })?.isDirectory() ||
+    if (!existsSync(dirname(link)) || !statSync(dirname(link)).isDirectory() ||
         !lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
-    const target = resolve(dirname(link), readlinkSync(link));
-    return hidesKnitHook(target) || (existsSync(link) && hidesKnitHook(realpathSync.native(link))) ||
-      (existsSync(dirname(target)) && hidesKnitHook(join(realpathSync.native(dirname(target)), basename(target))));
+    const target = diskTarget(link);
+    if (target === null) return false;
+    if (hidesKnitHook(target, path)) return true;
+    // The hook may not exist until session startup. Resolve its parent on disk first.
+    const upperAgents = join(directory, CUSTOMIZATION_DIR.toUpperCase());
+    return basename(target).toLowerCase() === "hooks.json" && dirname(target) === canonicalAgents &&
+      existsSync(upperAgents) && realpathSync.native(upperAgents) === canonicalAgents;
   });
   if (alias !== undefined) return `Antigravity 的 ${alias} 指向 ${CUSTOMIZATION_DIR}，无法屏蔽兼容钩子而保留 Knit 隔离钩子`;
   if (permits(tools, "exec")) {
@@ -155,18 +197,34 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
   }
   if (permits(tools, "external")) {
     if (!permits(tools, "network")) return "Antigravity 无法在开放 external 时限制外部工具联网";
-    const source = HOME_STARTUP.map((path) => join(homedir(), path)).find((path) => configured(path)) ?? WORKSPACE_STARTUP.find((path) => {
-      if (existing) return configured(join(cwd, path));
-      const target = trackedTarget(path.split(sep));
-      if (target === null) return false;
-      if (!inside(directory, target)) return configured(target, path);
-      if (samePath(target, directory)) return trackedChildren("").length > 0;
-      const item = trackedChild(relative(directory, dirname(target)), basename(target));
-      if (item === undefined) return false;
-      if (item.mode === "040000") return trackedChildren(relative(directory, target)).length > 0;
-      return !item.mode.startsWith("100") || configuredFile(path, () => gitSync(["cat-file", "blob", item.oid], root).stdout);
-    });
-    if (source !== undefined) return `Antigravity 无法隔离已配置的外部工具及其运行时写入：${source}`;
+    const trackedItem = (target: string) => trackedChild(relative(directory, dirname(target)), basename(target));
+    const pluginConflict = (names: string[]) => {
+      const target = workspaceTarget(KNIT_PLUGIN);
+      const directoryEntry = target !== null && (existing || !inside(directory, target)
+        ? existsSync(target) && statSync(target).isDirectory() : trackedItem(target)?.mode === "040000");
+      // On a case-sensitive volume a separate entry named KNIT must still conflict.
+      const knit = directoryEntry ? names.find((name) => name === "knit") ?? names.find((name) => name.toLowerCase() === "knit") : undefined;
+      const other = names.find((name) => name !== knit);
+      return other === undefined ? undefined : join(WORKSPACE_PLUGINS, other);
+    };
+    const workspaceSource = (path: string) => {
+      const target = workspaceTarget(path);
+      if (target === null) return undefined;
+      if (existing || !inside(directory, target)) return configuredSource(target, path, path === WORKSPACE_PLUGINS ? pluginConflict : undefined);
+      if (samePath(target, directory)) return trackedChildren("").length > 0 ? path : undefined;
+      const item = trackedItem(target);
+      if (item === undefined) return undefined;
+      if (item.mode === "040000") {
+        const children = trackedChildren(relative(directory, target));
+        if (path !== WORKSPACE_PLUGINS) return children.length > 0 ? path : undefined;
+        return pluginConflict(children.map((child) => child.name));
+      }
+      return !item.mode.startsWith("100") || configuredFile(path, () => gitSync(["cat-file", "blob", item.oid], root).stdout) ? path : undefined;
+    };
+    for (const path of [...HOME_STARTUP.map((name) => join(homedir(), name)), ...WORKSPACE_STARTUP]) {
+      const source = isAbsolute(path) ? configuredSource(path) : workspaceSource(path);
+      if (source !== undefined) return `Antigravity 无法隔离已配置的外部工具及其运行时写入：${source}`;
+    }
   }
   return null;
 }
@@ -205,6 +263,7 @@ export function sandboxProfile(input: {
     subpath(input.cli.temporary), '(literal "/dev/ptmx")', '(regex #"^/dev/ttys[0-9]+$")',
   ];
   const protectedPath = (path: string) => existsSync(path) ? [subpath(path), subpath(realpathSync.native(path))] : [subpath(path)];
+  const knitPlugin = protectedPath(join(input.cwd, KNIT_PLUGIN)).join(" ");
   const controls = [...WORKSPACE_CONTROL, ...input.paths].map((path) => resolve(input.cwd, path)).filter((path) => inside(input.cwd, path));
   const externalInputs = input.cli === undefined ? [] : [
     ...WORKSPACE_EXTERNAL.map((path) => join(input.cwd, path)),
@@ -215,7 +274,8 @@ export function sandboxProfile(input: {
     "(version 1)", "(allow default)", "(deny file-write*)",
     `(allow file-write* (literal "/dev/null") ${state.join(" ")} ${input.write ? subpath(input.cwd) : ""})`,
     ...(input.command ? [`(allow file-write* ${subpath(input.command.temporary)})`] : []),
-    `(deny file-write* ${[...controls, ...readable].flatMap(protectedPath).join(" ")})`,
+    `(deny file-write* ${knitPlugin} ${[...controls, ...readable].flatMap(protectedPath).join(" ")})`,
+    `(deny file-read-data ${knitPlugin})`,
     "(deny file-link)",
     ...(input.cli === undefined ? [
       `(deny file-read-data ${subpath(input.dir)})`,
