@@ -4,11 +4,12 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { AntigravityExecutionAdapter, cleanAgyRuntime } from "../dist/adapters/antigravity/execution.js";
+import { agyPreflight } from "../dist/adapters/antigravity/isolation.js";
 import { loadConfig } from "../dist/application/config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
@@ -565,6 +566,132 @@ for (const tools of ["[read, write, exec]", "[read, write, exec, external, netwo
   });
 }
 
+for (const tools of ["[read, write, exec]", "all"]) {
+  for (const linked of [false, true]) {
+    test(`主会话插件${linked ? "目录链接及实际路径" : "目录"}在 ${tools} 下通过派发且两层沙箱均拒绝读写`, isolated, async (t) => {
+      const f = fixture(t, { tools });
+      const plugins = ".agents/plugins";
+      const knit = join(plugins, "knit");
+      const target = linked ? "main-session-plugin" : knit;
+      mkdirSync(join(f.root, plugins), { recursive: true });
+      if (linked) symlinkSync("../../main-session-plugin", join(f.root, knit));
+      mkdirSync(join(f.root, target, "rules"), { recursive: true });
+      const files = ["plugin.json", "hooks.json", "rules/AGENTS.md"];
+      for (const [index, contents] of [JSON.stringify({ name: "knit" }), "{}", "# 主会话讨论规范\n"].entries()) {
+        writeFileSync(join(f.root, target, files[index]), contents);
+      }
+      const skill = ".agents/skills/demo/SKILL.md";
+      mkdirSync(join(f.root, dirname(skill)), { recursive: true });
+      writeFileSync(join(f.root, skill), "# Demo\n");
+      commitAll(f.root, "main-session plugin and skill");
+      const paths = [...new Set([knit, target])].flatMap((dir) => files.map((name) => join(dir, name)));
+      const probe = `const fs = require("node:fs");
+        for (const path of process.argv.slice(1)) {
+          for (const op of [() => fs.readFileSync(path), () => fs.appendFileSync(path, "probe")]) {
+            try { op(); console.log("allowed"); } catch (error) { console.log(error.code); }
+          }
+        }`;
+      f.start({ configReads: [...paths, skill], configWrites: [...paths, skill], tools: [
+        { name: "run_command", args: { CommandLine: `'${process.execPath}' -e '${probe}' ${paths.join(" ")}` } },
+      ] });
+      const run = await f.ended();
+      assert.equal(run.verdict, "pass", run.failure);
+      const rows = readRows(f.transcripts()[0]);
+      assert.deepEqual(rows[0].configReads, [...paths.map(() => "EPERM"), tools === "all" ? "allowed" : "EPERM"]);
+      assert.deepEqual(rows[0].configWrites, [...paths, skill].map(() => "EPERM"));
+      const [command] = rows.find((row) => row.type === "TOOL_CHECKS").checks;
+      assert.equal(command.code, 0, command.stderr);
+      assert.deepEqual(command.stdout.trim().split("\n"), paths.flatMap(() => ["EPERM", "EPERM"]));
+      assert.deepEqual(run.changedPaths, []);
+    });
+  }
+}
+
+for (const existing of [false, true]) {
+  test(`${existing ? "已有" : "新"} Worktree 识别混合大小写的 Knit 目录并指出同级插件和钩子链接`, isolated, async (t) => {
+    const f = fixture(t, { tools: "all" });
+    const cwd = worktreeOf(f.root, f.task);
+    if (existing) git(f.root, "worktree", "add", "-b", `knit/${basename(f.task.dir)}`, cwd);
+    const root = existing ? cwd : f.root;
+    const plugins = join(root, ".agents/plugins");
+    const knitPlugin = join(plugins, "knit");
+    mkdirSync(plugins, { recursive: true });
+    const hookName = existsSync(join(root, ".AGENTS")) ? "Hooks.json" : "hooks.json";
+    symlinkSync(`.agents/${hookName}`, join(root, "hook-alias"));
+    symlinkSync("../../hook-alias", knitPlugin);
+    const reject = (pattern) => {
+      if (!existing) commitAll(root, "plugin conflict fixture");
+      const result = knit(f.root, "run", "start", f.task.id);
+      assert.equal(result.code, 1, result.stdout);
+      assert.match(result.stderr, pattern);
+      assert.equal(lastRun(f.root, f.task), undefined);
+      assert.equal(existsSync(cwd), existing);
+    };
+    reject(/\.agents\/plugins\/knit 指向 \.agents/);
+    rmSync(knitPlugin);
+    symlinkSync(".agents/plugins", join(root, "plugin-directory"));
+    symlinkSync(`${existing ? "../.." : cwd}/plugin-directory/../${hookName}`, knitPlugin);
+    reject(/\.agents\/plugins\/knit 指向 \.agents/);
+    rmSync(knitPlugin);
+    symlinkSync("..", knitPlugin);
+    reject(/\.agents\/plugins\/knit 指向 \.agents/);
+    rmSync(knitPlugin);
+    writeFileSync(knitPlugin, "ordinary file");
+    reject(/无法隔离.*\.agents\/plugins\/knit/);
+    rmSync(knitPlugin);
+    mkdirSync(join(plugins, "KnIt"));
+    writeFileSync(join(plugins, "KnIt/plugin.json"), '{"name":"knit"}');
+    mkdirSync(join(plugins, "other"));
+    writeFileSync(join(plugins, "other/plugin.json"), '{}');
+    if (!existsSync(knitPlugin)) renameSync(join(plugins, "KnIt"), knitPlugin);
+    reject(/无法隔离.*\.agents\/plugins\/other/);
+    rmSync(join(plugins, "other"), { recursive: true });
+    if (!existing) commitAll(root, "only main-session plugin");
+    f.start({ configReads: [".agents/plugins/knit/plugin.json"] });
+    const run = await f.ended();
+    assert.equal(run.verdict, "pass", run.failure);
+    assert.deepEqual(readRows(f.transcripts()[0])[0].configReads, ["EPERM"]);
+  });
+}
+
+test("新 Worktree 预检识别通过共享插件目录指回检出的主会话插件和隔离钩子目录", isolated, (t) => {
+  const f = fixture(t);
+  const cwd = worktreeOf(f.root, f.task);
+  const branch = `knit/${basename(f.task.dir)}`;
+  const plugins = join(f.dir, "shared-plugins");
+  mkdirSync(plugins);
+  mkdirSync(join(f.root, ".agents"));
+  symlinkSync(plugins, join(f.root, ".agents/plugins"));
+  mkdirSync(join(f.root, "main-session-plugin"));
+  writeFileSync(join(f.root, "main-session-plugin/plugin.json"), '{"name":"knit"}');
+  commitAll(f.root, "shared plugin directory");
+  const link = join(plugins, "knit");
+  const tools = [["read", "write", "exec"], null];
+  symlinkSync(join(cwd, ".agents"), link);
+  for (const capabilities of tools) assert.match(agyPreflight(f.root, cwd, branch, capabilities) ?? "", /\.agents\/plugins\/knit 指向 \.agents/);
+  rmSync(link);
+  symlinkSync(join(cwd, "main-session-plugin"), link);
+  for (const capabilities of tools) assert.equal(agyPreflight(f.root, cwd, branch, capabilities), null);
+});
+
+test("新 Worktree 合并大小写不同的插件父目录时仍指出同级插件", isolated, (t) => {
+  const f = fixture(t, { tools: "all" });
+  const manifest = ".AGENTS/Plugins/knit/plugin.json";
+  mkdirSync(join(f.root, dirname(manifest)), { recursive: true });
+  writeFileSync(join(f.root, manifest), '{"name":"knit"}');
+  if (!existsSync(join(f.root, ".agents/plugins/knit/plugin.json"))) return t.skip("需要大小写不敏感的检出");
+  commitAll(f.root, "main session plugin");
+  // The Git index can contain both spellings, even on a case-insensitive test volume.
+  const blob = git(f.root, "rev-parse", `HEAD:${manifest}`);
+  git(f.root, "-c", "core.ignoreCase=false", "update-index", "--add", "--cacheinfo", "100644", blob, ".agents/plugins/other/plugin.json");
+  git(f.root, "-c", "user.name=knit", "-c", "user.email=knit@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "same-level plugin");
+  const result = knit(f.root, "run", "start", f.task.id);
+  assert.equal(result.code, 1, result.stdout);
+  assert.match(result.stderr, /无法隔离.*\.agents\/plugins\/other/);
+  assert.ok(!existsSync(worktreeOf(f.root, f.task)));
+  assert.equal(lastRun(f.root, f.task), undefined);
+});
+
 const configuredMcp = { mcpServers: { demo: { command: "/usr/bin/true" } } };
 const plugin = { name: "demo", version: "1.0.0" };
 const enabledPlugins = [{ name: "demo", enabled: true }];
@@ -572,6 +699,7 @@ const externalHooks = { demo: { SessionStart: [{ type: "command", command: "/usr
 for (const [location, source, contents] of [
   ["workspace", ".mcp.json", configuredMcp], ["workspace", ".agent/mcp_config.json", configuredMcp],
   ["workspace", ".agents/plugins", plugin], ["workspace", "_agents/plugins.json", enabledPlugins],
+  ["workspace", ".agent/plugins", plugin],
   ["workspace", "_agent/hooks.json", externalHooks], ["workspace", ".gemini/config.json", {}],
   ["home", ".gemini/config/mcp_config.json", configuredMcp], ["home", ".gemini/config/plugins", plugin],
   ["home", ".gemini/config/plugins.json", enabledPlugins], ["home", ".gemini/config/hooks.json", externalHooks],
@@ -579,7 +707,7 @@ for (const [location, source, contents] of [
   test(`external 派发前指出 ${location} 的 ${source}`, isolated, (t) => {
     const f = fixture(t, { tools: "all" });
     const path = join(location === "home" ? f.home : f.root, source);
-    const file = source.endsWith("/plugins") ? join(path, "demo/plugin.json") : path;
+    const file = source.endsWith("/plugins") ? join(path, source === ".agents/plugins" ? "demo/plugin.json" : "knit/plugin.json") : path;
     if (source === ".agent/mcp_config.json") {
       mkdirSync(join(f.root, "team-config"));
       symlinkSync("team-config", join(f.root, ".agent"));
