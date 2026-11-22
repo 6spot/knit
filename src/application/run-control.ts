@@ -1,12 +1,13 @@
 /** 派发后台执行进程、等待记录入账、取消并结算；CLI 和宿主桥接共用。 */
 import { spawn } from "node:child_process";
-import { closeSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentRegistry } from "../contracts/agent.js";
 import type { TaskRecord } from "../contracts/task.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
+import { atomicWrite } from "../infrastructure/atomic.js";
 import { procStartTicks } from "../infrastructure/process.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";
@@ -24,15 +25,18 @@ export function startRun(input: PrepareRunInput & {
   const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log] });
   worker.unref();
   closeSync(log);
-  writeFileSync(join(input.root, prepared.run.dir, "worker.json"), `${JSON.stringify({
-    pid: worker.pid,
-    start: worker.pid === undefined ? null : procStartTicks(worker.pid),
-  }, null, 2)}\n`);
+  atomicWrite({
+    path: join(input.root, prepared.run.dir, "worker.json"),
+    data: Buffer.from(`${JSON.stringify({
+      pid: worker.pid,
+      start: worker.pid === undefined ? null : procStartTicks(worker.pid),
+    }, null, 2)}\n`),
+  });
   return prepared;
 }
 
 interface RunTaskResult {
-  readonly task: { readonly document: TaskDocument; readonly record: TaskRecord } | null;
+  readonly task: { readonly dir: string; readonly document: TaskDocument; readonly record: TaskRecord } | null;
   readonly problems: readonly string[];
 }
 
@@ -86,5 +90,5 @@ function readRunTask(root: string, taskId: string): RunTaskResult {
   const stored = findTask(root, taskId);
   if (stored === null) return { task: null, problems: [`没有任务 ${taskId}；用 knit task list 查看现有任务`] };
   if (stored.document === null || stored.record === null) return { task: null, problems: stored.problems };
-  return { task: { document: stored.document, record: stored.record }, problems: [] };
+  return { task: { dir: stored.dir, document: stored.document, record: stored.record }, problems: [] };
 }

@@ -6,7 +6,6 @@ import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
 import { limitNotice, RUNS_DIR } from "../application/run-prepare.js";
 import { buildTaskStatus, type SessionTaskStatus } from "../application/session-context.js";
-import { findTask } from "../application/task-store.js";
 import { checkSchema } from "../contracts/schema.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
 import { fail, knitRoot, loadTask } from "./task.js";
@@ -83,7 +82,7 @@ async function waitForRun(dir: string, id: string): Promise<string[] | null> {
     fail(waited.problems);
     return null;
   }
-  return statusLines(buildTaskStatus(root, findTask(root, id)?.dir ?? null, waited.workflow, waited.task.document, waited.task.record));
+  return statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record));
 }
 
 export function registerRunCommands(program: Command): void {

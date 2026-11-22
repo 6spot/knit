@@ -13,6 +13,7 @@ import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
+import { atomicWrite } from "../infrastructure/atomic.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, type HandoffReport } from "./handoff.js";
@@ -170,7 +171,10 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   // 规则不计入交接的字节上限。
   writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
-  writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
+  atomicWrite({
+    path: join(root, dir, "before.json"),
+    data: Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`),
+  });
   return { run: { id, dir, stage, worktree, agent, model, thinking: target.thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
 }
 

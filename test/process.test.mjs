@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NodeProcessPort, gitSync, parseProcessTablePs, procStartTicks, processTreePids, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
+import { gitSync, parseProcessTablePs, procStartTicks, processTreePids, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
 
 /** 本机存活检查：权限未知视作仍存活。 */
 function isProcessAlive(pid) {
@@ -47,43 +49,18 @@ test("Git：argv 调用与 NUL 解析、固定环境", () => {
   }
 });
 
-test("进程：spawn/wait/killProcessGroup 对真实子进程", async () => {
-  const port = new NodeProcessPort();
-  const proc = await port.spawn("sh", ["-c", "echo ok"], { cwd: tmpdir() });
-  assert.ok(proc.pid > 0);
-  let output = "";
-  const reader = proc.stdout.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    output += new TextDecoder().decode(value);
-  }
-  assert.equal(output.trim(), "ok");
-  const quick = await port.spawn("sh", ["-c", "exit 0"], { cwd: tmpdir() });
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const wait = await port.wait(quick);
-  assert.ok(wait.exitCode === null || wait.exitCode === 0, JSON.stringify(wait));
-  // kill 进程组：sleep 子进程被终止
-  const sleeper = await port.spawn("sh", ["-c", "sleep 30"], { cwd: tmpdir() });
-  await port.killProcessGroup(sleeper, "SIGTERM");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.equal(isProcessAlive(sleeper.pid), false, "子进程组已终止");
-});
-
 test("进程树：取消时清理工具自建进程组的后代", async () => {
-  const port = new NodeProcessPort();
-  const root = await port.spawn(process.execPath, ["-e", `
+  const root = spawn(process.execPath, ["-e", `
     const { spawn } = require("node:child_process");
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
     process.on("SIGTERM", () => {});
     child.once("exit", () => process.exit(0));
     // console.log 在有颜色的终端里会给数字加颜色码，读的一方解析不出进程号。
     process.stdout.write(String(child.pid));
-  `], { cwd: tmpdir() });
+  `], { cwd: tmpdir(), detached: true });
   try {
-    const reader = root.stdout.getReader();
-    const { value } = await reader.read();
-    const childPid = Number(new TextDecoder().decode(value).trim().split("\n")[0]);
+    const [output] = await once(root.stdout, "data");
+    const childPid = Number(output.toString());
     assert.ok(Number.isInteger(childPid) && childPid > 0);
     await new Promise((resolve) => setTimeout(resolve, 100));
     const tree = processTreePids(root.pid);
@@ -122,11 +99,4 @@ test("进程059：ps解析兼容24字符日期、单日空白和多位日，忽�
   assert.deepEqual(table.get(100), { ppid: 1, pgid: 100, startTicks: "Tue Nov  3 10:20:30 2026" });
   assert.equal(table.get(101).startTicks, table.get(100).startTicks);
   assert.equal(table.get(102).startTicks, "Mon Nov 23 10:20:30 2026");
-});
-
-test("进程059：wait取得真实退出码，快速退出后重复wait仍可读取", async () => {
-  const port = new NodeProcessPort();
-  const child = await port.spawn(process.execPath, ["-e", "process.exit(7)"], { cwd: tmpdir() });
-  assert.deepEqual(await port.wait(child), { exitCode: 7, signal: null });
-  assert.deepEqual(await port.wait(child), { exitCode: 7, signal: null });
 });

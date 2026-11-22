@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { loadConfig } from "../dist/application/config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
+import { ARCHIVE_DIR, findTask } from "../dist/application/task-store.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
@@ -91,6 +92,26 @@ test("没有规范和已经结束的任务", (t) => {
   assert.equal(ended.code, 0, ended.stderr);
   assert.match(ended.stdout.trimEnd().split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
   assert.equal(ended.stdout.split("任务:")[0], `规范（discuss 环节）:\n${A.block}`);
+});
+
+test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", (t) => {
+  const root = runProject(t);
+  const active = readyTask(root);
+  const archived = readyTask(root);
+  const cancelled = knit(root, "task", "cancel", archived.id, "--reason", "不做了");
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+
+  // task.md 是目录，尝试按普通文件读取就会报 EISDIR。
+  const broken = join(root, ARCHIVE_DIR, "2000-01", "broken", "task.md");
+  mkdirSync(broken, { recursive: true });
+  assert.equal(findTask(root, active.id)?.dir, active.dir);
+  for (const args of [["context"], ["run", "status"], ["run", "wait"]]) {
+    const result = knit(root, ...args, active.id);
+    assert.equal(result.code, 0, result.stderr);
+    assert.ok(result.stdout.includes(active.id));
+  }
+  rmSync(broken, { recursive: true });
+  assert.equal(findTask(root, archived.id)?.archived, true);
 });
 
 test("初始化生成的通用规范", (t) => {

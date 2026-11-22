@@ -44,36 +44,41 @@ export type CreateTaskResult =
 
 /** 所有任务，含已归档的。写坏的任务也列出来，带着问题，不挡住其它任务。 */
 export function scanTasks(root: string): StoredTask[] {
-  return taskDirectories(root).flatMap((entry) => {
+  return [...storedTasks(root)];
+}
+
+function* storedTasks(root: string): Generator<StoredTask> {
+  for (const entry of taskDirectories(root)) {
     const taskFile = readWithVersion(join(root, entry.dir, TASK_FILE));
-    if (taskFile === null) return [];
+    if (taskFile === null) continue;
     const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
     const markdown = taskFile.data.toString("utf8");
     const document = parseTaskDocument(markdown);
     const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
-    return [
-      {
-        dir: entry.dir,
-        archived: entry.archived,
-        // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
-        id:
-          document.document?.frontmatter.id ??
-          /^id:[ \t]*(\S+)[ \t]*$/m.exec(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown)?.[1] ?? "")?.[1] ??
-          null,
-        document: document.document,
-        record: record.record,
-        problems: [
-          ...document.problems.map((problem) => `${TASK_FILE}：${problem}`),
-          ...record.problems.map((problem) => `${RECORD_FILE}：${problem}`),
-        ],
-        versions: { task: taskFile.sha256, record: recordFile?.sha256 ?? null },
-      },
-    ];
-  });
+    yield {
+      dir: entry.dir,
+      archived: entry.archived,
+      // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
+      id:
+        document.document?.frontmatter.id ??
+        /^id:[ \t]*(\S+)[ \t]*$/m.exec(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown)?.[1] ?? "")?.[1] ??
+        null,
+      document: document.document,
+      record: record.record,
+      problems: [
+        ...document.problems.map((problem) => `${TASK_FILE}：${problem}`),
+        ...record.problems.map((problem) => `${RECORD_FILE}：${problem}`),
+      ],
+      versions: { task: taskFile.sha256, record: recordFile?.sha256 ?? null },
+    };
+  }
 }
 
 export function findTask(root: string, id: string): StoredTask | null {
-  return scanTasks(root).find((task) => task.id === id) ?? null;
+  for (const task of storedTasks(root)) {
+    if (task.id === id) return task;
+  }
+  return null;
 }
 
 export interface LoadedTask {
@@ -107,7 +112,7 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
   const now = new Date();
   const slug = input.slug.replace(/[^0-9A-Za-z_-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
   const base = [now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-") + `-${slug}`;
-  const taken = new Set(taskDirectories(root).map((entry) => basename(entry.dir)));
+  const taken = new Set(Array.from(taskDirectories(root), (entry) => basename(entry.dir)));
   // 候选比已有目录多一个，所以一定有一个没被占用。
   const name = [base, ...Array.from(taken, (_, index) => `${base}-${index + 2}`)].find((candidate) => !taken.has(candidate)) ?? base;
   const dir = `${TASKS_DIR}/${name}`;
@@ -183,15 +188,13 @@ export function archiveTask(root: string, stored: StoredTask, targetRoot = root)
   return dir;
 }
 
-function taskDirectories(root: string): { dir: string; archived: boolean }[] {
-  return [
-    ...subdirectories(root, TASKS_DIR)
-      .filter((dir) => dir !== ARCHIVE_DIR)
-      .map((dir) => ({ dir, archived: false })),
-    ...subdirectories(root, ARCHIVE_DIR)
-      .flatMap((month) => subdirectories(root, month))
-      .map((dir) => ({ dir, archived: true })),
-  ];
+function* taskDirectories(root: string) {
+  for (const dir of subdirectories(root, TASKS_DIR)) {
+    if (dir !== ARCHIVE_DIR) yield { dir, archived: false };
+  }
+  for (const month of subdirectories(root, ARCHIVE_DIR)) {
+    for (const dir of subdirectories(root, month)) yield { dir, archived: true };
+  }
 }
 
 function subdirectories(root: string, relative: string): string[] {

@@ -3,18 +3,8 @@
  * 进程身份是进程号加启动标识；只凭进程号判断不了是不是原来那个进程。
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { kill as killProcess } from "node:process";
-import { InfrastructureError } from "./errors.js";
-
-/** 受管理的子进程：只暴露 pid 与三个标准流。 */
-export interface ManagedProcess {
-  readonly pid: number;
-  readonly stdin: WritableStream<Uint8Array>;
-  readonly stdout: ReadableStream<Uint8Array>;
-  readonly stderr: ReadableStream<Uint8Array>;
-}
 
 /**
  * 进程启动标识：Linux 读 /proc stat 字段；其它平台回退 ps 表的「lstart|comm」文本
@@ -70,84 +60,6 @@ const GIT_ENV: Record<string, string> = {
   GIT_ATTR_NOSYSTEM: "1",
   LC_ALL: "C",
 };
-
-export class NodeProcessPort {
-  private readonly exits = new WeakMap<ManagedProcess, Promise<{ exitCode: number | null; signal: string | null }>>();
-
-  spawn(command: string, args: string[], options: { cwd: string; env?: Record<string, string>; inheritStderr?: boolean; detachStreams?: boolean }): Promise<ManagedProcess> {
-    const detachedStreams = options.detachStreams === true;
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
-      stdio: detachedStreams
-        ? ["ignore", "ignore", options.inheritStderr === true ? "inherit" : "ignore"]
-        : ["pipe", "pipe", options.inheritStderr === true ? "inherit" : "pipe"],
-      detached: true, // 独立进程组：外层只管理自身启动的进程组
-    });
-    if (detachedStreams) child.unref();
-    const managed: ManagedProcess = {
-      pid: child.pid ?? -1,
-      stdin: child.stdin === null
-        ? new WritableStream<Uint8Array>({ write() {}, close() {}, abort() {} })
-        : new WritableStream<Uint8Array>({
-            write(chunk) {
-              if (!child.stdin!.write(chunk)) {
-                return new Promise((resolve) => child.stdin!.once("drain", resolve));
-              }
-            },
-            close() {
-              child.stdin!.end();
-            },
-            abort() {
-              child.stdin!.destroy();
-            },
-          }),
-      stdout: child.stdout === null
-        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } })
-        : new ReadableStream<Uint8Array>({
-            start(controller) {
-              child.stdout!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-              child.stdout!.on("end", () => controller.close());
-              child.stdout!.on("error", (error) => controller.error(error));
-            },
-          }),
-      stderr: child.stderr! === null
-        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } })
-        : new ReadableStream<Uint8Array>({
-            start(controller) {
-              child.stderr!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-              child.stderr!.on("end", () => controller.close());
-              child.stderr!.on("error", (error) => controller.error(error));
-            },
-          }),
-    };
-    // 在返回句柄前订阅退出，wait晚于快速退出调用也能取得真实状态；不依赖/proc。
-    const exited = new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
-      child.once("exit", (exitCode, signal) => resolve({ exitCode, signal }));
-      child.once("error", reject);
-    });
-    void exited.catch(() => {}); // spawn错误由wait返回；尚未等待时不产生未处理拒绝。
-    this.exits.set(managed, exited);
-    return Promise.resolve(managed);
-  }
-
-  wait(process: ManagedProcess): Promise<{ exitCode: number | null; signal: string | null }> {
-    return this.exits.get(process) ?? Promise.reject(new InfrastructureError("io_error", "unknown process handle"));
-  }
-
-  killProcessGroup(process: ManagedProcess, signal: string): Promise<void> {
-    try {
-      // 负 PID 定位进程组（detached: true 建立的新进程组）；process.kill 不需 child 引用。
-      killProcess(-process.pid, signal as NodeJS.Signals);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ESRCH") {
-        throw new InfrastructureError("io_error", `failed to signal process group ${process.pid}`, { cause: String(error) });
-      }
-    }
-    return Promise.resolve();
-  }
-}
 
 /** 同步 Git 调用：参数数组直接传给 git，不经 shell。 */
 export function gitSync(args: string[], cwd: string): { code: number; stdout: string; stderr: string } {
