@@ -1,0 +1,13 @@
+{
+  "confirmedDigest": "4219612d3b2f4f07a66eeebb0299d017778ffa1f5d03496d17dc254d097acebc",
+  "changedPaths": [
+    ".agents/plugins/knit/hooks.json",
+    ".agents/plugins/knit/plugin.json",
+    ".agents/plugins/knit/rules/AGENTS.md",
+    "src/adapters/antigravity/host-hook.ts",
+    "test/host-hook.test.mjs",
+    "validation/multi-host-main-session/README.md"
+  ],
+  "runs": [],
+  "authorization": "我全权授权给你派发去执行，我要睡了，等明天起来我看你最终的结果成品"
+}

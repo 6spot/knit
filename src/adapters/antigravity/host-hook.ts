@@ -31,13 +31,14 @@ export async function agyHostHook(event: string, input: unknown) {
     const text = hostContext(cwd ? [cwd, ...workspaces] : workspaces, { host: "agy", sessionId });
     return text === null ? {} : { injectSteps: [{ systemMessage: { systemMessage: text } }] };
   }
+  if (event !== "PreToolUse") return {};
   const tool = object(payload?.toolCall);
   const command = object(tool?.args)?.CommandLine;
-  if (event !== "PreToolUse" || tool?.name !== "run_command" || typeof command !== "string") return {};
+  if (tool?.name !== "run_command" || typeof command !== "string") return { decision: "allow" };
   const checked = await checkHostCommand(command, () => userMessages(payload?.transcriptPath, cwd), {
     select: typeof sessionId === "string" && sessionId ? `KNIT_HOST=agy KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
     start: process.env.KNIT_SESSION_AGENT === undefined ? 'KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT-antigravity}"' : undefined,
   });
   if (checked.reason) return { decision: "deny", reason: checked.reason };
-  return checked.command === command ? {} : { decision: "allow", overwrite: { CommandLine: checked.command } };
+  return checked.command === command ? { decision: "allow" } : { decision: "allow", overwrite: { CommandLine: checked.command } };
 }

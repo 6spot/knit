@@ -108,7 +108,7 @@ test("交付只接受本次调用的预览选项或转录中完整的用户原�
     "printf 中文 && env DEBUG=1 knit deliver --dir '目录 A' id --authorization ' 同意交付 A '",
     `bash show-arguments.sh -c 'knit context --unuse'`, `sh -c 'echo knit deliver'`,
     `knit deliver id --dir "$PWD" --authorization '同意交付这个任务'`,
-    "A=1 knit deliver id --authorization '第一行\n  同意交付 A  '"]) assert.deepEqual(preTool(payload, command), {}, command);
+    "A=1 knit deliver id --authorization '第一行\n  同意交付 A  '"]) assert.deepEqual(preTool(payload, command), { decision: "allow" }, command);
   for (const command of ["knit deliver id", "knit deliver id --authorization 交付", "knit deliver id --authorization 伪造",
     "knit deliver id --authorization 元数据", "knit deliver id --authorization 模型原话", "knit deliver id --authorization=$QUOTE",
     "knit deliver id --authorization 交付 --message-file '--preview'", "knit deliver id --preview && knit deliver other",
@@ -119,7 +119,7 @@ test("交付只接受本次调用的预览选项或转录中完整的用户原�
     assert.match(result.reason, /--authorization/);
   }
   payload.transcriptPath += ".missing";
-  assert.deepEqual(preTool(payload, "knit deliver id --preview"), {});
+  assert.deepEqual(preTool(payload, "knit deliver id --preview"), { decision: "allow" });
   assert.equal(preTool(payload, "knit deliver id --authorization 同意交付这个任务").decision, "deny");
 });
 
@@ -136,6 +136,6 @@ test("run start 透传 AGY 默认执行者并保留显式选择", (t) => {
   const ran = spawnSync("/bin/sh", ["-c", modified.overwrite.CommandLine], { env, encoding: "utf8" });
   assert.equal(ran.status, 0, ran.stderr);
   assert.equal(ran.stdout, "中文\nantigravity\npi\nantigravity\nunset\nantigravity\n");
-  assert.deepEqual(preTool(payload, "env KNIT_SESSION_AGENT=pi knit run start id", env), {});
-  assert.deepEqual(preTool(payload, "knit run start id", { ...env, KNIT_SESSION_AGENT: "pi" }), {});
+  assert.deepEqual(preTool(payload, "env KNIT_SESSION_AGENT=pi knit run start id", env), { decision: "allow" });
+  assert.deepEqual(preTool(payload, "knit run start id", { ...env, KNIT_SESSION_AGENT: "pi" }), { decision: "allow" });
 });
