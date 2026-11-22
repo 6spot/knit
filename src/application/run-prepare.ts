@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
 import { checkSchema } from "../contracts/schema.js";
-import { THINKING_LEVELS, ThinkingLevelSchema, type ThinkingLevel, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
+import { AGY_EFFORT_LEVELS, AGY_MODEL_PATTERN, THINKING_LEVELS, ThinkingLevelSchema, type AgentName, type ThinkingLevel, type ToolCapability, WORKFLOW_MODEL_PATTERN } from "../contracts/workflow.js";
 import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
@@ -33,7 +33,8 @@ export interface PrepareRunInput {
   /** 临时指定的思考等级；没给时先用流程里的，再用主会话的。 */
   readonly thinking?: string | null;
   /** 客户端边界观察到的主会话缺省值，不作为命令行覆盖。 */
-  readonly sessionDefaults?: { readonly model: string | null; readonly thinking: string | null };
+  readonly sessionDefaults?: { readonly agent?: AgentName; readonly model: string | null; readonly thinking: string | null };
+  readonly checkAgent?: (agent: AgentName, capabilities: readonly ToolCapability[] | null, worktree: TaskWorktree) => string | null;
 }
 
 export interface PreparedRun {
@@ -43,7 +44,8 @@ export interface PreparedRun {
   readonly stage: WorkflowStage;
   readonly worktree: TaskWorktree;
   /** 最后用的模型。 */
-  readonly model: string;
+  readonly agent: AgentName;
+  readonly model: string | null;
   /** 最后用的思考等级；null 时让客户端自己取缺省。 */
   readonly thinking: ThinkingLevel | null;
   /** 这次新建目录后运行的准备命令数；没运行时不带这个字段。 */
@@ -81,22 +83,29 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   if (step.kind === "close") return refuse(`所有环节都做完了；核对之后运行 knit task close ${taskId}`);
   if (step.kind === "limit") return refuse(...limitNotice(taskId, input.workflow, record, step));
   const stage = step.stage;
-  const model =
-    input.model ?? stage.model ??
-    input.sessionDefaults?.model ?? null;
-  if (model === null) {
+  const agent = stage.agent ?? input.sessionDefaults?.agent ?? "pi";
+  const pi = agent === "pi";
+  const defaults = input.sessionDefaults?.agent === "antigravity" ? undefined : input.sessionDefaults;
+  const model = input.model ?? stage.model ?? (pi ? input.workflow.model ?? defaults?.model : null) ?? null;
+  if (pi && model === null) {
     return refuse("没有指定执行者的模型：不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型");
   }
-  if (!new RegExp(WORKFLOW_MODEL_PATTERN).test(model)) return refuse(`--model 要写成 provider/模型：${model}`);
-  const thinking = input.thinking ?? stage.thinking ?? input.sessionDefaults?.thinking ?? null;
-  if (thinking !== null && !checkSchema(ThinkingLevelSchema, thinking)) {
-    return refuse(`思考等级只允许 ${THINKING_LEVELS.join("／")}：${thinking}`);
+  if (model !== null && !new RegExp(pi ? WORKFLOW_MODEL_PATTERN : AGY_MODEL_PATTERN).test(model)) {
+    return refuse(`--model 要写成 ${pi ? "provider/模型" : "Antigravity 模型 ID"}：${model}`);
+  }
+  const thinking = input.thinking ?? stage.thinking ?? (pi ? input.workflow.thinking ?? defaults?.thinking : null) ?? null;
+  const levels: readonly string[] = pi ? THINKING_LEVELS : AGY_EFFORT_LEVELS;
+  if (thinking !== null && (!checkSchema(ThinkingLevelSchema, thinking) || !levels.includes(thinking))) {
+    return refuse(`思考等级只允许 ${levels.join("／")}：${thinking}`);
   }
 
   if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
     return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
   }
   const worktree = taskWorktree(root, stored.dir);
+  const checkIsolation = () => input.checkAgent?.(agent, stage.tools, worktree);
+  const unavailable = checkIsolation();
+  if (unavailable) return refuse(unavailable);
   const preparedWorktree = ensureWorktree(root, worktree);
   if (preparedWorktree.problems.length > 0) return refuse(...preparedWorktree.problems);
   const refusePrepared = (problems: readonly string[], force = false) =>
@@ -129,6 +138,10 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
     ];
   }, []);
   if (setupProblems.length > 0) return refusePrepared(setupProblems, true);
+  if (setup.length > 0) {
+    const unavailableAfterSetup = checkIsolation();
+    if (unavailableAfterSetup) return refusePrepared([unavailableAfterSetup], true);
+  }
 
   const id = `r-${randomBytes(6).toString("hex")}`;
   const conflicts = saveTask(
@@ -142,6 +155,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
         {
           id,
           stage: stage.id,
+          agent,
           startedAt: new Date().toISOString(),
           endedAt: null,
           verdict: null,
@@ -161,7 +175,7 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
   writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
   writeFileSync(join(root, dir, "before.json"), `${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
-  return { run: { id, dir, stage, worktree, model, thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
+  return { run: { id, dir, stage, worktree, agent, model, thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
 }
 
 function dependencyProblems(root: string, tasks: readonly StoredTask[], id: string): string[] {

@@ -219,8 +219,8 @@ createdAt: 2026-11-14T13:36:56Z
 
 ```yaml
 version: 1
-model: provider/模型          # 可不写；所有环节的执行者缺省用的模型
-thinking: high               # 可不写；所有环节的执行者缺省用的思考等级
+model: provider/模型          # Pi 环节的流程缺省
+thinking: high               # Pi 环节的流程缺省
 maxRepairRounds: 5            # 返工上限，不写是 5
 stages:
   - id: implement
@@ -229,8 +229,9 @@ stages:
     tools: [read, write, exec]
   - id: review
     name: 审查
-    model: provider/另一个     # 可以不写；写了只管这个环节
-    thinking: max             # 可以不写；写了只管这个环节
+    agent: antigravity
+    model: gemini-3.8-flash-low
+    thinking: high
     prompt: .knit/agents/review.md
     tools: [read, write, exec]
     report:
@@ -241,12 +242,12 @@ stages:
 ```
 
 - 两头固定：讨论（需求确认之前）和收尾（交付），都在主会话里。中间有哪些环节、什么顺序，由这个文件决定。默认是实现、审查两个。
-- 执行者的模型：顶层的 `model` 是缺省，环节可以写自己的 `model`。派发时取值的先后是 `knit run start --model`、环节的、顶层的、主会话当前的模型；四处都没有时才拒绝派发。写法是 `provider/模型`，流程里写错在 `knit workflow validate` 时就指出。
-- 执行者的思考等级：顶层的 `thinking` 是缺省，环节可以写自己的 `thinking`。派发时取值的先后是 `knit run start --thinking`、环节的、顶层的、主会话当前的等级；四处都没有时不传 `--thinking`，由 Pi 用自己的缺省，不拒绝派发。允许 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；流程里写错在 `knit workflow validate` 时带行号指出。定下来的等级通过 `--thinking` 传给执行者，后台和 Rex 窗格相同；Pi 会按模型能力收窄等级，Knit 不另做适配。不把思考等级写进 `record.json`，`knit run status` 也不显示。
-- 主会话的模型从环境变量 `PI_PROVIDER`、`PI_MODEL` 读取，两者都有值时拼成 `provider/模型`；思考等级从 `PI_REASONING_LEVEL` 读取。Pi 的 bash 工具会注入这些变量；桥接的 `knit_run` start 从 `ctx.model.provider`、`ctx.model.id` 和 `ctx.thinkingLevel` 取当前值，放进 `knit run start` 子进程的对应环境变量，不把这些回退值变成命令行覆盖。不解析虚拟模型；执行者用这个名字启动不了时，照常记为“执行者启动失败”。
-- `knit workflow show` 每个环节显示生效的模型和思考等级；没有配置思考等级时显示 `（没有指定，用主会话的等级）`，不读取环境变量替换这句提示。
+- 环节的 `agent` 接受 `pi` 和 `antigravity`。省略时取派发入口的客户端。Pi 桥接传入 `pi`，其他调用方可通过 `KNIT_SESSION_AGENT` 传入客户端。普通终端缺省为 `pi`。新执行记录写入实际 `agent`，历史记录省略该字段时按 `pi` 读取。`run status`、`run wait` 和 Pi 的续跑通知显示实际 Agent。
+- Pi 模型写成 `provider/模型`，依次取本次 `--model`、环节、流程顶层、主会话。四处都没有模型时拒绝派发。思考等级按相同顺序取本次 `--thinking`、环节、流程顶层、主会话，允许 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。有值时传给 Pi 的 `--thinking`，Pi 按模型能力收窄。省略时由 Pi 取缺省。
+- Antigravity 模型使用 `agy` 自己的 ID。模型和思考等级依次取本次命令行覆盖和环节值。思考等级允许 `low`、`medium`、`high`、`xhigh`、`max`，传给 `--effort`。缺省参数由 CLI 决定。`knit workflow validate` 给出显式配置的错误行号。省略 `agent` 时，模型格式和思考等级还要在派发时按实际客户端核对。
+- Pi 桥接把 `ctx.model.provider`、`ctx.model.id` 和 `ctx.thinkingLevel` 放进子进程的 `PI_PROVIDER`、`PI_MODEL`、`PI_REASONING_LEVEL`，Pi 的 bash 工具也会注入这些变量。`knit workflow show` 显示环节的 Agent 和流程可确定的模型与思考等级。主会话和命令行覆盖值在派发时取用。
 - 返工上限写在顶层的 `maxRepairRounds`，不写是 5。
-- 每个环节可以写：`id`、`name`、`description`、`model`、`thinking`、`prompt`（角色文件）、`tools`（能力：`read`、`write`、`exec`、`external`、`network`）、`report`（额外的报告字段）、`onVerdict`（按结论跳到哪个环节）、`maxVisits`（第一次之后最多再进入几次，`null` 是不设上限）。
+- 每个环节可以写：`id`、`name`、`description`、`agent`、`model`、`thinking`、`prompt`（角色文件）、`tools`（能力：`read`、`write`、`exec`、`external`、`network`）、`report`（额外的报告字段）、`onVerdict`（按结论跳到哪个环节）、`maxVisits`（第一次之后最多再进入几次，`null` 是不设上限）。
 - 报告里带 `verdict` 的环节算审查环节。
 - 文件手工改，`knit workflow validate` 校验并给出行号。没有 `add`／`remove`／`move`／`set-*` 这些修改子命令，也没有 `knit_workflow` 工具。
 - 文件有错时，拒绝派发新的执行并指出哪一行。
@@ -265,29 +266,29 @@ stages:
 
 ## 7. 执行
 
-Knit 的执行流程与客户端适配分开，现有 Pi 通过同一个入口执行：
+Knit 为 Pi 和 Antigravity 提供共用执行入口：
 
-| Knit 共用流程 | 客户端适配器（当前为 Pi） |
+| Knit 共用流程 | 客户端适配器 |
 | --- | --- |
 | `startRun`／`prepareRun`：派发检查、Worktree、交接、准备命令、快照与后台进程登记 | 从主会话提供模型与思考等级的回退值，不覆盖流程和命令行设置 |
 | `executeRun`／`runInPane`：在 Worktree 执行、开关 Rex 窗格、等待启动与后台回退、执行结算 | 提供交互客户端启动命令，或创建后台会话；映射启动参数、工具能力和权限 |
 | `runAgentSession`：启动检查、保存报告、校验字段、原会话补报一次、停止客户端 | `AgentSession` 提供启动失败原因、每轮的报告或失败原因、原生会话文件，以及在原会话发消息和停止的操作 |
 | `run-process`／`cancelRun`／`waitRun`：进程身份、窗格客户端登记、子进程停止、取消结算与等待记录 | 从 RPC 或交互事件采集结果；Pi 窗格暂停后保留原会话，继续输入才交回本轮结果 |
 
-接口在 `src/contracts/agent.ts`，Pi 实现在 `src/adapters/pi/execution.ts` 和 `pane-worker.ts`。后台 worker 与窗格扩展都调用 `src/application/run-session.ts` 的 `runAgentSession`，不各自实现报告校验或补报次数。窗格中的共用流程先发布 `outcome.json` 再停止客户端，后台 worker 收到后统一调用 `finishRun` 入账。只按当前流程执行 Pi；本次不增加 Agent 选择配置，也不增加执行记录字段。
+Pi 和 Antigravity 按 Agent 名在 `src/adapters/agents.ts` 登记。派发读取主会话客户端的缺省值，检查所选执行者的隔离条件。执行和结算按记录里的 Agent 找到适配器。接口在 `src/contracts/agent.ts`。Pi 和 Antigravity 的后台 worker 与窗格客户端都调用 `runAgentSession`，该函数保存与校验报告，必要时在原会话补报一次。窗格先发布 `outcome.json` 再停止客户端，后台 worker 收到后调用 `finishRun` 入账。原 Pi 主会话的等待链路在结算后投递结果，触发新一轮。
 
 - 派发的执行者在任务自己的 Worktree 和 `knit/<任务目录名>` 分支里执行，主检出不变。一个任务同一时间只有一个执行者；不同任务可以同时派发，不设并发上限，各自结束时桥接各发一条通知。主会话直接做的任务不建 Worktree。
 - 各任务只写自己的 `task.md` 和 `record.json`，写入时仍核对版本；运行资料在各自的 `.knit/.runtime/runs/<执行 id>/` 里。`knit run status`、`knit run wait` 和 `knit run cancel` 只针对指定任务，取消一个任务的执行不影响其它任务。不加锁、排队或调度；会改同一批文件的任务用 `dependsOn` 排先后，合并冲突由交付处理。
 - 第一次派发时，非交接的派发条件通过之后、读取交接资料之前，从主检出当时的 `HEAD` 建 Worktree；主检出没提交的改动和被忽略的目录（如 `node_modules`）不会带过去。返工、审查复用同一个 Worktree。目录不在而任务分支还在时，先 `git worktree prune`，再按原分支检出。这次派发新建了目录时才运行配置的准备命令，包括按原分支重建目录；复用时不再运行。不自动合并或清理。
 - Knit 读取的流程、规范、配置、角色文件、任务目录和运行资料仍来自主检出。`knit run start`、`knit run status` 和每轮任务状态在 Worktree 存在时都显示它的位置和分支；任务状态不变时这一行逐字不变。
 - 派发过的任务在任务 Worktree 里交付，提交留在任务分支上（第 8.2 节）；主会话要补代码改动时也在这个 Worktree 里改，不在主检出里改。
-- 执行者是后台的 `pi --mode rpc` 进程。`knit run start` 等准备命令完成、派发执行者之后返回，不等执行者结束；本次运行过准备命令时，成功输出说明运行了几条，没有运行时输出不变。结束时桥接通知主会话。主会话在 Rex 里时，执行者改在 Rex 的窗格里跑（第 7.2 节）。
+- 后台 Pi 使用 `--mode rpc`，后台 `agy` 使用双向 stream JSON。`knit run start` 在准备命令完成并派发执行者后返回。Rex 中优先使用原生交互窗格（第 7.2 节）。
 - 执行者能用哪些工具，由环节的 `tools` 决定。
 - 结束时：读取报告；对比派发前后在 Worktree 拍的工作区记录，得出相对 Worktree 的改动文件路径，写入主检出的 `record.json`；推进任务状态。改动文件以对比结果为准，不依赖执行者自报。主检出里其他人的改动不计入。
 - 派发执行者要求项目在 Git 仓库里：改动文件是靠 Git 列出文件对比出来的，执行者有没有提交也靠它判断。不在 Git 仓库里的项目，任务由主会话直接做，照样可以确认、完成和交付。要让这类项目也能派发，得另外定怎么列出要对比的文件、跳过哪些目录；现在不做。
 - 执行者不能提交：结束时 Worktree 的 `HEAD` 变了，本次执行记为失败。
 - 执行者不能改 `.knit/standards/`、`.knit/workflow.yaml`、`.knit/config.json` 和流程用到的角色文件：只检查 Worktree 里的那一份，改了，本次执行记为失败。
-- 派发前先检查：需求已确认、依赖的任务都已交付并合并、这个任务没有还没结束的执行、能按第 6.1 节的先后取到合法模型名和思考等级、仓库已有提交。这些条件不满足时不建 Worktree、不留下本次执行记录；仓库还没有提交时提示先提交一次。模型配置和主会话模型都没有时拒绝，提示“不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型”；不在派发前检查 Pi 能否启动这个模型。
+- 派发前先检查：需求已确认、依赖的任务都已交付并合并、这个任务没有还没结束的执行、能按第 6.1 节的先后取到合法模型名和思考等级、仓库已有提交。这些条件不满足时不建 Worktree、不留下本次执行记录；仓库还没有提交时提示先提交一次。模型缺失时只对 Pi 拒绝派发，提示“不在 Pi 会话里时，在 .knit/workflow.yaml 里写 model，或加 --model provider/模型”。Antigravity 派发还检查可用的隔离环境（第 7.4 节）。
 - 依赖检查包括已归档的任务，只在派发时做，主会话直接做任务不检查。依赖是 `done` 或更早的状态时拒绝，提示还没有交付，交付并合并之后再派发；被取消的依赖仍拒绝。主检出里找不到依赖时拒绝，提示可能已经在任务分支上交付但还没有合并，也可能确实不存在；按任务 ID 在任务分支的任务文档里找得到时，给出对应的 `knit/<任务目录名>` 分支和在主检出里运行的 `git merge <分支名>` 命令。主检出里是 `delivered` 时，任务分支不存在，或该分支已是主检出当前 `HEAD` 的祖先，才放行；分支还在但不是祖先时拒绝，提示还没有合并并给出合并命令。任务目录被 Git 忽略、归档留在主检出而代码还在任务分支上的项目也按此判断。主会话直接交付、没有任务分支的依赖可以放行；分支被手工删除但没有合并的情况无法判断，不处理。
 - 然后准备 Worktree，再按第 5.2 节的来源拼交接。建不出来时拒绝派发，原样给出 Git 的错误。点名的资料读不出或角色文件不存在时也拒绝；仓库资料在主检出里有而 Worktree 里没有时，提示该路径，并说明它还没有提交，所以任务的 Worktree 里没有。这些拒绝条件都不运行准备命令。
 - 交接拼好之后，在本次新建的 Worktree 里按顺序运行 `worktree.setup`。命令经系统的 shell 执行（Windows 上为 `cmd.exe`，以支持 `npm.cmd`），环境变量沿用 Knit 进程的；不设超时，不重试，命令是否正确、能否跨平台由项目负责。命令卡住时 `knit run start` 也一直等待，由用户中断。有一条退出码不是 0 时，后面的不再运行，拒绝派发，输出这条命令、退出码和它的标准输出／标准错误。全部成功后才登记执行、在 Worktree 拍 `before.json` 并启动执行者；准备命令生成的文件不算执行者的改动。
@@ -333,17 +334,17 @@ Knit 的执行流程与客户端适配分开，现有 Pi 通过同一个入口�
 
 ### 7.2 Rex 窗格
 
-主会话在 Rex 里时（环境变量里有 `REX_SESSION` 和 `REX_BLOCK`），执行者在 Rex 的一个浮动窗格里跑：窗格里是 Pi 的交互界面，用户看得到过程，也可以直接在里面对执行者说话。窗格管理由 Knit 的共用流程负责；窗格和后台使用同一套会话执行与报告规则。
+主会话在 Rex 里时（环境变量里有 `REX_SESSION` 和 `REX_BLOCK`），Knit 通过浮动窗格启动选中的原生客户端。用户可以查看过程、继续输入和处理审批。窗格和后台复用会话执行与报告规则。
 
 - 派发、等待、通知、状态、取消的命令和输出都不变。后台进程照旧启动，它开窗格、等窗格里的程序结束、记结果。
-- 窗格开在主会话所在的窗口里，标签是 `knit <执行 id>`，开完就最小化，不抢焦点。执行者做完之后 Pi 退出，窗格自己关掉。
-- 窗格里的 Pi 加载一个随 Knit 安装的扩展。扩展采集 `agent_settled` 后原会话的最后一条助手消息、模型错误和会话文件，提供原会话发消息与退出操作。Knit 的 `runAgentSession` 发第一条消息、保存 `report.md`、校验并在原会话补报一次，再把结果写进执行目录的 `outcome.json`，然后让 Pi 退出。启动参数除了没有 `--mode rpc` 和 `--no-themes`，和后台执行一样。
+- 窗格开在主会话所在的窗口里，标签是 `knit <执行 id>`，开完就最小化，不抢焦点。执行者交报后退出客户端，窗格随之关闭。
+- 窗格里的 Pi 扩展从 `agent_settled` 采集最后一条助手消息。`agy` 通过 `Stop` 和当轮转录区分等待、提交和权限阻塞，补报使用 `Stop` 的 `continue` 回执。等待输入或审批期间，执行保持进行中。后台 `agy` 在同一个 stream 会话发送补报，并保存结果和工具事件中的权限拒绝原因，包括最终状态为 `SUCCESS` 时的新 `denied_actions`。
 - 回退：`rex` 命令运行不了、窗格开不了、窗格开出来 20 秒内执行者没有开始（执行目录里没有 `pane.json`），都先把窗格关掉，再照旧在后台执行，原因写进 `worker.log`。执行者已经在窗格里开始之后不回退，避免同一个环节做两遍。
 - 模型在 Pi 里找不到时不发消息，记为“执行者启动失败”，和后台执行一样。
 - 用户在窗格里按 Esc 中止执行者：这次执行不结束，窗格留着，界面上提示可以接着输入；输入之后执行者接着做，最后照常交报告。代价是中止之后走开，这次执行会一直算正在跑，直到接着输入、关掉窗格或者运行 `knit run cancel`。
-- 窗格在执行者交报告之前被关掉：记为失败“执行者的窗格关掉了，没有交报告”。
-- `knit run status` 在执行者在窗格里跑着时多一行，指出是哪个窗格。后台进程意外退出而窗格里的 Pi 还在时也多一行，说明窗格还开着、执行者还在里面：它不是后台进程的后代，还会接着改工作区。`knit run cancel` 连窗格里的 Pi 一起停：它是 Rex 启动的，不是后台进程的后代，靠 `pane.json` 里登记的进程号找到。
-- 窗格开出来到 Pi 登记之间有零点几秒，这时取消还找不到窗格里的 Pi。两边各做一步来补：取消等后台进程退出之后再找一次登记；窗格里的 Pi 登记之后先看后台进程还在不在，不在就不发消息、直接退出。
+- 窗格在执行者交报告之前被关掉：先停止已登记的窗格进程及其子进程，再记为失败“执行者的窗格关掉了，没有交报告”。
+- `run status` 显示执行者所在的窗格。后台进程意外退出而窗格还开着时，也会提示执行者可能仍在修改 Worktree。`run cancel` 通过 `pane.json` 找到 Rex 启动的执行者，并停止受管理的进程。
+- 窗格客户端先登记自身进程，再确认后台进程仍在运行，然后发送第一条消息。取消会在后台进程退出之后再检查一次窗格登记。
 - Rex 的接口和本机核实过的表现记在 `docs/research/REX-PANE.md`。
 
 ### 7.3 执行目录里的文件坏了
@@ -372,6 +373,14 @@ Knit 的执行流程与客户端适配分开，现有 Pi 通过同一个入口�
 没有派发时的记录可比，这次执行改了哪些文件记不下来（改动文件是 0 个），这些文件不会进交付的提交。要留下的改动，在 `knit task close` 时用 `--paths` 登记。
 
 恢复 `after.json`：删掉它。预览不再标出审查通过之后又改过的文件，别的不受影响。
+
+### 7.4 Antigravity 工具隔离
+
+首版的隔离环境是 macOS 和 `agy` 1.5.13。派发在创建 Worktree 和执行记录之前核对客户端、系统沙箱及欠缺的能力。`exec` 同时需要 `read` 和可用的 macOS 命令进程跟踪器。跟踪器由带 macOS 开发工具的构建生成并随包安装，派发前会在系统沙箱里验证它。当前无法在开放 `external` 时限制外部工具联网，也无法隔离配置中可自动启动的外部进程对 CLI 状态的写入。出现这些组合，或 Worktree 中已有 `.agents/hooks.json`，或配置链接会屏蔽隔离钩子时，派发给出具体原因。准备命令完成后再次核对隔离条件，发现冲突就撤回本次新建的 Worktree，执行记录还未登记。
+
+- `tools` 省略或写 `all` 时请求所有能力。显式数组为能力上限，`[]` 关闭项目工具。`PreToolUse` 对原生工具核对能力及文件路径，Rex 在界限内用原生审批。会话配置保留用户已有的许可、询问与拒绝规则。启动时系统沙箱屏蔽工作区和全局的 MCP、插件与扩展配置，覆盖兼容目录、发现清单及相关符号链接目标。模型连接继续由 `agy` 管理。
+- 外层系统沙箱允许 `agy` 在 Worktree 内写项目文件，另外给 CLI 自己的转录、数据库和临时文件留出所需写入路径。工具核对拒绝向这些 CLI 状态路径写入。Worktree 的 Git 元数据、Knit 控制文件、Pi 桥接和客户端配置由系统沙箱保护。由 Knit 生成的钩子链接在结算时移除。
+- `run_command` 通过执行进程登记原命令与工作目录。Rex 的审批显示原命令，批准后以单次请求交给独立命令进程，返回原命令的标准输出、标准错误和退出码。具备 `exec` 时可查询原生命令状态。命令沙箱的可写路径限于允许写入的 Worktree 文件。缺少 `network` 时关闭命令联网，并通过钩子拒绝原生联网工具。命令沙箱规则携带本次命令和执行的标识，子进程在父进程退出或另建进程组后仍带有标识。Knit 在命令返回时回收该命令的进程，并在取消或收尾时按执行标识回收剩余进程，再记录终态。
 
 ## 8. 完成与交付
 
@@ -454,7 +463,7 @@ Knit 的执行流程与客户端适配分开，现有 Pi 通过同一个入口�
 knit init
 knit task new | ready | close | cancel | list | show
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
-knit run start <任务> [--model <provider/模型>] [--thinking <等级>]
+knit run start <任务> [--model <模型>] [--thinking <等级>]
 knit run status | wait | cancel 都按任务 id
 knit context [任务]                      讨论规范；指定任务时追加任务信息和环节的补充规范
 knit deliver <任务> --authorization <引用> [--message-file <文件>]

@@ -44,7 +44,7 @@ test("能派发时存好交接内容并登记", (t) => {
   const { run, problems } = prepare(dir, task.id, { workflow, thinking: "high" });
   assert.deepEqual(problems, []);
   assert.match(run.id, /^r-[0-9a-f]{12}$/);
-  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], worktree: { path: worktreeOf(dir, task), branch: `knit/${basename(task.dir)}` }, model: "fake/model", thinking: "high" });
+  assert.deepEqual(run, { id: run.id, dir: `${RUNS_DIR}/${run.id}`, stage: workflow.stages[0], worktree: { path: worktreeOf(dir, task), branch: `knit/${basename(task.dir)}` }, agent: "pi", model: "fake/model", thinking: "high" });
   assert.deepEqual(readdirSync(join(dir, run.dir)).sort(), ["before.json", "message.md", "system.md"]);
   assert.ok(readFileSync(join(dir, run.dir, "system.md"), "utf8").startsWith(`${expected.systemPrompt}\n\n<rules>\n`));
   assert.equal(readFileSync(join(dir, run.dir, "message.md"), "utf8"), expected.firstMessage);
@@ -58,6 +58,7 @@ test("能派发时存好交接内容并登记", (t) => {
   assert.deepEqual(record.runs[0], {
     id: run.id,
     stage: "implement",
+    agent: "pi",
     startedAt: record.runs[0].startedAt,
     endedAt: null,
     verdict: null,

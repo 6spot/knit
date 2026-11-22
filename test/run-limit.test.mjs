@@ -85,7 +85,7 @@ test("run status 的下一步显示同样的内容", (t) => {
   const shown = knit(dir, "run", "status", task.id);
 
   assert.equal(shown.code, 0, shown.stderr);
-  assert.ok(shown.stdout.endsWith(`改动文件: 0 个\n下一步: ${notice.join("\n")}\n`), shown.stdout);
+  assert.ok(shown.stdout.endsWith(`改动文件: 0 个\nAgent: pi\n下一步: ${notice.join("\n")}\n`), shown.stdout);
 });
 
 test("改需求并重新确认之后可以再派发", (t) => {

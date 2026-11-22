@@ -99,7 +99,7 @@ test("正在跑和进程不在了分得出来", async (t) => {
   assert.equal(
     status(running, first.id),
     `任务: 加问候语（${first.id}）\n状态: active(implement)\n${worktreeLine(running, first)}` +
-      `正在跑: 实现（${run.id}），开始于 ${run.startedAt}\n会话记录: ${RUNS_DIR}/${run.id}/session/\n`,
+      `正在跑: 实现（${run.id}），开始于 ${run.startedAt}\n会话记录: ${RUNS_DIR}/${run.id}/session/\nAgent: pi\n`,
   );
 
   const gone = runProject(t);
@@ -108,7 +108,7 @@ test("正在跑和进程不在了分得出来", async (t) => {
   assert.equal(
     status(gone, second.id),
     `任务: 加问候语（${second.id}）\n状态: active(implement)\n${worktreeLine(gone, second)}` +
-      `执行 ${lost.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${second.id} 记为失败\n`,
+      `执行 ${lost.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${second.id} 记为失败\nAgent: pi\n`,
   );
 
   writeFileSync(gate, "");
@@ -132,15 +132,19 @@ test("结束之后显示结果和下一步", (t) => {
   assert.equal(
     status(dir, task.id),
     `${head}状态: active(implement)\n${worktree}上一次: 实现（${implement.id}）\n结果: 正常结束\n` +
-      `报告: ${RUNS_DIR}/${implement.id}/report.md\n改动文件: 2 个\n下一步: 派发审查环节（knit run start ${task.id}）\n`,
+      `报告: ${RUNS_DIR}/${implement.id}/report.md\n改动文件: 2 个\nAgent: pi\n下一步: 派发审查环节（knit run start ${task.id}）\n`,
   );
 
   const review = prepare(dir, task);
   finish(dir, task, review, { verdict: "changes_requested" });
+  const recordPath = join(dir, task.dir, "record.json");
+  const legacy = JSON.parse(readFileSync(recordPath, "utf8"));
+  delete legacy.runs.at(-1).agent;
+  writeFileSync(recordPath, JSON.stringify(legacy));
   assert.equal(
     status(dir, task.id),
     `${head}状态: active(review)\n${worktree}上一次: 审查（${review.id}）\n结论: changes_requested\n` +
-      `改动文件: 0 个\n下一步: 派发实现环节（knit run start ${task.id}）\n`,
+      `改动文件: 0 个\nAgent: pi\n下一步: 派发实现环节（knit run start ${task.id}）\n`,
   );
 
   const other = readyTask(dir);
@@ -149,6 +153,6 @@ test("结束之后显示结果和下一步", (t) => {
   assert.equal(
     status(dir, other.id),
     `任务: 加问候语（${other.id}）\n状态: active(implement)\n${worktreeLine(dir, other)}上一次: 实现（${failed.id}）\n失败: 执行者中途退出\n` +
-      `改动文件: 0 个\n下一步: 派发实现环节（knit run start ${other.id}）\n`,
+      `改动文件: 0 个\nAgent: pi\n下一步: 派发实现环节（knit run start ${other.id}）\n`,
   );
 });

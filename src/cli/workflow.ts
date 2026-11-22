@@ -16,7 +16,7 @@ function chainLine(workflow: WorkflowDefinition): string {
   return `流程: ${names.join(" → ")}`;
 }
 
-function stageLines(stage: WorkflowStage, index: number): string[] {
+function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefinition): string[] {
   const report = Object.entries(stage.report).map(
     (entry) => `${entry[0]}(${isReportEnum(entry[1]) ? entry[1].join("|") : entry[1]})`,
   );
@@ -26,8 +26,9 @@ function stageLines(stage: WorkflowStage, index: number): string[] {
     `  ${index + 1}. ${stage.id}（${stage.name}）`,
     ...(stage.description === null ? [] : [`     说明: ${stage.description}`]),
     `     角色文件: ${stage.prompt ?? "（没有指定）"}`,
-    `     模型: ${stage.model ?? "（没有指定，用主会话的模型）"}`,
-    `     思考等级: ${stage.thinking ?? "（没有指定，用主会话的等级）"}`,
+    `     Agent: ${stage.agent ?? "（由派发入口决定，普通终端用 pi）"}`,
+    `     模型: ${stage.model ?? (stage.agent === "antigravity" ? "（用 agy 的缺省）" : workflow.model ?? "（没有指定，用主会话的模型）")}`,
+    `     思考等级: ${stage.thinking ?? (stage.agent === "antigravity" ? "（用 agy 的缺省）" : workflow.thinking ?? "（没有指定，用主会话的等级）")}`,
     `     工具: ${tools}`,
     ...(report.length === 0 ? [] : [`     报告字段: ${report.join("、")}`]),
     ...(jumps.length === 0 ? [] : [`     按结论跳转: ${jumps.join("；")}`]),
@@ -49,7 +50,7 @@ export function registerWorkflowCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const lines = [chainLine(loaded), `环节（${loaded.stages.length}）：`, ...loaded.stages.flatMap(stageLines)];
+      const lines = [chainLine(loaded), `环节（${loaded.stages.length}）：`, ...loaded.stages.flatMap((stage, index) => stageLines(stage, index, loaded))];
       process.stdout.write(`${lines.join("\n")}\n`);
     });
 

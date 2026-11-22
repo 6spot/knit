@@ -2,12 +2,13 @@
 import type { ReportFieldType, ToolCapability } from "./workflow.js";
 
 export interface AgentLaunch {
-  readonly model: string;
+  readonly model: string | null;
   readonly thinking: string | null;
   readonly capabilities: readonly ToolCapability[] | null;
   readonly report: Readonly<Record<string, ReportFieldType>>;
   readonly cwd: string;
   readonly dir: string;
+  readonly protectedPaths?: readonly string[];
 }
 
 export type AgentResult =

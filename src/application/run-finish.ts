@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { builtinAgents } from "../adapters/agents.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { findTask, saveTask } from "./task-store.js";
@@ -34,8 +35,11 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
   if (stored == null || stored.document === null || stored.record === null || run === undefined) {
     return [`执行 ${runId} 不在任务 ${taskId} 的记录里，或者已经结束`];
   }
-  const beforeFile = join(root, RUNS_DIR, runId, "before.json");
-  const after = existsSync(beforeFile) ? takeSnapshot(taskWorktree(root, stored.dir).path) : null;
+  const cwd = taskWorktree(root, stored.dir).path;
+  const dir = join(root, RUNS_DIR, runId);
+  builtinAgents[run.agent ?? "pi"].cleanRun?.(cwd, dir);
+  const beforeFile = join(dir, "before.json");
+  const after = existsSync(beforeFile) ? takeSnapshot(cwd) : null;
   const changes =
     after === null
       ? { changedPaths: [], head: null }

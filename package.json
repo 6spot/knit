@@ -16,7 +16,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/knit.js",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/knit.js && npm run -s build:agy-tracker",
+    "build:agy-tracker": "if [ \"$(uname -s)\" = Darwin ] && /usr/bin/xcode-select -p >/dev/null 2>&1; then /usr/bin/cc -O2 -Wall -Wextra -o dist/adapters/antigravity/command-processes src/adapters/antigravity/command-processes.c; fi",
     "test": "npm run -s build && node --test \"test/*.test.mjs\"",
     "pack:check": "npm run -s build && node scripts/pack-check.mjs",
     "pack:install": "node scripts/pack-install.mjs",

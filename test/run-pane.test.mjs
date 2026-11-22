@@ -283,7 +283,7 @@ test("后台进程不在了、窗格里的执行者还在时，状态里指出�
   assert.equal(
     status.stdout,
     `任务: 加问候语（${task.id}）\n状态: active(implement)\n${worktreeLine(dir, task)}` +
-      `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.id} 记为失败\n` +
+      `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.id} 记为失败\nAgent: pi\n` +
       `窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉\n`,
   );
 
@@ -305,7 +305,7 @@ test("在窗格里中止之后执行不结束，接着输入就接着做完", as
 
   assert.equal(lastRun(dir, task).endedAt, null);
   const status = rex.knit("run", "status", task.id);
-  assert.match(status.stdout, new RegExp(`\\n正在跑: 实现（${run.id}），开始于 .*\\n会话记录: .*\\n窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）\\n$`));
+  assert.match(status.stdout, new RegExp(`\\n正在跑: 实现（${run.id}），开始于 .*\\n会话记录: .*\\nAgent: pi\\n窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）\\n$`));
   assert.ok(!existsSync(join(dir, RUNS_DIR, run.id, "report.md")));
 
   writeFileSync(resume, "");

@@ -22,14 +22,20 @@ export function livePane(root: string, runId: string): number | null {
   return recordedProcess(join(root, RUNS_DIR, runId, PANE_FILE));
 }
 
-/**
- * 这次执行还在的全部进程：后台进程和它的后代（它启动的 Pi 在里面），再加上 Rex 窗格里的 Pi 和它的后代
- * （窗格里的 Pi 是 Rex 启动的，不是后台进程的后代）。都不在时是空的。
- */
+/** 后台和 Rex 窗格及其后代。 */
 export function workerProcesses(root: string, runId: string): WorkerProcess[] {
-  const roots = [liveWorker(root, runId), livePane(root, runId)].filter((pid) => pid !== null);
+  return processChains([liveWorker(root, runId), livePane(root, runId)]);
+}
+
+function processChains(roots: readonly (number | null)[]): WorkerProcess[] {
   const table = processTable();
-  return roots.flatMap(processTreePids).map((pid) => ({ pid, start: table.get(pid)?.startTicks ?? null }));
+  return roots.filter((pid) => pid !== null).flatMap(processTreePids).map((pid) => ({ pid, start: table.get(pid)?.startTicks ?? null }));
+}
+
+/** Rex 关闭窗格时，进程可能仍在退出。 */
+export async function stopPaneProcesses(dir: string): Promise<void> {
+  const pane = recordedProcess(join(dir, PANE_FILE));
+  if (pane !== null) await stopProcesses(processChains([pane]));
 }
 
 /** 窗格客户端先登记再核对后台进程，取消期间晚启动的客户端不再发送消息。 */

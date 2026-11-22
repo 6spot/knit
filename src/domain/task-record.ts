@@ -24,6 +24,7 @@ export function renderTaskRecord(record: TaskRecord): string {
     runs: record.runs.map((run) => ({
       id: run.id,
       stage: run.stage,
+      agent: run.agent,
       startedAt: run.startedAt,
       endedAt: run.endedAt,
       verdict: run.verdict,

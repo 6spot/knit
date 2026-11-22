@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentAdapter, AgentLaunch } from "../contracts/agent.js";
+import { stopPaneProcesses } from "./run-process.js";
 import { PANE_FILE, PANE_OUTCOME_FILE, type SessionOutcome } from "./run-session.js";
 import { closePane, openPane, paneGone, type RexHost, type RexPane } from "../adapters/rex/pane.js";
 
@@ -48,6 +49,7 @@ export async function runInPane(input: RunInPaneInput): Promise<SessionOutcome |
   closePane(host, pane);
   await closed;
   if (!existsSync(started)) return fallBack("执行者没有在窗格里开始");
+  await stopPaneProcesses(dir);
   const outcome = join(dir, PANE_OUTCOME_FILE);
   if (!existsSync(outcome)) return { verdict: null, failure: "执行者的窗格关掉了，没有交报告", sessionFile: null };
   return JSON.parse(readFileSync(outcome, "utf8")) as SessionOutcome;

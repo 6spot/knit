@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
-import { PiExecutionAdapter, piSessionDefaults } from "../adapters/pi/execution.js";
+import { builtinAgents } from "../adapters/agents.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
@@ -9,7 +9,9 @@ import { limitNotice, RUNS_DIR } from "../application/run-prepare.js";
 import { livePane, liveWorker } from "../application/run-process.js";
 import { findTask } from "../application/task-store.js";
 import { taskWorktree } from "../application/worktree.js";
+import { checkSchema } from "../contracts/schema.js";
 import type { TaskRecord, TaskRun } from "../contracts/task.js";
+import { AgentNameSchema } from "../contracts/workflow.js";
 import { nextStep } from "../domain/progress.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -23,19 +25,22 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
   const dir = `${RUNS_DIR}/${run.id}`;
   // 执行记录里的环节已经不在流程里时用它的 id。
   const stage = workflow.stages.find((item) => item.id === run.stage)?.name ?? run.stage;
+  const agent = `Agent: ${run.agent ?? "pi"}`;
   if (run.endedAt !== null) {
     return [
       `上一次: ${stage}（${run.id}）`,
       run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
       ...(existsSync(join(root, dir, "report.md")) ? [`报告: ${dir}/report.md`] : []),
       `改动文件: ${run.changedPaths.length} 个`,
+      agent,
     ];
   }
   const pane = livePane(root, run.id) !== null;
   return liveWorker(root, run.id) === null
     ? [
         `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${taskId} 记为失败`,
-        // 窗格里的 Pi 是 Rex 启动的，后台进程没了它还在，还会接着改工作区。
+        agent,
+        // 窗格里的执行者由 Rex 启动，后台进程退出后仍可能在运行。
         ...(pane
           ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
           : []),
@@ -43,6 +48,7 @@ function runLines(root: string, workflow: WorkflowDefinition, taskId: string, ru
     : [
         `正在跑: ${stage}（${run.id}），开始于 ${run.startedAt}`,
         `会话记录: ${dir}/session/`,
+        agent,
         ...(pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
       ];
 }
@@ -106,7 +112,7 @@ export function registerRunCommands(program: Command): void {
   run
     .command("start <id>")
     .description("派发任务的下一个环节；等 Worktree 准备命令完成后返回，执行者在后台跑")
-    .option("--model <provider/模型>", "这一次用的模型")
+    .option("--model <模型>", "这一次用的模型（Pi 用 provider/模型，agy 用模型 ID）")
     .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { model?: string; thinking?: string; dir: string }) => {
@@ -119,11 +125,15 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
+      const session = process.env.KNIT_SESSION_AGENT;
+      const sessionAgent = checkSchema(AgentNameSchema, session) ? session : "pi";
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
-        sessionDefaults: piSessionDefaults(),
+        sessionDefaults: { agent: sessionAgent, ...builtinAgents[sessionAgent].sessionDefaults() },
+        checkAgent: (agent, capabilities, worktree) => builtinAgents[agent].checkDispatch?.(root, worktree.path, worktree.branch, capabilities) ?? null,
         workerCommand: (started) => [
-          process.execPath, process.argv[1]!, "run", "worker", started.id, "--task", id, "--model", started.model,
+          process.execPath, process.argv[1]!, "run", "worker", started.id, "--task", id,
+          ...(started.model === null ? [] : ["--model", started.model]),
           ...(started.thinking === null ? [] : ["--thinking", started.thinking]), "--dir", root,
         ],
       });
@@ -187,10 +197,10 @@ export function registerRunCommands(program: Command): void {
   run
     .command("worker <runId>", { hidden: true })
     .requiredOption("--task <id>", "任务")
-    .requiredOption("--model <provider/模型>", "模型")
+    .option("--model <模型>", "模型")
     .option("--thinking <等级>", "思考等级")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action(async (runId: string, options: { task: string; model: string; thinking?: string; dir: string }) => {
+    .action(async (runId: string, options: { task: string; model?: string; thinking?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const workflow = loadWorkflow(root);
@@ -203,9 +213,8 @@ export function registerRunCommands(program: Command): void {
         taskId: options.task,
         runId,
         workflow,
-        model: options.model,
+        model: options.model ?? null,
         thinking: options.thinking,
-        agent: new PiExecutionAdapter(process.env.KNIT_PI_BIN ?? "pi"),
         // 主会话在 Rex 里跑时，它启动的进程都带着这两个变量。
         rex:
           process.env.REX_SESSION && process.env.REX_BLOCK

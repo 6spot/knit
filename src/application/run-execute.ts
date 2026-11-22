@@ -1,5 +1,6 @@
 /** Knit 共用执行入口：Worktree 中启动客户端，优先窗格、回退后台，最后结算执行。 */
 import { isAbsolute, join, relative, sep } from "node:path";
+import { builtinAgents } from "../adapters/agents.js";
 import type { RexHost } from "../adapters/rex/pane.js";
 import type { AgentAdapter, AgentLaunch } from "../contracts/agent.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -15,9 +16,9 @@ export interface ExecuteRunInput {
   readonly taskId: string;
   readonly runId: string;
   readonly workflow: WorkflowDefinition;
-  readonly model: string;
+  readonly model: string | null;
   readonly thinking?: string | null;
-  readonly agent: AgentAdapter;
+  readonly agent?: AgentAdapter;
   readonly rex?: RexHost | null;
 }
 
@@ -26,7 +27,7 @@ export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
   const stored = findTask(input.root, input.taskId);
   const run = stored?.record?.runs.find((item) => item.id === input.runId && item.endedAt === null);
   const stage = input.workflow.stages.find((item) => item.id === run?.stage);
-  if (stage === undefined || stored === null) {
+  if (stage === undefined || stored === null || run === undefined) {
     return finishRun({ ...input, verdict: null, failure: "执行的环节不在流程里", sessionFile: null });
   }
   const launch: AgentLaunch = {
@@ -36,10 +37,12 @@ export async function executeRun(input: ExecuteRunInput): Promise<string[]> {
     dir: join(input.root, RUNS_DIR, input.runId),
     capabilities: stage.tools,
     report: stage.report,
+    protectedPaths: input.workflow.stages.flatMap((item) => item.prompt === null ? [] : [item.prompt]),
   };
+  const agent = input.agent ?? builtinAgents[run.agent ?? "pi"].createAdapter();
   const result =
-    (input.rex ? await runInPane({ host: input.rex, runId: input.runId, launch, agent: input.agent }) : null) ??
-    await runAgentSession({ session: input.agent.createSession(launch), declared: stage.report, dir: launch.dir });
+    (input.rex ? await runInPane({ host: input.rex, runId: input.runId, launch, agent }) : null) ??
+    await runAgentSession({ session: agent.createSession(launch), declared: stage.report, dir: launch.dir });
   const session = result.sessionFile === null ? null : relative(input.root, result.sessionFile);
   return finishRun({
     ...input,

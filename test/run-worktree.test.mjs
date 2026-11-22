@@ -303,7 +303,7 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
     const trees = git(root, "worktree", "list", "--porcelain");
     const refused = prepare(root, task, {
       model: reason === "没有提交" ? "fake/model" : null,
-      ...(reason === "没有模型" ? { workflow: { ...workflowOf(root), stages: workflowOf(root).stages.map((stage) => ({ ...stage, model: null })) } } : {}),
+      ...(reason === "没有模型" ? { workflow: { ...workflowOf(root), model: null } } : {}),
     });
     assert.equal(refused.run, null);
     assert.equal(existsSync(join(process.env.KNIT_HOME, "setup-ran")), false);

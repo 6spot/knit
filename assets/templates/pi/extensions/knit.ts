@@ -238,7 +238,7 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
       ...(params.action === "start" ? [...single("--model", params.model), ...single("--thinking", params.thinking)] : []),
     ],
     params.action === "start"
-      ? { ...process.env, PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
+      ? { ...process.env, KNIT_SESSION_AGENT: "pi", PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
       : process.env,
   );
   if (params.action === "start" && result.code === 0) notifyWhenEnded(pi, waiting, params.taskId);

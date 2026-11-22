@@ -23,7 +23,8 @@ test("顶层的模型是缺省，环节可以写自己的", (t) => {
   const withModels = "version: 1\nmodel: p/a\nstages:\n  - id: implement\n  - id: review\n    model: p/b\n";
   const parsed = parseWorkflow(withModels);
   assert.deepEqual(parsed.validation.issues, []);
-  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.model), ["p/a", "p/b"]);
+  assert.equal(parsed.workflow.model, "p/a");
+  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.model), [null, "p/b"]);
 
   const shown = run(t, "show", withModels);
   assert.equal(shown.status, 0, shown.stderr);
@@ -98,5 +99,5 @@ test("写错时指出行号", (t) => {
   }
 
   // a/b/c 合法：provider 是 a
-  assert.equal(parseWorkflow("version: 1\nmodel: a/b/c\nstages:\n  - id: implement\n").workflow.stages[0].model, "a/b/c");
+  assert.equal(parseWorkflow("version: 1\nmodel: a/b/c\nstages:\n  - id: implement\n").workflow.model, "a/b/c");
 });

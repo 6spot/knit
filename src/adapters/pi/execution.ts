@@ -35,14 +35,15 @@ export class PiExecutionAdapter implements AgentAdapter {
       ...this.options(input),
       appendSystemPrompt: join(input.dir, "system.md"),
       extensionPaths: [fileURLToPath(new URL("./pane-worker.js", import.meta.url))],
-    }, { KNIT_PANE_DIR: input.dir, KNIT_PANE_MODEL: input.model, KNIT_PANE_REPORT: JSON.stringify(input.report) });
+    }, { KNIT_PANE_DIR: input.dir, KNIT_PANE_MODEL: input.model!, KNIT_PANE_REPORT: JSON.stringify(input.report) });
   }
 
   private options(input: AgentLaunch): PiRuntimeOptions {
+    const model = input.model!;
     return {
       executablePath: this.executablePath,
-      provider: input.model.slice(0, input.model.indexOf("/")),
-      modelId: input.model.slice(input.model.indexOf("/") + 1),
+      provider: model.slice(0, model.indexOf("/")),
+      modelId: model.slice(model.indexOf("/") + 1),
       thinkingLevel: input.thinking ?? undefined,
       cwd: input.cwd,
       sessionDir: join(input.dir, "session"),

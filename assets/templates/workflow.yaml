@@ -11,8 +11,10 @@
 #
 # 每个环节可以写：
 #   id、name、description
-#   model      只管这个环节的模型
-#   thinking   只管这个环节的思考等级
+#   agent      pi 或 antigravity；不写用派发入口的客户端，普通终端用 pi
+#   model      Pi 用 provider/模型；antigravity 用 agy 的模型 ID
+#   thinking   antigravity 支持 low、medium、high、xhigh、max，传给 --effort
+#              antigravity 只用本次覆盖和环节值，未指定时由 agy 决定
 #   prompt     角色文件
 #   tools      能力：read、write、exec、external、network；不写是全部
 #   report     报告结尾要给出的字段；带 verdict 的环节是审查环节
@@ -28,6 +30,7 @@ stages:
     tools: [read, write, exec]
   - id: review
     name: 审查
+    # agent: antigravity
     # thinking: max
     prompt: .knit/agents/review.md
     tools: [read, write, exec]

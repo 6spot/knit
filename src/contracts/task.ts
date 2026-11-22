@@ -2,9 +2,9 @@
  * 任务的两个文件：`task.md` 的开头字段和 `record.json` 的结构。
  * 解析和写回在 domain/task-document.ts、domain/task-record.ts。
  */
-import { arr, nullable, obj, oneOf, str, type JsonSchema, type Static } from "@earendil-works/pi-schema";
+import { arr, nullable, obj, oneOf, opt, str, type JsonSchema, type Static } from "@earendil-works/pi-schema";
 import { schemaErrors } from "./schema.js";
-import { WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
+import { AgentNameSchema, WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 
 export const TASK_ID_PATTERN = "^k-[0-9a-f]{12}$";
 
@@ -31,6 +31,7 @@ export type TaskFrontmatter = Static<typeof TaskFrontmatterSchema>;
 export const TaskRunSchema = obj({
   id: str({ minLength: 1 }),
   stage: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
+  agent: opt(AgentNameSchema),
   startedAt: str({ minLength: 1 }),
   endedAt: nullable(str({ minLength: 1 })),
   verdict: nullable(str({ minLength: 1 })),

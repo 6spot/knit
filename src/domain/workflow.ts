@@ -20,7 +20,11 @@ import {
   WORKFLOW_STAGE_ID_REGEX,
   WORKFLOW_VERDICT_ANCHOR,
   TOOLS_ALL_REGEX,
+  AGY_EFFORT_LEVELS,
+  AGY_MODEL_PATTERN,
   THINKING_LEVELS,
+  WORKFLOW_MODEL_PATTERN,
+  type AgentName,
   WorkflowConfigSchema,
   isReportEnum,
   isWorkflowAnchor,
@@ -44,9 +48,8 @@ export interface WorkflowStage {
   name: string;
   /** 本步说明；缺省 null。 */
   description: string | null;
-  /** 这个环节生效的模型：环节自己写的，否则顶层的；都没写是 null，派发时回退到主会话的模型。 */
+  agent: AgentName | null;
   model: string | null;
-  /** 环节自己的思考等级，否则顶层的；都没写是 null，派发时回退到主会话的等级。 */
   thinking: ThinkingLevel | null;
   /** 项目相对提示词路径；缺省 null，表示用核心默认 agent 指令。 */
   prompt: string | null;
@@ -66,6 +69,9 @@ export interface WorkflowDefinition {
   anchors: readonly WorkflowAnchor[];
   /** 有序阶段；顺序即流转顺序。 */
   stages: readonly WorkflowStage[];
+  /** Pi 环节的流程缺省。 */
+  model: string | null;
+  thinking: ThinkingLevel | null;
   /** 阶段缺省访问上限：文件顶层的 maxRepairRounds，没写时是 DEFAULT_MAX_REPAIR_ROUNDS。 */
   defaultMaxVisits: number;
 }
@@ -148,10 +154,11 @@ export function parseWorkflow(source: string): WorkflowLoadResult {
     ]);
   }
 
-  const structuralProblems = schemaErrors(WorkflowConfigSchema, raw);
-  if (structuralProblems.length > 0) {
-    return invalidResult(structuralProblems.map((error) => schemaIssue(error, positions, raw)));
-  }
+  const structuralProblems = [
+    ...schemaErrors(WorkflowConfigSchema, raw).map((error) => schemaIssue(error, positions, raw)),
+    ...agentParameterIssues(raw.stages, positions),
+  ];
+  if (structuralProblems.length > 0) return invalidResult(structuralProblems);
 
   const config = raw as unknown as WorkflowConfig;
   const semanticProblems = validateSemantics(config, positions);
@@ -163,6 +170,28 @@ export function parseWorkflow(source: string): WorkflowLoadResult {
     workflow: workflowFromConfig(config),
     validation: { ok: true, issues: [], reason: null },
   };
+}
+
+function agentParameterIssues(stages: readonly unknown[], positions: SourcePositions): WorkflowIssue[] {
+  return stages.flatMap((stage, index) => {
+    if (!isRecord(stage)) return [];
+    const stagePath = `/stages/${index}`;
+    const issues: WorkflowIssue[] = [];
+    if (typeof stage.model === "string") {
+      const pi = new RegExp(WORKFLOW_MODEL_PATTERN).test(stage.model);
+      const agy = new RegExp(AGY_MODEL_PATTERN).test(stage.model);
+      if (!(stage.agent === "pi" ? pi : stage.agent === "antigravity" ? agy : pi || agy)) {
+        const path = `${stagePath}/model`;
+        const format = stage.agent === "antigravity" ? "Antigravity 模型 ID" : "provider/模型";
+        issues.push(makeIssue("invalid_model", positions.at(path), path, `${readablePath(path)} 要写成 ${format}`));
+      }
+    }
+    if (stage.agent === "antigravity" && (stage.thinking === "off" || stage.thinking === "minimal")) {
+      const path = `${stagePath}/thinking`;
+      issues.push(makeIssue("invalid_thinking", positions.at(path), path, `${readablePath(path)} 只允许 ${AGY_EFFORT_LEVELS.join("／")}`));
+    }
+    return issues;
+  });
 }
 
 interface SourcePosition {
@@ -409,18 +438,21 @@ function workflowFromConfig(config: WorkflowConfig): WorkflowDefinition {
   return {
     version: WORKFLOW_CONFIG_VERSION,
     anchors: WORKFLOW_ANCHORS,
-    stages: config.stages.map((stage) => normalizeStage(stage, config, defaultMaxVisits)),
+    stages: config.stages.map((stage) => normalizeStage(stage, defaultMaxVisits)),
+    model: config.model ?? null,
+    thinking: config.thinking ?? null,
     defaultMaxVisits,
   };
 }
 
-function normalizeStage(stage: WorkflowStageConfig, config: WorkflowConfig, defaultMaxVisits: number): WorkflowStage {
+function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): WorkflowStage {
   return {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
-    model: stage.model ?? config.model ?? null,
-    thinking: stage.thinking ?? config.thinking ?? null,
+    agent: stage.agent ?? null,
+    model: stage.model ?? null,
+    thinking: stage.thinking ?? null,
     prompt: stage.prompt ?? null,
     tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
@@ -514,6 +546,8 @@ function schemaIssueCode(pointer: string): WorkflowIssueCode {
     switch (segments[2]) {
       case "id":
         return "invalid_stage_id";
+      case "agent":
+        return "invalid_agent";
       case "model":
         return "invalid_model";
       case "thinking":
@@ -545,10 +579,14 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
       return `${path} 的跳转目标必须是非空字符串`;
     case "invalid_max_visits":
       return `${path} 必须是非负整数或 null`;
+    case "invalid_agent":
+      return `${path} 只允许 pi／antigravity`;
     case "invalid_model":
-      return `${path} 要写成 provider/模型`;
-    case "invalid_thinking":
-      return `${path} 只允许 ${THINKING_LEVELS.join("／")}`;
+      return `${path} ${error.path === "/model" ? "要写成 provider/模型" : "必须是模型 ID 字符串"}`;
+    case "invalid_thinking": {
+      const stageAgent = valueAtPointer(raw, error.path.replace(/\/thinking$/, "/agent"));
+      return `${path} 只允许 ${(stageAgent === "antigravity" ? AGY_EFFORT_LEVELS : THINKING_LEVELS).join("／")}`;
+    }
     case "invalid_max_repair_rounds":
       return "maxRepairRounds 必须是非负整数";
     case "unsupported_version":

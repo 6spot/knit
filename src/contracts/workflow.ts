@@ -79,6 +79,10 @@ export const WORKFLOW_STAGE_ID_REGEX = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** 执行者的模型：`provider/模型`，第一个 `/` 的前后都不为空。 */
 export const WORKFLOW_MODEL_PATTERN = "^[^/]+/.+$";
+export const AGY_MODEL_PATTERN = "^(?:[A-Za-z0-9][A-Za-z0-9._:-]*|gemini-api://[^\\s]+/models/[A-Za-z0-9._:-]+)$";
+export const AgentNameSchema = union([lit("pi"), lit("antigravity")]);
+export type AgentName = Static<typeof AgentNameSchema>;
+export const AGY_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** Pi 的 --thinking 接受的等级。 */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -90,9 +94,8 @@ export const WorkflowStageConfigSchema = obj({
   id: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
   name: opt(str()),
   description: opt(str()),
-  /** 这个环节的执行者用的模型；不写用顶层的 model。 */
-  model: opt(str({ pattern: WORKFLOW_MODEL_PATTERN })),
-  /** 这个环节的思考等级；不写用顶层的 thinking。 */
+  agent: opt(AgentNameSchema),
+  model: opt(str()),
   thinking: opt(ThinkingLevelSchema),
   /** 项目相对路径；文件是否存在不在这里判断。 */
   prompt: opt(str({ minLength: 1 })),
@@ -136,6 +139,7 @@ export const WORKFLOW_ISSUE_CODES = [
   "invalid_report",
   "invalid_on_verdict",
   "invalid_max_visits",
+  "invalid_agent",
   "invalid_model",
   "invalid_thinking",
   "invalid_max_repair_rounds",

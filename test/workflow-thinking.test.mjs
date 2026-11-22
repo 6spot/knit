@@ -17,7 +17,8 @@ test("思考等级由顶层提供缺省，环节的只管本环节，show 显示
   const source = "version: 1\nthinking: high\nstages:\n  - id: implement\n  - id: review\n    thinking: off\n  - id: check\n";
   const parsed = parseWorkflow(source);
   assert.deepEqual(parsed.validation.issues, []);
-  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.thinking), ["high", "off", "high"]);
+  assert.equal(parsed.workflow.thinking, "high");
+  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.thinking), [null, "off", null]);
   const shown = workflowCommand(t, "show", source);
   assert.equal(shown.code, 0, shown.stderr);
   assert.deepEqual(
