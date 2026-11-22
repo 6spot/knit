@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -60,7 +60,7 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
   Object.assign(process.env, env);
   const report = stage === "review" ? "    report:\n      verdict: [pass, changes_requested, blocked]\n" : "";
   const configure = () => writeFileSync(join(root, ".knit/workflow.yaml"),
-    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}    tools: ${tools}\n${report}`);
+    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}${tools === null ? "" : `    tools: ${tools}\n`}${report}`);
   configure();
   commitAll(root, "agy workflow");
   const task = readyTask(root);
@@ -427,6 +427,71 @@ test("Rex 关掉仍在执行命令的窗格时停止进程再结算", isolated, 
   assert.ok(!existsSync(join(cwd, ".agents/hooks.json")));
   assert.deepEqual(f.transcripts(), [run.sessionFile]);
 });
+
+for (const tools of ["[read, write, exec]", "[read, write, exec, external, network]", "all", null]) {
+  test(`tools ${tools ?? "省略"} 的 external 声明控制外层沙箱读取定制文本`, isolated, async (t) => {
+    const f = fixture(t, { tools });
+    const workspace = [".agents/skills/demo/SKILL.md", ".agents/rules/demo.md", ".agent/workflows/demo.md",
+      "_agents/agents/demo.md", "_agent/skills.json", ".agents/agents.json", ".agents/rules.json"];
+    const home = [".gemini/antigravity-cli/skills/demo/SKILL.md", ".gemini/skills/demo/SKILL.md", ".gemini/config/rules/demo.md"]
+      .map((path) => join(f.home, path));
+    mkdirSync(join(f.root, ".agent"));
+    mkdirSync(join(f.root, "team-workflows"));
+    symlinkSync("../team-workflows", join(f.root, ".agent/workflows"));
+    mkdirSync(join(f.root, "_agent"));
+    symlinkSync("../team-plugins.json", join(f.root, "_agent/plugins.json"));
+    for (const path of [...workspace.map((path) => join(f.root, path)), ...home]) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, path.endsWith(".json") ? "{}" : "# Demo\n");
+    }
+    const emptyConfigs = [
+      [".agents/mcp_config.json", { mcpServers: {} }], [".mcp.json", { mcpServers: {} }], ["_agent/plugins.json", []],
+      [join(f.home, ".gemini/config/mcp_config.json"), { mcpServers: null }], [join(f.home, ".gemini/config/plugins.json"), {}],
+    ].map(([path, contents]) => {
+      writeFileSync(resolve(f.root, path), JSON.stringify(contents));
+      return path;
+    });
+    commitAll(f.root, "text customization fixtures");
+    const texts = [...workspace, ...home];
+    const external = tools !== "[read, write, exec]";
+    f.start({ configReads: [...texts, ...emptyConfigs], configWrites: external ? texts : [] });
+    const run = await f.ended();
+    assert.equal(run.verdict, "pass", run.failure);
+    const result = readRows(f.transcripts()[0])[0];
+    assert.deepEqual(result.configReads, [...texts.map(() => external ? "allowed" : "EPERM"), ...emptyConfigs.map(() => "EPERM")]);
+    assert.deepEqual(result.configWrites, external ? texts.map(() => "EPERM") : []);
+  });
+}
+
+const configuredMcp = { mcpServers: { demo: { command: "/usr/bin/true" } } };
+const plugin = { name: "demo", version: "1.0.0" };
+const enabledPlugins = [{ name: "demo", enabled: true }];
+const externalHooks = { demo: { SessionStart: [{ type: "command", command: "/usr/bin/true" }] } };
+for (const [location, source, contents] of [
+  ["workspace", ".mcp.json", configuredMcp], ["workspace", ".agent/mcp_config.json", configuredMcp],
+  ["workspace", ".agents/plugins", plugin], ["workspace", "_agents/plugins.json", enabledPlugins],
+  ["workspace", "_agent/hooks.json", externalHooks], ["workspace", ".gemini/config.json", {}],
+  ["home", ".gemini/config/mcp_config.json", configuredMcp], ["home", ".gemini/config/plugins", plugin],
+  ["home", ".gemini/config/plugins.json", enabledPlugins], ["home", ".gemini/config/hooks.json", externalHooks],
+]) {
+  test(`external 派发前指出 ${location} 的 ${source}`, isolated, (t) => {
+    const f = fixture(t, { tools: "all" });
+    const path = join(location === "home" ? f.home : f.root, source);
+    const file = source.endsWith("/plugins") ? join(path, "demo/plugin.json") : path;
+    if (source === ".agent/mcp_config.json") {
+      mkdirSync(join(f.root, "team-config"));
+      symlinkSync("team-config", join(f.root, ".agent"));
+    }
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(contents));
+    if (location === "workspace") commitAll(f.root, "startup configuration fixture");
+    const result = knit(f.root, "run", "start", f.task.id);
+    assert.equal(result.code, 1, result.stdout);
+    assert.ok(result.stderr.includes(`无法隔离已配置的外部工具及其运行时写入：${location === "home" ? path : source}`), result.stderr);
+    assert.ok(!existsSync(worktreeOf(f.root, f.task)));
+    assert.equal(lastRun(f.root, f.task), undefined);
+  });
+}
 
 test("组合缺少隔离能力，派发前无 Worktree 或执行记录", isolated, (t) => {
   const f = fixture(t, { tools: "[read, external]" });

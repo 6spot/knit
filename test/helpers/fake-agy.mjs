@@ -40,15 +40,20 @@ for (const file of [".agents/mcp_config.json", ".agent/mcp_config.json", join(ho
     assert.ok(["ENOENT", "EPERM", "EACCES"].includes(error.code), error);
   }
 }
-const configReads = script.configReads?.map((file) => {
-  try {
-    readFileSync(file);
-    return "allowed";
-  } catch (error) {
-    return error.code;
-  }
+function checkFiles(files, operation) {
+  return files?.map((file) => {
+    try {
+      operation(file);
+      return "allowed";
+    } catch (error) {
+      return error.code;
+    }
+  });
+}
+row({ type: "INIT", args, cwd, settings, pid: process.pid,
+  configReads: checkFiles(script.configReads, (file) => readFileSync(file)),
+  configWrites: checkFiles(script.configWrites, (file) => appendFileSync(file, "")),
 });
-row({ type: "INIT", args, cwd, settings, configReads, pid: process.pid });
 hook("SessionStart", script.pathFromTool ? { transcriptPath: null } : {});
 if (script.pauseAfterStart) await sleep(60_000);
 

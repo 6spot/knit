@@ -15,7 +15,8 @@ const CUSTOMIZATION_DIR = ".agents";
 const COMPAT_CUSTOMIZATION_DIRS = [".agent", "_agents", "_agent"];
 const CUSTOMIZATION_DIRS = [CUSTOMIZATION_DIR, ...COMPAT_CUSTOMIZATION_DIRS];
 export const HOOKS = join(CUSTOMIZATION_DIR, "hooks.json");
-const SOURCE_NAMES = ["mcp_config.json", "plugins", "plugins.json", "skills", "skills.json", "workflows", "agents", "agents.json", "rules", "rules.json", "hooks.json"];
+const TEXT_SOURCES = new Set(["skills", "skills.json", "workflows", "agents", "agents.json", "rules", "rules.json"]);
+const SOURCE_NAMES = ["mcp_config.json", "plugins", "plugins.json", "hooks.json", ...TEXT_SOURCES];
 const WORKSPACE_EXTERNAL = [
   ...CUSTOMIZATION_DIRS.flatMap((dir) => SOURCE_NAMES.map((name) => join(dir, name))).filter((path) => path !== HOOKS),
   ".gemini/config.json", ".mcp.json",
@@ -24,6 +25,9 @@ const HOME_EXTERNAL = [
   ...SOURCE_NAMES.map((name) => join(".gemini/config", name)),
   ".gemini/antigravity-cli/skills", ".gemini/skills",
 ];
+const startupSource = (path: string) => !TEXT_SOURCES.has(basename(path));
+const WORKSPACE_STARTUP = WORKSPACE_EXTERNAL.filter(startupSource);
+const HOME_STARTUP = HOME_EXTERNAL.filter(startupSource);
 export const WORKSPACE_CONTROL = [".git", ".knit", ".pi", ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json"];
 
 export function agyExecutable(): string | null {
@@ -41,12 +45,29 @@ export function permits(tools: readonly ToolCapability[] | null, tool: ToolCapab
   return tools === null || tools.includes(tool);
 }
 
-function configured(path: string): boolean {
+function configured(path: string, source = path): boolean {
   if (!existsSync(path)) return false;
   try {
     if (statSync(path).isDirectory()) return readdirSync(path).length > 0;
-    if (!path.endsWith("/mcp_config.json")) return true;
-    return Object.keys(JSON.parse(readFileSync(path, "utf8")).mcpServers ?? {}).length > 0;
+    return configuredFile(source, () => readFileSync(path, "utf8"));
+  } catch {
+    return true;
+  }
+}
+
+function configuredFile(path: string, read: () => string): boolean {
+  const name = basename(path);
+  if (name !== "mcp_config.json" && name !== ".mcp.json" && name !== "plugins.json") return true;
+  try {
+    const config: unknown = JSON.parse(read());
+    if (config === null || typeof config !== "object") return true;
+    const hasEntries = (value: unknown) => value === null || typeof value !== "object" || Object.keys(value).length > 0;
+    if (name === "plugins.json") {
+      return hasEntries("plugins" in config && Object.keys(config).length === 1 ? config.plugins : config);
+    }
+    if (Array.isArray(config)) return true;
+    if ("mcpServers" in config) return hasEntries(config.mcpServers ?? {});
+    return name === ".mcp.json" && hasEntries(config);
   } catch {
     return true;
   }
@@ -66,26 +87,10 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
   const samePath = (a: string, b: string) => ignoreCase ? a.toLowerCase() === b.toLowerCase() : a === b;
   const treeEntries = (tree: string) => gitSync(["ls-tree", "-z", tree], root).stdout.split("\0").filter(Boolean).map((line) => {
     const tab = line.indexOf("\t");
-    return { mode: line.slice(0, 6), name: line.slice(tab + 1) };
+    const [mode, , oid] = line.slice(0, tab).split(" ");
+    return { mode: mode!, oid: oid!, name: line.slice(tab + 1) };
   });
-  const tracked = existing ? [] : treeEntries(ref);
-  const entry = (path: string) => tracked.find((item) => samePath(item.name, path));
-  const has = (path: string) => {
-    if (existing) return lstatSync(join(cwd, path), { throwIfNoEntry: false }) !== undefined;
-    if (!ignoreCase) return gitSync(["cat-file", "-e", `${ref}:${path}`], root).code === 0;
-    const top = entry(path.split(sep, 1)[0]!);
-    if (!top) return false;
-    if (!path.includes(sep)) return true;
-    return top.mode === "040000" && treeEntries(`${ref}:${top.name}`).some((item) => samePath(item.name, basename(path)));
-  };
-  const directory = existing ? realpathSync.native(cwd) : cwd;
-  const agents = join(directory, CUSTOMIZATION_DIR);
-  const custom = existing ? lstatSync(agents, { throwIfNoEntry: false }) : undefined;
-  const trackedAgents = entry(CUSTOMIZATION_DIR);
-  if ((custom !== undefined && !custom.isDirectory()) || (trackedAgents !== undefined && trackedAgents.mode !== "040000") || has(HOOKS)) {
-    return `Antigravity 无法安装隔离钩子，Worktree 中已有 ${HOOKS} 或 .agents 不是普通目录`;
-  }
-  const trees = new Map([["", tracked]]);
+  const trees = new Map([["", existing ? [] : treeEntries(ref)]]);
   const trackedChildren = (parent: string) => {
     const cached = trees.get(parent);
     if (cached !== undefined) return cached;
@@ -93,28 +98,45 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     trees.set(parent, children);
     return children;
   };
+  const trackedChild = (parent: string, name: string) => trackedChildren(parent).find((item) => samePath(item.name, name));
+  const directory = existing ? realpathSync.native(cwd) : cwd;
+  const agents = join(directory, CUSTOMIZATION_DIR);
+  const custom = existing ? lstatSync(agents, { throwIfNoEntry: false }) : undefined;
+  const trackedAgents = trackedChild("", CUSTOMIZATION_DIR);
+  const hasHook = existing ? custom?.isDirectory() && lstatSync(join(cwd, HOOKS), { throwIfNoEntry: false }) !== undefined :
+    trackedAgents?.mode === "040000" && trackedChild(trackedAgents.name, "hooks.json") !== undefined;
+  if ((custom !== undefined && !custom.isDirectory()) || (trackedAgents !== undefined && trackedAgents.mode !== "040000") || hasHook) {
+    return `Antigravity 无法安装隔离钩子，Worktree 中已有 ${HOOKS} 或 .agents 不是普通目录`;
+  }
   const canonicalAgents = custom === undefined ? agents : realpathSync.native(agents);
   const hidesKnitHook = (path: string) => samePath(path, canonicalAgents) || samePath(path, join(canonicalAgents, "hooks.json"));
-  const trackedAliasToHook = (parts: readonly string[], parent = "", linksLeft = 40): boolean => {
+  const trackedTarget = (parts: readonly string[], parent = "", linksLeft = 40): string | null => {
     const [name, ...rest] = parts;
-    if (name === undefined) return hidesKnitHook(join(directory, parent));
-    if (name === "" || name === ".") return trackedAliasToHook(rest, parent, linksLeft);
-    if (name === "..") return parent !== "" && trackedAliasToHook(rest, parent.split(sep).slice(0, -1).join(sep), linksLeft);
-    const item = trackedChildren(parent).find((entry) => samePath(entry.name, name));
+    if (name === undefined) return join(directory, parent);
+    if (name === "" || name === ".") return trackedTarget(rest, parent, linksLeft);
+    if (name === "..") {
+      return parent === "" ? resolve(directory, "..", ...rest) : trackedTarget(rest, parent.split(sep).slice(0, -1).join(sep), linksLeft);
+    }
+    const item = trackedChild(parent, name);
     const path = join(parent, item?.name ?? name);
     if (item?.mode === "120000") {
-      if (linksLeft === 0) return false;
-      const link = gitSync(["cat-file", "blob", `${ref}:${path}`], root).stdout;
-      if (!isAbsolute(link)) return trackedAliasToHook([...link.split(sep), ...rest], parent, linksLeft - 1);
-      return inside(directory, link) && trackedAliasToHook([...relative(directory, link).split(sep), ...rest], "", linksLeft - 1);
+      if (linksLeft === 0) return null;
+      const link = gitSync(["cat-file", "blob", item.oid], root).stdout;
+      if (!isAbsolute(link)) return trackedTarget([...link.split(sep), ...rest], parent, linksLeft - 1);
+      return inside(directory, link) ? trackedTarget([...relative(directory, link).split(sep), ...rest], "", linksLeft - 1) : resolve(link, ...rest);
     }
+    if (rest.length === 0) return join(directory, path);
     if (item?.mode === "040000" || (item === undefined && samePath(join(directory, path), canonicalAgents))) {
-      return trackedAliasToHook(rest, path, linksLeft);
+      return trackedTarget(rest, path, linksLeft);
     }
-    return item === undefined && rest.length === 0 && hidesKnitHook(join(directory, path));
+    return null;
   };
-  const alias = [...COMPAT_CUSTOMIZATION_DIRS, ...WORKSPACE_EXTERNAL].find((path) => {
-    if (!existing) return trackedAliasToHook(path.split(sep));
+  const blockedWorkspaceInputs = permits(tools, "external") ? WORKSPACE_STARTUP : WORKSPACE_EXTERNAL;
+  const alias = [...COMPAT_CUSTOMIZATION_DIRS, ...blockedWorkspaceInputs].find((path) => {
+    if (!existing) {
+      const target = trackedTarget(path.split(sep));
+      return target !== null && hidesKnitHook(target);
+    }
     const link = join(directory, path);
     if (!statSync(dirname(link), { throwIfNoEntry: false })?.isDirectory() ||
         !lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
@@ -133,8 +155,17 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
   }
   if (permits(tools, "external")) {
     if (!permits(tools, "network")) return "Antigravity 无法在开放 external 时限制外部工具联网";
-    const source = HOME_EXTERNAL.map((path) => join(homedir(), path)).find(configured) ??
-      WORKSPACE_EXTERNAL.find((path) => existing ? configured(join(cwd, path)) : has(path));
+    const source = HOME_STARTUP.map((path) => join(homedir(), path)).find((path) => configured(path)) ?? WORKSPACE_STARTUP.find((path) => {
+      if (existing) return configured(join(cwd, path));
+      const target = trackedTarget(path.split(sep));
+      if (target === null) return false;
+      if (!inside(directory, target)) return configured(target, path);
+      if (samePath(target, directory)) return trackedChildren("").length > 0;
+      const item = trackedChild(relative(directory, dirname(target)), basename(target));
+      if (item === undefined) return false;
+      if (item.mode === "040000") return trackedChildren(relative(directory, target)).length > 0;
+      return !item.mode.startsWith("100") || configuredFile(path, () => gitSync(["cat-file", "blob", item.oid], root).stdout);
+    });
     if (source !== undefined) return `Antigravity 无法隔离已配置的外部工具及其运行时写入：${source}`;
   }
   return null;
@@ -164,7 +195,7 @@ export function inside(root: string, path: string): boolean {
 }
 
 export function sandboxProfile(input: {
-  cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string }; command?: { socket: string; temporary: string }; network: boolean; write: boolean;
+  cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string; external: boolean }; command?: { socket: string; temporary: string }; network: boolean; write: boolean;
 }): string {
   const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`;
   const literal = (path: string) => `(literal ${JSON.stringify(path)})`;
@@ -174,25 +205,24 @@ export function sandboxProfile(input: {
     subpath(input.cli.temporary), '(literal "/dev/ptmx")', '(regex #"^/dev/ttys[0-9]+$")',
   ];
   const protectedPath = (path: string) => existsSync(path) ? [subpath(path), subpath(realpathSync.native(path))] : [subpath(path)];
-  const temporaryInputs = input.cli === undefined ? [] : [
-    ...WORKSPACE_EXTERNAL.flatMap((path) => protectedPath(join(input.cwd, path))),
-    ...[...HOME_EXTERNAL, ".gemini/config/config.json"].flatMap((path) => protectedPath(join(input.cli!.home, path))),
+  const controls = [...WORKSPACE_CONTROL, ...input.paths].map((path) => resolve(input.cwd, path)).filter((path) => inside(input.cwd, path));
+  const externalInputs = input.cli === undefined ? [] : [
+    ...WORKSPACE_EXTERNAL.map((path) => join(input.cwd, path)),
+    ...[...HOME_EXTERNAL, ".gemini/config/config.json"].map((path) => join(input.cli!.home, path)),
   ];
+  const readable = new Set(input.cli?.external ? externalInputs.filter((path) => !startupSource(path)) : []);
   return [
     "(version 1)", "(allow default)", "(deny file-write*)",
     `(allow file-write* (literal "/dev/null") ${state.join(" ")} ${input.write ? subpath(input.cwd) : ""})`,
     ...(input.command ? [`(allow file-write* ${subpath(input.command.temporary)})`] : []),
-    `(deny file-write* ${[...WORKSPACE_CONTROL, ...input.paths].flatMap((path) => {
-      const absolute = resolve(input.cwd, path);
-      return inside(input.cwd, absolute) ? protectedPath(absolute) : [];
-    }).join(" ")})`,
+    `(deny file-write* ${[...controls, ...readable].flatMap(protectedPath).join(" ")})`,
     "(deny file-link)",
     ...(input.cli === undefined ? [
       `(deny file-read-data ${subpath(input.dir)})`,
       ...(input.command === undefined ? [] : [`(deny network-outbound (remote unix-socket ${literal(input.command.socket)}))`]),
     ] : [
       `(deny file-write* ${literal(join(input.cli.temporary, COMMAND_CLIENT))})`,
-      `(deny file-read-data ${temporaryInputs.join(" ")})`,
+      `(deny file-read-data ${externalInputs.filter((path) => !readable.has(path)).flatMap(protectedPath).join(" ")})`,
     ]),
     ...(input.network ? [] : ["(deny network*)"]),
   ].join("\n");

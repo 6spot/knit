@@ -205,7 +205,8 @@ class AgySession implements AgentSession {
     const dir = join(this.input.dir, "session");
     mkdirSync(dir, { recursive: true });
     const profile = sandboxProfile({ cwd: this.input.cwd, dir: this.input.dir, paths: this.input.protectedPaths ?? [],
-      cli: { home: homedir(), temporary: this.temp! }, network: true, write: permits(this.input.capabilities, "write") });
+      cli: { home: homedir(), temporary: this.temp!, external: permits(this.input.capabilities, "external") },
+      network: true, write: permits(this.input.capabilities, "write") });
     const child = spawn(SANDBOX, ["-p", profile, this.executable!, "--settings", join(this.input.dir, "agy-settings.json"),
       ...(this.input.model === null ? [] : [`--model=${this.input.model}`]),
       ...(this.input.thinking === null ? [] : [`--effort=${this.input.thinking}`]),
