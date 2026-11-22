@@ -14,6 +14,7 @@ import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, t
 
 const HOOK_TARGET = "agy-hooks.json";
 const TEMP_PATH = "agy-temp-path";
+const CLEANUP_ERROR = "agy-cleanup-error";
 
 export class AntigravityExecutionAdapter implements AgentAdapter {
   createSession(input: AgentLaunch): AgentSession {
@@ -31,23 +32,40 @@ export async function runAgyPane(input: AgentLaunch, executable: string): Promis
 }
 
 export function cleanAgyRuntime(cwd: string, dir: string): void {
+  removeAgyRuntime(cwd, dir);
+  const priorError = ifPresent(() => readFileSync(join(dir, CLEANUP_ERROR), "utf8"));
+  if (priorError !== undefined) throw new Error(priorError);
+}
+
+function ifPresent<T>(operation: () => T): T | undefined {
+  try { return operation(); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return undefined;
+  }
+}
+
+function removeAgyRuntime(cwd: string, dir: string): void {
   const hook = join(cwd, HOOKS);
   const generated = join(dir, HOOK_TARGET);
-  const entry = lstatSync(hook, { throwIfNoEntry: false });
-  const owned = entry?.isSymbolicLink() ? readlinkSync(hook) === generated :
-    entry?.isFile() && existsSync(generated) && readFileSync(hook).equals(readFileSync(generated));
-  if (owned) unlinkSync(hook);
+  ifPresent(() => {
+    const entry = lstatSync(hook);
+    const owned = entry.isSymbolicLink() ? readlinkSync(hook) === generated :
+      entry.isFile() && readFileSync(hook).equals(readFileSync(generated));
+    if (owned) unlinkSync(hook);
+  });
   const locator = join(dir, TEMP_PATH);
-  if (!existsSync(locator)) return;
-  const path = readFileSync(locator, "utf8");
+  const path = ifPresent(() => readFileSync(locator, "utf8"));
+  if (path === undefined) return;
   const name = basename(path);
-  if (path === `/private/tmp/${name}` && name.startsWith("knit-agy-")) {
-    if (name.startsWith(COMMAND_TEMP_PREFIX)) {
-      const problem = stopCommandProcesses(commandScope(path));
-      if (problem !== null) throw new Error(problem);
+  const owned = path === `/private/tmp/${name}` && name.startsWith("knit-agy-");
+  if (owned && name.startsWith(COMMAND_TEMP_PREFIX)) {
+    const problem = stopCommandProcesses(commandScope(path));
+    if (problem !== null) {
+      // 另一进程看到定位文件已删除时，必须能读到这次回收的失败原因。
+      atomicWrite({ path: join(dir, CLEANUP_ERROR), data: Buffer.from(problem) });
     }
-    rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 30 });
   }
+  if (owned) rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 30 });
   rmSync(locator, { force: true });
 }
 
@@ -143,7 +161,12 @@ class AgySession implements AgentSession {
       child.kill("SIGTERM");
       await exited.finally(() => clearTimeout(force));
     }
-    cleanAgyRuntime(this.original.cwd, this.original.dir);
+    try {
+      removeAgyRuntime(this.original.cwd, this.original.dir);
+    } catch (error) {
+      // 窗格可能已发布了报告，后台结算仍需读到清理失败的原因。
+      atomicWrite({ path: join(this.original.dir, CLEANUP_ERROR), data: Buffer.from(error instanceof Error ? error.message : String(error)) });
+    }
   }
 
   private async writeSettings(): Promise<void> {

@@ -2,16 +2,21 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { AntigravityExecutionAdapter } from "../dist/adapters/antigravity/execution.js";
+import { AntigravityExecutionAdapter, cleanAgyRuntime } from "../dist/adapters/antigravity/execution.js";
+import { loadConfig } from "../dist/application/config.js";
+import { finishRun } from "../dist/application/run-finish.js";
+import { prepareRun } from "../dist/application/run-prepare.js";
+import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { commitAll } from "./helpers/git.mjs";
-import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const isolated = { skip: process.platform !== "darwin" && "需要 macOS sandbox-exec" };
 const runDir = (root, run) => join(root, ".knit/.runtime/runs", run.id);
@@ -34,7 +39,7 @@ async function until(predicate) {
   assert.fail("等了 10 秒");
 }
 
-function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", rex = false, failure = false } = {}) {
+function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", rex = false, failure = false, environment = {} } = {}) {
   const root = runProject(t);
   const dir = mkdtempSync("/private/tmp/knit-test-agy-");
   const home = join(dir, "home");
@@ -45,7 +50,7 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
   const fake = fileURLToPath(new URL("./helpers/fake-agy.mjs", import.meta.url));
   writeFileSync(agy, `#!/bin/sh\nexec '${process.execPath}' '${fake}' "$@"\n`);
   chmodSync(agy, 0o755);
-  const env = { HOME: home, KNIT_AGY_BIN: agy };
+  const env = { ...environment, HOME: home, KNIT_AGY_BIN: agy };
   if (rex) {
     symlinkSync(fileURLToPath(new URL("./helpers/fake-rex.mjs", import.meta.url)), join(dir, "rex"));
     Object.assign(env, { KNIT_FAKE_REX: dir, REX_SESSION: "session:1", REX_BLOCK: "block:1", PATH: `${dir}:${process.env.PATH}` });
@@ -246,6 +251,87 @@ test("Rex 未收到提交回执时仍可追加输入，执行达到上限后记�
   assert.match(run.failure, /Antigravity 执行出错：max_steps_exceeded/);
   assert.ok(!existsSync(join(runDir(f.root, run), "report.md")));
 });
+
+for (const write of [false, true]) {
+  const tools = write ? "[read, write, exec]" : "[read, exec]";
+  test(`run_command 在 ${tools} 下使用独立 TMPDIR 和宿主环境`, isolated, async (t) => {
+    const privateKeys = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
+    const environment = Object.fromEntries(privateKeys.map((key) => [key, "private"]));
+    const f = fixture(t, { tools, environment: { ...environment, LOGNAME: "fixture-user", GOPATH: "/fixture/go" } });
+    mkdirSync(join(f.root, "nested"));
+    writeFileSync(join(f.root, "nested/input"), "relative input\n");
+    commitAll(f.root, "here-doc working directory fixture");
+    const command = (CommandLine) => ({ name: "run_command", args: { CommandLine, Cwd: "nested" } });
+    f.start({ tools: [
+      command('printf "%s %s\\n" "$LOGNAME" "$GOPATH" > "$TMPDIR/leftover" && cat "$TMPDIR/leftover" && echo "$TMPDIR"'),
+      command('cat <<EOF\nhere-doc in ${PWD##*/}: $(cat input)\nEOF'),
+      command(`env | grep -E '^(${privateKeys.join("|")})='`),
+      command('touch "$TMPDIR/../run-command" "$TMPDIR/../tool.sock"'),
+      command("touch project-result"),
+    ] });
+    const run = await f.ended();
+    assert.equal(run.verdict, "pass", run.failure);
+    const [temp, heredoc, env, control, worktree] = readRows(f.transcripts()[0]).find((row) => row.type === "TOOL_CHECKS").checks;
+    assert.equal(temp.code, 0, temp.stderr);
+    const [values, path] = temp.stdout.trim().split("\n");
+    assert.equal(values, "fixture-user /fixture/go");
+    assert.match(path, /^\/private\/tmp\/knit-agy-exec-[^/]+\/tmp$/);
+    assert.ok(!existsSync(dirname(path)));
+    assert.equal(heredoc.code, 0, heredoc.stderr);
+    assert.equal(heredoc.stdout, "here-doc in nested: relative input\n");
+    assert.equal(env.code, 1, env.stderr);
+    assert.equal(env.stdout, "");
+    assert.match(control.stderr, /run-command: Operation not permitted/);
+    assert.match(control.stderr, /tool.sock: Operation not permitted/);
+    assert.equal(worktree.code, write ? 0 : 1, worktree.stderr);
+    if (!write) assert.match(worktree.stderr, /project-result: Operation not permitted/);
+    assert.deepEqual(run.changedPaths, write ? ["nested/project-result"] : []);
+    cleanAgyRuntime(worktreeOf(f.root, f.task), runDir(f.root, run));
+  });
+}
+
+for (const order of ["结算先清理", "会话先收尾", "窗格删除定位文件时结算"]) {
+  test(`跟踪器返回非零时清理文件并结算，${order}`, isolated, async (t) => {
+    const f = fixture(t);
+    const workflow = parseWorkflow(readFileSync(join(f.root, ".knit/workflow.yaml"), "utf8")).workflow;
+    const prepared = prepareRun({ root: f.root, taskId: f.task.id, workflow, config: loadConfig(f.root).config, model: null });
+    assert.deepEqual(prepared.problems, []);
+    const cwd = worktreeOf(f.root, f.task);
+    const dir = join(f.root, prepared.run.dir);
+    const session = new AntigravityExecutionAdapter().createSession({ root: f.root, cwd, dir, capabilities: ["read", "exec"], model: null, thinking: null, report: {} });
+    assert.equal(await session.start(), null);
+    t.after(() => session.stop());
+    const locator = join(dir, "agy-temp-path");
+    const original = readFileSync(locator, "utf8");
+    // 真实跟踪器对超长 scope 返回 2。保留运行目录里的实际 socket、入口和 tmp 子目录。
+    const path = `${original}${"x".repeat(128)}`;
+    renameSync(original, path);
+    writeFileSync(locator, path);
+    t.after(() => rmSync(path, { recursive: true, force: true }));
+    const finish = () => assert.deepEqual(finishRun({ root: f.root, taskId: f.task.id, runId: prepared.run.id, workflow, agents,
+      verdict: "pass", failure: order === "结算先清理" ? "已取消" : null, sessionFile: null }), []);
+    if (order === "窗格删除定位文件时结算") {
+      // 只控制两次清理的先后，删除文件、回收进程和写入执行记录都走真实实现。
+      const remove = rmSync;
+      const hook = t.mock.method(fs, "rmSync", (file, options) => {
+        remove(file, options);
+        if (file === locator) finish();
+      });
+      syncBuiltinESMExports();
+      try { await session.stop(); } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+    }
+    if (order === "会话先收尾") await session.stop();
+    if (order !== "窗格删除定位文件时结算") finish();
+    const run = lastRun(f.root, f.task);
+    assert.ok(Number.isFinite(Date.parse(run.endedAt)));
+    assert.equal(run.verdict, null);
+    assert.match(run.failure, /Antigravity 命令进程回收失败：2/);
+    if (order === "结算先清理") assert.match(run.failure, /已取消/);
+    assert.deepEqual(run.changedPaths, []);
+    for (const file of [path, locator, join(cwd, ".agents/hooks.json")]) assert.ok(!existsSync(file), file);
+    assert.throws(() => cleanAgyRuntime(cwd, dir), /Antigravity 命令进程回收失败：2/);
+  });
+}
 
 test("后台正常结算前停止已脱离父进程和进程组的命令服务", isolated, async (t) => {
   const f = fixture(t);

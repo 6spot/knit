@@ -164,7 +164,7 @@ export function inside(root: string, path: string): boolean {
 }
 
 export function sandboxProfile(input: {
-  cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string }; socket?: string; network: boolean; write: boolean;
+  cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string }; command?: { socket: string; temporary: string }; network: boolean; write: boolean;
 }): string {
   const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`;
   const literal = (path: string) => `(literal ${JSON.stringify(path)})`;
@@ -181,6 +181,7 @@ export function sandboxProfile(input: {
   return [
     "(version 1)", "(allow default)", "(deny file-write*)",
     `(allow file-write* (literal "/dev/null") ${state.join(" ")} ${input.write ? subpath(input.cwd) : ""})`,
+    ...(input.command ? [`(allow file-write* ${subpath(input.command.temporary)})`] : []),
     `(deny file-write* ${[...WORKSPACE_CONTROL, ...input.paths].flatMap((path) => {
       const absolute = resolve(input.cwd, path);
       return inside(input.cwd, absolute) ? protectedPath(absolute) : [];
@@ -188,7 +189,7 @@ export function sandboxProfile(input: {
     "(deny file-link)",
     ...(input.cli === undefined ? [
       `(deny file-read-data ${subpath(input.dir)})`,
-      ...(input.socket === undefined ? [] : [`(deny network-outbound (remote unix-socket ${literal(input.socket)}))`]),
+      ...(input.command === undefined ? [] : [`(deny network-outbound (remote unix-socket ${literal(input.command.socket)}))`]),
     ] : [
       `(deny file-write* ${literal(join(input.cli.temporary, COMMAND_CLIENT))})`,
       `(deny file-read-data ${temporaryInputs.join(" ")})`,

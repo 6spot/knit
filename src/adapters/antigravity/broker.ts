@@ -2,11 +2,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { once } from "node:events";
-import { lstatSync, realpathSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
+import { executorEnv } from "../pi/session-env.js";
 import { COMMAND_CLIENT, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
 
@@ -35,6 +36,10 @@ export class AgyBroker {
     private readonly handle: (event: string, payload: AgyObject) => Promise<AgyObject>,
   ) {}
 
+  private get commandTemp(): string {
+    return join(dirname(this.socketPath), "tmp");
+  }
+
   get commandPrefix(): string {
     return join(dirname(this.socketPath), COMMAND_CLIENT);
   }
@@ -45,6 +50,7 @@ export class AgyBroker {
 
   async start(): Promise<void> {
     if (permits(this.launch.capabilities, "exec")) {
+      mkdirSync(this.commandTemp, { mode: 0o700 });
       const client = [process.execPath, entry, this.socketPath, "command"].map(shellQuote).join(" ");
       writeFileSync(this.commandPrefix, `#!/bin/sh
 exec ${client} "$KNIT_AGY_REQUEST"
@@ -165,13 +171,13 @@ exec ${client} "$KNIT_AGY_REQUEST"
     }
     this.pending.delete(key);
     const profile = sandboxProfile({ cwd: this.launch.cwd, dir: this.launch.dir, paths: this.launch.protectedPaths ?? [],
-      socket: this.socketPath, network: permits(this.launch.capabilities, "network"), write: permits(this.launch.capabilities, "write") });
+      command: { socket: this.socketPath, temporary: this.commandTemp }, network: permits(this.launch.capabilities, "network"), write: permits(this.launch.capabilities, "write") });
     const scope = commandScope(dirname(this.socketPath));
     const command = `${scope}.${key}`;
-    const { PATH, LANG, LC_ALL } = process.env;
-    const child = spawn(SANDBOX, ["-p", `${profile}\n${commandScopeRule(scope)}\n${commandScopeRule(command)}`, "/bin/bash", "-c", request.command], {
+    // macOS Bash 3.2 ignores TMPDIR for here-docs. System ksh supports them in a read-only cwd.
+    const child = spawn(SANDBOX, ["-p", `${profile}\n${commandScopeRule(scope)}\n${commandScopeRule(command)}`, "/bin/ksh", "-c", request.command], {
       cwd: request.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: { PATH, LANG, LC_ALL, HOME: process.env.HOME, TMPDIR: this.launch.cwd },
+      env: { ...executorEnv(), PWD: request.cwd, TMPDIR: this.commandTemp },
     });
     this.commands.add(child);
     child.stdout.on("data", (data: Buffer) => socket.write(`${JSON.stringify({ stdout: data.toString("base64") })}\n`));

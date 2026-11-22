@@ -31,7 +31,7 @@ export function finishRun(input: FinishRunInput): string[] {
   return finishAttempt(input, 3);
 }
 
-function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
+function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousCleanupFailure?: string | null): string[] {
   const { root, taskId, runId } = input;
   const stored = findTask(root, taskId);
   const run = stored?.record?.runs.find((item) => item.id === runId && item.endedAt === null);
@@ -40,7 +40,9 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
   }
   const cwd = taskWorktree(root, stored.dir).path;
   const dir = join(root, RUNS_DIR, runId);
-  input.agents[run.agent ?? "pi"].cleanRun?.(cwd, dir);
+  const cleanupFailure = previousCleanupFailure === undefined
+    ? cleanRun(input.agents[run.agent ?? "pi"], cwd, dir)
+    : previousCleanupFailure;
   const beforeFile = join(dir, "before.json");
   const after = existsSync(beforeFile) ? takeSnapshot(cwd) : null;
   const changes =
@@ -48,13 +50,14 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
       ? { changedPaths: [], head: null }
       : changesBetween(JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot, after);
   const guarded = protectedChanges(changes.changedPaths, input.workflow);
-  const failure =
+  const runFailure =
     input.failure ??
     (changes.head !== null
       ? `执行者提交了改动：HEAD 从 ${changes.head.before?.slice(0, 7) ?? "没有提交"} 变成 ${changes.head.after?.slice(0, 7) ?? "没有提交"}`
       : guarded.length > 0
         ? `执行者改了受保护的文件：${guarded.join("、")}`
         : null);
+  const failure = [runFailure, cleanupFailure].filter(Boolean).join("；") || null;
   const conflicts = saveTask(root, stored, stored.document, {
     ...stored.record,
     runs: stored.record.runs.map((item) =>
@@ -76,7 +79,16 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number): string[] {
     atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after, null, 2)}\n`) });
   }
   // 任务文件在读入之后被别人改过时重新读一遍再做。
-  return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1);
+  return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1, cleanupFailure);
+}
+
+function cleanRun(agent: AgentRegistry[keyof AgentRegistry], cwd: string, dir: string): string | null {
+  try {
+    agent.cleanRun?.(cwd, dir);
+    return null;
+  } catch (error) {
+    return `执行清理失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 function recordedSessionPath(root: string, file: string | null): string | null {

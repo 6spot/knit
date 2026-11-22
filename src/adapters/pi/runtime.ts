@@ -3,6 +3,7 @@
  * 复用本机客户端鉴权与模型配置；不导入 SDK，不另建模型运行时。
  * 缺能力显式报错，不用自动换模型或伪造成功补齐。
  */
+import { executorEnv, MAIN_SESSION_KEYS } from "./session-env.js";
 import { randomUUID } from "node:crypto";
 import { checkNativeSessionFile, type NativeFileCheck } from "./native-file.js";
 import type { ToolCapability } from "../../contracts/workflow.js";
@@ -100,9 +101,6 @@ export function capabilitySwitches(
   };
 }
 
-/** 主会话的 Pi 留在环境里的变量；执行者不能继承。 */
-const MAIN_SESSION_KEYS = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
-
 /**
  * 与本会话环境隔离，避免继承主会话的 PI_SESSION_ID／PI_MODEL 等。
  */
@@ -110,8 +108,7 @@ export function isolatedEnv(
   extra: Record<string, string> = {},
   options: { offline?: boolean } = {},
 ): Record<string, string> {
-  const env: Record<string, string> = { ...process.env } as Record<string, string>;
-  for (const key of MAIN_SESSION_KEYS) delete env[key];
+  const env = executorEnv();
   if (options.offline !== false) env.PI_OFFLINE = "1";
   env.PI_SKIP_VERSION_CHECK = "1";
   env.PI_TELEMETRY = "0";
