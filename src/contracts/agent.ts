@@ -37,6 +37,8 @@ export interface AgentRegistration {
   sessionDefaults(): { readonly model: string | null; readonly thinking: string | null };
   checkDispatch?(root: string, cwd: string, branch: string, capabilities: readonly ToolCapability[] | null): string | null;
   cleanRun?(cwd: string, dir: string): void;
+  /** Worktree 临时文件及其在本次执行目录中的原件，供同批成员核对快照。 */
+  readonly workspaceCopies?: Readonly<Record<string, string>>;
 }
 
 export type AgentRegistry = Readonly<Record<AgentName, AgentRegistration>>;

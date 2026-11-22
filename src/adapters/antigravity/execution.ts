@@ -1,18 +1,20 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-session.js";
+import { withRunLock } from "../../application/run-lock.js";
 import { atomicWrite } from "../../infrastructure/atomic.js";
 import { AgyBroker } from "./broker.js";
 import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, handoffReadPaths, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
 import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, transcriptTurn, TURN_INSTRUCTIONS } from "./protocol.js";
 
 const HOOK_TARGET = "agy-hooks.json";
+export const agyWorkspaceCopies = { [HOOKS]: HOOK_TARGET };
 const TEMP_PATH = "agy-temp-path";
 const CLEANUP_ERROR = "agy-cleanup-error";
 
@@ -44,15 +46,36 @@ function ifPresent<T>(operation: () => T): T | undefined {
   }
 }
 
-function removeAgyRuntime(cwd: string, dir: string): void {
-  const hook = join(cwd, HOOKS);
+// 使用者和锁留在主检出的 .knit/.runtime，按 Worktree 名区分。
+function updateHook(cwd: string, dir: string, install: boolean): void {
   const generated = join(dir, HOOK_TARGET);
-  ifPresent(() => {
-    const entry = lstatSync(hook);
-    const owned = entry.isSymbolicLink() ? readlinkSync(hook) === generated :
-      entry.isFile() && readFileSync(hook).equals(readFileSync(generated));
-    if (owned) unlinkSync(hook);
-  });
+  if (!existsSync(generated)) return;
+  const owners = join(dirname(dirname(dir)), "agy-hooks", basename(cwd));
+  withRunLock(`${owners}.lock`, 5000, () => {
+    const hook = join(cwd, HOOKS);
+    const owner = join(owners, basename(dir));
+    const entry = lstatSync(hook, { throwIfNoEntry: false });
+    const matches = entry?.isFile() && readFileSync(hook).equals(readFileSync(generated));
+    if (install) {
+      mkdirSync(owners, { recursive: true });
+      if (entry && (!matches || !readdirSync(owners).length)) throw new Error(`Worktree 中已有 ${HOOKS}`);
+      writeFileSync(owner, "");
+      if (!entry) copyFileSync(generated, hook, constants.COPYFILE_EXCL);
+      return;
+    }
+    if (existsSync(owners)) {
+      if (!existsSync(owner)) return;
+      rmSync(owner);
+      if (readdirSync(owners).length) return;
+      rmSync(owners, { recursive: true });
+    }
+    // 兼容升级前留在 Worktree 的单执行器钩子。
+    if (matches || (entry?.isSymbolicLink() && readlinkSync(hook) === generated)) unlinkSync(hook);
+  }, () => { throw new Error(`无法取得 ${HOOKS} 的文件锁`); });
+}
+
+function removeAgyRuntime(cwd: string, dir: string): void {
+  updateHook(cwd, dir, false);
   const locator = join(dir, TEMP_PATH);
   const path = ifPresent(() => readFileSync(locator, "utf8"));
   if (path === undefined) return;
@@ -124,7 +147,7 @@ class AgySession implements AgentSession {
       } }), { mode: 0o600 });
       mkdirSync(join(this.input.cwd, ".agents"), { recursive: true });
       // agy 1.5.13 ignores hooks linked out of the Worktree.
-      copyFileSync(generated, join(this.input.cwd, HOOKS), constants.COPYFILE_EXCL);
+      updateHook(this.input.cwd, this.input.dir, true);
       return null;
     } catch (error) {
       return String(error);
@@ -211,7 +234,7 @@ class AgySession implements AgentSession {
       ...(this.input.model === null ? [] : [`--model=${this.input.model}`]),
       ...(this.input.thinking === null ? [] : [`--effort=${this.input.thinking}`]),
       ...(this.pane ? ["--prompt-interactive", first] : ["--disable-slash-commands", "--input-format", "stream-json", "--output-format", "stream-json"]),
-    ], { cwd: this.input.cwd, env: { ...process.env, TMPDIR: this.temp!, AGY_CLI_DISABLE_AUTO_UPDATE: "true" }, stdio: this.pane ? "inherit" : "pipe" });
+    ], { cwd: this.input.cwd, env: { ...process.env, ...this.broker!.hookEnv, TMPDIR: this.temp!, AGY_CLI_DISABLE_AUTO_UPDATE: "true" }, stdio: this.pane ? "inherit" : "pipe" });
     this.child = child;
     child.on("error", (error) => this.turn.resolve({ report: null, failure: `Antigravity 启动失败：${error.message}` }));
     child.on("close", (code, signal) => this.turn.resolve({ report: null,

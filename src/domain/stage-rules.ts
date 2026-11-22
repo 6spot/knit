@@ -1,6 +1,6 @@
 /** 对所有环节都成立的规则：由程序给，不写在角色文件里。只做计算，不读写文件。 */
 import { isReportEnum, type ReportFieldType } from "../contracts/workflow.js";
-import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
+import { workflowPrompts, type WorkflowDefinition, type WorkflowStage } from "./workflow.js";
 
 const SCALAR_WORDING = {
   string: "字符串",
@@ -16,12 +16,13 @@ export function stageRules(workflow: WorkflowDefinition, stage: WorkflowStage): 
     ".knit/standards/ 下的文件",
     ".knit/workflow.yaml",
     ".knit/config.json",
-    ...new Set(workflow.stages.flatMap((item) => item.prompt ?? [])),
+    ...workflowPrompts(workflow),
   ];
   const fields = Object.entries(stage.report);
   return [
     "<rules>",
     "- 不要提交，也不要切换或新建分支。结束时 HEAD 变了，这次执行记为失败。",
+    ...(stage.executors.length > 1 ? ["- 本批次的执行者共用 Worktree。请只读检查，把需要的修改写进报告，交给主会话汇总。"] : []),
     `- 不要修改这些文件，改了这次执行记为失败：${guarded.join("、")}。`,
     "- 你的最后一条消息就是这个环节的报告，会原样交给下一个环节和用户。",
     ...(fields.length === 0

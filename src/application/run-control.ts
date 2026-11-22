@@ -11,28 +11,27 @@ import { atomicWrite } from "../infrastructure/atomic.js";
 import { procStartTicks } from "../infrastructure/process.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";
-import { liveWorker, stopRunProcesses } from "./run-process.js";
+import { liveWorker, startingWorker, stopRunProcesses } from "./run-process.js";
 import { findTask } from "./task-store.js";
 import { readWorkflow } from "./workflow-store.js";
 
 export function startRun(input: PrepareRunInput & {
   readonly workerCommand: (run: PreparedRun) => readonly string[];
 }): PrepareRunResult {
-  const prepared = prepareRun(input);
-  if (prepared.run === null) return prepared;
-  const log = openSync(join(input.root, prepared.run.dir, "worker.log"), "a");
-  const command = input.workerCommand(prepared.run);
-  const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log] });
-  worker.unref();
-  closeSync(log);
-  atomicWrite({
-    path: join(input.root, prepared.run.dir, "worker.json"),
-    data: Buffer.from(`${JSON.stringify({
-      pid: worker.pid,
-      start: worker.pid === undefined ? null : procStartTicks(worker.pid),
-    }, null, 2)}\n`),
+  return prepareRun(input, (run) => {
+    const log = openSync(join(input.root, run.dir, "worker.log"), "a");
+    const command = input.workerCommand(run);
+    const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log] });
+    worker.unref();
+    closeSync(log);
+    atomicWrite({
+      path: join(input.root, run.dir, "worker.json"),
+      data: Buffer.from(`${JSON.stringify({
+        pid: worker.pid,
+        start: worker.pid === undefined ? null : procStartTicks(worker.pid),
+      }, null, 2)}\n`),
+    });
   });
-  return prepared;
 }
 
 interface RunTaskResult {
@@ -41,16 +40,23 @@ interface RunTaskResult {
 }
 
 /** 无总超时；后台进程消失时重读记录，正常结束与意外退出都结束等待。 */
-export async function waitRun(root: string, taskId: string): Promise<RunTaskResult & { readonly workflow: WorkflowDefinition | null }> {
+export async function waitRun(root: string, taskId: string, batchId?: string): Promise<RunTaskResult & {
+  readonly workflow: WorkflowDefinition | null;
+  readonly batchId?: string;
+}> {
   const loaded = readRunTask(root, taskId);
   if (loaded.task === null) return { ...loaded, workflow: null };
   const workflow = readWorkflow(root);
   if (workflow.workflow === null) return { task: null, ...workflow };
-  const running = loaded.task.record.runs.find((run) => run.endedAt === null);
-  if (running === undefined) return { ...loaded, workflow: workflow.workflow };
-  if (liveWorker(root, running.id) === null) return { ...readRunTask(root, taskId), workflow: workflow.workflow };
+  const running = loaded.task.record.runs.filter((run) => run.endedAt === null &&
+    (batchId === undefined || run.batchId === batchId));
+  const watched = { workflow: workflow.workflow, batchId: batchId ?? running[0]?.batchId };
+  if (!running.length) return { ...loaded, ...watched };
+  if (running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null)) {
+    return { ...readRunTask(root, taskId), ...watched };
+  }
   await sleep(1000);
-  return waitRun(root, taskId);
+  return waitRun(root, taskId, watched.batchId);
 }
 
 export async function cancelRun(input: {
@@ -58,32 +64,23 @@ export async function cancelRun(input: {
   readonly root: string;
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
-}): Promise<{
-  readonly cancelled: { readonly runId: string; readonly workerMissing: boolean; readonly changedPaths: readonly string[] } | null;
-  readonly problems: readonly string[];
-}> {
+  readonly runId?: string;
+}) {
   const loaded = readRunTask(input.root, input.taskId);
   if (loaded.task === null) return { cancelled: null, problems: loaded.problems };
-  const running = loaded.task.record.runs.find((run) => run.endedAt === null);
-  if (running === undefined) return { cancelled: null, problems: [`任务 ${input.taskId} 没有正在跑的执行`] };
-  const workerMissing = liveWorker(input.root, running.id) === null;
-  await stopRunProcesses(input.root, running.id);
-  const problems = finishRun({
-    ...input,
-    runId: running.id,
-    verdict: null,
-    failure: workerMissing ? "执行进程意外退出" : "已取消",
-    sessionFile: null,
-  });
-  if (problems.length > 0) return { cancelled: null, problems };
-  return {
-    cancelled: {
-      runId: running.id,
-      workerMissing,
-      changedPaths: findTask(input.root, input.taskId)?.record?.runs.find((run) => run.id === running.id)?.changedPaths ?? [],
-    },
-    problems: [],
-  };
+  const running = loaded.task.record.runs.filter((run) => run.endedAt === null && (input.runId === undefined || run.id === input.runId));
+  if (running.length === 0) return { cancelled: null, problems: [`任务 ${input.taskId} 没有正在跑的执行${input.runId ? ` ${input.runId}` : ""}`] };
+  while (running.some((run) => startingWorker(input.root, input.taskId, run))) await sleep(100);
+  const results = await Promise.all(running.map(async (run) => {
+    const workerMissing = liveWorker(input.root, run.id) === null;
+    await stopRunProcesses(input.root, run.id);
+    const problems = finishRun({ ...input, runId: run.id, verdict: null,
+      failure: workerMissing ? "执行进程意外退出" : "已取消", sessionFile: null });
+    const ended = findTask(input.root, input.taskId)?.record?.runs.find((item) => item.id === run.id);
+    return { runId: run.id, workerMissing, changedPaths: ended?.changedPaths ?? [], problems };
+  }));
+  const problems = results.flatMap((result) => result.problems);
+  return { cancelled: problems.length ? null : results[0]!, runs: results, problems };
 }
 
 function readRunTask(root: string, taskId: string): RunTaskResult {

@@ -2,7 +2,7 @@
 import { join } from "node:path";
 import type { AgentLaunch, AgentRegistry } from "../contracts/agent.js";
 import type { PaneHost } from "../contracts/pane.js";
-import type { WorkflowDefinition } from "../domain/workflow.js";
+import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
 import { finishRun } from "./run-finish.js";
 import { runInPane } from "./run-pane.js";
 import { RUNS_DIR } from "./run-prepare.js";
@@ -29,6 +29,9 @@ export async function executeRun<Pane>(input: ExecuteRunInput<Pane>): Promise<st
   if (stage === undefined || stored === null || run === undefined) {
     return finishRun({ ...input, verdict: null, failure: "执行的环节不在流程里", sessionFile: null });
   }
+  if (run.batchId !== undefined && (stage.tools === null || stage.tools.includes("write"))) {
+    return finishRun({ ...input, verdict: null, failure: `并行批次要求只读，当前流程的 ${stage.id} 环节允许写入`, sessionFile: null });
+  }
   const launch: AgentLaunch = {
     root: input.root,
     model: input.model,
@@ -37,7 +40,7 @@ export async function executeRun<Pane>(input: ExecuteRunInput<Pane>): Promise<st
     dir: join(input.root, RUNS_DIR, input.runId),
     capabilities: stage.tools,
     report: stage.report,
-    protectedPaths: input.workflow.stages.flatMap((item) => item.prompt === null ? [] : [item.prompt]),
+    protectedPaths: workflowPrompts(input.workflow),
   };
   const agent = input.agents[run.agent ?? "pi"].createAdapter();
   const result =

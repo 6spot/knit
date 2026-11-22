@@ -25,6 +25,8 @@ export function renderTaskRecord(record: TaskRecord): string {
       id: run.id,
       stage: run.stage,
       agent: run.agent,
+      batchId: run.batchId,
+      executor: run.executor,
       startedAt: run.startedAt,
       endedAt: run.endedAt,
       verdict: run.verdict,

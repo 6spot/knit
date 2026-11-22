@@ -1,9 +1,11 @@
 /** 执行者的后台进程。 */
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { RUNS_DIR, type TaskRun } from "../contracts/task.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
-import { RUNS_DIR } from "./run-prepare.js";
+import { taskRunLockHeld } from "./run-lock.js";
 
 export const PANE_FILE = "pane.json";
 
@@ -11,6 +13,12 @@ export const PANE_FILE = "pane.json";
 export interface WorkerProcess {
   readonly pid: number;
   readonly start: string | null;
+}
+
+/** 批次已登记、worker.json 还没发布时，持锁的派发进程仍在启动成员。 */
+export function startingWorker(root: string, taskId: string, run: TaskRun): boolean {
+  return run.batchId !== undefined && run.endedAt === null && !existsSync(join(root, RUNS_DIR, run.id, "worker.json")) &&
+    taskRunLockHeld(root, taskId);
 }
 
 /** 这次执行的后台进程还在时返回它的进程号，不在时是 null。 */

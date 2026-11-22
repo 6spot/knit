@@ -1,4 +1,5 @@
 /** 任务走到哪了：每次从流程定义和执行记录推出来，不单独保存。只做计算，不读写文件。 */
+import { RUNS_DIR } from "../contracts/task.js";
 import type { TaskFrontmatter, TaskRecord, TaskRun, TaskStatus } from "../contracts/task.js";
 import { WORKFLOW_VERDICT_ANCHOR } from "../contracts/workflow.js";
 import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
@@ -8,6 +9,8 @@ import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
  * `limit`：下一个环节已经到进入次数的上限，`entries` 是已经进入的次数。
  */
 export type NextStep =
+  | { readonly kind: "running"; readonly stage: Pick<WorkflowStage, "id"> }
+  | { readonly kind: "arbitrate"; readonly stage: WorkflowStage; readonly reports: readonly { run: TaskRun; path: string }[] }
   | { readonly kind: "stage"; readonly stage: WorkflowStage }
   | { readonly kind: "limit"; readonly stage: WorkflowStage; readonly entries: number }
   | { readonly kind: "close" };
@@ -22,29 +25,61 @@ export function countedRuns(record: TaskRecord): TaskRun[] {
   );
 }
 
-/**
- * 这个环节进入过几次：算数的执行按先后排成一串，连着的同一个环节只算一次进入。
- * 留在原环节再做一次、失败之后重新派发，都不算新的进入。
- */
-export function stageEntries(record: TaskRecord, stageId: string): number {
-  return countedRuns(record).filter((run, index, runs) => run.stage === stageId && runs[index - 1]?.stage !== stageId)
-    .length;
+export function batchOf(record: TaskRecord, member: TaskRun | undefined): TaskRun[] {
+  if (!member) return [];
+  return member.batchId === undefined ? [member] : record.runs.filter((run) => run.batchId === member.batchId);
 }
 
-/** 正在跑的执行不影响结果；有没有执行者在跑由调用方另外判断。 */
+/** 并行批次全员入账后才参与推导，包括需要裁决的失败成员。旧的单执行器失败仍可原地重试。 */
+export function completedBatches(record: TaskRecord): TaskRun[][] {
+  const batches = Map.groupBy(record.runs.filter((run) => run.requirementDigest === record.confirmedDigest),
+    (run) => run.batchId ?? run);
+  return [...batches.values()].filter((batch) => batch.every((run) => run.endedAt !== null) &&
+    (batch[0]!.batchId !== undefined || batch[0]!.failure === null));
+}
+
+export function lastPassedReview(record: TaskRecord): TaskRun | undefined {
+  const batch = completedBatches(record).findLast((members) => members.some((run) => run.verdict !== null || run.failure !== null));
+  if (!batch?.every((run) => run.failure === null && run.verdict === "pass")) return undefined;
+  return batch.reduce((latest, run) => run.endedAt! >= latest.endedAt! ? run : latest);
+}
+
+export function stageEntries(record: TaskRecord, stageId: string): number {
+  return completedBatches(record).filter(([run], index, batches) => run?.stage === stageId &&
+    (run.batchId !== undefined || batches[index - 1]?.[0]?.stage !== stageId)).length;
+}
+
+/** 留在原单执行器环节重试不算再次进入。 */
+export function dispatchLimit(record: TaskRecord, stage: WorkflowStage, previous?: string): Extract<NextStep, { kind: "limit" }> | null {
+  if (stage.maxVisits === null || (stage.id === previous && stage.executors.length === 1)) return null;
+  const entries = stageEntries(record, stage.id);
+  return entries > stage.maxVisits ? { kind: "limit", stage, entries } : null;
+}
 export function nextStep(
   workflow: WorkflowDefinition,
   verification: TaskFrontmatter["verification"],
   record: TaskRecord,
 ): NextStep {
-  const last = countedRuns(record).at(-1);
+  const active = record.runs.find((run) => run.batchId !== undefined && run.endedAt === null);
+  if (active) return { kind: "running", stage: workflow.stages.find((stage) => stage.id === active.stage) ?? { id: active.stage } };
+  const batch = completedBatches(record).at(-1) ?? [];
+  const last = batch.at(-1);
+  const current = workflow.stages.find((stage) => stage.id === last?.stage);
+  if (last?.batchId !== undefined) {
+    const needsVerdict = current !== undefined && Object.hasOwn(current.report, "verdict");
+    // 已经入账的失败和结论在流程编辑后仍属于这一批。
+    if (batch.some((run) => run.failure !== null || (run.verdict === null ? needsVerdict : run.verdict !== "pass"))) {
+      return {
+        kind: "arbitrate",
+        stage: workflow.stages.find((stage) => stage.id === current?.onVerdict.changes_requested) ??
+          current ?? stageAfter(workflow, verification, undefined) ?? workflow.stages[0]!,
+        reports: batch.map((run) => ({ run, path: `${RUNS_DIR}/${run.id}/report.md` })),
+      };
+    }
+  }
   const stage = stageAfter(workflow, verification, last);
   if (stage === undefined) return { kind: "close" };
-  // 留在原环节不是新的进入，不判断上限。
-  if (stage.id === last?.stage || stage.maxVisits === null) return { kind: "stage", stage };
-  const entries = stageEntries(record, stage.id);
-  // maxVisits 是第一次进入之后还能再进入几次。
-  return entries > stage.maxVisits ? { kind: "limit", stage, entries } : { kind: "stage", stage };
+  return dispatchLimit(record, stage, last?.stage) ?? { kind: "stage", stage };
 }
 
 /**
@@ -82,8 +117,8 @@ function stageAfter(
   const current = workflow.stages[index];
   // 没有算数的执行，或者它所在的环节已经不在流程里：从头开始。
   if (last === undefined || current === undefined) return walked[0];
-  const target =
-    last.verdict !== null && Object.hasOwn(current.onVerdict, last.verdict) ? current.onVerdict[last.verdict] : undefined;
+  const verdict = last.batchId === undefined ? last.verdict : null;
+  const target = verdict !== null && Object.hasOwn(current.onVerdict, verdict) ? current.onVerdict[verdict] : undefined;
   if (target === WORKFLOW_VERDICT_ANCHOR) return undefined;
   // 结论的去向按流程里的全部环节找，不限于任务要走的。
   if (target !== undefined) return workflow.stages.find((stage) => stage.id === target);

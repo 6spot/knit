@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { changesBetween, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
@@ -44,6 +45,27 @@ test("新增、修改、删除的文件都算改动", (t) => {
   assert.deepEqual(changesBetween(before, takeSnapshot(dir)).changedPaths, ["scripts/run.sh", "src/added.ts", "src/removed.ts"]);
 });
 
+test("Git 列出未跟踪的钩子后，另一成员在取指纹期间删除它", (t) => {
+  const dir = gitProject(t);
+  const hook = ".agents/hooks.json";
+  const before = takeSnapshot(dir);
+  for (const operation of ["lstatSync", "readFileSync"]) {
+    write(dir, hook, "{}");
+    const original = fs[operation];
+    const handle = t.mock.method(fs, operation, (path, ...args) => {
+      if (path === join(dir, hook)) rmSync(path);
+      return original(path, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.deepEqual(takeSnapshot(dir), before);
+    } finally {
+      handle.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
+});
+
 test("HEAD 动了能看出来", (t) => {
   const dir = gitProject(t);
   write(dir, "src/a.ts", "one\n");
@@ -67,6 +89,12 @@ test("HEAD 动了能看出来", (t) => {
   write(empty, "a.txt", "a\n");
   assert.deepEqual(Object.keys(takeSnapshot(empty).files), ["a.txt"]);
   assert.equal(takeSnapshot(empty).head, null);
+});
+
+test("单执行器覆盖角色时仍保护流程引用的共享路径", () => {
+  const parsed = parseWorkflow("version: 1\nstages:\n  - id: review\n    prompt: roles/shared.md\n    executors: [{prompt: roles/chosen.md}]\n");
+  const referenced = ["roles/shared.md", "roles/chosen.md"];
+  assert.deepEqual(protectedChanges([...referenced, ".knit/agents/other.md"], parsed.workflow), referenced);
 });
 
 test("认出受保护的路径", () => {

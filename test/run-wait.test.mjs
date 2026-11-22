@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, constants, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,10 +8,15 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
+import { cancelRun, startRun, waitRun } from "../dist/application/run-control.js";
+import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
+import { buildTaskStatus } from "../dist/application/session-context.js";
+import { statusLines } from "../dist/cli/run.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
+import { procStartTicks } from "../dist/infrastructure/process.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject } from "./helpers/run.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -95,6 +100,67 @@ test("等待期间流程配置变坏时立即报错，执行者仍继续运行",
   await waitUntil(() => processesOf(runId).length === 0, "执行进程退出");
 });
 
+test("批次刚入账时的 wait 和 cancel 会等 worker 登记进程身份", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n";
+  writeFileSync(join(root, ".knit/workflow.yaml"), source);
+  const input = { root, taskId: task.id, workflow: parseWorkflow(source).workflow, config: loadConfig(root).config, model: null };
+  const pending = {};
+  const prepared = startRun({ ...input, workerCommand: () => {
+    pending.status ??= knit(root, "run", "status", task.id);
+    pending.wait ??= waitRun(root, task.id);
+    pending.cancel ??= cancelRun({ ...input, agents });
+    return [process.execPath, "-e", "setTimeout(() => {}, 20000)"];
+  } });
+  assert.deepEqual(prepared.problems, []);
+  try {
+    assert.equal(pending.status.code, 0, pending.status.stderr);
+    prepared.runs.forEach((run) => assert.ok(pending.status.stdout.includes(`正在启动: check（${run.id}）`)));
+    assert.equal(await Promise.race([pending.wait.then(() => true), sleep(20, false)]), false);
+    const cancelled = await pending.cancel;
+    assert.deepEqual(cancelled.problems, []);
+    assert.deepEqual(cancelled.runs.map((run) => run.workerMissing), [false, false]);
+    const { runs } = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8"));
+    assert.deepEqual(runs.map((run) => run.failure), ["已取消", "已取消"]);
+  } finally {
+    await pending.cancel;
+    if (lastRun(root, task).endedAt === null) await cancelRun({ ...input, agents });
+    await pending.wait;
+  }
+});
+
+test("两次轮询之间派发下一环节，原等待返回所等批次的全部报告", async (t) => {
+  const root = runProject(t);
+  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n  - id: implement\n";
+  writeFileSync(join(root, ".knit/workflow.yaml"), source);
+  const task = readyTask(root);
+  const input = { root, taskId: task.id, workflow: parseWorkflow(source).workflow, config: loadConfig(root).config, model: null };
+  const prepare = () => {
+    const result = prepareRun(input);
+    assert.deepEqual(result.problems, []);
+    // 本测试进程提供可观测的存活标识，使结算和下一次派发能在同一次轮询间隔内完成。
+    result.runs.forEach((run) => writeFileSync(join(root, run.dir, "worker.json"), JSON.stringify({ pid: process.pid, start: procStartTicks(process.pid) })));
+    return result.runs;
+  };
+  const finish = (run) => assert.deepEqual(finishRun({ ...input, agents, runId: run.id, verdict: null, failure: null, sessionFile: null }), []);
+  const batch = prepare();
+  const waiting = waitRun(root, task.id);
+  batch.forEach(finish);
+  const [next] = prepare();
+  try {
+    const waited = await Promise.race([waiting, sleep(4000, null, { ref: false })]);
+    assert.ok(waited, "wait 还在等待下一环节");
+    assert.equal(lastRun(root, task).endedAt, null);
+    const output = statusLines(buildTaskStatus(root, task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId)).join("\n");
+    batch.forEach((run) => assert.ok(output.includes(`${run.dir}/report.md`)));
+    assert.ok(!output.includes(next.id));
+  } finally {
+    finish(next);
+    await waiting;
+  }
+});
+
 test("没有执行在跑时立即返回", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
@@ -106,6 +172,28 @@ test("没有执行在跑时立即返回", (t) => {
   const missing = knit(dir, "run", "wait", "k-000000000000");
   assert.deepEqual(missing, { code: 1, stdout: "", stderr: knit(dir, "run", "status", "k-000000000000").stderr });
   assert.notEqual(missing.stderr, "");
+});
+
+test("只读检出仅有批次记录时可以查看和等待，运行目录按原状保留", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: review\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n";
+  writeFileSync(join(root, ".knit/workflow.yaml"), source);
+  const prepared = prepareRun({ root, taskId: task.id, workflow: parseWorkflow(source).workflow, config: loadConfig(root).config, model: null });
+  assert.deepEqual(prepared.problems, []);
+  const runtime = join(root, ".knit/.runtime");
+  rmSync(runtime, { recursive: true });
+  chmodSync(join(root, ".knit"), 0o555);
+  try {
+    for (const command of [["run", "status"], ["context"], ["run", "wait"]]) {
+      const result = knit(root, ...command, task.id);
+      assert.equal(result.code, 0, result.stderr);
+      prepared.runs.forEach((run) => assert.ok(result.stdout.includes(`执行 ${run.id} 的进程已经不在了`)));
+      assert.equal(existsSync(runtime), false);
+    }
+  } finally {
+    chmodSync(join(root, ".knit"), 0o755);
+  }
 });
 
 test("后台进程不在了也返回", (t) => {

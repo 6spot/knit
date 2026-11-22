@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { countedRuns, nextStep } from "../dist/domain/progress.js";
+import { countedRuns, lastPassedReview, nextStep } from "../dist/domain/progress.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 
 const DIGEST = "sha256:now";
@@ -84,6 +84,42 @@ test("按结论跳转", () => {
   assert.equal(stepOf(toDeliver, "independent", recordOf(runOf("triage", { verdict: "go" }))), "implement");
 });
 
+test("未结束批次在重新确认需求或删除环节后仍在跑，无结论环节按全员执行结果推进", () => {
+  const workflow = workflowOf([
+    "  - id: check", "    tools: [read]", "    executors: [{id: a}, {id: b}]", "    report: {note: string}",
+    "  - id: implement",
+  ]);
+  const record = recordOf(
+    runOf("check", { id: "r-a", executor: "a", batchId: "b-1", verdict: "pass" }),
+    runOf("check", { id: "r-b", executor: "b", batchId: "b-1", endedAt: null }),
+  );
+  const changed = { ...record, confirmedDigest: "sha256:later" };
+  assert.deepEqual(nextStep(workflow, "independent", changed), { kind: "running", stage: workflow.stages[0] });
+  assert.deepEqual(nextStep(PLAIN, "independent", changed), { kind: "running", stage: { id: "check" } });
+  record.runs[1].endedAt = record.runs[0].endedAt;
+  assert.deepEqual(nextStep(workflow, "independent", record), { kind: "stage", stage: workflow.stages[1] });
+  record.runs[1].failure = "执行失败";
+  assert.equal(nextStep(workflow, "independent", record).kind, "arbitrate");
+});
+
+test("批次全员通过按顺序推进，修改流程后仍须裁决已入账的分歧", () => {
+  const workflow = workflowOf([...REVIEW, "    tools: [read]", "    executors: [{id: a}, {id: b}]",
+    "    onVerdict: {pass: deliver}", "  - id: assemble"]);
+  const record = recordOf(
+    runOf("review", { id: "r-a", batchId: "b-1", verdict: "pass", endedAt: "2026-11-15T01:15:00.000Z" }),
+    runOf("review", { id: "r-b", batchId: "b-1", verdict: "pass" }),
+  );
+  assert.equal(stepOf(workflow, "independent", record), "assemble");
+  assert.equal(lastPassedReview(record).id, "r-a");
+  record.runs[1].verdict = "changes_requested";
+  for (const updated of [workflow, workflowOf(["  - id: review"]), workflowOf(["  - id: implement"])]) {
+    const step = nextStep(updated, "independent", record);
+    assert.equal(step.kind, "arbitrate");
+    assert.deepEqual(step.reports.map(({ run }) => run.id), ["r-a", "r-b"]);
+  }
+  assert.equal(lastPassedReview(record), undefined);
+});
+
 test("不算数的执行不影响下一步", () => {
   const record = recordOf(
     runOf("implement"),
@@ -92,7 +128,9 @@ test("不算数的执行不影响下一步", () => {
     runOf("review", { verdict: "pass", requirementDigest: "sha256:before" }),
   );
   assert.deepEqual(countedRuns(record), [record.runs[0]]);
-  assert.equal(stepOf(PLAIN, "independent", record), "review");
+  assert.deepEqual(nextStep(PLAIN, "independent", record), { kind: "stage", stage: PLAIN.stages[1] });
+  assert.deepEqual(nextStep(PLAIN, "independent", recordOf(runOf("review", { endedAt: null }))),
+    { kind: "stage", stage: PLAIN.stages[0] });
 
   const changed = { ...record, confirmedDigest: "sha256:later" };
   assert.deepEqual(countedRuns(changed), []);

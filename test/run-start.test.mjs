@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -119,6 +120,36 @@ test("start 等两条准备命令按顺序完成，快照排除准备文件；�
   assert.doesNotMatch(repair.stdout, /已运行准备命令/);
   assert.equal((await finished(dir, task, startedRunId(repair.stdout))).failure, null);
   assert.equal(readFileSync(join(worktreeOf(dir, task), "setup.txt"), "utf8"), "first:second:inherited");
+});
+
+test("并行批次准备期间重复 start，已创建的 Worktree 只由取得派发权的一次使用", async (t) => {
+  const root = runProject(t);
+  writeFileSync(join(root, ".knit/workflow.yaml"), "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n");
+  const task = readyTask(root);
+  const marker = join(process.env.KNIT_HOME, "setup-started");
+  const release = join(process.env.KNIT_HOME, "finish-setup");
+  setupConfig(root, [nodeCommand("const fs=require('node:fs');fs.writeFileSync(process.env.KNIT_SETUP_STARTED,'');const timer=setInterval(()=>{if(fs.existsSync(process.env.KNIT_SETUP_RELEASE))clearInterval(timer)},30)")]);
+  const args = [CLI, "run", "start", task.id, "--dir", root];
+  const env = { ...process.env, KNIT_PI_BIN: FAKE_PI, KNIT_SETUP_STARTED: marker, KNIT_SETUP_RELEASE: release };
+  const child = spawn(process.execPath, args, { env, stdio: "ignore" });
+  const first = once(child, "close");
+  try {
+    await waitUntil(() => existsSync(marker), "第一次派发进入准备命令");
+    const second = spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 5000 });
+    assert.equal(second.status, 1, second.stderr);
+    assert.ok(existsSync(join(worktreeOf(root, task), ".git")));
+    assert.equal(lastRun(root, task), undefined);
+    writeFileSync(release, "");
+    assert.equal((await first)[0], 0);
+    assert.equal(knit(root, "run", "wait", task.id).code, 0);
+    const { runs } = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8"));
+    assert.equal(runs.length, 2);
+    assert.ok(runs.every((run) => run.endedAt && run.failure === null && run.batchId === runs[0].batchId));
+  } finally {
+    writeFileSync(release, "");
+    await first;
+    if (lastRun(root, task)?.endedAt === null) knit(root, "run", "cancel", task.id);
+  }
 });
 
 test("第二条准备命令失败时 start 原样报告、停止后续命令、撤回脏 Worktree，改对后能再派发", async (t) => {

@@ -57,6 +57,7 @@ export interface WorkflowStage extends Pick<WorkflowExecutor, "agent" | "model" 
   name: string;
   /** 本步说明；缺省 null。 */
   description: string | null;
+  readonly sharedPrompt?: string;
   executors: readonly WorkflowExecutor[];
   /** 能力白名单；null 表示全部放开（不写或 `all`），空数组表示全部禁用。 */
   tools: readonly ToolCapability[] | null;
@@ -91,6 +92,11 @@ export const WORKFLOW_ANCHOR_NAMES: Readonly<Record<WorkflowAnchor, string>> = {
 export function workflowStageDisplayName(workflow: WorkflowDefinition, stage: string): string {
   if (isWorkflowAnchor(stage)) return WORKFLOW_ANCHOR_NAMES[stage];
   return workflow.stages.find((entry) => entry.id === stage)?.name ?? stage;
+}
+
+export function workflowPrompts(workflow: WorkflowDefinition): string[] {
+  return [...new Set(workflow.stages.flatMap((stage) => [stage.sharedPrompt ?? stage.prompt, ...stage.executors.map((executor) => executor.prompt)]
+    .filter((path) => path !== null)))];
 }
 
 export interface WorkflowLoadResult {
@@ -499,7 +505,7 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): W
     prompt: executor.prompt ?? stage.prompt ?? null,
   }));
   const single = executors.length === 1 ? executors[0] : undefined;
-  return {
+  const normalized = {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
@@ -513,6 +519,11 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): W
     onVerdict: { ...(stage.onVerdict ?? {}) },
     maxVisits: stage.maxVisits === undefined ? defaultMaxVisits : stage.maxVisits,
   };
+  // 覆盖前的角色仍受保护，但不参与有效执行配置的序列化和相等比较。
+  if (stage.prompt && stage.prompt !== normalized.prompt) {
+    Object.defineProperty(normalized, "sharedPrompt", { value: stage.prompt });
+  }
+  return normalized;
 }
 
 /**

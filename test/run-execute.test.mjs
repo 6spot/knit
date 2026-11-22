@@ -125,6 +125,22 @@ for (const mode of ["开窗失败", "启动超时"]) {
   });
 }
 
+test("已登记的并行执行启动前，重载的同名环节允许写入时结算为失败", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const path = join(root, ".knit/workflow.yaml");
+  const stage = "version: 1\nmodel: fake/model\nstages:\n  - id: review\n";
+  writeFileSync(path, `${stage}    tools: [read]\n    executors: [{id: a}, {id: b}]\n`);
+  const prepared = prepareRun({ root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null });
+  assert.deepEqual(prepared.problems, []);
+  for (const [index, tools] of ["[read, write]", "all"].entries()) {
+    writeFileSync(path, `${stage}    tools: ${tools}\n`);
+    assert.deepEqual(await execute(root, task, prepared.runs[index]), []);
+  }
+  const { runs } = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8"));
+  assert.ok(runs.every((run) => run.endedAt && run.verdict === null && run.failure.includes("并行批次要求只读")));
+});
+
 test("做完之后存下报告，记下结论和改动文件", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);

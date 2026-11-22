@@ -1,5 +1,5 @@
 import type { TaskRecord, TaskStatus } from "../contracts/task.js";
-import { countedRuns } from "../domain/progress.js";
+import { lastPassedReview } from "../domain/progress.js";
 import { currentStatus, requirementDigest } from "../domain/task-document.js";
 import { clarifyStateOf, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRelative } from "../infrastructure/paths.js";
@@ -32,8 +32,9 @@ export function readyTask(root: string, id: string): TaskRefusal | RequirementPr
     return { kind: "invalidRequirement", blocking: clarify.blocking, blockingItems: clarify.blockingItems,
       scenarioIssues: scenarios.issues.map((issue) => issue.message), missingScenarios: unwritten };
   }
+  const running = record.runs.find((run) => run.endedAt === null);
   const conflicts = saveTask(root, stored,
-    { ...document, frontmatter: { ...document.frontmatter, status: "ready", stage: null } },
+    { ...document, frontmatter: { ...document.frontmatter, status: running ? "active" : "ready", stage: running?.stage ?? null } },
     { ...record, confirmedDigest: requirementDigest(document) },
   );
   if (conflicts.length > 0) return { kind: "refused", problems: conflicts };
@@ -55,7 +56,7 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
   const refusal = closeRefusal(currentStatus(document, record), id);
   if (refusal !== null) return { kind: "refused", problems: [refusal] };
   const unreviewed = document.frontmatter.verification === "independent" &&
-    countedRuns(record).findLast((run) => run.verdict !== null)?.verdict !== "pass";
+    lastPassedReview(record) === undefined;
   if (unreviewed && options.reason === undefined) {
     return { kind: "refused", problems: ["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"] };
   }

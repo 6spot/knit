@@ -1,10 +1,11 @@
-import type { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { Option, type Command } from "commander";
 import { builtinAgents } from "../adapters/agents.js";
 import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/config.js";
 import { executeRun } from "../application/run-execute.js";
-import { limitNotice, RUNS_DIR } from "../application/run-prepare.js";
+import { arbitrationNotice, limitNotice, RUNS_DIR } from "../application/run-prepare.js";
 import { buildTaskStatus, type SessionTaskStatus } from "../application/session-context.js";
 import { checkSchema } from "../contracts/schema.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
@@ -12,26 +13,26 @@ import { fail, knitRoot, loadTask } from "./task.js";
 import { loadWorkflow } from "./workflow.js";
 
 /** 一次执行的情况。 */
-function runLines(task: SessionTaskStatus): string[] {
-  const run = task.last;
-  if (run === undefined) return ["还没有派发过"];
+function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][number]): string[] {
+  const run = member.run;
   const dir = `${RUNS_DIR}/${run.id}`;
   const agent = `Agent: ${run.agent ?? "pi"}`;
   if (run.endedAt !== null) {
     return [
       `上一次: ${task.stageName}（${run.id}）`,
       run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
-      ...(task.report === null ? [] : [`报告: ${task.report}`]),
+      ...(member.report === null || run.batchId ? [] : [`报告: ${member.report}`]),
       `改动文件: ${run.changedPaths.length} 个`,
       agent,
     ];
   }
-  return !task.worker
+  if (member.starting) return [`正在启动: ${task.stageName}（${run.id}）`, agent];
+  return !member.worker
     ? [
         `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.frontmatter.id} 记为失败`,
         agent,
         // 窗格里的执行者由 Rex 启动，后台进程退出后仍可能在运行。
-        ...(task.pane
+        ...(member.pane
           ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
           : []),
       ]
@@ -39,7 +40,7 @@ function runLines(task: SessionTaskStatus): string[] {
         `正在跑: ${task.stageName}（${run.id}），开始于 ${run.startedAt}`,
         `会话记录: ${dir}/session/`,
         agent,
-        ...(task.pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
+        ...(member.pane ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格（最小化着）`] : []),
       ];
 }
 
@@ -50,7 +51,8 @@ function nextLine(task: SessionTaskStatus): string[] {
   if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
   if (status === "done") return [`下一步: 用户授权后交付（knit deliver ${id}）`];
   const step = task.next;
-  if (step === null) return [];
+  if (step === null || step.kind === "running") return [];
+  if (step.kind === "arbitrate") return [`下一步: ${arbitrationNotice(id, step).join("\n")}`];
   if (step.kind === "close") return [`下一步: 核对之后运行 knit task close ${id}`];
   if (step.kind === "limit") {
     const [first, ...rest] = limitNotice(id, task.workflow, task.record, step);
@@ -65,8 +67,11 @@ export function statusLines(task: SessionTaskStatus): string[] {
     `任务: ${task.frontmatter.title}（${task.frontmatter.id}）`,
     `状态: ${task.status === "active" ? `active(${task.frontmatter.stage})` : task.status}`,
     ...(task.worktree === null ? [] : [`Worktree: ${task.worktree.path}（${task.worktree.branch}）`]),
-    ...runLines(task),
-    ...(task.last?.endedAt === null ? [] : nextLine(task)),
+    ...(task.members.length ? task.members.flatMap((member) => [
+      ...(member.run.batchId ? [`执行器: ${member.run.executor ?? member.run.id}`, `报告: ${member.path}`] : []),
+      ...runLines(task, member),
+    ]) : ["还没有派发过"]),
+    ...(task.members.some(({ run }) => run.endedAt === null) ? [] : nextLine(task)),
   ];
 }
 
@@ -82,7 +87,7 @@ async function waitForRun(dir: string, id: string): Promise<string[] | null> {
     fail(waited.problems);
     return null;
   }
-  return statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record));
+  return statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId));
 }
 
 export function registerRunCommands(program: Command): void {
@@ -91,10 +96,13 @@ export function registerRunCommands(program: Command): void {
   run
     .command("start <id>")
     .description("派发任务的下一个环节；等 Worktree 准备命令完成后返回，执行者在后台跑")
+    .addOption(new Option("--instruction <文本>", "主会话的裁决或修改清单").conflicts("instructionFile"))
+    .option("--instruction-file <文件>", "读取主会话修改指令")
+    .option("--stage <环节>", "主会话裁决时指定派发环节")
     .option("--model <模型>", "这一次用的模型（Pi 用 provider/模型，agy 用模型 ID）")
     .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { model?: string; thinking?: string; dir: string }) => {
+    .action((id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; stage?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const { config, problems } = loadConfig(root);
@@ -108,6 +116,8 @@ export function registerRunCommands(program: Command): void {
       const sessionAgent = checkSchema(AgentNameSchema, session) ? session : DEFAULT_AGENT;
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
+        instruction: options.instructionFile === undefined ? options.instruction : readFileSync(options.instructionFile, "utf8"),
+        stage: options.stage,
         sessionDefaults: { agent: sessionAgent, ...builtinAgents[sessionAgent].sessionDefaults() },
         checkAgent: (agent, capabilities, worktree) => builtinAgents[agent].checkDispatch?.(root, worktree.path, worktree.branch, capabilities) ?? null,
         workerCommand: (started) => [
@@ -117,13 +127,12 @@ export function registerRunCommands(program: Command): void {
         ],
       });
       if (prepared.run === null) return fail(prepared.problems);
-      const started = prepared.run;
-      process.stdout.write(
-        `已派发 ${id}：${started.stage.name}（${started.id}）\n` +
+      prepared.runs.forEach((started) => process.stdout.write(
+        `已派发 ${id}：${started.stage.name}（${started.id}）${started.executor ? ` ${started.executor}` : ""}\n` +
         `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
         (started.setupCommands === undefined ? "" : `已运行准备命令：${started.setupCommands} 条\n`) +
         `会话记录：${started.dir}/session/\n`,
-      );
+      ));
     });
 
   run
@@ -154,8 +163,9 @@ export function registerRunCommands(program: Command): void {
   run
     .command("cancel <id>")
     .description("停掉任务正在跑的执行，记为失败；后台进程已经不在的也用它记为失败")
+    .option("--run <run-id>", "只取消指定执行")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action(async (id: string, options: { dir: string }) => {
+    .action(async (id: string, options: { dir: string; run?: string }) => {
       const loaded = loadTask(options.dir, id);
       if (loaded === null) return;
       const workflow = loadWorkflow(loaded.root);
@@ -165,12 +175,12 @@ export function registerRunCommands(program: Command): void {
       }
       const { root } = loaded;
       const taskId = loaded.document.frontmatter.id;
-      const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents });
+      const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents, runId: options.run });
       if (result.cancelled === null) return fail(result.problems);
-      const first = result.cancelled.workerMissing
-        ? `执行 ${result.cancelled.runId} 的进程已经不在了，已记为失败`
-        : `已取消 ${taskId} 的执行 ${result.cancelled.runId}`;
-      process.stdout.write(`${first}\n改动文件: ${result.cancelled.changedPaths.length} 个\n`);
+      result.runs.forEach((run) => {
+        const first = run.workerMissing ? `执行 ${run.runId} 的进程已经不在了，已记为失败` : `已取消 ${taskId} 的执行 ${run.runId}`;
+        process.stdout.write(`${first}\n改动文件: ${run.changedPaths.length} 个\n`);
+      });
     });
 
   run

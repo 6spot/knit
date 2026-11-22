@@ -5,12 +5,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { AgentRegistry } from "../contracts/agent.js";
+import { batchOf } from "../domain/progress.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
+import { withTaskRunLock } from "./run-lock.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { readSessionFile } from "./run-session.js";
 import { findTask, saveTask } from "./task-store.js";
-import { changesBetween, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
+import { changesBetween, fingerprint, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
 import { taskWorktree } from "./worktree.js";
 
 export interface FinishRunInput {
@@ -45,6 +47,16 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     : previousCleanupFailure;
   const beforeFile = join(dir, "before.json");
   const after = existsSync(beforeFile) ? takeSnapshot(cwd) : null;
+  if (after && run.batchId) {
+    for (const member of batchOf(stored.record, run)) {
+      const memberDir = join(root, RUNS_DIR, member.id);
+      for (const [path, copy] of Object.entries(input.agents[member.agent ?? "pi"].workspaceCopies ?? {})) {
+        if (after.files[path] !== undefined && existsSync(join(memberDir, copy)) && after.files[path] === fingerprint(memberDir, copy)) {
+          delete after.files[path];
+        }
+      }
+    }
+  }
   const changes =
     after === null
       ? { changedPaths: [], head: null }
@@ -58,26 +70,36 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
         ? `执行者改了受保护的文件：${guarded.join("、")}`
         : null);
   const failure = [runFailure, cleanupFailure].filter(Boolean).join("；") || null;
-  const conflicts = saveTask(root, stored, stored.document, {
-    ...stored.record,
-    runs: stored.record.runs.map((item) =>
-      item === run
+  const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
+  const verdict = failure === null && (run.batchId === undefined || (declared && Object.hasOwn(declared, "verdict"))) ? input.verdict : null;
+  const persist = () => {
+    const latest = run.batchId === undefined ? stored : findTask(root, taskId);
+    if (!latest?.document || !latest.record?.runs.some((item) => item.id === runId && item.endedAt === null)) {
+      return [`执行 ${runId} 不在任务 ${taskId} 的记录里，或者已经结束`];
+    }
+    // 等待者一旦读到 pass 就能开始交付预览，先发布它会读取的快照。
+    if (after !== null && verdict === "pass") {
+      atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after, null, 2)}\n`) });
+    }
+    return saveTask(root, latest, latest.document, {
+      ...latest.record,
+      runs: latest.record.runs.map((item) =>
+        item.id === runId
         ? {
             ...item,
             endedAt: new Date().toISOString(),
-            verdict: failure === null ? input.verdict : null,
+            verdict,
             failure,
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
             sessionFile: recordedSessionPath(root, input.sessionFile ?? readSessionFile(dir)),
           }
-        : item,
-    ),
-  });
-  // 审查通过时的工作区留一份：交付预览拿它看哪些文件在审查通过之后又改过。
-  if (conflicts.length === 0 && after !== null && failure === null && input.verdict === "pass") {
-    atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after, null, 2)}\n`) });
-  }
+          : item,
+      ),
+    });
+  };
+  const conflicts = run.batchId === undefined ? persist() : withTaskRunLock(root, taskId, 5000, persist,
+    () => [`任务 ${taskId} 正在写入执行记录，请稍后重试`]);
   // 任务文件在读入之后被别人改过时重新读一遍再做。
   return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1, cleanupFailure);
 }

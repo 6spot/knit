@@ -4,30 +4,33 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import type { TaskRecord, TaskRun } from "../contracts/task.js";
+import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
 import { validateAgentTarget } from "../domain/agent-target.js";
-import { countedRuns, nextStep, type NextStep } from "../domain/progress.js";
+import { completedBatches, dispatchLimit, nextStep, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
-import type { WorkflowDefinition, WorkflowStage } from "../domain/workflow.js";
+import type { WorkflowDefinition, WorkflowExecutor, WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, type HandoffReport } from "./handoff.js";
-import { saveTask, scanTasks, type StoredTask } from "./task-store.js";
+import { withTaskRunLock } from "./run-lock.js";
+import { saveTask, scanTasks, type LoadedTask, type StoredTask } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
 import { ensureWorktree, rollbackWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
 
 /** 一次执行的目录是 `<RUNS_DIR>/<run-id>`。 */
-export const RUNS_DIR = ".knit/.runtime/runs";
+export { RUNS_DIR };
 
 export interface PrepareRunInput {
   readonly root: string;
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
+  readonly instruction?: string;
+  readonly stage?: string;
   readonly config: ProjectConfig;
   /** 本次派发的模型覆盖值。null 时按实际 Agent 的规格取值。 */
   readonly model: string | null;
@@ -49,17 +52,22 @@ export interface PreparedRun {
   readonly model: string | null;
   /** 最后用的思考等级；null 时让客户端自己取缺省。 */
   readonly thinking: ThinkingLevel | null;
+  /** 同批成员使用各自的执行器标识。 */
+  readonly executor?: string;
   /** 这次新建目录后运行的准备命令数；没运行时不带这个字段。 */
   readonly setupCommands?: number;
 }
 
 export type PrepareRunResult =
-  | { readonly run: PreparedRun; readonly problems: readonly [] }
+  | { readonly run: PreparedRun; readonly runs: readonly PreparedRun[]; readonly problems: readonly [] }
   | { readonly run: null; readonly problems: readonly string[] };
 
-export function prepareRun(input: PrepareRunInput): PrepareRunResult {
+function refuse(...problems: string[]): PrepareRunResult {
+  return { run: null, problems };
+}
+
+export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedRun) => void): PrepareRunResult {
   const { root, taskId } = input;
-  const refuse = (...problems: string[]): PrepareRunResult => ({ run: null, problems });
   const tasks = scanTasks(root);
   const stored = tasks.find((task) => task.id === taskId);
   if (stored === undefined) return refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
@@ -83,99 +91,120 @@ export function prepareRun(input: PrepareRunInput): PrepareRunResult {
   const step = nextStep(input.workflow, document.frontmatter.verification, record);
   if (step.kind === "close") return refuse(`所有环节都做完了；核对之后运行 knit task close ${taskId}`);
   if (step.kind === "limit") return refuse(...limitNotice(taskId, input.workflow, record, step));
-  const stage = step.stage;
-  const sessionAgent = input.sessionDefaults?.agent ?? DEFAULT_AGENT;
-  const agent = stage.agent ?? sessionAgent;
-  const spec = AGENT_SPECS[agent];
-  const workflowDefaults = spec.inheritsWorkflowDefaults ? input.workflow : null;
-  const session = spec.inheritsWorkflowDefaults && agent === sessionAgent ? input.sessionDefaults : null;
-  const model = input.model ?? stage.model ?? workflowDefaults?.model ?? session?.model ?? null;
-  const requestedThinking = input.thinking ?? stage.thinking ?? workflowDefaults?.thinking ?? session?.thinking ?? null;
-  if (model === null && spec.modelRequired) return refuse(spec.missingModelMessage);
-  const target = validateAgentTarget({ agent, model, thinking: requestedThinking });
-  if (target.modelProblem !== null) return refuse(`--model ${target.modelProblem}：${model}`);
-  if (target.thinkingProblem !== null) return refuse(`思考等级${target.thinkingProblem}：${requestedThinking}`);
+  if (input.instruction !== undefined && !input.instruction.trim()) return refuse("主会话修改指令不能为空");
+  if (input.stage !== undefined && step.kind !== "arbitrate") return refuse("只有批次等待主会话裁决时可以指定 --stage");
+  if (step.kind === "arbitrate" && !input.instruction && !input.stage) return refuse(...arbitrationNotice(taskId, step));
+  const stageId = input.stage ?? step.stage.id;
+  const stage = input.workflow.stages.find((item) => item.id === stageId);
+  if (!stage) return refuse(`流程里没有环节 ${stageId}`);
+  if (step.kind === "arbitrate") {
+    const limit = dispatchLimit(record, stage, step.reports[0]?.run.stage);
+    if (limit) return refuse(...limitNotice(taskId, input.workflow, record, limit));
+  }
+  const targets = stage.executors.map((executor) => resolveExecutor(input, executor));
+  const problems = targets.flatMap((target) => target.problem ? [target.problem] : []);
+  if (problems.length) return refuse(...problems);
 
   if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
     return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
   }
+  const prepare = () => {
+    const prepared = prepareExecutors(input, { root, stored, document, record }, stage, targets);
+    if (prepared.run && startWorker) prepared.runs.forEach(startWorker);
+    return prepared;
+  };
+  if (!input.workflow.stages.some((item) => item.executors.length > 1)) return prepare();
+  return withTaskRunLock(root, taskId, 0, prepare, () => refuse(`任务 ${taskId} 正在准备或结算执行，请稍后重试`));
+}
+
+function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: WorkflowStage, targets: readonly ReturnType<typeof resolveExecutor>[]): PrepareRunResult {
+  const { root, stored, document, record } = task;
   const worktree = taskWorktree(root, stored.dir);
-  const checkIsolation = () => input.checkAgent?.(agent, stage.tools, worktree);
+  const checkIsolation = () => targets.flatMap(({ agent }) => input.checkAgent?.(agent, stage.tools, worktree) ?? []);
   const unavailable = checkIsolation();
-  if (unavailable) return refuse(unavailable);
+  if (unavailable.length) return refuse(...unavailable);
   const preparedWorktree = ensureWorktree(root, worktree);
   if (preparedWorktree.problems.length > 0) return refuse(...preparedWorktree.problems);
   const refusePrepared = (problems: readonly string[], force = false) =>
     refuse(...problems, ...rollbackWorktree(root, worktree, preparedWorktree, force));
 
-  const counted = countedRuns(record);
-  const last = counted.at(-1);
-  // 再次进入这个环节时带上它自己上一次的报告；留在原环节再做时那就是上一个环节的报告，不重复给。
-  const own = counted.findLast((run) => run.stage === stage.id);
-  const handoff = assembleHandoff({
-    root,
-    worktree: worktree.path,
-    task: { dir: stored.dir, document },
-    stage,
-    previous: last === undefined ? null : reportOf(root, last),
-    own: own === undefined || own === last ? null : reportOf(root, own),
-    limits: input.config.handoff,
-  });
-  if (handoff.problems.length > 0) return refusePrepared(handoff.problems);
-
+  const batches = completedBatches(record);
+  const previous = batches.at(-1) ?? [];
   const setup = preparedWorktree.created ? input.config.worktree?.setup ?? [] : [];
-  const setupProblems = setup.reduce<string[]>((problems, command) => {
-    if (problems.length > 0) return problems;
-    const result = spawnSync(command, { cwd: worktree.path, shell: true, encoding: "utf8", maxBuffer: Infinity });
-    if (result.status === 0) return [];
-    return [
-      `准备命令失败：${command}\n退出码：${result.status ?? -1}` +
-      (result.signal === null ? "" : `（信号：${result.signal}）`) +
-      `\n${result.stdout ?? ""}${result.stderr ?? ""}${result.error?.message ?? ""}`,
-    ];
-  }, []);
-  if (setupProblems.length > 0) return refusePrepared(setupProblems, true);
-  if (setup.length > 0) {
-    const unavailableAfterSetup = checkIsolation();
-    if (unavailableAfterSetup) return refusePrepared([unavailableAfterSetup], true);
-  }
-
-  const id = `r-${randomBytes(6).toString("hex")}`;
-  const conflicts = saveTask(
-    root,
-    stored,
-    { ...document, frontmatter: { ...document.frontmatter, status: "active", stage: stage.id } },
-    {
-      ...record,
-      runs: [
-        ...record.runs,
-        {
-          id,
-          stage: stage.id,
-          agent,
-          startedAt: new Date().toISOString(),
-          endedAt: null,
-          verdict: null,
-          failure: null,
-          requirementDigest: requirementDigest(document),
-          changedPaths: [],
-          sessionFile: null,
-        },
-      ],
-    },
-  );
-  if (conflicts.length > 0) return refusePrepared(conflicts, setup.length > 0);
-
-  const dir = `${RUNS_DIR}/${id}`;
-  mkdirSync(join(root, dir), { recursive: true });
-  // 规则不计入交接的字节上限。
-  writeFileSync(join(root, dir, "system.md"), `${handoff.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
-  writeFileSync(join(root, dir, "message.md"), handoff.firstMessage);
-  atomicWrite({
-    path: join(root, dir, "before.json"),
-    data: Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`),
+  const batchId = targets.length > 1 ? `b-${randomBytes(6).toString("hex")}` : undefined;
+  const runs = targets.map(({ executor, agent, model, thinking }) => {
+    const id = `r-${randomBytes(6).toString("hex")}`;
+    return { id, dir: `${RUNS_DIR}/${id}`, stage, worktree, agent, model, thinking,
+      ...(batchId ? { executor: executor.id } : {}), ...(setup.length ? { setupCommands: setup.length } : {}) };
   });
-  return { run: { id, dir, stage, worktree, agent, model, thinking: target.thinking, ...(setup.length === 0 ? {} : { setupCommands: setup.length }) }, problems: [] };
+  const discard = (issues: readonly string[]) => {
+    runs.forEach((run) => rmSync(join(root, run.dir), { recursive: true, force: true }));
+    return refusePrepared(issues, setup.length > 0);
+  };
+  try {
+    const reports = previous.map((run) => reportOf(root, run));
+    const handoffs = targets.map(({ executor }) => {
+      const own = batches.flat().findLast((run) => run.stage === stage.id && (!run.executor || run.executor === executor.id));
+      return assembleHandoff({ root, worktree: worktree.path, task: { dir: stored.dir, document },
+        stage: { id: stage.id, prompt: executor.prompt }, previous: reports,
+        own: own && !previous.includes(own) ? reportOf(root, own) : null,
+        instruction: input.instruction, limits: input.config.handoff });
+    });
+    const issues = handoffs.flatMap((handoff) => handoff.problems);
+    if (issues.length) return refusePrepared(issues);
+    for (const command of setup) {
+      const result = spawnSync(command, { cwd: worktree.path, shell: true, encoding: "utf8", maxBuffer: Infinity });
+      if (result.status !== 0) return refusePrepared([
+        `准备命令失败：${command}\n退出码：${result.status ?? -1}` +
+        (result.signal === null ? "" : `（信号：${result.signal}）`) +
+        `\n${result.stdout ?? ""}${result.stderr ?? ""}${result.error?.message ?? ""}`,
+      ], true);
+    }
+    if (setup.length) {
+      const unavailableAfterSetup = checkIsolation();
+      if (unavailableAfterSetup.length) return refusePrepared(unavailableAfterSetup, true);
+    }
+    const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
+    runs.forEach((run, index) => {
+      const dir = join(root, run.dir);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "system.md"), `${handoffs[index]!.systemPrompt}\n\n${stageRules(input.workflow, stage)}`);
+      writeFileSync(join(dir, "message.md"), handoffs[index]!.firstMessage);
+      atomicWrite({ path: join(dir, "before.json"), data: snapshot });
+    });
+  } catch (error) {
+    return discard([error instanceof Error ? error.message : String(error)]);
+  }
+  const startedAt = new Date().toISOString();
+  const conflicts = saveTask(root, stored,
+    { ...document, frontmatter: { ...document.frontmatter, status: "active", stage: stage.id } },
+    { ...record, runs: [...record.runs, ...runs.map((run) => ({
+      id: run.id, stage: stage.id, agent: run.agent, executor: run.executor, batchId, startedAt,
+      endedAt: null, verdict: null, failure: null, requirementDigest: requirementDigest(document), changedPaths: [], sessionFile: null,
+    }))] });
+  if (conflicts.length) return discard(conflicts);
+  return { run: runs[0]!, runs, problems: [] };
+}
+
+function resolveExecutor(input: PrepareRunInput, executor: WorkflowExecutor) {
+  const sessionAgent = input.sessionDefaults?.agent ?? DEFAULT_AGENT;
+  const agent = executor.agent ?? sessionAgent;
+  const spec = AGENT_SPECS[agent];
+  const workflowDefaults = spec.inheritsWorkflowDefaults ? input.workflow : null;
+  const session = spec.inheritsWorkflowDefaults && agent === sessionAgent ? input.sessionDefaults : null;
+  const model = input.model ?? executor.model ?? workflowDefaults?.model ?? session?.model ?? null;
+  const thinking = input.thinking ?? executor.thinking ?? workflowDefaults?.thinking ?? session?.thinking ?? null;
+  const target = validateAgentTarget({ agent, model, thinking });
+  const problem = model === null && spec.modelRequired ? spec.missingModelMessage
+    : target.modelProblem ? `--model ${target.modelProblem}：${model}`
+    : target.thinkingProblem ? `思考等级${target.thinkingProblem}：${thinking}` : null;
+  return { executor, agent, model, thinking: target.thinking, problem };
+}
+
+export function arbitrationNotice(id: string, step: Extract<NextStep, { kind: "arbitrate" }>): string[] {
+  return ["批次已结束，等待主会话裁决汇总。", ...step.reports.map(({ run, path }) =>
+    `  ${run.executor ?? run.id}（${run.agent ?? "pi"}）：${run.failure ?? run.verdict ?? "正常结束"}，${path}`),
+    `主会话汇总后派发${step.stage.name}：knit run start ${id} --instruction <修改指令>；指定环节用 --stage <环节>。`];
 }
 
 function dependencyProblems(root: string, tasks: readonly StoredTask[], id: string): string[] {
@@ -221,7 +250,7 @@ export function limitNotice(
   const nameOf = (stageId: string) => workflow.stages.find((stage) => stage.id === stageId)?.name ?? stageId;
   return [
     `${step.stage.name}环节已经进入 ${step.entries} 次，到了上限，不再派发。各轮的报告：`,
-    ...countedRuns(record).map(
+    ...completedBatches(record).flat().map(
       (run) => `  ${nameOf(run.stage)}（${run.id}）${run.verdict ?? ""}：${RUNS_DIR}/${run.id}/report.md`,
     ),
     "可以走的路：",
@@ -237,6 +266,7 @@ function reportOf(root: string, run: TaskRun): HandoffReport {
   const path = resolve(root, RUNS_DIR, run.id, "report.md");
   return {
     stage: run.stage,
+    executor: run.executor, verdict: run.verdict, failure: run.failure,
     path,
     changedPaths: run.changedPaths,
     text: existsSync(path) ? readFileSync(path, "utf8") : "报告原文不在这台机器上。",

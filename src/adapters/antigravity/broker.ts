@@ -44,14 +44,18 @@ export class AgyBroker {
     return join(dirname(this.socketPath), COMMAND_CLIENT);
   }
 
+  get hookEnv() {
+    return { KNIT_AGY_SOCKET: this.socketPath, KNIT_AGY_HOOK_KEY: this.hooksKey };
+  }
+
   hookCommand(event: string): string {
-    return [process.execPath, entry, this.socketPath, "hook", event, this.hooksKey].map(shellQuote).join(" ");
+    return [process.execPath, entry, "hook", event].map(shellQuote).join(" ");
   }
 
   async start(): Promise<void> {
     if (permits(this.launch.capabilities, "exec")) {
       mkdirSync(this.commandTemp, { mode: 0o700 });
-      const client = [process.execPath, entry, this.socketPath, "command"].map(shellQuote).join(" ");
+      const client = [process.execPath, entry, "command", this.socketPath].map(shellQuote).join(" ");
       writeFileSync(this.commandPrefix, `#!/bin/sh
 exec ${client} "$KNIT_AGY_REQUEST"
 `, { mode: 0o500, flag: "wx" });
@@ -175,9 +179,12 @@ exec ${client} "$KNIT_AGY_REQUEST"
     const scope = commandScope(dirname(this.socketPath));
     const command = `${scope}.${key}`;
     // macOS Bash 3.2 ignores TMPDIR for here-docs. System ksh supports them in a read-only cwd.
+    const env = executorEnv();
+    delete env.KNIT_AGY_SOCKET;
+    delete env.KNIT_AGY_HOOK_KEY;
     const child = spawn(SANDBOX, ["-p", `${profile}\n${commandScopeRule(scope)}\n${commandScopeRule(command)}`, "/bin/ksh", "-c", request.command], {
       cwd: request.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: { ...executorEnv(), PWD: request.cwd, TMPDIR: this.commandTemp },
+      env: { ...env, PWD: request.cwd, TMPDIR: this.commandTemp },
     });
     this.commands.add(child);
     child.stdout.on("data", (data: Buffer) => socket.write(`${JSON.stringify({ stdout: data.toString("base64") })}\n`));

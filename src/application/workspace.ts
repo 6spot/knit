@@ -5,7 +5,7 @@
  */
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
-import type { WorkflowDefinition } from "../domain/workflow.js";
+import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
 import { fileFacts } from "../infrastructure/fingerprint.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { gitSync } from "../infrastructure/process.js";
@@ -14,6 +14,7 @@ import { STANDARDS_DIR } from "./standards-store.js";
 
 /** 运行时资料所在的目录：执行过程中程序自己会写，不算改动。 */
 export const RUNTIME_PREFIX = ".knit/.runtime/";
+const ABSENT_FINGERPRINT = "absent - -";
 
 /** 能直接用 JSON.stringify 存成文件再读回来用。 */
 export interface WorkspaceSnapshot {
@@ -32,19 +33,29 @@ export interface WorkspaceChanges {
 
 /** 一个文件的指纹；`path` 是项目内的相对路径。已跟踪但磁盘上已经删掉的文件，类型是 absent。 */
 export function fingerprint(root: string, path: string): string {
-  const facts = fileFacts(join(root, path));
-  return [facts.kind, facts.mode ?? "-", facts.sha256 ?? "-"].join(" ");
+  try {
+    const facts = fileFacts(join(root, path));
+    return [facts.kind, facts.mode ?? "-", facts.sha256 ?? "-"].join(" ");
+  } catch (error) {
+    // 最后一个使用者可能在 lstat 和读取内容之间卸载共享钩子。
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return ABSENT_FINGERPRINT;
+    throw error;
+  }
 }
 
 export function takeSnapshot(root: string): WorkspaceSnapshot {
   const head = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
   // 已跟踪的文件加上没被忽略的新文件。
-  const listed = gitSync(["ls-files", "-co", "--exclude-standard", "-z"], root);
+  const listed = gitSync(["ls-files", "-tco", "--exclude-standard", "-z"], root);
   if (listed.code !== 0) throw new Error(`git ls-files 失败：${listed.stderr.trim()}`);
   const files: Record<string, string> = {};
-  for (const path of listed.stdout.split("\0")) {
+  for (const entry of listed.stdout.split("\0")) {
+    const path = entry.slice(2);
     if (path === "" || path.startsWith(RUNTIME_PREFIX)) continue;
-    files[path] = fingerprint(root, path);
+    const observed = fingerprint(root, path);
+    // Git 的 ? 标记未跟踪文件。拍照期间消失的临时文件不应留下一条新增记录。
+    if (entry.startsWith("? ") && observed === ABSENT_FINGERPRINT) continue;
+    files[path] = observed;
   }
   return { head: head.code === 0 ? head.stdout.trim() : null, files };
 }
@@ -58,7 +69,7 @@ export function changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapsh
 
 /** `changedPaths` 里执行者不能改的那些：规范、流程、配置，以及流程用到的角色文件。 */
 export function protectedChanges(changedPaths: readonly string[], workflow: WorkflowDefinition): string[] {
-  const prompts = new Set(workflow.stages.map((stage) => (stage.prompt === null ? null : projectRelative(stage.prompt))));
+  const prompts = new Set(workflowPrompts(workflow).map(projectRelative));
   return changedPaths.filter(
     (path) =>
       path.startsWith(`${STANDARDS_DIR}/`) || path === WORKFLOW_CONFIG_PATH || path === CONFIG_PATH || prompts.has(path),

@@ -5,6 +5,7 @@
 import { arr, nullable, obj, oneOf, opt, str, type Static } from "@earendil-works/pi-schema";
 import { AgentNameSchema, WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 
+export const RUNS_DIR = ".knit/.runtime/runs";
 export const TASK_ID_PATTERN = "^k-[0-9a-f]{12}$";
 
 export const TASK_STATUSES = ["draft", "ready", "active", "done", "delivered", "cancelled"] as const;
@@ -31,6 +32,8 @@ export const TaskRunSchema = obj({
   id: str({ minLength: 1 }),
   stage: str({ pattern: WORKFLOW_STAGE_ID_PATTERN }),
   agent: opt(AgentNameSchema),
+  batchId: opt(str({ minLength: 1 })),
+  executor: opt(str({ minLength: 1 })),
   startedAt: str({ minLength: 1 }),
   endedAt: nullable(str({ minLength: 1 })),
   verdict: nullable(str({ minLength: 1 })),

@@ -1,32 +1,35 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
-import { nextStep, sessionStage } from "../domain/progress.js";
+import { batchOf, nextStep, sessionStage } from "../domain/progress.js";
 import { standardsForStage } from "../domain/standards.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
-import { livePane, liveWorker } from "./run-process.js";
+import { livePane, liveWorker, startingWorker } from "./run-process.js";
 import { loadStandards } from "./standards-store.js";
 import { readTask, shownTaskDirectory, taskCommit, type TaskRefusal } from "./task-store.js";
 import { readWorkflow } from "./workflow-store.js";
 import { taskWorktree } from "./worktree.js";
 
 /** context、run status 和 run wait 展示同一份状态。 */
-export function buildTaskStatus(root: string, dir: string | null, workflow: WorkflowDefinition, document: TaskDocument, record: TaskRecord) {
+export function buildTaskStatus(root: string, dir: string | null, workflow: WorkflowDefinition, document: TaskDocument, record: TaskRecord, batchId?: string) {
   const status = currentStatus(document, record);
-  const last = record.runs.at(-1);
-  const running = last?.endedAt === null;
-  const reportPath = last === undefined || running ? null : `${RUNS_DIR}/${last.id}/report.md`;
+  const active = record.runs.find((run) => run.endedAt === null);
+  const member = batchId === undefined ? active ?? record.runs.at(-1) : record.runs.find((run) => run.batchId === batchId);
+  const members = batchOf(record, member).map((run) => {
+    const path = `${RUNS_DIR}/${run.id}/report.md`;
+    return { run, path, report: run.endedAt !== null && existsSync(join(root, path)) ? path : null,
+      starting: startingWorker(root, document.frontmatter.id, run),
+      pane: run.endedAt === null && livePane(root, run.id) !== null,
+      worker: run.endedAt === null && liveWorker(root, run.id) !== null };
+  });
   const worktree = dir === null ? null : taskWorktree(root, dir);
   return {
-    frontmatter: document.frontmatter, status, last,
+    frontmatter: document.frontmatter, status, members,
     worktree: worktree !== null && existsSync(join(worktree.path, ".git")) ? worktree : null,
-    stageName: workflow.stages.find((stage) => stage.id === last?.stage)?.name ?? last?.stage,
-    report: reportPath !== null && existsSync(join(root, reportPath)) ? reportPath : null,
-    pane: running && livePane(root, last.id) !== null,
-    worker: running && liveWorker(root, last.id) !== null,
-    next: !running && (status === "ready" || status === "active") ? nextStep(workflow, document.frontmatter.verification, record) : null,
+    stageName: workflow.stages.find((stage) => stage.id === members[0]?.run.stage)?.name ?? members[0]?.run.stage,
+    next: active === undefined && (status === "ready" || status === "active") ? nextStep(workflow, document.frontmatter.verification, record) : null,
     workflow, record,
   };
 }

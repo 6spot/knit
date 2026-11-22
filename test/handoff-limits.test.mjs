@@ -97,6 +97,24 @@ test("合计超过上限时后面的只给路径", (t) => {
   assert.equal(tight.firstMessage.split("没有附上；").length, 5);
 });
 
+test("多报告的失败原因计入字节上限，裁决指令和成员路径仍能读取", (t) => {
+  const dir = project(t);
+  const previous = ["first", "second"].map((executor) => ({
+    stage: "review", executor, verdict: null, failure: `诊断内容${"细节".repeat(100)}`,
+    path: join(dir, ".knit/.runtime/runs", executor, "report.md"), changedPaths: [], text: "",
+  }));
+  const input = { root: dir, worktree: dir, task: taskNaming(dir, []), stage: { id: "implement", prompt: null },
+    previous, instruction: "先修复两份报告共有的问题。" };
+  assert.ok(assembleHandoff(input).firstMessage.includes(previous[0].failure));
+  for (const limits of [{ fileBytes: 100, totalBytes: 8192 }, { fileBytes: 8192, totalBytes: 100 }]) {
+    const { firstMessage } = assembleHandoff({ ...input, limits });
+    assert.ok(firstMessage.includes(`<main-instruction>\n${input.instruction}\n</main-instruction>`));
+    assert.doesNotMatch(firstMessage, /诊断内容/);
+    assert.equal(firstMessage.match(/需要时按路径自己读/g).length, 2);
+    previous.forEach((report) => assert.ok(firstMessage.includes(report.path)));
+  }
+});
+
 test("没有超出时和原来相同", (t) => {
   const dir = project(t);
   write(dir, {

@@ -22,7 +22,8 @@ export interface HandoffInput {
   /** 环节 id 和角色文件的路径（相对项目根）。 */
   readonly stage: { readonly id: string; readonly prompt: string | null };
   /** 上一个环节的报告。 */
-  readonly previous: HandoffReport | null;
+  readonly previous: HandoffReport | readonly HandoffReport[] | null;
+  readonly instruction?: string;
   /** 再次进入这个环节时，它自己上一次的报告；不给和给 null 一样。 */
   readonly own?: HandoffReport | null;
   /** 不给时用 DEFAULT_HANDOFF_LIMITS。 */
@@ -30,6 +31,9 @@ export interface HandoffInput {
 }
 
 export interface HandoffReport {
+  readonly executor?: string;
+  readonly verdict?: string | null;
+  readonly failure?: string | null;
   readonly stage: string;
   /** 报告原文在主检出里的绝对路径。 */
   readonly path: string;
@@ -84,6 +88,9 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     content: trimBlankLines(`# ${input.task.document.frontmatter.title}\n\n${input.task.document.requirement}`),
   };
   // 受上限约束的块，按第一条消息里的先后；content 是 null 的是目录，没有内容可附。
+  const instructions: Block[] = input.instruction === undefined ? [] : [
+    { tag: "main-instruction", attributes: {}, content: input.instruction },
+  ];
   const attached = [
     ...materials.materials.map((material) => ({
       tag: "material",
@@ -93,7 +100,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       content: material.text === null ? null : trimBlankLines(material.text),
     })),
     ...(plan === null ? [] : [{ tag: "plan", attributes: { path: resolve(input.root, planPath) }, content: trimBlankLines(plan) }]),
-    ...(input.previous === null ? [] : [reportBlock("previous-report", input.previous)]),
+    ...[input.previous ?? []].flat().map((report) => reportBlock("previous-report", report)),
     ...(input.own == null ? [] : [reportBlock("own-last-report", input.own)]),
   ];
   const fitted = attached.reduce(
@@ -113,7 +120,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
         : { used: state.used, blocks: [...state.blocks, { ...part, content: notice }] };
     },
     {
-      used: [...roleText, ...includedStandards.map((standard) => standard.body), taskBlock.content].reduce(
+      used: [...roleText, ...includedStandards.map((standard) => standard.body), taskBlock.content, input.instruction ?? ""].reduce(
         (sum, text) => sum + Buffer.byteLength(text),
         0,
       ),
@@ -126,7 +133,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     // 工作位置说明不改变原有的资料字节预算。
     firstMessage: [
       `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；这些资料和报告按给出的绝对路径读取。`,
-      ...[taskBlock, ...fitted].map(render),
+      ...[taskBlock, ...instructions, ...fitted].map(render),
     ].join("\n\n"),
     problems: [
       ...(input.stage.prompt !== null && role === null
@@ -145,8 +152,10 @@ function reportBlock(tag: string, report: HandoffReport): Block {
       : `改动的文件：\n${report.changedPaths.map((path) => `- ${path}`).join("\n")}`;
   return {
     tag,
-    attributes: { stage: report.stage, path: report.path },
-    content: `${changed}\n\n${trimBlankLines(report.text)}`,
+    attributes: { stage: report.stage, path: report.path, ...(report.executor === undefined ? {} : {
+      executor: report.executor, verdict: report.verdict ?? "null",
+    }) },
+    content: [changed, ...(report.failure ? [`执行失败：${report.failure}`] : []), trimBlankLines(report.text)].join("\n\n"),
   };
 }
 

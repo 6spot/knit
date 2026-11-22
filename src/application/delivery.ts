@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
-import { countedRuns } from "../domain/progress.js";
+import { lastPassedReview } from "../domain/progress.js";
 import { currentStatus } from "../domain/task-document.js";
 import { moveDirectory, removeCopy } from "../infrastructure/directory.js";
 import { gitSync } from "../infrastructure/process.js";
@@ -193,8 +193,8 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
   const reviewed = new Set(runs.filter((run) => run.verdict !== null).flatMap((run) => run.changedPaths));
   const files = changedAmong(workspace, recorded);
   // 和完成任务时一样：失败的执行、需求改之前的执行都不算数。
-  const lastReview = stored.record === null ? undefined : countedRuns(stored.record).findLast((run) => run.verdict !== null);
-  const passedFile = lastReview?.verdict === "pass" ? join(root, RUNS_DIR, lastReview.id, "after.json") : null;
+  const lastReview = stored.record === null ? undefined : lastPassedReview(stored.record);
+  const passedFile = lastReview ? join(root, RUNS_DIR, lastReview.id, "after.json") : null;
   // 运行时资料可以清掉：那一份不在了就不标。
   const passed =
     passedFile !== null && existsSync(passedFile)

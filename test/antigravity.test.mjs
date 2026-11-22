@@ -15,7 +15,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { loadBridge } from "./helpers/bridge.mjs";
-import { commitAll } from "./helpers/git.mjs";
+import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const isolated = { skip: process.platform !== "darwin" && "需要 macOS sandbox-exec" };
@@ -171,6 +171,65 @@ for (const { stage, responses, failure } of [
   });
 }
 
+test("同批 Pi 在 Antigravity 运行期间结算，改动清单排除正在使用的隔离钩子", isolated, async (t) => {
+  const f = fixture(t, { tools: "[read]", agent: "    executors: [{id: pi-reader, agent: pi}, {id: agy-reader, agent: antigravity}]\n" });
+  const record = () => JSON.parse(readFileSync(join(f.root, f.task.dir, "record.json"), "utf8"));
+  const gate = join(f.dir, "pi-ready");
+  const script = join(f.dir, "pi.json");
+  writeFileSync(script, JSON.stringify({ waitFor: gate, texts: ['```json\n{"verdict":"pass"}\n```'] }));
+  execFileSync(process.execPath, [fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url)), "run", "start", f.task.id, "--dir", f.root], {
+    env: { ...process.env, KNIT_PI_BIN: fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url)), KNIT_FAKE_PI: script,
+      KNIT_FAKE_AGY: JSON.stringify({ pauseAfterStart: true }) },
+  });
+  try {
+    const [pi, agy] = record().runs;
+    await until(() => existsSync(join(runDir(f.root, agy), "session-file.txt")));
+    writeFileSync(gate, "");
+    await until(() => record().runs[0].endedAt);
+    assert.equal(record().runs[0].verdict, "pass");
+    assert.equal(record().runs[1].endedAt, null);
+    assert.deepEqual(record().runs[0].changedPaths, []);
+    const after = JSON.parse(readFileSync(join(runDir(f.root, pi), "after.json"), "utf8"));
+    assert.ok(!Object.hasOwn(after.files, ".agents/hooks.json"));
+    assert.ok(existsSync(join(worktreeOf(f.root, f.task), ".agents/hooks.json")));
+  } finally {
+    if (record().runs.some((run) => run.endedAt === null)) runKnit(f.root, "run", "cancel", f.task.id);
+  }
+});
+
+test("两个 Antigravity 共用钩子，单项取消后另一人仍能使用自己的钩子并交报", isolated, async (t) => {
+  const f = fixture(t, { tools: "[read]", agent: "    executors: [{id: a, agent: antigravity}, {id: b, agent: antigravity}]\n" });
+  const gate = join(f.dir, "continue");
+  const hook = join(worktreeOf(f.root, f.task), ".agents/hooks.json");
+  const runs = () => JSON.parse(readFileSync(join(f.root, f.task.dir, "record.json"), "utf8")).runs;
+  f.start({ wait: gate, tools: [{ name: "list_dir", args: {} }] });
+  try {
+    const [a, b] = runs();
+    for (const run of [a, b]) {
+      const locator = join(runDir(f.root, run), "session-file.txt");
+      await until(() => existsSync(locator));
+      const transcript = readRows(readFileSync(locator, "utf8").trim());
+      assert.ok(transcript[0].args.includes(realpathSync.native(join(runDir(f.root, run), "agy-settings.json"))));
+    }
+    const shared = readFileSync(hook, "utf8");
+    assert.ok(!shared.includes("tool.sock"));
+    runKnit(f.root, "run", "cancel", f.task.id, "--run", a.id);
+    assert.equal(runs()[0].failure, "已取消");
+    assert.equal(runs()[1].endedAt, null);
+    assert.equal(readFileSync(hook, "utf8"), shared);
+    writeFileSync(gate, "");
+    const passed = await f.ended();
+    assert.equal(passed.verdict, "pass", passed.failure);
+    assert.ok(existsSync(join(runDir(f.root, b), "report.md")));
+    assert.deepEqual(runs().map((run) => run.changedPaths), [[], []]);
+    assert.ok(!existsSync(hook));
+    assert.equal(git(worktreeOf(f.root, f.task), "status", "--porcelain", "--untracked-files=all"), "");
+  } finally {
+    writeFileSync(gate, "");
+    if (runs().some((run) => run.endedAt === null)) runKnit(f.root, "run", "cancel", f.task.id);
+  }
+});
+
 test("后台明确报告权限阻塞时保留模型与工具的原因", isolated, async (t) => {
   const f = fixture(t, { tools: "[]" });
   f.start({ denied: true, responses: ["KNIT_AGY_PERMISSION_BLOCKED\n必要操作被拒"] });
@@ -255,7 +314,7 @@ test("Rex 未收到提交回执时仍可追加输入，执行达到上限后记�
 for (const write of [false, true]) {
   const tools = write ? "[read, write, exec]" : "[read, exec]";
   test(`run_command 在 ${tools} 下使用独立 TMPDIR 和宿主环境`, isolated, async (t) => {
-    const privateKeys = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
+    const privateKeys = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE", "KNIT_AGY_SOCKET", "KNIT_AGY_HOOK_KEY"];
     const environment = Object.fromEntries(privateKeys.map((key) => [key, "private"]));
     const f = fixture(t, { tools, environment: { ...environment, LOGNAME: "fixture-user", GOPATH: "/fixture/go" } });
     mkdirSync(join(f.root, "nested"));

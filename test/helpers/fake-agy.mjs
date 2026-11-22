@@ -130,6 +130,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line).message.content;
   messages.push(message);
   turn(message);
+  if (script.wait) while (!existsSync(script.wait)) await sleep(30);
   if (messages.length === 1) tools();
   if (script.long) {
     const result = hook("PreToolUse", { toolCall: { name: "run_command", args: { Cwd: cwd, CommandLine: script.long } } });
