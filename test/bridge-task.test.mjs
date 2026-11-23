@@ -74,7 +74,7 @@ test("四个动作转交命令", async (t) => {
   const [first, file, ...rest] = text(created).split("\n");
   const id = first.replace("已创建 ", "");
   assert.match(id, /^k-[0-9a-f]{12}$/);
-  assert.deepEqual(rest, []);
+  assert.deepEqual(rest, [`- 以横线开头（${id}） · draft · 当前会话未选中新草稿`, `[task.md](${file})`]);
   const { frontmatter } = parseTaskDocument(readFileSync(join(dir, file), "utf8")).document;
   assert.deepEqual(
     [frontmatter.title, frontmatter.verification, frontmatter.priority],

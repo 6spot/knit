@@ -7,7 +7,10 @@ import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
 import { withRunLock } from "./run-lock.js";
 import { buildSessionContext } from "./session-context.js";
 import { contextLines } from "./session-output.js";
-import { readTask } from "./task-store.js";
+import { checkHostCommand } from "./host-command.js";
+import { toolEffects, workGuidance, workQuestion, workTurn, type WorkMessage } from "./work-choice.js";
+import { createTask, readTask, type NewTask } from "./task-store.js";
+import { shellQuote } from "../infrastructure/process.js";
 
 export { checkHostCommand } from "./host-command.js";
 
@@ -19,6 +22,7 @@ export interface HostSession {
 interface SessionState {
   taskId: string | null;
   lastDigest: string | null;
+  draft?: { choice: string; id: string; file: string };
 }
 
 export function hostProjectRoot(dir: string): string | null {
@@ -45,25 +49,63 @@ function saveState(path: string, state: SessionState) {
   atomicWrite({ path, data: Buffer.from(`${JSON.stringify(state)}\n`) });
 }
 
+function readState(path: string): SessionState {
+  const file = readWithVersion(path);
+  return file === null ? { taskId: null, lastDigest: null } : JSON.parse(file.data.toString());
+}
+
+export function createSessionDraft(root: string, session: HostSession, choice: string, input: NewTask) {
+  return withSession(root, session, (path) => {
+    const state = readState(path);
+    if (state.draft?.choice === choice) {
+      const found = readTask(root, state.draft.id);
+      if (found.kind === "refused") return { created: null, problems: found.problems };
+      return { created: { id: state.draft.id, file: join(found.task.stored.dir, "task.md") }, problems: [],
+        title: found.task.document.frontmatter.title, status: found.task.document.frontmatter.status, selected: state.taskId === state.draft.id };
+    }
+    const result = createTask(root, input);
+    if (result.created) saveState(path, { ...state, draft: { choice, ...result.created } });
+    return result;
+  });
+}
+
 export function selectHostTask(root: string, session: HostSession, taskId: string | null): readonly string[] {
   if (taskId !== null) {
     const loaded = readTask(root, taskId);
     if (loaded.kind === "refused") return loaded.problems;
   }
-  withSession(root, session, (path) => saveState(path, { taskId, lastDigest: null }));
+  withSession(root, session, (path) => saveState(path, { ...readState(path), taskId, lastDigest: null }));
   return [];
+}
+
+export async function checkSessionTool(root: string | null, session: HostSession | null, name: string, input: Record<string, unknown>,
+  command: string | undefined, transcript: () => WorkMessage[], environment: Partial<Record<"select" | "start", string>> = {}, selected?: string | null) {
+  const effects = toolEffects(name, input);
+  const initialized = root !== null && existsSync(join(root, WORKFLOW_CONFIG_PATH));
+  const checked = command === undefined ? { command, reason: null } : await checkHostCommand(command,
+    () => transcript().filter((message) => message.role === "user").map((message) => message.text), {
+      ...environment,
+      draft: () => initialized && session ? `KNIT_HOST=${shellQuote(session.host)} KNIT_HOST_SESSION=${shellQuote(session.sessionId)} KNIT_DRAFT_CHOICE=${workTurn(transcript()).key}` : undefined,
+    }, initialized ? effects : undefined);
+  if (checked.reason || !initialized || !effects.length) return { ...checked, draftChoice: undefined };
+  const turn = workTurn(transcript());
+  const state = session ? withSession(root, session, readState) : null;
+  const id = selected === undefined ? state?.taskId : selected;
+  const loaded = id ? readTask(root, id) : null;
+  const task = loaded?.kind === "loaded" ? loaded.task.document.frontmatter : null;
+  return { command: checked.command, reason: workQuestion(root, effects, turn, task, state?.draft?.choice === turn.key ? state.draft : undefined),
+    draftChoice: effects.some((effect) => effect.kind === "draft") ? turn.key : undefined };
 }
 
 export function hostContext(dirs: readonly string[], session: HostSession): string | null {
   const root = dirs.map(hostProjectRoot).find((path) => path !== null);
   if (root === undefined) return null;
   return withSession(root, session, (path) => {
-    const file = readWithVersion(path);
-    const state: SessionState = file === null ? { taskId: null, lastDigest: null } : JSON.parse(file.data.toString());
+    const state = readState(path);
     const text = sessionText(root, state.taskId);
     const lastDigest = sha256Text(text);
     if (lastDigest === state.lastDigest) return null;
-    saveState(path, { taskId: state.taskId, lastDigest });
+    saveState(path, { ...state, lastDigest });
     return text;
   });
 }
@@ -76,7 +118,7 @@ function sessionText(root: string, taskId: string | null): string {
     return [...lines, `选中的 Knit 任务 ${taskId} 读不出来`, ...context.problems].join("\n");
   }
   const lines = contextLines(context);
-  if (taskId === null) lines.push("没有选中 Knit 任务。可以直接讨论需求，用 knit task list 查看任务，用 knit context --use <id> 选中任务。");
+  if (taskId === null) lines.push(`没有选中 Knit 任务。${workGuidance} 用 knit task list 查看任务，用 knit context --use <id> 选中任务。`);
   return lines.join("\n");
 }
 

@@ -1,3 +1,4 @@
+import { createSessionDraft } from "../application/host-hook.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
@@ -98,16 +99,25 @@ export function registerTaskCommands(program: Command): void {
         const root = knitRoot(options.dir);
         if (root === null) return;
         if (options.title.trim() === "") return fail(["--title 不能为空"]);
-        const result = createTask(root, {
+        const input = {
           title: options.title.trim(),
           slug: options.slug,
           verification: options.verification,
           priority: options.priority,
           parent: options.parent ?? null,
           dependsOn: options.dependsOn,
-        });
+        };
+        const { KNIT_HOST, KNIT_HOST_SESSION, KNIT_DRAFT_CHOICE } = process.env;
+        const result = KNIT_HOST && KNIT_HOST_SESSION && KNIT_DRAFT_CHOICE
+          ? createSessionDraft(root, { host: KNIT_HOST, sessionId: KNIT_HOST_SESSION }, KNIT_DRAFT_CHOICE, input) : createTask(root, input);
         if (result.created === null) return fail(result.problems);
         process.stdout.write(`已创建 ${result.created.id}\n${result.created.file}\n`);
+        if (KNIT_HOST && KNIT_HOST_SESSION) {
+          const title = "title" in result ? result.title : input.title;
+          const status = "status" in result ? result.status : "draft";
+          const selected = "selected" in result && result.selected || process.env.KNIT_SELECTED_TASK === result.created.id;
+          process.stdout.write(`${title}（${result.created.id}） · ${status} · 当前会话${selected ? "已选中" : "未选中"}新草稿\n[task.md](${result.created.file})\n`);
+        }
       },
     );
 

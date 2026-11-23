@@ -30,9 +30,9 @@ export async function loadBridge(t, dir, { onMessage = () => {} } = {}) {
   const handlers = new Map();
   const entries = [];
   const messages = [];
-  const ctx = { sessionManager: { getBranch: () => entries } };
+  const ctx = { sessionManager: { getBranch: () => entries, getSessionId: () => "test-session" } };
   const bridge = await import(pathToFileURL(join(dir, ".pi", "extensions", "knit.ts")).href);
-  await bridge.default({
+  const api = {
     registerTool: (tool) => tools.set(tool.name, tool),
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     appendEntry: (customType, data) => entries.push({ type: "custom", id: `entry-${entries.length + 1}`, customType, data }),
@@ -40,12 +40,21 @@ export async function loadBridge(t, dir, { onMessage = () => {} } = {}) {
       onMessage(message, options);
       messages.push({ message, options });
     },
-  });
+  };
+  await bridge.default(api);
 
   return {
+    reload: async () => {
+      tools.clear();
+      handlers.clear();
+      await bridge.default(api);
+    },
     tool: (name, params, context = {}) => tools.get(name).execute("call", params, undefined, undefined, { ...ctx, ...context }),
     fire: async (event, payload) => {
-      for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
+      for (const handler of handlers.get(event) ?? []) {
+        const result = await handler(payload, ctx);
+        if (result?.block) return result;
+      }
     },
     entries,
     messages,

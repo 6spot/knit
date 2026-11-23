@@ -7,7 +7,7 @@ import { registerDeliverCommand } from "./deliver.js";
 import { registerInitCommand } from "./init.js";
 import { registerRunCommands } from "./run.js";
 import { registerStandardsCommands } from "./standards.js";
-import { registerTaskCommands } from "./task.js";
+import { fail, registerTaskCommands } from "./task.js";
 import { registerWorkflowCommands } from "./workflow.js";
 
 // 编译后位于 dist/cli/，往上两级是根目录的 package.json。
@@ -30,6 +30,15 @@ registerRunCommands(program);
 registerContextCommand(program);
 registerDeliverCommand(program);
 const hook = program.command("hook", { hidden: true });
+hook.command("pi <event>", { hidden: true }).action(async (event: string) => {
+  if (event !== "tool-call") return fail(["未知的 Pi 工具事件"]);
+  const { checkSessionTool } = await import("../application/host-hook.js");
+  const call = JSON.parse(readFileSync(0, "utf8"));
+  const checked = await checkSessionTool(process.cwd(), { host: "pi", sessionId: call.sessionId }, call.name, call.input,
+    call.name === "bash" ? call.input.command : undefined, () => call.messages, {}, call.selected);
+  if (checked.reason) return fail([checked.reason]);
+  process.stdout.write(JSON.stringify({ draftChoice: checked.draftChoice, command: checked.command }));
+});
 hook.command("agy <event>").action(async (event: string) => {
   const { agyHostHook } = await import("../adapters/antigravity/host-hook.js");
   const result = await agyHostHook(event, JSON.parse(readFileSync(0, "utf8")));

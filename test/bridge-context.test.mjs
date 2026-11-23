@@ -8,7 +8,8 @@ import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { readyTask } from "./helpers/run.mjs";
 
-const HINT = "没有选中 Knit 任务。可以直接讨论需求；用户明确要求建任务时，用 knit_task 的 new 创建草稿。用 list 查看任务，use 选中或取消选择。";
+import { workGuidance } from "../dist/application/work-choice.js";
+const HINT = `没有选中 Knit 任务。${workGuidance} 用 list 查看任务，use 选中或取消选择。`;
 const DISCUSSION_PATHS = [
   ".knit/standards/discussion.md",
   ".knit/standards/task-splitting.md",

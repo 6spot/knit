@@ -27,6 +27,7 @@ interface Pi {
   /** 写一条扩展自己的会话记录，不进模型的上下文。 */
   appendEntry(customType: string, data: unknown): void;
   on(event: "before_agent_start", handler: (event: TurnStart, ctx: Context) => Promise<void>): void;
+  on(event: "tool_call", handler: (event: { toolName: string; input: Record<string, unknown> }, ctx: Context) => Promise<{ block: true; reason: string } | undefined>): void;
   on(event: "session_shutdown", handler: () => Promise<void>): void;
   /** 这条消息进模型的上下文。followUp：智能体正在做事时等它这一轮做完再送到；triggerTurn：空闲时立即触发一轮。 */
   sendMessage(
@@ -41,10 +42,11 @@ interface TurnStart {
 }
 
 interface Context {
+  cwd?: string;
   model?: { provider: string; id: string };
   thinkingLevel?: string;
   /** 当前分支上的全部会话记录，从最早到最新；压缩之前的也在。 */
-  sessionManager: { getBranch(): SessionEntry[] };
+  sessionManager: { getBranch(): SessionEntry[]; getSessionId(): string };
 }
 
 /** 只写用到的成员。用户、智能体的消息是 `message`；扩展发的是 `custom_message`，不是用户消息。 */
@@ -53,7 +55,10 @@ interface SessionEntry {
   id: string;
   customType?: string;
   data?: unknown;
-  message?: { role: string; content: string | { type: string; text?: string }[] };
+  content?: string;
+  message?: { role: string; toolName?: string; toolCallId?: string; isError?: boolean; content: string | {
+    type: string; text?: string; id?: string; name?: string; arguments?: { command?: string };
+  }[] };
 }
 
 interface CommandResult {
@@ -64,6 +69,7 @@ interface CommandResult {
 
 interface TaskParams {
   action: "new" | "use" | "ready" | "close" | "list";
+  draftChoice?: string;
   taskId?: string;
   title?: string;
   slug?: string;
@@ -97,16 +103,18 @@ interface DeliverParams {
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const SELECTION = "knit.selection";
+const WORK_GUIDANCE = "讨论、比较方案和只读查证直接进行。已授权且无需委派的单点小改直接处理。实施前、范围扩大或恢复会话时按讨论规范判断跨模块、多文件、查证量、独立审查及用户指定委派等条件。命中时若本次尚无建任务选择，说明命中的条件，直接问是否建 Knit 任务，等待答复再委派或写入。无关的已选任务不能代替本次选择。对实施问题的肯定只确认实施范围。澄清细节、恢复同一工作时沿用原选择，明确转入另一项工作时重新判断。已选中并获准实施的任务可继续执行。要建就创建草稿，仅同意草稿时停在 draft；不建就按已授权范围走宿主流程。";
 
 export default function knitBridge(pi: Pi): void {
   // 正在等执行结束的 knit run wait，按任务 id 记。派发成功时才启动：这个函数可能在没有会话的调用里运行。
   const waiting = new Map<string, ChildProcess>();
+  const asked = new Set<string>();
 
   pi.registerTool<TaskParams>({
     name: "knit_task",
     label: "Knit task",
     description:
-      "管理 Knit 任务。可以全程在会话里讨论，不要求先建任务。只有用户明确要求创建任务时才用 new 建草稿（要有 title），随后用普通的读写工具把已经讨论清楚的需求写入返回路径的 task.md；在当轮回复中给出任务标题、编号、task.md 链接、draft 草稿状态及当前会话是否已选中。new 保持当前的任务选择，不自动选中新任务；创建失败时说明原因，当前讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      `管理 Knit 任务。${WORK_GUIDANCE}` + "只有用户明确要求创建任务时才用 new 建草稿（要有 title），随后用普通的读写工具把已经讨论清楚的需求写入返回路径的 task.md；在当轮回复中给出任务标题、编号、task.md 链接、draft 草稿状态及当前会话是否已选中。new 保持当前的任务选择，不自动选中新任务；创建失败时说明原因，当前讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
@@ -125,7 +133,7 @@ export default function knitBridge(pi: Pi): void {
       },
       required: ["action"],
     },
-    execute: (_toolCallId, params) => task(pi, params),
+    execute: (_toolCallId, params, _signal, _onUpdate, ctx) => task(pi, params, ctx),
   });
 
   pi.registerTool<RunParams>({
@@ -176,7 +184,7 @@ export default function knitBridge(pi: Pi): void {
     if (taskId === null) {
       sections.knit = [
         context.code === 0 ? context.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${context.stderr.trimEnd()}`,
-        "没有选中 Knit 任务。可以直接讨论需求；用户明确要求建任务时，用 knit_task 的 new 创建草稿。用 list 查看任务，use 选中或取消选择。",
+        `没有选中 Knit 任务。${WORK_GUIDANCE} 用 list 查看任务，use 选中或取消选择。`,
       ].join("\n");
       return;
     }
@@ -191,13 +199,52 @@ export default function knitBridge(pi: Pi): void {
     ].join("\n");
   });
 
+  pi.on("tool_call", async (event, ctx) => {
+    if (["read", "grep", "ls", "find"].includes(event.toolName)) return;
+    const branch = ctx.sessionManager.getBranch();
+    const searches = new Map<string, string>();
+    const messages = branch.flatMap<{ role: string; text: string; command?: string; cwd?: string }>((entry) => {
+      if (entry.type === "custom_message" && entry.customType === "knit.task-question" && typeof entry.content === "string") return [{ role: "assistant", text: entry.content }];
+      const message = entry.message;
+      if (entry.type !== "message" || !message) return [];
+      if (message.role === "assistant" && Array.isArray(message.content)) {
+        message.content.forEach((part) => {
+          const command = part.arguments?.command;
+          if (part.type === "toolCall" && part.name === "bash" && part.id && command && /^rg\s+(?:-l|--files-with-matches)\s/.test(command)) searches.set(part.id, command);
+        });
+      }
+      const command = message.toolCallId && searches.get(message.toolCallId);
+      if (message.role === "toolResult" && (!command || message.toolName !== "bash" || message.isError)) return [];
+      if (!["user", "assistant", "toolResult"].includes(message.role)) return [];
+      const text = typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      if (message.role === "toolResult") return [{ role: "search", text, command, cwd: ctx.cwd ?? ROOT }];
+      return text.trim() ? [{ role: message.role, text }] : [];
+    });
+    const checked = await startKnit(["hook", "pi", "tool-call"], process.env, JSON.stringify({
+      name: event.toolName, input: event.input, messages, selected: selectedTask(ctx), sessionId: ctx.sessionManager.getSessionId(),
+    })).result;
+    if (checked.code === 0) {
+      const admitted: { command?: string; draftChoice?: string } = JSON.parse(checked.stdout);
+      if (event.toolName === "bash" && admitted.command) event.input.command = admitted.command;
+      if (event.toolName === "knit_task" && admitted.draftChoice) event.input.draftChoice = admitted.draftChoice;
+      return;
+    }
+    const reason = checked.stderr.trimEnd();
+    const turn = branch.findLast((entry) => entry.message?.role === "user")?.id;
+    if (turn && reason.endsWith("任务吗？") && !asked.has(turn)) {
+      asked.add(turn);
+      pi.sendMessage({ customType: "knit.task-question", content: reason, display: true }, { deliverAs: "followUp", triggerTurn: false });
+    }
+    return { block: true, reason };
+  });
+
   // 会话重新加载或重开之后不接着等：结果在下一轮的系统提示里能看到，也可以用 status 查。
   pi.on("session_shutdown", async () => {
     [...waiting.keys()].forEach((taskId) => stopWaiting(waiting, taskId));
   });
 }
 
-async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
+async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResult> {
   const missing = (name: string) => failure(`knit_task 的 ${params.action} 要有 ${name}`);
   if (params.action === "list") return toResult(await runKnit(["task", "list", ...(params.archive ? ["--archive"] : [])]));
   if (params.action === "new") {
@@ -212,7 +259,7 @@ async function task(pi: Pi, params: TaskParams): Promise<ToolResult> {
         ...single("--priority", params.priority),
         ...single("--parent", params.parent),
         ...several("--depends-on", params.dependsOn),
-      ]),
+      ], { ...process.env, KNIT_HOST: "pi", KNIT_HOST_SESSION: ctx.sessionManager.getSessionId(), KNIT_SELECTED_TASK: selectedTask(ctx) ?? undefined, KNIT_DRAFT_CHOICE: params.draftChoice }),
     );
   }
   if (params.action === "use") return use(pi, params.taskId);
@@ -367,12 +414,16 @@ function runKnit(args: string[], env = process.env): Promise<CommandResult> {
 }
 
 /** 启动 knit 并返回子进程，调用方可以不等它或者中途杀掉它。 */
-function startKnit(args: string[], env = process.env): { child: ChildProcess; result: Promise<CommandResult> } {
-  const child = spawn("knit", [...args, "--dir", ROOT], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+function startKnit(args: string[], env = process.env, input?: string): { child: ChildProcess; result: Promise<CommandResult> } {
+  const child = spawn("knit", input === undefined ? [...args, "--dir", ROOT] : args, { cwd: ROOT, env, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+  if (input !== undefined) {
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(input);
+  }
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
   const result = new Promise<CommandResult>((resolve) => {
     // 启动不了时 error 在 close 之前发出，后一次 resolve 不起作用。
     child.on("error", (error) =>

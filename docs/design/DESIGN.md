@@ -206,9 +206,9 @@ createdAt: 2026-11-14T13:36:56Z
 - `.knit/tasks/` 下的点名资料（本任务的，和别的任务的，例如主任务的设计）、`task.md` 的需求部分、`plan.md` 和各次报告从主检出读，块上的路径给主检出里的绝对路径，章节路径保留 `#标题`。超过字节上限时仍只给路径和说明，执行者可以按绝对路径读到当前资料，不会读到 Worktree 里的旧任务副本。
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 角色文件和规范仍从主检出读，系统提示里的路径和内容不变。
-- Pi 主会话的规范放在桥接维护的系统提示里。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 只匹配 `run_command`，由同一命令入口处理任务选择、派发和交付授权。插件直接使用钩子和 CLI，无需 MCP 服务。讨论规范和补充的环节规范各按路径排序。
+- Pi 主会话的规范放在桥接维护的系统提示里。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅宿主工具调用，在编辑、命令写入及委派前核对本次工作的任务选择。`run_command` 同时处理任务选择、派发和交付授权。插件直接使用钩子和 CLI，无需 MCP 服务。讨论规范和补充的环节规范各按路径排序。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 同时注入上下文和桌面主会话指引。会话选择与内容摘要由共用宿主钩子内核维护，普通目录及内容未变的轮次均零输出。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
-- WorkBuddy 的 `PreToolUse` 精确匹配 `Bash`。`knit context --use` 和 `--unuse` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
+- WorkBuddy 的 `PreToolUse` 在原生编辑、委派和 `Bash` 执行前核对本次工作的任务选择。`knit context --use` 和 `--unuse` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
 放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
@@ -526,7 +526,8 @@ Pi 桥接有 3 个工具：
 - 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>`，将返回的状态作为一条 `knit.run-ended` 消息发给发起派发的会话，使用 `deliverAs: "followUp"` 和 `triggerTurn: true`。空闲时触发新一轮，正在执行时由 Pi 排到当前执行结束后投递。并行审查只为整次派发启动一次等待，全部成员入账后，消息列出每位执行器的报告路径和结论或失败原因。若剩余 worker 都已意外退出，`wait` 返回异常状态和 `run cancel` 提示，主会话据此结算。主会话通过工具主动取消时，取消结果随工具返回，桥接停止这次等待，不再另发结束通知。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
 - `task.md` 正文、`plan.md`、`design.md`、规范文件和 `workflow.yaml` 都是普通文本，主会话用普通的读写工具直接改；格式在 `task ready`、`standards list` 和 `workflow validate` 时校验。
 - 用户可以全程在会话里讨论。用户明确要求创建任务时，主会话用 `knit_task` 的 `new` 建草稿，随后用普通读写工具把已讨论清楚的需求写入返回路径的 `task.md`；当轮回复给出标题、编号、`task.md` 链接、`draft` 草稿状态及当前会话是否已选中。创建保持当前任务选择，失败时说明原因，讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理；这些约定写在工具说明中，不解析用户消息来自动建任务。
-- 每轮注入：没有选中任务时读取 `knit context` 的全部讨论规范，再给出可直接讨论及使用任务工具的提示；选中任务时读取 `knit context <任务>`，先给讨论规范，再给任务标题、状态、下一步、目录和第 5 节说的补充规范。选中的任务读不出来时显示错误，仍通过不带任务的 `knit context` 提供讨论规范，不改变选择；讨论规范读取失败时也显示原因，不使用旧缓存。当前任务的选择写在 Pi 会话记录里。
+- 主会话准备编辑、派发或推进任务时，宿主执行前钩子结合本项工作的对话、实际调用和当前选择核对授权。同一工作的细节澄清和恢复沿用已有决定。已选中并获准实施的任务可以继续派发。用户明确转入另一项工作时按新范围判断。
+- 每轮注入：没有选中任务时读取 `knit context` 的全部讨论规范，再给出讨论、单点小改和按委派条件询问是否建任务的提示；选中任务时读取 `knit context <任务>`，先给讨论规范，再给任务标题、状态、下一步、目录和第 5 节说的补充规范。选中的任务读不出来时显示错误，仍通过不带任务的 `knit context` 提供讨论规范，不改变选择；讨论规范读取失败时也显示原因，不使用旧缓存。当前任务的选择写在 Pi 会话记录里。
 
 ## 10. 用 Knit 开发 Knit
 

@@ -4,7 +4,13 @@ import { shellQuote } from "../infrastructure/process.js";
 
 const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>，把 --preview 放在动态参数之前";
 
-type HostCommand = { kind: "select" | "start"; offset: number };
+type HostCommand = { kind: "select" | "start" | "draft"; offset: number };
+
+export interface WorkEffect {
+  kind: "write" | "delegate" | "draft" | "ready" | "close";
+  target?: string;
+  replacement?: { from: string; to: string };
+}
 
 /** 只读取静态参数。命令替换由语法树单独遍历，变量和通配符不作为原话。 */
 function literal(parts: WordPart[], quoted = false): string | null {
@@ -71,6 +77,7 @@ function inspectCall(call: CallExpr, source: string, index: (byte: number) => nu
     return { kind: "delivery", quote: uncertain ? "" : flags.get("--authorization")?.trim() ?? "" };
   }
   const offset = index(call.args[executable]!.start);
+  if (operands[0] === "task" && operands[1] === "new") return { kind: "draft", offset };
   if (operands[0] === "context" && (flags.has("--use") || flags.has("--unuse"))) return { kind: "select", offset };
   if (operands[0] !== "run" || operands[1] !== "start") return null;
   const explicit = call.assigns.some((assign) => assign.name?.value === "KNIT_SESSION_AGENT") ||
@@ -114,13 +121,43 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
   return { flags, operands, ...state };
 }
 
+function commandEffects(call: CallExpr): WorkEffect[] {
+  const words = call.args.map((word) => literal(word.parts));
+  if (!words.length) return [];
+  const index = executableIndex(words);
+  if (index < 0) return [];
+  const name = basename(words[index] ?? "");
+  const args = words.slice(index + 1);
+  const last = args.at(-1) ?? undefined;
+  if (name === "knit") {
+    const [area, action, target] = knitArguments(args.map((value) => ({ value, raw: value ?? "" }))).operands;
+    if (area === "task" && action === "new") return [{ kind: "draft" }];
+    if (area === "run" && action === "start") return [{ kind: "delegate", target: target ?? undefined }];
+    if (area === "task" && (action === "ready" || action === "close")) return [{ kind: action, target: target ?? undefined }];
+    if (["context", "deliver", "task", "run", "standards", "workflow"].includes(area ?? "")) return [];
+  }
+  if (name === "sort" && !args.some((arg) => /^-o|^--output/.test(arg ?? ""))) return [];
+  if (name === "uniq" && args.length <= 1) return [];
+  if (["true", "false", ":", "pwd", "ls", "cat", "head", "tail", "wc", "diff", "stat", "echo", "printf", "cd", "test", "[", "which", "cut", "dirname", "basename"].includes(name)) return [];
+  if (["rg", "grep"].includes(name) && !args.some((arg) => arg?.startsWith("--pre"))) return [];
+  if (name === "git") {
+    const action = args.find((arg, index) => arg !== "-C" && args[index - 1] !== "-C" && arg !== "--no-pager");
+    if (["diff", "status", "show", "log", "ls-files", "rev-parse", "blame", "grep"].includes(action ?? "") && !args.some((arg) => arg?.startsWith("--output"))) return [];
+  }
+  if (name === "find" && !args.some((arg) => ["-exec", "-execdir", "-delete", "-fprint"].includes(arg ?? ""))) return [];
+  if (name === "sed" && args[0] === "-n" && /^[\d,$]*p$/.test(args[1] ?? "")) return [];
+  if (name === "cp" || (name === "sed" && args.some((arg) => arg?.startsWith("-i"))) || (["touch", "tee"].includes(name) && args.filter((arg) => !arg?.startsWith("-")).length === 1)) return [{ kind: "write", target: last }];
+  return [{ kind: "write" }];
+}
+
 export async function checkHostCommand(command: string, userMessages: () => readonly string[],
-  environment: Partial<Record<HostCommand["kind"], string>> = {}) {
+  environment: Partial<Record<HostCommand["kind"], string | (() => string | undefined)>> = {}, effects?: WorkEffect[]) {
   const quotes: string[] = [];
   const { parse, createSourceIndex, walk } = await import("sh-syntax");
   async function inspect(source: string): Promise<string> {
     const tree = await parse(source).catch(() => null);
     if (tree === null) {
+      if (effects) effects.push({ kind: "write" });
       if (/knit[\s\S]*deliver/.test(source)) quotes.push("");
       return source;
     }
@@ -128,12 +165,17 @@ export async function checkHostCommand(command: string, userMessages: () => read
     const edits: { start: number; end: number; text: string }[] = [];
     const index = createSourceIndex(source);
     walk(tree, (node) => {
+      if (effects && node.type === "Redirect" && node.word && [">", ">>", ">|", "&>", "&>>", "<>"].includes(source.slice(index(node.start), index(node.word.start)).trim().replace(/^\d+/, ""))) {
+        effects.push({ kind: "write", target: literal(node.word.parts) ?? undefined });
+      }
       if (node.type !== "CallExpr") return;
       const call = inspectCall(node, source, index);
+      if (effects && call?.kind !== "script") effects.push(...commandEffects(node));
       if (call === null) return;
       if (call.kind === "script") { nested.push(call); return; }
       if (call.kind === "delivery") { quotes.push(call.quote); return; }
-      const env = environment[call.kind];
+      const setting = environment[call.kind];
+      const env = typeof setting === "function" ? setting() : setting;
       if (env) edits.push({ start: call.offset, end: call.offset, text: `env ${env} ` });
     });
     for (const script of nested) {

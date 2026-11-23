@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkHostCommand, hostContext } from "../../application/host-hook.js";
+import { checkSessionTool, hostContext, hostProjectRoot } from "../../application/host-hook.js";
+import type { WorkMessage } from "../../application/work-choice.js";
 import { shellQuote } from "../../infrastructure/process.js";
 
 const guidance = [
@@ -31,11 +32,39 @@ function hostGenerated(meta: Record<string, unknown> | undefined): boolean {
     meta?.agent === "compact" || typeof meta?.compactType === "string" || typeof record(meta?.teammateMessage)?.from === "string";
 }
 
-function userMessages(path: unknown, cwd: string): string[] {
+function searchCommand(args: string) {
+  try {
+    const command = record(JSON.parse(args))?.command;
+    if (typeof command === "string" && /^rg\s+(?:-l|--files-with-matches)\s/.test(command)) return command;
+  } catch { /* An incomplete function_call has no usable search result. */ }
+}
+
+function messages(path: unknown, cwd: string): WorkMessage[] {
   if (typeof path !== "string" || !path) return [];
   try {
+    const searches = new Map<string, { command: string; cwd: string }>();
     return readFileSync(resolve(cwd, path), "utf8").split("\n").filter((line) => line.trim())
-      .flatMap((line) => userText(JSON.parse(line)));
+      .flatMap<WorkMessage>((line) => {
+        const row = record(JSON.parse(line));
+        if (row?.name === "Bash" && typeof row.callId === "string") {
+          if (row.type === "function_call" && typeof row.arguments === "string") {
+            const command = searchCommand(row.arguments);
+            if (command) searches.set(row.callId, { command, cwd: typeof row.cwd === "string" ? row.cwd : cwd });
+          }
+          const search = searches.get(row.callId);
+          const output = record(row.output)?.text;
+          if (search && row.type === "function_call_result" && row.status === "completed" && typeof output === "string") {
+            const stdout = /^Stdout: ([\s\S]*?)\r?\nStderr: \(empty\)\r?\nExit Code: 0(?:\r?\n|$)/.exec(output)?.[1];
+            if (stdout) return [{ role: "search", ...search, text: stdout }];
+          }
+        }
+        if (row?.type === "message" && row.role === "assistant") {
+          const text = typeof row.content === "string" ? row.content : Array.isArray(row.content) ? row.content.map(record)
+            .flatMap((part) => part?.type === "output_text" && typeof part.text === "string" ? [part.text] : []).join("\n") : "";
+          return [{ role: "assistant", text }];
+        }
+        return userText(row).map((text) => ({ role: "user", text }));
+      });
   } catch {
     return [];
   }
@@ -52,11 +81,17 @@ export async function workbuddyHostHook(event: string, input: unknown) {
       hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: `${text}\n\n${guidance}`,
     } };
   }
-  const command = record(payload?.tool_input)?.command;
-  if (event !== "pre-tool-use" || payload?.tool_name !== "Bash" || typeof command !== "string") return null;
-  const checked = await checkHostCommand(command, () => userMessages(payload.transcript_path, cwd), {
+  if (event !== "pre-tool-use" || !payload) return null;
+  const args = record(payload.tool_input) ?? {};
+  const command = payload.tool_name === "Bash" && typeof args.command === "string" ? args.command : undefined;
+  const root = hostProjectRoot(cwd);
+  const checked = await checkSessionTool(root, typeof sessionId === "string" ? { host: "workbuddy", sessionId } : null,
+    String(payload.tool_name), args, command, () => messages(payload.transcript_path, cwd), {
     select: typeof sessionId === "string" && sessionId ? `KNIT_HOST=workbuddy KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
   });
-  if (checked.reason) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checked.reason } };
+  if (checked.reason) return {
+    ...(checked.reason.endsWith("任务吗？") ? { systemMessage: checked.reason } : {}),
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checked.reason },
+  };
   return checked.command === command ? null : { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { command: checked.command } } };
 }

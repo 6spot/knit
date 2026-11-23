@@ -87,7 +87,7 @@ for (const flags of [["--agy"], ["--pi", "--agy"]]) {
     assert.deepEqual(JSON.parse(readFileSync(join(agents, "plugins/knit/hooks.json"))), { knit: {
       SessionStart: [command("SessionStart")],
       PreInvocation: [command("PreInvocation")],
-      PreToolUse: [{ matcher: "run_command", hooks: [command("PreToolUse")] }],
+      PreToolUse: [{ matcher: ".*", hooks: [command("PreToolUse")] }],
     } });
   });
 }
