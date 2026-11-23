@@ -306,10 +306,9 @@ test("Rex 创建窗格失败时保留 Agent 和覆盖值，SUCCESS 保留 denied
   assert.ok(args.includes("--model=override-id") && args.includes("--effort=xhigh"));
 });
 
-test("Rex 等追加输入，以原命令显示批准与拒绝，并在原会话补报", isolated, async (t) => {
+test("Rex 等追加输入，在边界内自动放行命令并清空询问规则，在原会话补报", isolated, async (t) => {
   const f = fixture(t, { rex: true, options: "    model: stage-model\n    thinking: medium\n" });
-  const retainedAsk = ["write_file(*)", "command(git push)", "command(regex:git)", "command(regex:.* --version)"];
-  const permissions = { allow: ["command(git status)"], ask: ["command(*)", "command(regex:(?i)/private/tmp/knit-agy-exec-.*/RUN-COMMAND)", ...retainedAsk], deny: ["command(git push)"] };
+  const permissions = { allow: ["command(git status)"], ask: ["command(*)", "write_file(*)", "command(git push)"], deny: ["command(git push)"] };
   writeFileSync(join(f.state, "settings.json"), JSON.stringify({ permissions }));
   const cwd = worktreeOf(f.root, f.task);
   const gate = join(cwd, "input-ready");
@@ -328,14 +327,15 @@ test("Rex 等追加输入，以原命令显示批准与拒绝，并在原会话�
   assert.equal(run.verdict, "pass", run.failure);
   const transcript = readRows(run.sessionFile);
   assert.deepEqual(transcript.filter((row) => row.type === "APPROVAL").map((row) => [row.result.decision, row.result.permissionOverrides]), [
-    ["ask", [`command(${allow})`]], ["ask", [`command(${reject})`]],
+    ["auto_approve", [`command(${allow})`]], ["auto_approve", [`command(${reject})`]],
   ]);
   assert.ok(transcript[0].args.includes("--model=stage-model") && transcript[0].args.includes("--effort=medium"));
   const commandEntry = transcript.find((row) => row.type === "APPROVAL").result.overwrite.CommandLine.split(" ").at(-1);
   const handoff = [join(f.root, ".knit/tasks"), join(f.root, ".knit/.runtime/runs")].map((path) => realpathSync.native(path));
+  const realCwd = realpathSync.native(cwd);
   assert.deepEqual(transcript[0].settings.permissions, {
-    ask: retainedAsk,
-    allow: [...permissions.allow, `command(${commandEntry})`, ...handoff.map((dir) => `read_file(${dir})`)],
+    ask: [],
+    allow: [...permissions.allow, `command(${commandEntry})`, ...handoff.map((dir) => `read_file(${dir})`), `read_file(${realCwd})`, `write_file(${realCwd})`],
     deny: [...permissions.deny, ...handoff.map((dir) => `write_file(${dir})`), `read_file(${realpathSync.native(runDir(f.root, run))})`,
       "mcp(*)", "read_url(*)", "execute_url(*)"],
   });

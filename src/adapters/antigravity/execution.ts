@@ -97,21 +97,6 @@ function removeAgyRuntime(cwd: string, dir: string): void {
   rmSync(locator, { force: true });
 }
 
-async function sessionAskRules(rules: unknown, pane: boolean, entry: string | null): Promise<unknown[]> {
-  if (!pane || !Array.isArray(rules)) return [];
-  if (entry === null || rules.length === 0) return rules;
-  const { RE2JS } = await import("re2js");
-  return rules.filter((rule: unknown) => {
-    const target = typeof rule === "string" ? /^command\((.*)\)$/s.exec(rule.trim())?.[1]?.trim() : undefined;
-    if (target === "*" || target === entry) return false;
-    if (!target?.startsWith("regex:")) return true;
-    const pattern = target.slice("regex:".length).trim();
-    // The forwarder takes no arguments. agy anchors each regex to a whole command word.
-    if (/\s/.test(pattern)) return true;
-    try { return !RE2JS.matches(pattern, entry); } catch { return true; }
-  });
-}
-
 class AgySession implements AgentSession {
   private child: ChildProcess | null = null;
   private broker: AgyBroker | null = null;
@@ -145,9 +130,9 @@ class AgySession implements AgentSession {
     try {
       this.temp = mkdtempSync(`/private/tmp/${permits(this.input.capabilities, "exec") ? COMMAND_TEMP_PREFIX : "knit-agy-"}`);
       writeFileSync(join(this.input.dir, TEMP_PATH), this.temp, { mode: 0o600 });
-      this.broker = new AgyBroker(this.input, join(this.temp, "tool.sock"), this.pane, (event, payload) => this.hook(event, payload));
+      this.broker = new AgyBroker(this.input, join(this.temp, "tool.sock"), (event, payload) => this.hook(event, payload));
       await this.broker.start();
-      await this.writeSettings();
+      this.writeSettings();
       const command = (event: string) => ({ type: "command", command: this.broker!.hookCommand(event), timeout: 10 });
       const generated = join(this.input.dir, HOOK_TARGET);
       writeFileSync(generated, JSON.stringify({ knit: {
@@ -205,7 +190,7 @@ class AgySession implements AgentSession {
     }
   }
 
-  private async writeSettings(): Promise<void> {
+  private writeSettings(): void {
     const nativeSettings = join(homedir(), ".gemini/antigravity-cli/settings.json");
     const nativePermissions = existsSync(nativeSettings) ? object(object(readFileSync(nativeSettings, "utf8"))?.permissions) : null;
     const handoff = permits(this.input.capabilities, "read") ? handoffReadPaths(this.input.root) : [];
@@ -215,13 +200,13 @@ class AgySession implements AgentSession {
       toolPermission: "request-review", disableSlashCommands: true, agentMode: "", statusLine: { enabled: false }, title: { enabled: false },
       permissions: {
         ...nativePermissions,
-        ask: await sessionAskRules(nativePermissions?.ask, this.pane, exec ? this.broker!.commandPrefix : null),
+        ask: [],
         allow: [
           ...(Array.isArray(nativePermissions?.allow) ? nativePermissions.allow : []),
           ...(exec ? [`command(${this.broker!.commandPrefix})`] : []),
           ...handoff.map((path) => `read_file(${path})`),
-          ...(this.pane || !permits(this.input.capabilities, "read") ? [] : [`read_file(${this.input.cwd})`]),
-          ...(this.pane || !permits(this.input.capabilities, "write") ? [] : [`write_file(${this.input.cwd})`]),
+          ...(permits(this.input.capabilities, "read") ? [`read_file(${this.input.cwd})`] : []),
+          ...(permits(this.input.capabilities, "write") ? [`write_file(${this.input.cwd})`] : []),
         ],
         deny: [
           ...(Array.isArray(nativePermissions?.deny) ? nativePermissions.deny : []),

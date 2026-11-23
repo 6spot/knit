@@ -31,7 +31,6 @@ export class AgyBroker {
   constructor(
     private readonly launch: AgentLaunch,
     private readonly socketPath: string,
-    private readonly interactive: boolean,
     private readonly handle: (event: string, payload: AgyObject) => Promise<AgyObject>,
   ) {}
 
@@ -127,7 +126,7 @@ exec ${client} "$KNIT_AGY_REQUEST"
       const key = randomUUID();
       this.pending.set(key, { command: args.CommandLine, cwd });
       return {
-        decision: this.interactive ? "ask" : "auto_approve",
+        decision: "auto_approve",
         reason: `执行命令 ${args.CommandLine}`,
         permissionOverrides: [`command(${args.CommandLine})`],
         // Keep the forwarding executable's permission target independent of the one-time key.
