@@ -1,10 +1,10 @@
 # Knit
 
-Knit 管一个项目的开发周期，只做五件事：把一件事写成任务的需求和可验证的完成条件，记录做到哪一步、结果如何；保存项目的开发规范，按环节交给智能体；派执行者做某个环节时，只给它这个环节需要的内容；用户授权后归档任务，项目在 Git 仓库里时再把这个任务的改动提交成一次提交；接入 Pi，在主会话里提供少量工具和一小段每轮状态。
+Knit 管一个项目的开发周期。它记录任务的需求、可验证的完成条件和进度，保存并按环节提供项目规范，为执行者准备当前环节所需的资料，在主会话里提供项目上下文和任务操作入口。用户授权交付后，Knit 归档任务，项目使用 Git 时再把该任务的改动提交成一次提交。
 
 ## 现在的情况
 
-2026-11 重写成了小核心：旧实现的设计和记录在 [docs/history/](https://github.com/6spot/knit/tree/main/docs/history)，只支持 Pi，还没有发布到 NPM（`private: true`，没有 LICENSE）。平台的验证情况见 [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md)。
+2026-11 重写为小核心。主会话已接入 Pi、Antigravity CLI 和 WorkBuddy Desktop，工作流可派发 Pi 或 Antigravity CLI。项目尚未发布到 NPM（`private: true`），目前没有 LICENSE。[旧实现记录](https://github.com/6spot/knit/tree/main/docs/history) · [平台验证情况](https://github.com/6spot/knit/blob/main/AGENTS.md)
 
 ## 安装
 
@@ -39,17 +39,21 @@ npm install /path/to/knit-0.1.0.tgz
 
 ## 开始用
 
-1. `knit init`：把流程、角色文件、配置和通用规范生成到项目里，已有的文件不动。
-2. 按需在 `.knit/workflow.yaml` 里写 `model`（`provider/模型`）和 `thinking`（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`），所有环节缺省用它们，也可以给环节单独写。派发时分别依次取命令行的 `--model`／`--thinking`、环节的、顶层的、主会话当前的值。模型四处都没有时拒绝派发；思考等级四处都没有时由 Pi 用自己的缺省。
+1. 在项目里运行 `knit init` 生成核心文件。首次启用主会话桥接时，按客户端运行 `knit init --pi`、`knit init --agy` 或 `knit init --workbuddy`。选项可以组合。
+2. 在 `.knit/workflow.yaml` 的环节用 `agent` 指定执行者。Pi 的 `model` 写成 `provider/模型`，`thinking` 可取 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。派发时分别取命令行覆盖、环节或执行器、流程顶层、主会话中首个有值的设置。Antigravity 使用自己的模型 ID，模型及思考等级取命令行覆盖或环节、执行器配置，缺省时由 `agy` 决定。
 3. `knit workflow validate`：校验流程文件，有问题时逐条给出行号。
-4. 在项目里打开 Pi 并同意加载项目扩展：主会话就有 `knit_task`、`knit_run`、`knit_deliver` 三个工具，从第一轮起每轮都获得项目中全部适用 `discuss` 的规范，可以直接讨论需求，不必先选中或创建任务。用户明确要求建任务时，主会话创建草稿、把已讨论清楚的需求写进 `task.md`，并在当轮回复给出标题、编号、链接、草稿状态及是否已选中；新建不会改变当前选择，也不等于确认需求或授权实施。
+4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity 和 WorkBuddy 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。用户明确要求建任务时，主会话创建草稿、把已讨论清楚的需求写进 `task.md`，并在当轮回复给出标题、编号、链接、草稿状态及是否已选中。新建草稿保留当前选择，确认需求和开始实施按讨论规范处理。
 
-主会话的模型从 `PI_PROVIDER`、`PI_MODEL` 读取，思考等级从 `PI_REASONING_LEVEL` 读取；桥接的 start 则从当前的 `ctx.model`、`ctx.thinkingLevel` 取值。不在 Pi 会话里时，要在流程里配置模型或加 `--model`，思考等级仍可不指定。Pi 会按模型能力收窄思考等级。
+讨论、任务编写、任务拆分和交付四份规范由当前 Knit 安装包提供，升级即可生效。`knit standards list` 列出 `knit:standards/` 标识的内置规范，以及 `.knit/standards/` 下的项目规范。旧版 `init` 生成的同名文件会保留并标为停用，可将其中的团队约定迁入另名的项目规范。
+
+项目避坑清单用一个文件 `.knit/standards/pitfalls.md`。二级标题 `## 通用` 对所有环节生效，`## implement, review` 对列出的环节生效。每条经验用三级标题。主会话和执行者只收到通用和当前环节的条目。
+
+派发 Pi 执行者时，主会话的模型从 `PI_PROVIDER`、`PI_MODEL` 读取，思考等级从 `PI_REASONING_LEVEL` 读取；桥接的 start 则从当前的 `ctx.model`、`ctx.thinkingLevel` 取值。不在 Pi 会话里时，要在流程里配置模型或加 `--model`，思考等级仍可不指定。Pi 会按模型能力收窄思考等级。
 
 ## 命令
 
 ```text
-knit init                        把流程、角色文件、配置和通用规范生成到项目里；已有的文件不动
+knit init                        生成项目的流程、角色文件和配置
 knit workflow show               显示流程和每个环节的配置
 knit workflow validate           校验流程文件，有问题时逐条给出行号
 knit task new                    创建一个任务
@@ -58,7 +62,9 @@ knit task show <id>              显示一个任务的情况
 knit task ready <id>             确认一个任务的需求
 knit task close <id>             把一个任务记为完成，并写下结果
 knit task cancel <id>            取消一个任务并归档
-knit standards list              列出规范和各自适用的环节，标出不会注入的
+knit standards list              列出内置规范、项目规范、避坑分区和旧版副本
+knit standards pitfalls <stage>   查看通用区和适用于该环节的避坑条目
+knit standards record --section <分区> --title <标题> --body <正文>    新增或补充条目
 knit run start <id>              派发任务的下一个环节；执行者在后台跑，命令立即返回
 knit run status <id>             显示任务上一次或正在跑的执行，以及下一步
 knit run wait <id>               等任务正在跑的执行结束，然后显示和 status 一样的内容；没有执行在跑时立即返回
@@ -68,14 +74,15 @@ knit deliver <id>                交付一个完成的任务：归档；项目�
 knit help                        显示帮助
 ```
 
-`knit run start <id> [--model <provider/模型>] [--thinking <等级>]` 可以只覆盖这一次派发。桥接工具 `knit_run` 的 start 对应参数是 `model`、`thinking`。`knit workflow show` 按环节显示模型和思考等级；没配置思考等级时显示 `（没有指定，用主会话的等级）`。
+`knit run start <id> [--model <模型>] [--thinking <等级>]` 可以覆盖这一次派发的设置。Pi 桥接工具 `knit_run` 的 `start` 对应参数是 `model`、`thinking`。`knit workflow show` 按环节显示执行者、模型和思考等级。
 
 ## 仓库里有什么
 
 ```text
 AGENTS.md          开发协作入口
 src/               CLI、契约、领域、用例、适配与基础设施
-assets/templates/  knit init 的模板：流程、角色文件、通用规范与 Pi 桥接
+assets/standards/  安装包内置的四份通用规范
+assets/templates/  knit init 的流程、角色、配置和各宿主桥接模板
 test/              单元测试与隔离集成测试
 scripts/           构建、打包检查与本地安装
 .knit/             当前任务、流程配置、规范与运行资料
@@ -85,11 +92,12 @@ docs/
   design/          现行设计
   history/         旧 Knit 的设计、任务索引和执行记录
   research/        研究依据
-validation/        验证材料：slim-* 是现在这个 Knit 的，其余是旧 Knit 的
+validation/        流程演练、客户端接入与历史验证记录
 ```
 
 ## 接着读
 
 - [AGENTS.md](https://github.com/6spot/knit/blob/main/AGENTS.md)：开发协作入口。
 - [docs/README.md](https://github.com/6spot/knit/blob/main/docs/README.md)：文档索引。
+- 新增主会话宿主或执行者时，按角色查阅接入流程和验收场景。[Agent 接入规范](https://github.com/6spot/knit/blob/main/docs/AGENT-INTEGRATION.md)
 - [docs/design/DESIGN.md](https://github.com/6spot/knit/blob/main/docs/design/DESIGN.md)：现行设计。

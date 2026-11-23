@@ -26,6 +26,14 @@ const B = standard("b.md", "开发规范", ["implement", "review"]);
 const C = standard("c.md", "交付规范", ["deliver"]);
 const D = standard("nested/d.md", "讨论与交付规范", ["discuss", "deliver"]);
 
+function builtinBlock(name, title) {
+  const file = new URL(`../assets/standards/${name}.md`, import.meta.url);
+  const body = readFileSync(file, "utf8").replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+  return `<standard path="knit:standards/${name}.md" title="${title}">\n${body}\n</standard>\n`;
+}
+const builtinDiscussion = [builtinBlock("discussion", "讨论规范"), builtinBlock("task-splitting", "任务拆分规范"), builtinBlock("task-writing", "任务编写规范")].join("\n");
+const builtinDelivery = builtinBlock("delivery", "交付规范");
+
 /** 临时仓库，里面有这几份规范，已经提交。 */
 function projectWith(t, standards) {
   const dir = runProject(t);
@@ -74,10 +82,11 @@ test("各个状态给对应环节的规范", (t) => {
   assert.equal(standardsPart(dir, id, taskDir), `规范（review 环节）:\n${B.block}`);
 
   ranStage(dir, id, "pass");
-  assert.equal(standardsPart(dir, id, taskDir), `规范（deliver 环节）:\n${C.block}`);
+  const delivery = `规范（deliver 环节）:\n${builtinDelivery}\n${C.block}`;
+  assert.equal(standardsPart(dir, id, taskDir), delivery);
 
   assert.equal(knit(dir, "task", "close", id, "--result", "做完了").code, 0);
-  assert.equal(standardsPart(dir, id, taskDir), `规范（deliver 环节）:\n${C.block}`);
+  assert.equal(standardsPart(dir, id, taskDir), delivery);
 });
 
 test("没有规范和已经结束的任务", (t) => {
@@ -91,7 +100,7 @@ test("没有规范和已经结束的任务", (t) => {
   const ended = knit(dir, "context", cancelled.id);
   assert.equal(ended.code, 0, ended.stderr);
   assert.match(ended.stdout.trimEnd().split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
-  assert.equal(ended.stdout.split("任务:")[0], `规范（discuss 环节）:\n${A.block}`);
+  assert.equal(ended.stdout.split("任务:")[0], `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}`);
 });
 
 test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", (t) => {
@@ -114,7 +123,7 @@ test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归�
   assert.equal(findTask(root, archived.id)?.archived, true);
 });
 
-test("初始化生成的通用规范", (t) => {
+test("初始化直接使用安装包中的通用规范", (t) => {
   const dir = project(t);
   const initialized = knit(dir, "init");
   assert.equal(initialized.code, 0, initialized.stderr);
@@ -131,9 +140,9 @@ test("初始化生成的通用规范", (t) => {
   assert.deepEqual(
     [...unselected.stdout.matchAll(/^<standard path="([^"]+)"/gm)].map((match) => match[1]),
     [
-      ".knit/standards/discussion.md",
-      ".knit/standards/task-splitting.md",
-      ".knit/standards/task-writing.md",
+      "knit:standards/discussion.md",
+      "knit:standards/task-splitting.md",
+      "knit:standards/task-writing.md",
     ],
   );
 });
@@ -141,23 +150,46 @@ test("初始化生成的通用规范", (t) => {
 test("讨论与当前环节按路径去重，嵌套目录里的规范也完整提供", (t) => {
   const dir = projectWith(t, [D, C, A, B]);
   const discussion = knit(dir, "context");
-  assert.deepEqual(discussion, { code: 0, stdout: `规范（discuss 环节）:\n${A.block}\n${D.block}`, stderr: "" });
+  assert.deepEqual(discussion, { code: 0, stdout: `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}\n${D.block}`, stderr: "" });
   assert.deepEqual(knit(dir, "context"), discussion);
   const task = readyTask(dir, { verification: "self" });
   ranStage(dir, task.id, null);
-  assert.equal(standardsPart(dir, task.id, task.dir), `规范（deliver 环节）:\n${C.block}`);
+  assert.equal(standardsPart(dir, task.id, task.dir), `规范（deliver 环节）:\n${builtinDelivery}\n${C.block}`);
   const shown = knit(dir, "context", task.id);
   assert.equal((shown.stdout.match(new RegExp(`<standard path="${D.path}"`, "g")) ?? []).length, 1);
 
   const sharedOnly = projectWith(t, [D]);
   const other = readyTask(sharedOnly, { verification: "self" });
   ranStage(sharedOnly, other.id, null);
-  assert.equal(standardsPart(sharedOnly, other.id, other.dir), "规范（deliver 环节）: 没有\n");
+  assert.equal(standardsPart(sharedOnly, other.id, other.dir), `规范（deliver 环节）:\n${builtinDelivery}`);
 });
 
-test("没有讨论规范时仍提供明确输出", (t) => {
+test("没有项目讨论规范时给出完整内置规范", (t) => {
   const dir = projectWith(t, [B]);
-  assert.deepEqual(knit(dir, "context"), { code: 0, stdout: "规范（discuss 环节）: 没有\n", stderr: "" });
+  assert.deepEqual(knit(dir, "context"), { code: 0, stdout: `规范（discuss 环节）:\n${builtinDiscussion}`, stderr: "" });
+});
+
+test("主会话随讨论、实现、审查和交付切换清单，正文与 CLI 选区一致", (t) => {
+  const path = ".knit/standards/pitfalls.md";
+  const text = "---\ntitle: 避坑清单\n---\n\n## 通用\n\n每轮核实\n\n## discuss\n\n核对需求\n\n## implement, review\n\n执行共用\n\n## review\n\n审查专用\n\n## deliver\n\n交付专用\n";
+  const dir = projectWith(t, [{ path, text }]);
+  const task = readyTask(dir);
+  function check(stage, ...args) {
+    const shown = knit(dir, "context", ...args);
+    const expected = knit(dir, "standards", "pitfalls", stage);
+    assert.equal(shown.code, 0, shown.stderr);
+    assert.equal(expected.code, 0, expected.stderr);
+    const blocks = [...shown.stdout.matchAll(/<standard path="\.knit\/standards\/pitfalls\.md" title="避坑清单">\n([\s\S]*?)<\/standard>/g)];
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0][1], expected.stdout);
+    return blocks[0][1];
+  }
+  assert.equal(check("discuss"), "## 通用\n\n每轮核实\n\n## discuss\n\n核对需求\n");
+  assert.equal(check("implement", task.id), "## 通用\n\n每轮核实\n\n## implement, review\n\n执行共用\n");
+  ranStage(dir, task.id, null);
+  assert.equal(check("review", task.id), "## 通用\n\n每轮核实\n\n## implement, review\n\n执行共用\n\n## review\n\n审查专用\n");
+  ranStage(dir, task.id, "pass");
+  assert.equal(check("deliver", task.id), "## 通用\n\n每轮核实\n\n## deliver\n\n交付专用\n");
 });
 
 test("状态没变时输出逐字不变", (t) => {

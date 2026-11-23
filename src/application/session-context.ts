@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
 import { batchOf, nextStep, sessionStage } from "../domain/progress.js";
+import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardsForStage } from "../domain/standards.js";
 import { currentStatus, type TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -45,11 +46,14 @@ export function buildSessionContext(root: string, id?: string) {
   const workflow = loaded === null ? null : readWorkflow(root);
   if (workflow?.workflow === null) return { kind: "refused", problems: workflow.problems } satisfies TaskRefusal;
   const standards = loadStandards(root);
-  const discussion = standardsForStage(standards, "discuss");
-  if (loaded === null || workflow === null) return { kind: "context", discussion, task: null } as const;
+  const discussionStandards = standardsForStage(standards, "discuss");
+  if (loaded === null || workflow === null) return { kind: "context", discussion: discussionStandards, task: null } as const;
   const { document, record, stored } = loaded.task;
   const status = buildTaskStatus(root, stored.dir, workflow.workflow, document, record);
   const stage = sessionStage(workflow.workflow, document.frontmatter.verification, record, status.status);
+  // 主会话总有讨论规范；避坑清单只出现一次，取所选任务当前环节的分区。
+  const discussion = stage === null || stage === "discuss" ? discussionStandards
+    : discussionStandards.filter((standard) => standard.path !== PITFALLS_PATH);
   const discussionPaths = new Set(discussion.map((standard) => standard.path));
   const supplement = stage === null || stage === "discuss" ? null : {
     stage, standards: standardsForStage(standards, stage).filter((standard) => !discussionPaths.has(standard.path)),

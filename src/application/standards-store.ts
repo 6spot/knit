@@ -1,17 +1,43 @@
-/** 读出项目的全部规范：`.knit/standards/` 下的 Markdown，含子目录里的。 */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { parseStandard, type Standard } from "../domain/standards.js";
+import { PITFALLS_PATH, recordPitfall } from "../domain/pitfalls.js";
+import { BUILTIN_STANDARDS, STANDARDS_DIR, builtinPath, parseStandard, standardReference, type Standard } from "../domain/standards.js";
+import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
+import { safeJoin } from "../infrastructure/paths.js";
+import { withRunLock } from "./run-lock.js";
 
-export const STANDARDS_DIR = ".knit/standards";
+export { STANDARDS_DIR };
 
-/** 按路径排序；目录不存在时是空数组。 */
+const builtinDirectory = new URL("../../assets/standards/", import.meta.url);
+
+/** 内置规范来自运行中的安装包。两组各按路径排序，项目中的旧副本不参与注入。 */
 export function loadStandards(root: string): Standard[] {
+  const builtin = BUILTIN_STANDARDS.map((file) =>
+    parseStandard(builtinPath(file), readFileSync(new URL(file, builtinDirectory), "utf8")));
   const dir = join(root, STANDARDS_DIR);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
+  if (!existsSync(dir)) return builtin;
+  const project = readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => relative(dir, join(entry.parentPath, entry.name)).split(sep).join("/"))
+    .map((entry) => relative(root, join(entry.parentPath, entry.name)).split(sep).join("/"))
+    .filter((path) => standardReference(path) === path)
     .sort()
-    .map((file) => parseStandard(`${STANDARDS_DIR}/${file}`, readFileSync(join(dir, file), "utf8")));
+    .map((path) => parseStandard(path, readFileSync(join(root, path), "utf8")));
+  return [...builtin, ...project];
+}
+
+/** 旧版 init 的文件保留给项目核对、迁出定制。 */
+export function legacyStandardCopies(root: string): string[] {
+  return BUILTIN_STANDARDS.map((name) => `${STANDARDS_DIR}/${name}`).filter((path) => existsSync(join(root, path)));
+}
+
+export function savePitfall(root: string, scope: string, title: string, detail: string): void {
+  const path = safeJoin(root, PITFALLS_PATH);
+  withRunLock(join(root, ".knit/.runtime/locks/pitfalls.lock"), 5000, () => {
+    const current = readWithVersion(path);
+    const original = current?.data.toString("utf8") ?? "";
+    const standard = parseStandard(PITFALLS_PATH, original);
+    if (standard.problems.length) throw new Error(standard.problems.join("\n"));
+    const updated = recordPitfall(original, scope, title, detail);
+    if (updated !== original) atomicWrite({ path, data: Buffer.from(updated), expectedSha256: current?.sha256 ?? null });
+  }, () => { throw new Error("避坑清单正在写入，请重试"); });
 }

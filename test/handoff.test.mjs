@@ -59,6 +59,29 @@ test("系统提示里是角色文件和规范", (t) => {
   assert.deepEqual(review.problems, []);
 });
 
+test("点名内置资源或旧副本时只传包内版本，点名清单时仍只给本环节", (t) => {
+  const root = project(t);
+  const worktree = project(t);
+  const checklist = ".knit/standards/pitfalls.md";
+  const previous = ".knit/standards/task-writing.md";
+  const task = taskWith(root, () => `- \`${previous}\`\n- \`knit:standards/task-writing.md\`\n- \`./${checklist}#deliver\``);
+  write(worktree, { [checklist]: "## deliver\n\nWorktree 的旧清单\n" });
+  write(root, { [previous]: "---\nstages: [implement]\n---\n弃用副本的正文\n" });
+  const input = { root, worktree, task, stage: { id: "implement", prompt: null }, previous: null };
+  const missing = assembleHandoff(input);
+  assert.deepEqual(missing.problems, [`主检出里没有点名的规范：${checklist}`]);
+  assert.doesNotMatch(missing.firstMessage, /Worktree 的旧清单/);
+
+  write(root, { [checklist]: "## 通用\n\n通用正文\n\n## implement, review\n\n共同正文\n\n## deliver\n\n交付正文\n" });
+  const handoff = assembleHandoff(input);
+  assert.deepEqual(handoff.problems, []);
+  assert.equal(handoff.systemPrompt.match(/<standard path="knit:standards\/task-writing.md"/g).length, 1);
+  assert.match(handoff.systemPrompt, /对照完成条件检查执行者/);
+  assert.ok(handoff.systemPrompt.includes("## 通用\n\n通用正文\n\n## implement, review\n\n共同正文"));
+  assert.doesNotMatch(handoff.systemPrompt, /弃用副本的正文|交付正文|Worktree 的旧清单/);
+  assert.doesNotMatch(handoff.firstMessage, /<material|通用正文|共同正文|交付正文/);
+});
+
 test("第一条消息里是需求、资料、计划和上一环节的报告", (t) => {
   const dir = project(t);
   write(dir, {

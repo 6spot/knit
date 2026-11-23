@@ -1,12 +1,20 @@
-/**
- * 项目规范：`.knit/standards/` 下的 Markdown，开头声明标题和适用的环节。
- * 只处理文本，不读文件。
- */
+/** 内置规范和项目规范的开头声明、正文及按环节选取。 */
 import { basename } from "node:path";
 import { parseDocument } from "yaml";
+import { PITFALLS_PATH, pitfallsForStage } from "./pitfalls.js";
+
+export const BUILTIN_STANDARDS = ["delivery.md", "discussion.md", "task-splitting.md", "task-writing.md"] as const;
+export const STANDARDS_DIR = ".knit/standards";
+export const builtinPath = (file: string) => `knit:standards/${file}`;
+
+/** 旧任务仍可点名 init 曾复制到项目里的通用规范。 */
+export function standardReference(path: string): string {
+  const file = BUILTIN_STANDARDS.find((name) => path === `${STANDARDS_DIR}/${name}`);
+  return file === undefined ? path : builtinPath(file);
+}
 
 export interface Standard {
-  /** 项目内的相对路径，用 `/` 分隔。 */
+  /** 包内规范标识，或用 `/` 分隔的项目相对路径。 */
   readonly path: string;
   readonly title: string;
   /** 适用的环节；空数组表示不交给任何环节。 */
@@ -17,6 +25,7 @@ export interface Standard {
 }
 
 export function parseStandard(path: string, markdown: string): Standard {
+  markdown = markdown.replace(/\r\n/g, "\n");
   const whole = { path, title: basename(path, ".md"), stages: [], body: trimBlankLines(markdown) };
   const match = /^---\n(?:([\s\S]*?)\n)?---(?:\n|$)/.exec(markdown);
   if (match === null) {
@@ -49,11 +58,19 @@ export function parseStandard(path: string, markdown: string): Standard {
   };
 }
 
-/** 适用某个环节的规范，按路径排序。环节可以是流程里的环节 id，也可以是固定的 discuss、deliver。 */
-export function standardsForStage(standards: readonly Standard[], stage: string): Standard[] {
-  return standards
-    .filter((standard) => standard.stages.includes(stage))
-    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+/** 先给内置规范，再给项目规范，各按路径排序。点名清单仍然只选适用分区。 */
+export function standardsForStage(standards: readonly Standard[], stage: string, named?: ReadonlySet<string>): Standard[] {
+  return standards.flatMap((standard) => {
+    if (standard.path === PITFALLS_PATH) {
+      const body = standard.problems.length ? "" : pitfallsForStage(standard.body, stage);
+      return body ? [{ ...standard, body }] : [];
+    }
+    return standard.stages.includes(stage) || named?.has(standard.path) ? [standard] : [];
+  }).sort((left, right) => {
+    const builtinFirst = Number(right.path.startsWith("knit:")) - Number(left.path.startsWith("knit:"));
+    if (builtinFirst) return builtinFirst;
+    return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+  });
 }
 
 function isStageList(value: unknown): value is string[] {

@@ -62,7 +62,7 @@ test("应用层会话上下文按环节去重，取消归档后返回已删除�
   assert.equal(readyTask(root, id).kind, "ready");
   const context = buildSessionContext(root, id);
   assert.equal(context.kind, "context");
-  assert.deepEqual(context.discussion.map((standard) => standard.title), ["共享"]);
+  assert.deepEqual(context.discussion.map((standard) => standard.title), ["讨论规范", "任务拆分规范", "任务编写规范", "共享"]);
   assert.equal(context.task.status.status, "ready");
   assert.equal(context.task.supplement.stage, "implement");
   assert.deepEqual(context.task.supplement.standards.map((standard) => standard.title), ["实现"]);

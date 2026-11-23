@@ -5,7 +5,9 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { standardsForStage, type Standard } from "../domain/standards.js";
+import { sha256Text } from "../contracts/digest.js";
+import { PITFALLS_PATH } from "../domain/pitfalls.js";
+import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import { referencesOf } from "../domain/task-references.js";
 import { projectRelative } from "../infrastructure/paths.js";
@@ -58,6 +60,7 @@ interface Block {
 }
 
 export interface Handoff {
+  readonly standardsDigest: string;
   readonly systemPrompt: string;
   readonly firstMessage: string;
   /** 读不出来的资料和角色文件；有问题时两段文本照样拼出来，要不要派发由调用方决定。 */
@@ -69,19 +72,25 @@ export function assembleHandoff(input: HandoffInput): Handoff {
   const limits = input.limits ?? DEFAULT_HANDOFF_LIMITS;
   const standards = loadStandards(input.root);
   const references = referencesOf(input.task.document.requirement);
-  const named = (path: string) => references.some((reference) => projectRelative(reference.path) === path);
-  const applicable = standardsForStage(standards, input.stage.id);
+  const referencePath = (path: string) => standardReference(projectRelative(path) ?? "");
+  const named = new Set(references.map(({ path }) => referencePath(path)));
+  const includedStandards = standardsForStage(standards, input.stage.id, named);
+  const standardPaths = new Set(standards.map((standard) => standard.path));
+  // 点名清单时只用主检出的适用分区，不能把 Worktree 中的旧清单作为普通资料附上。
+  const missingPitfalls = named.has(PITFALLS_PATH) && !standardPaths.has(PITFALLS_PATH);
   const materials = readMaterials(
     input.root,
-    references.filter((reference) => !standards.some((standard) => standard.path === projectRelative(reference.path))),
+    references.filter(({ path }) => {
+      const normalized = referencePath(path);
+      return normalized !== PITFALLS_PATH && !standardPaths.has(normalized);
+    }),
     { worktree: input.worktree },
   );
   const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt);
   const planPath = `${input.task.dir}/plan.md`;
-  const plan = named(planPath) ? null : readText(input.root, planPath);
+  const plan = named.has(planPath) ? null : readText(input.root, planPath);
 
   const roleText = role === null ? [] : [trimBlankLines(role)];
-  const includedStandards = standards.filter((standard) => applicable.includes(standard) || named(standard.path));
   const taskBlock = {
     tag: "task",
     attributes: { path: resolve(input.root, input.task.dir, "task.md") },
@@ -123,8 +132,10 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     },
   ).blocks;
 
+  const standardBlocks = includedStandards.map(renderStandard);
   return {
-    systemPrompt: [...roleText, ...includedStandards.map(renderStandard)].join("\n\n"),
+    standardsDigest: sha256Text(standardBlocks.join("\n\n")),
+    systemPrompt: [...roleText, ...standardBlocks].join("\n\n"),
     // 工作位置说明不改变原有的资料字节预算。
     firstMessage: [
       `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；这些资料和报告按给出的绝对路径读取。`,
@@ -134,6 +145,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       ...(input.stage.prompt !== null && role === null
         ? [`环节 ${input.stage.id} 的角色文件不存在：${input.stage.prompt}`]
         : []),
+      ...(missingPitfalls ? [`主检出里没有点名的规范：${PITFALLS_PATH}`] : []),
       ...materials.problems,
     ],
   };

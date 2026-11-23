@@ -53,7 +53,7 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   payload.workspacePaths = [subdir];
   const injected = (event = "PreInvocation") => hook(event, payload).injectSteps[0].systemMessage.systemMessage;
   const first = injected("SessionStart");
-  assert.match(first, /<standard path=".knit\/standards\/discussion.md"/);
+  assert.ok(first.includes('<standard path="knit:standards/discussion.md"'));
   assert.match(first, /没有选中 Knit 任务/);
   const states = join(root, ".knit/.runtime/host-sessions");
   const state = () => JSON.parse(readFileSync(join(states, `agy-${session}.json`), "utf8"));

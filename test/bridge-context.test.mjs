@@ -11,9 +11,9 @@ import { readyTask } from "./helpers/run.mjs";
 import { workGuidance } from "../dist/application/work-choice.js";
 const HINT = `没有选中 Knit 任务。${workGuidance} 用 list 查看任务，use 选中或取消选择。`;
 const DISCUSSION_PATHS = [
-  ".knit/standards/discussion.md",
-  ".knit/standards/task-splitting.md",
-  ".knit/standards/task-writing.md",
+  "knit:standards/discussion.md",
+  "knit:standards/task-splitting.md",
+  "knit:standards/task-writing.md",
 ];
 const paths = (text) => [...text.matchAll(/^<standard path="([^"]+)"/gm)].map((match) => match[1]);
 const snapshot = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -53,7 +53,7 @@ test("首轮直接讨论，每轮完整提供 discuss 规范，不改任务和�
   const entries = structuredClone(bridge.entries);
   const first = await sectionsAfterTurn(bridge, { other: "别的扩展的一段" });
   assert.deepEqual(first, { other: "别的扩展的一段", knit: `${knit(dir, "context").stdout.trimEnd()}\n${HINT}` });
-  assert.deepEqual(paths(first.knit), [DISCUSSION_PATHS[0], ".knit/standards/nested/writing.md", ...DISCUSSION_PATHS.slice(1)]);
+  assert.deepEqual(paths(first.knit), [...DISCUSSION_PATHS, ".knit/standards/nested/writing.md"]);
   assert.match(first.knit, /^- 保留项目特有的讨论约束。$/m);
   assert.doesNotMatch(first.knit, /^任务:|^状态:|^下一步:/m);
   assert.deepEqual(await sectionsAfterTurn(bridge, structuredClone(first)), first);
@@ -68,7 +68,7 @@ test("草稿切换、取消选择和待交付任务：每轮保留讨论规范�
   // 标题与正文相同但路径不同的文件不能被去掉。
   writeFileSync(join(dir, ".knit/standards/delivery-only.md"), "---\ntitle: 共享规则\nstages: [deliver]\n---\n\n共享规则正文\n");
   const drafts = [await newTask(bridge, "第一个任务"), await newTask(bridge, "另一个任务")];
-  const discussionPaths = [DISCUSSION_PATHS[0], ".knit/standards/shared.md", ...DISCUSSION_PATHS.slice(1)];
+  const discussionPaths = [...DISCUSSION_PATHS, ".knit/standards/shared.md"];
   for (const task of drafts) {
     await bridge.tool("knit_task", { action: "use", taskId: task.id });
     const selected = (await sectionsAfterTurn(bridge)).knit;
@@ -87,7 +87,7 @@ test("草稿切换、取消选择和待交付任务：每轮保留讨论规范�
   await bridge.tool("knit_task", { action: "use", taskId: completed.id });
   const before = snapshot(join(dir, ".knit"));
   const delivered = await sectionsAfterTurn(bridge);
-  assert.deepEqual(paths(delivered.knit), [...discussionPaths, ".knit/standards/delivery-only.md", ".knit/standards/delivery.md"]);
+  assert.deepEqual(paths(delivered.knit), [...discussionPaths, "knit:standards/delivery.md", ".knit/standards/delivery-only.md"]);
   assert.match(delivered.knit, /^状态: done$/m);
   assert.match(delivered.knit, new RegExp(`^下一步: 用户授权后交付（knit deliver ${completed.id}）$`, "m"));
   assert.deepEqual(await sectionsAfterTurn(bridge, structuredClone(delivered)), delivered);

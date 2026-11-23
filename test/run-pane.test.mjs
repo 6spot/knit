@@ -74,7 +74,7 @@ async function finished(dir, task, runId) {
   return lastRun(dir, task);
 }
 
-for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected", "fresh", "changed", "legacy", "other-agent"]) {
+for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected", "fresh", "changed", "standards", "legacy", "other-agent"]) {
   test(`实现经双人审查返工，Pi 会话模式 ${mode}`, async (t) => {
     const root = runProject(t);
     const file = join(root, ".knit/workflow.yaml");
@@ -107,6 +107,11 @@ for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected"
     assert.ok(first.resumeId && existsSync(first.resumeId));
     await dispatch({ texts: ['审查发现问题\n```json\n{"verdict":"changes_requested"}\n```'] });
     const reviews = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8")).runs.slice(-2);
+    if (mode === "rpc" || mode === "standards") {
+      mkdirSync(join(root, ".knit/standards"), { recursive: true });
+      const stage = mode === "standards" ? "implement" : "review";
+      writeFileSync(join(root, ".knit/standards/pitfalls.md"), `## ${stage}\n\n刚补充的注意事项\n`);
+    }
     if (mode === "pane") writeFileSync(join(root, ".knit/agents/implement.md"), "你是实现环节的执行者。仅用于全新会话。\n");
     if (mode === "legacy" || mode === "other-agent") {
       const path = join(root, task.dir, "record.json");
@@ -157,7 +162,8 @@ for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected"
     assert.notEqual(repair.resumeId, first.resumeId);
     assert.ok(args.includes("--append-system-prompt") && !args.includes("--session"));
     assert.equal(message, readFileSync(join(dir, "message.md"), "utf8"));
-    const reason = { deleted: /文件不存在/, corrupt: /文件损坏/, truncated: /缺少历史交接/, rejected: /启动失败/, fresh: /--fresh/, changed: /摘要已变更/, legacy: /没有匹配的可恢复执行/, "other-agent": /没有匹配的可恢复执行/ }[mode];
+    if (mode === "standards") assert.match(readFileSync(join(dir, "system.md"), "utf8"), /刚补充的注意事项/);
+    const reason = { deleted: /文件不存在/, corrupt: /文件损坏/, truncated: /缺少历史交接/, rejected: /启动失败/, fresh: /--fresh/, changed: /摘要已变更/, standards: /适用规范已有更新/, legacy: /没有匹配的可恢复执行/, "other-agent": /没有匹配的可恢复执行/ }[mode];
     assert.match(status, reason);
     assert.match(readFileSync(join(dir, "worker.log"), "utf8"), reason);
   });

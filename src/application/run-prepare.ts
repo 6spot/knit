@@ -172,7 +172,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
       mkdirSync(dir, { recursive: true });
       const rules = stageRules(input.workflow, stage);
       writeFileSync(join(dir, "system.md"), `${handoffs[index]!.systemPrompt}\n\n${rules}`);
-      prepareResumeHandoff(dir, input, record, run, reports, rules);
+      prepareResumeHandoff(dir, input, record, run, reports, rules, handoffs[index]!.standardsDigest);
       writeFileSync(join(dir, "message.md"), handoffs[index]!.firstMessage);
       atomicWrite({ path: join(dir, "before.json"), data: snapshot });
     });
@@ -190,12 +190,17 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
   return { run: runs[0]!, runs, problems: [] };
 }
 
-function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string): void {
+function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string, standardsDigest: string): void {
+  if (run.stage.resume) writeFileSync(join(dir, "standards.sha256"), standardsDigest);
   if (input.fresh) return logSessionMode(dir, "新会话（指定了 --fresh）");
   if (!run.stage.resume) return;
   const prior = countedRuns(record).findLast((item) => item.stage === run.stage.id && item.executor === run.executor &&
     (item.agent ?? DEFAULT_AGENT) === run.agent && item.resumeId != null);
   if (prior?.resumeId) {
+    const priorDigest = join(input.root, RUNS_DIR, prior.id, "standards.sha256");
+    if (!existsSync(priorDigest) || readFileSync(priorDigest, "utf8") !== standardsDigest) {
+      return logSessionMode(dir, "已自动回退新会话（适用规范已有更新或旧执行没有规范摘要）");
+    }
     const inlineLimits = run.stage.tools !== null && !run.stage.tools.includes("read") ? input.config.handoff : undefined;
     writeFileSync(join(dir, "resume-id.txt"), prior.resumeId);
     writeFileSync(join(dir, "resume-message.md"), resumeMessage(input.instruction, reports, rules, inlineLimits));

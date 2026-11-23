@@ -30,6 +30,10 @@ check(binTarget !== undefined && paths.includes(binTarget), `包含 bin 入口 $
 const required = [
   "package.json",
   "README.md",
+  "assets/standards/discussion.md",
+  "assets/standards/task-writing.md",
+  "assets/standards/task-splitting.md",
+  "assets/standards/delivery.md",
   "assets/templates/workflow.yaml",
   "assets/templates/pi/extensions/knit.ts",
   "assets/templates/agents/plugins/knit/plugin.json",
@@ -48,7 +52,7 @@ for (const path of required) {
   check(paths.includes(path), `包含 ${path}`);
 }
 
-const forbiddenPrefixes = ["src/", "test/", "docs/", "tasks/", "validation/", "scripts/", "node_modules/", ".git/"];
+const forbiddenPrefixes = ["assets/templates/standards/", "src/", "test/", "docs/", "tasks/", "validation/", "scripts/", "node_modules/", ".git/"];
 const forbiddenSuffixes = [".tsbuildinfo", ".tgz"];
 const isTsSource = (p) => p.endsWith(".ts") && !p.endsWith(".d.ts");
 /** 模板资产中的 .ts 是随包发布的生成模板，不是编译源码。 */
