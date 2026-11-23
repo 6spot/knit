@@ -290,7 +290,7 @@ Knit 为 Pi 和 Antigravity 提供共用执行入口：
 | `startRun`／`prepareRun`：派发检查、Worktree、交接、准备命令、快照与后台进程登记 | 从主会话提供模型与思考等级的回退值，不覆盖流程和命令行设置 |
 | `executeRun`／`runInPane`：在 Worktree 执行、开关 Rex 窗格、等待启动与后台回退、执行结算 | 提供交互客户端启动命令，或创建后台会话；映射启动参数、工具能力和权限 |
 | `runAgentSession`：启动检查、保存报告、校验字段、原会话补报一次、停止客户端 | `AgentSession` 提供启动失败原因、每轮的报告或失败原因、原生会话文件，以及在原会话发消息和停止的操作 |
-| `run-process`／`cancelRun`／`waitRun`：进程身份、窗格客户端登记、子进程停止、取消结算与等待记录 | 从 RPC 或交互事件采集结果；Pi 窗格暂停后保留原会话，继续输入才交回本轮结果 |
+| `run-process`／`cancelRun`／`waitRun`：进程身份、窗格客户端登记、子进程停止、取消结算与等待记录（`waitRun` 轮询可按短退避或显式间隔参数化，兼顾生产低占用与测试快速响应；`stopProcesses` 生产默认 5 秒宽限期，测试可注入更短值） | 从 RPC 或交互事件采集结果；Pi 窗格暂停后保留原会话，继续输入才交回本轮结果 |
 
 Pi 和 Antigravity 按 Agent 名在 `src/adapters/agents.ts` 登记。派发读取主会话客户端的缺省值，检查所选执行者的隔离条件。执行和结算按记录里的 Agent 找到适配器。接口在 `src/contracts/agent.ts`。Pi 和 Antigravity 的后台 worker 与窗格客户端都调用 `runAgentSession`，该函数保存与校验报告，必要时在原会话补报一次。窗格先发布 `outcome.json` 再停止客户端，后台 worker 收到后调用 `finishRun` 入账。原 Pi 主会话的等待链路在结算后投递结果，触发新一轮。
 
@@ -536,7 +536,7 @@ Pi 桥接有 3 个工具：
 1. 管理本仓库的是安装版（`npm run pack:install` 装到全局），桥接调用安装版。工作区的 `dist` 可以随意重建。
 2. 升级安装版是显式的一步，在一个任务交付之后做。
 3. 核心文件和宿主桥接的模板在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用宿主时加上 `--pi`、`--agy` 或 `--workbuddy`。四份内置规范在 `assets/standards/`，安装版升级后，下次读取规范就使用新版本。
-4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。
+4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。测试夹具优先通过应用层入口和只读模板仓库复制构造，减少重复启动 CLI 与 `git init` 子进程。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
 6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、项目规范和任务保留原样。旧版内置规范副本按第 4 节提示迁移。
 7. WorkBuddy 以 `.workbuddy/knit-hook.sh` 或三个项目钩子中任一命令对该脚本的引用识别已启用的桥接。项目已有自定义 `.workbuddy/settings.json` 时，普通安装保留该文件，可从模板合入三个钩子。`--force --workbuddy` 备份后恢复整份模板。Antigravity 执行者可以读取项目的 `.workbuddy/`，该目录受写保护。

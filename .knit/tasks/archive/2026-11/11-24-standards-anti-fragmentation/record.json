@@ -1,0 +1,14 @@
+{
+  "confirmedDigest": "1b4d58beaf7cc2be1d09764104b5be7f473bd341296dddd2c16b51648414f37e",
+  "changedPaths": [
+    ".knit/standards/development.md",
+    ".knit/standards/pitfalls.md",
+    "assets/standards/task-splitting.md",
+    "assets/standards/task-writing.md",
+    "assets/templates/agents/implement.md",
+    "assets/templates/agents/review.md",
+    "docs/design/DESIGN.md"
+  ],
+  "runs": [],
+  "authorization": "授权"
+}
