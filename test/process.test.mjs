@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitSync, parseProcessTablePs, procStartTicks, processTreePids, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
+import { fileURLToPath } from "node:url";
+import { gitSync, parseProcessTablePs, procStartTicks, processTreePids, recordedProcess, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
 
 /** 本机存活检查：权限未知视作仍存活。 */
 function isProcessAlive(pid) {
@@ -99,4 +100,58 @@ test("进程059：ps解析兼容24字符日期、单日空白和多位日，忽�
   assert.deepEqual(table.get(100), { ppid: 1, pgid: 100, startTicks: "Tue Nov  3 10:20:30 2026" });
   assert.equal(table.get(101).startTicks, table.get(100).startTicks);
   assert.equal(table.get(102).startTicks, "Mon Nov 23 10:20:30 2026");
+});
+
+test("recordedProcess：有启动标识时严格核对防 PID 复用，缺失 start 时回退 kill(0)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-recorded-proc-"));
+  try {
+    const file = join(dir, "worker.json");
+    writeFileSync(file, JSON.stringify({ pid: process.pid, start: null }));
+    assert.equal(recordedProcess(file), process.pid);
+    writeFileSync(file, JSON.stringify({ pid: 2147483647, start: null }));
+    assert.equal(recordedProcess(file), null);
+    writeFileSync(file, JSON.stringify({ pid: process.pid, start: "Thu Jan  1 00:00:00 1970|other" }));
+    assert.equal(recordedProcess(file), null, "进程表可用时，不同启动标识仍拒绝复用 PID");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("macOS 沙箱禁止 /bin/ps 时，recordedProcess、processTreePids 与 signalProcessTree 正常判活和终止", { skip: process.platform !== "darwin" }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-ps-sandbox-"));
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  const mod = fileURLToPath(new URL("../dist/infrastructure/process.js", import.meta.url));
+  const nullStart = join(dir, "worker-null.json");
+  const realStart = join(dir, "worker-real.json");
+  writeFileSync(nullStart, JSON.stringify({ pid: child.pid, start: null }));
+  writeFileSync(realStart, JSON.stringify({ pid: child.pid, start: procStartTicks(child.pid) }));
+  try {
+    const probe = spawnSync("sandbox-exec", [
+      "-p", '(version 1)(allow default)(deny process-exec (literal "/bin/ps"))',
+      process.execPath, "--input-type=module", "-e", `
+        import { processTable, processTreePids, recordedProcess, signalProcessTree } from ${JSON.stringify(mod)};
+        const pid = Number(process.argv[1]);
+        const before = {
+          tableSize: processTable().size,
+          nullStart: recordedProcess(process.argv[2]),
+          realStart: recordedProcess(process.argv[3]),
+          tree: processTreePids(pid),
+        };
+        signalProcessTree(pid, "SIGTERM", before.tree);
+        console.log(JSON.stringify(before));
+      `, String(child.pid), nullStart, realStart,
+    ], { encoding: "utf8" });
+    assert.equal(probe.status, 0, probe.stderr);
+    const out = JSON.parse(probe.stdout.trim());
+    assert.equal(out.tableSize, 0);
+    assert.equal(out.nullStart, child.pid);
+    assert.equal(out.realStart, child.pid);
+    assert.deepEqual(out.tree, [child.pid]);
+    await once(child, "exit");
+    assert.equal(recordedProcess(nullStart), null);
+    assert.equal(recordedProcess(realStart), null);
+  } finally {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

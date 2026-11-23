@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { RUNS_DIR, type TaskRun } from "../contracts/task.js";
 import { atomicWrite } from "../infrastructure/atomic.js";
-import { processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
+import { pidAlive, processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
 import { taskRunLockHeld } from "./run-lock.js";
 
 export const PANE_FILE = "pane.json";
@@ -82,6 +82,8 @@ export function aliveAmong(processes: readonly WorkerProcess[]): WorkerProcess[]
   const table = processTable();
   return processes.filter((item) => {
     const current = table.get(item.pid)?.startTicks ?? null;
-    return item.start !== null && current !== null && sameProcessStart(item.start, current);
+    if (item.start !== null && current !== null) return sameProcessStart(item.start, current);
+    if (item.start === null || table.size === 0) return pidAlive(item.pid);
+    return false;
   });
 }

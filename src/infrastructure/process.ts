@@ -44,15 +44,36 @@ export function sameProcessStart(recorded: string, current: string): boolean {
   return false;
 }
 
+/** POSIX kill(pid, 0) 判活：ESRCH 表示不存在；存活或无权限（EPERM）视为仍存活。 */
+export function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 /**
  * `file` 里登记的进程（`{ pid, start }`）还在时返回它的进程号；文件不存在或者进程不在时是 null。
  * 进程号会被别的进程重新用上，启动标识一样才是原来那个。
+ * 仅当启动或核对阶段进程表不可用（例如 macOS 沙箱禁止执行 setuid /bin/ps）导致无法核对启动标识时，
+ * 退回 kill(pid, 0) 判活，避免把仍在运行的后台执行者误判为已退出。
  */
 export function recordedProcess(file: string): number | null {
   if (!existsSync(file)) return null;
   const recorded = JSON.parse(readFileSync(file, "utf8")) as { pid: number; start: string | null };
-  const current = procStartTicks(recorded.pid);
-  return recorded.start !== null && current !== null && sameProcessStart(recorded.start, current) ? recorded.pid : null;
+  if (!Number.isInteger(recorded.pid) || recorded.pid <= 0) return null;
+  const table = processTable();
+  const current = table.get(recorded.pid)?.startTicks ?? null;
+  if (recorded.start !== null && current !== null) {
+    return sameProcessStart(recorded.start, current) ? recorded.pid : null;
+  }
+  if (recorded.start === null || table.size === 0) {
+    return pidAlive(recorded.pid) ? recorded.pid : null;
+  }
+  return null;
 }
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */
@@ -109,7 +130,9 @@ export function processTable(): Map<number, { ppid: number; pgid: number; startT
 /** ps 回退进程表（macOS 等）；固定C语言环境，按字段解析而不假设lstart列宽；comm 放最后一列（可含空格）。 */
 function processTablePs(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
   const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart=,comm="], {
-    encoding: "utf8", env: { ...process.env, LC_ALL: "C" },
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C" },
+    maxBuffer: 16 * 1024 * 1024,
   });
   if (result.status !== 0 || !result.stdout) return new Map();
   return parseProcessTablePs(result.stdout);
@@ -136,9 +159,10 @@ export function parseProcessTablePs(output: string): Map<number, { ppid: number;
   return table;
 }
 
-/** 根进程的完整后代 PID（含根）；只按当前 /proc 快照，不做跨机推断。 */
+/** 根进程的完整后代 PID（含根）；只按当前 /proc 或 ps 快照，进程表不可用时退回根进程本身。 */
 export function processTreePids(rootPid: number): number[] {
   const table = processTable();
+  if (table.size === 0) return pidAlive(rootPid) ? [rootPid] : [];
   if (!table.has(rootPid)) return [];
   const children = new Map<number, number[]>();
   for (const [pid, item] of table) {
@@ -172,6 +196,7 @@ export function signalProcessTree(
     const entry = table.get(pid);
     if (entry !== undefined && entry.pgid > 0) groups.add(entry.pgid);
   }
+  if (table.size === 0 && rootPid > 0) groups.add(rootPid);
   const signaled: number[] = [];
   const errors: string[] = [];
   for (const pgid of groups) {
@@ -184,7 +209,7 @@ export function signalProcessTree(
     }
   }
   for (const pid of knownPids) {
-    if (!table.has(pid)) continue;
+    if (table.size > 0 && !table.has(pid)) continue;
     try {
       process.kill(pid, signal);
       signaled.push(pid);
