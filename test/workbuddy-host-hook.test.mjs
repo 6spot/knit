@@ -37,6 +37,7 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
   const first = hook(start, { env: { ...env, CODEBUDDY_PROJECT_DIR: cwd }, cwd: plain });
   assert.equal(first.hookEventName, "SessionStart");
   assert.match(first.additionalContext, /discussion\.md/);
+  assert.match(first.additionalContext, /原生子 Agent[\s\S]*显式指定外部执行者/);
   assert.match(first.additionalContext, /run_in_background: true[\s\S]*--timeout 60[\s\S]*下一轮/);
   assert.match(first.additionalContext, /dangerouslyDisableSandbox: true/);
   assert.equal(hook(prompt), null);

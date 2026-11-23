@@ -4,9 +4,9 @@ import { checkHostCommand, hostContext } from "../../application/host-hook.js";
 import { shellQuote } from "../../infrastructure/process.js";
 
 const guidance = [
-  "WorkBuddy 主会话通过 Bash 调用 Knit。用 knit context --use <id> 选中任务。knit run start <id> 派发后立即返回，执行者和模型由流程选择，缺省执行者为 pi。",
-  "用 Bash 的 run_in_background: true 运行 knit run wait <id>，等待任务完成通知。沙箱不支持后台等待或无法自动唤醒时，可用 knit run wait <id> --timeout 60 短等，或告知用户已派发，下一轮会自动刷新选中任务的状态。",
-  "knit run start <id> 需要启动独立后台执行进程，请直接传 dangerouslyDisableSandbox: true 在沙箱外执行；若受桌面沙箱或权限限制，可请用户批准本次命令或在终端继续。",
+  "WorkBuddy 是桌面 GUI 主会话宿主，通过 Bash 调用 Knit（knit task / knit context --use <id> / knit task close / knit deliver）。默认直接使用 WorkBuddy 自身工具与原生子 Agent 完成实现和检查，不默认派发外部 CLI。",
+  "仅在用户明确要求或 .knit/workflow.yaml 显式指定外部执行者（pi 或 antigravity）时，才运行 knit run start <id>（需传 dangerouslyDisableSandbox: true 在沙箱外执行，派发后立即返回）。",
+  "派发外部执行者后，用 Bash 的 run_in_background: true 运行 knit run wait <id> 等待完成通知；沙箱不支持后台等待或无法唤醒时，可用 knit run wait <id> --timeout 60 短等，或告知用户已派发，下一轮会自动刷新选中任务的状态。",
 ].join("\n");
 
 function record(value: unknown): Record<string, unknown> | undefined {
