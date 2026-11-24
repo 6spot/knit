@@ -8,6 +8,10 @@ import { project } from "./cli.mjs";
 
 const SYSTEM_TMPDIR = tmpdir();
 const templates = new Map();
+const createdTemplates = [];
+process.once("exit", () => {
+  createdTemplates.forEach((template) => rmSync(template, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+});
 
 /** 在 `dir` 里运行 git，失败就报错；返回去掉首尾空白的输出。 */
 export function git(dir, ...args) {
@@ -39,7 +43,7 @@ export function commitAll(dir, message) {
 export function cachedGitProject(t, key, prepare) {
   if (!templates.has(key)) {
     const template = mkdtempSync(join(SYSTEM_TMPDIR, "knit-git-template-"));
-    process.once("exit", () => rmSync(template, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+    createdTemplates.push(template);
     mkdirSync(join(template, ".knit"));
     git(template, "init", "-q");
     // 提交之后 Git 会在后台整理仓库，测试结束删目录时它可能还在写，删除就会失败。

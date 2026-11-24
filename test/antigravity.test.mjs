@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
@@ -16,7 +17,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { loadBridge } from "./helpers/bridge.mjs";
-import { commitAll, git } from "./helpers/git.mjs";
+import { cachedGitProject, commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
 const isolated = { skip: process.platform !== "darwin" && "需要 macOS sandbox-exec" };
@@ -40,9 +41,28 @@ async function until(predicate) {
   assert.fail("等了 10 秒");
 }
 
+function agyTempDir() {
+  const base = realpathSync.native(tmpdir());
+  // 优先遵循 os.tmpdir()；仅当路径过长可能触及 macOS Unix socket / sandbox 限制时尝试短路径回退。
+  if (base.length <= 80) return mkdtempSync(join(base, "knit-test-agy-"));
+  try {
+    return realpathSync.native(mkdtempSync(join("/tmp", "knit-test-agy-")));
+  } catch {
+    return mkdtempSync(join(base, "knit-test-agy-"));
+  }
+}
+
 function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigravity\n", options = "", stage = "review", extraStages = "", rex = false, failure = false, environment = {} } = {}) {
-  const root = runProject(t);
-  const dir = mkdtempSync("/private/tmp/knit-test-agy-");
+  const report = stage === "review" ? "    report:\n      verdict: [pass, changes_requested, blocked]\n" : "";
+  const workflowText = `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}${tools === null ? "" : `    tools: ${tools}\n`}${report}${extraStages}`;
+  const root = cachedGitProject(t, `agy:${workflowText}`, (template) => {
+    mkdirSync(join(template, ".knit/agents"), { recursive: true });
+    writeFileSync(join(template, ".knit/agents/implement.md"), "你是实现环节的执行者。\n");
+    writeFileSync(join(template, ".knit/agents/review.md"), "你是审查环节的执行者。\n");
+    writeFileSync(join(template, ".knit/workflow.yaml"), workflowText);
+    commitAll(template, "agy workflow");
+  });
+  const dir = agyTempDir();
   const home = join(dir, "home");
   const state = join(home, ".gemini/antigravity-cli");
   const brain = join(state, "brain");
@@ -59,11 +79,7 @@ function fixture(t, { tools = "[read, write, exec]", agent = "    agent: antigra
   }
   const previous = Object.fromEntries([...Object.keys(env), "KNIT_FAKE_AGY", "KNIT_SESSION_AGENT"].map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
-  const report = stage === "review" ? "    report:\n      verdict: [pass, changes_requested, blocked]\n" : "";
-  const configure = () => writeFileSync(join(root, ".knit/workflow.yaml"),
-    `version: 1\nmodel: pi/default\nthinking: off\nstages:\n  - id: ${stage}\n${agent}${options}${tools === null ? "" : `    tools: ${tools}\n`}${report}${extraStages}`);
-  configure();
-  commitAll(root, "agy workflow");
+  const configure = () => writeFileSync(join(root, ".knit/workflow.yaml"), workflowText);
   const task = readyTask(root);
   t.after(async () => {
     const run = existsSync(root) ? lastRun(root, task) : undefined;

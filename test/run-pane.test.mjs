@@ -6,9 +6,19 @@ import { delimiter, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
+import { inspectNativeSessionFile } from "../dist/adapters/pi/native-file.js";
+import { loadConfig } from "../dist/application/config.js";
+import { executeRun } from "../dist/application/run-execute.js";
+import { finishRun } from "../dist/application/run-finish.js";
 import { runInPane } from "../dist/application/run-pane.js";
-import { RUNS_DIR } from "../dist/application/run-prepare.js";
-import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
+import { buildTaskStatus } from "../dist/application/session-context.js";
+import { statusLines } from "../dist/application/session-output.js";
+import { readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
+import { readTask } from "../dist/application/task-store.js";
+import { parseWorkflow } from "../dist/domain/workflow.js";
+import { agents, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));
@@ -74,7 +84,17 @@ async function finished(dir, task, runId) {
   return lastRun(dir, task);
 }
 
-for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected", "fresh", "changed", "standards", "legacy", "other-agent"]) {
+const fallbackReasons = {
+  deleted: /文件不存在/,
+  corrupt: /文件损坏/,
+  truncated: /缺少历史交接/,
+  changed: /摘要已变更/,
+  standards: /适用规范已有更新/,
+  legacy: /没有匹配的可恢复执行/,
+  "other-agent": /没有匹配的可恢复执行/,
+};
+
+for (const mode of ["rpc", "pane", "rejected", "fresh"]) {
   test(`实现经双人审查返工，Pi 会话模式 ${mode}`, async (t) => {
     const root = runProject(t);
     const file = join(root, ".knit/workflow.yaml");
@@ -107,32 +127,11 @@ for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected"
     assert.ok(first.resumeId && existsSync(first.resumeId));
     await dispatch({ texts: ['审查发现问题\n```json\n{"verdict":"changes_requested"}\n```'] });
     const reviews = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8")).runs.slice(-2);
-    if (mode === "rpc" || mode === "standards") {
+    if (mode === "rpc") {
       mkdirSync(join(root, ".knit/standards"), { recursive: true });
-      const stage = mode === "standards" ? "implement" : "review";
-      writeFileSync(join(root, ".knit/standards/pitfalls.md"), `## ${stage}\n\n刚补充的注意事项\n`);
+      writeFileSync(join(root, ".knit/standards/pitfalls.md"), "## review\n\n刚补充的注意事项\n");
     }
     if (mode === "pane") writeFileSync(join(root, ".knit/agents/implement.md"), "你是实现环节的执行者。仅用于全新会话。\n");
-    if (mode === "legacy" || mode === "other-agent") {
-      const path = join(root, task.dir, "record.json");
-      const record = JSON.parse(readFileSync(path, "utf8"));
-      if (mode === "legacy") delete record.runs[0].resumeId;
-      if (mode === "other-agent") record.runs[0].agent = "antigravity";
-      writeFileSync(path, JSON.stringify(record));
-    }
-    if (mode === "deleted") rmSync(first.resumeId);
-    if (mode === "corrupt") writeFileSync(first.resumeId, "broken\n", { flag: "a" });
-    if (mode === "truncated") {
-      const lines = readFileSync(first.resumeId, "utf8").trimEnd().split("\n");
-      const firstMessage = lines.findIndex((line) => JSON.parse(line).type === "message");
-      assert.ok(firstMessage > 1);
-      writeFileSync(first.resumeId, lines.slice(0, firstMessage).join("\n") + "\n");
-    }
-    if (mode === "changed") {
-      const path = join(root, task.dir, "task.md");
-      writeFileSync(path, readFileSync(path, "utf8").replace("加一个问候语。", "修改后的问候语。"));
-      assert.equal(rex.knit("task", "ready", task.id).code, 0);
-    }
     const repair = await dispatch({ rejectResume: mode === "rejected", writes: [{ path: "repair.txt", content: mode }],
       waitFor: ["rpc", "pane", "rejected"].includes(mode) ? join(rex.outside, "finish-repair") : undefined },
       "--instruction", "修复两处边界", ...(mode === "fresh" ? ["--fresh"] : []));
@@ -162,10 +161,131 @@ for (const mode of ["rpc", "pane", "deleted", "corrupt", "truncated", "rejected"
     assert.notEqual(repair.resumeId, first.resumeId);
     assert.ok(args.includes("--append-system-prompt") && !args.includes("--session"));
     assert.equal(message, readFileSync(join(dir, "message.md"), "utf8"));
-    if (mode === "standards") assert.match(readFileSync(join(dir, "system.md"), "utf8"), /刚补充的注意事项/);
-    const reason = { deleted: /文件不存在/, corrupt: /文件损坏/, truncated: /缺少历史交接/, rejected: /启动失败/, fresh: /--fresh/, changed: /摘要已变更/, standards: /适用规范已有更新/, legacy: /没有匹配的可恢复执行/, "other-agent": /没有匹配的可恢复执行/ }[mode];
+    const reason = { rejected: /启动失败/, fresh: /--fresh/ }[mode];
     assert.match(status, reason);
     assert.match(readFileSync(join(dir, "worker.log"), "utf8"), reason);
+  });
+}
+
+for (const mode of Object.keys(fallbackReasons)) {
+  test(`Pi 续聊回退轻测：${mode}`, async (t) => {
+    const root = runProject(t);
+    const workflowFile = join(root, ".knit/workflow.yaml");
+    writeFileSync(workflowFile, readFileSync(workflowFile, "utf8").replace("  - id: implement", "  - id: implement\n    resume: true")
+      .replace("    name: 审查", "    name: 审查\n    executors: [{id: first}, {id: second}]").replace("    tools: [read, write, exec]\n    report:", "    tools: [read]\n    report:"));
+    const workflow = parseWorkflow(readFileSync(workflowFile, "utf8")).workflow;
+    const config = loadConfig(root).config;
+    const task = readyTask(root);
+    const realPi = new PiExecutionAdapter(FAKE_PI);
+
+    const first = prepareRun({ root, taskId: task.id, workflow, config, model: null });
+    assert.deepEqual(first.problems, []);
+    const firstDir = join(root, first.run.dir);
+    const firstSession = join(firstDir, "session", "fake.jsonl");
+    mkdirSync(join(firstDir, "session"), { recursive: true });
+    writeFileSync(firstSession, [
+      { type: "session", version: 3, id: "sess-first", cwd: first.run.worktree.path },
+      { type: "model_change", id: "30caa012", parentId: null, provider: "fake", modelId: "model" },
+      { type: "message", message: { role: "system", content: "", sections: { addendum: `<addendum>\n${readFileSync(join(firstDir, "system.md"), "utf8").trim()}\n</addendum>` } } },
+      { type: "message", message: { role: "user", content: [{ type: "text", text: readFileSync(join(firstDir, "message.md"), "utf8") }] } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "做完了。" }], stopReason: "stop" } },
+    ].map((entry) => `${JSON.stringify(entry)}\n`).join(""));
+    writeFileSync(join(firstDir, "report.md"), "做完了。");
+    assert.deepEqual(finishRun({ root, taskId: task.id, runId: first.run.id, workflow, agents,
+      verdict: null, failure: null, sessionFile: firstSession, resumeId: firstSession }), []);
+
+    const review = prepareRun({ root, taskId: task.id, workflow, config, model: null });
+    assert.deepEqual(review.problems, []);
+    for (const run of review.runs) {
+      writeFileSync(join(root, run.dir, "report.md"), '审查发现问题\n```json\n{"verdict":"changes_requested"}\n```');
+      assert.deepEqual(finishRun({ root, taskId: task.id, runId: run.id, workflow, agents,
+        verdict: "changes_requested", failure: null, sessionFile: null }), []);
+    }
+
+    if (mode === "standards") {
+      mkdirSync(join(root, ".knit/standards"), { recursive: true });
+      writeFileSync(join(root, ".knit/standards/pitfalls.md"), "## implement\n\n刚补充的注意事项\n");
+    }
+    if (mode === "legacy" || mode === "other-agent") {
+      const path = join(root, task.dir, "record.json");
+      const record = JSON.parse(readFileSync(path, "utf8"));
+      if (mode === "legacy") delete record.runs[0].resumeId;
+      if (mode === "other-agent") record.runs[0].agent = "antigravity";
+      writeFileSync(path, JSON.stringify(record));
+    }
+    if (mode === "deleted") {
+      rmSync(firstSession);
+      assert.equal(inspectNativeSessionFile(firstSession).exists, false);
+      assert.match(realPi.checkResume(firstSession, first.run.worktree.path), fallbackReasons.deleted);
+    }
+    if (mode === "corrupt") {
+      writeFileSync(firstSession, "broken\n", { flag: "a" });
+      assert.equal(inspectNativeSessionFile(firstSession).problem, "invalid_entry");
+      assert.match(realPi.checkResume(firstSession, first.run.worktree.path), fallbackReasons.corrupt);
+    }
+    if (mode === "truncated") {
+      const lines = readFileSync(firstSession, "utf8").trimEnd().split("\n");
+      const firstMessage = lines.findIndex((line) => JSON.parse(line).type === "message");
+      assert.ok(firstMessage > 1);
+      writeFileSync(firstSession, `${lines.slice(0, firstMessage).join("\n")}\n`);
+      assert.equal(inspectNativeSessionFile(firstSession).hasConversation, false);
+      assert.match(realPi.checkResume(firstSession, first.run.worktree.path), fallbackReasons.truncated);
+    }
+    if (mode === "changed") {
+      const path = join(root, task.dir, "task.md");
+      writeFileSync(path, readFileSync(path, "utf8").replace("加一个问候语。", "修改后的问候语。"));
+      assert.equal(confirmTask(root, task.id).kind, "ready");
+    }
+
+    const prepared = prepareRun({ root, taskId: task.id, workflow, config, model: null, instruction: "修复两处边界" });
+    assert.deepEqual(prepared.problems, []);
+    const dir = join(root, prepared.run.dir);
+    assert.equal(existsSync(join(dir, "resume-id.txt")), ["deleted", "corrupt", "truncated"].includes(mode));
+
+    const observed = [];
+    const memoryAgents = {
+      ...agents,
+      pi: {
+        ...agents.pi,
+        createAdapter: () => ({
+          checkResume: (resumeId, cwd) => realPi.checkResume(resumeId, cwd),
+          createSession: (launch) => {
+            const freshSession = join(launch.dir, "session", "fresh.jsonl");
+            return {
+              sessionFile: freshSession,
+              resumeId: freshSession,
+              start: async () => null,
+              prompt: async (message) => {
+                observed.push({ resume: launch.resume, message });
+                writeFileSync(join(launch.cwd, "repair.txt"), mode);
+                return { report: "做完了。", failure: null };
+              },
+              stop: async () => {},
+            };
+          },
+          paneCommand: () => null,
+        }),
+      },
+    };
+    assert.deepEqual(await executeRun({ root, taskId: task.id, runId: prepared.run.id, workflow, model: prepared.run.model, agents: memoryAgents }), []);
+
+    const repair = lastRun(root, task);
+    const loaded = readTask(root, task.id);
+    assert.equal(loaded.kind, "loaded");
+    const status = `${statusLines(buildTaskStatus(root, loaded.task.stored.dir, workflow, loaded.task.document, loaded.task.record)).join("\n")}\n`;
+    assert.equal(observed.length, 1);
+    assert.equal(observed[0].resume, undefined);
+    assert.equal(observed[0].message, readFileSync(join(dir, "message.md"), "utf8"));
+    assert.deepEqual(repair.changedPaths, ["repair.txt"]);
+    assert.notEqual(repair.resumeId, firstSession);
+    assert.match(observed[0].message, /修复两处边界/);
+    assert.match(readFileSync(join(dir, "system.md"), "utf8"), /你是实现环节的执行者/);
+    assert.match(readFileSync(join(dir, "message.md"), "utf8"), /<task /);
+    assert.equal(readFileSync(join(dir, "report.md"), "utf8"), "做完了。");
+    assert.ok(status.includes(`会话记录: ${repair.sessionFile}\n`));
+    if (mode === "standards") assert.match(readFileSync(join(dir, "system.md"), "utf8"), /刚补充的注意事项/);
+    assert.match(status, fallbackReasons[mode]);
+    assert.match(readFileSync(join(dir, "worker.log"), "utf8"), fallbackReasons[mode]);
   });
 }
 
