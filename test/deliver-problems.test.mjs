@@ -3,8 +3,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { knit, project } from "./helpers/cli.mjs";
-import { doneTask, gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
+import { doneTask } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -16,7 +16,6 @@ const archived = (task) =>
  */
 function prepared(t, hook) {
   const dir = gitProject(t);
-  gitIdentity(dir);
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src/a.ts"), "a\n");
   writeFileSync(join(dir, "src/c.ts"), "c\n");

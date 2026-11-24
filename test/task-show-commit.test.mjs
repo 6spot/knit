@@ -3,14 +3,13 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { knit, project } from "./helpers/cli.mjs";
-import { doneTask, gitIdentity } from "./helpers/deliver.mjs";
 import { git, gitProject } from "./helpers/git.mjs";
+import { doneTask } from "./helpers/run.mjs";
 
 const commitLines = (shown) => shown.stdout.split("\n").filter((line) => line.startsWith("提交:"));
 
 test("在 Git 仓库里交付过的任务显示提交", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   const task = doneTask(dir);
   const message = join(project(t), "message.txt");
   writeFileSync(message, "feat: 加问候语\n\n说明一行\n");

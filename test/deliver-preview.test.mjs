@@ -7,9 +7,8 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
-import { doneTask } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { agents, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { agents, doneTask, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>

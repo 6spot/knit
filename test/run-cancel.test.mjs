@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "../dist/application/config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
+import { DEFAULT_STOP_GRACE_MS, stopRunProcesses } from "../dist/application/run-process.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
+import { procStartTicks } from "../dist/infrastructure/process.js";
 import { knit } from "./helpers/cli.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
@@ -142,9 +144,12 @@ test("执行者不理会 SIGTERM 时等到它被结束", async (t) => {
   await waitUntil(() => existsSync(join(worktreeOf(dir, task), "src/a.ts")), "假 Pi 写出 src/a.ts");
   assert.equal(processesOf(run.id).length, 2);
 
-  const cancelled = knit(dir, "run", "cancel", task.id);
+  const cancelled = spawnSync(process.execPath, [CLI, "run", "cancel", task.id, "--dir", dir], {
+    encoding: "utf8",
+    env: { ...process.env, KNIT_STOP_GRACE_MS: "200" },
+  });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelled.status, 0, cancelled.stderr);
   assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${run.id}\n改动文件: 1 个\n`);
   const ended = lastRun(dir, task);
   assert.deepEqual(
@@ -195,4 +200,41 @@ test("没有正在跑的执行时说明", (t) => {
     assert.equal(refused.stderr, `任务 ${task.id} 没有正在跑的执行\n`);
     assert.equal(recordOf(dir, task), before);
   }
+});
+
+test("stopRunProcesses 默认宽限期保持 5000ms，支持传入短宽限期先 SIGTERM 后 SIGKILL", async (t) => {
+  assert.equal(DEFAULT_STOP_GRACE_MS, 5000);
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const run = prepare(dir, task);
+  const outside = mkdtempSync(join(tmpdir(), "knit-stubborn-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  const ready = join(outside, "ready");
+  const sigterm = join(outside, "sigterm");
+  const worker = spawn(
+    process.execPath,
+    ["-e", `const fs=require('node:fs');process.on('SIGTERM',()=>fs.writeFileSync(${JSON.stringify(sigterm)},'1'));fs.writeFileSync(${JSON.stringify(ready)},'1');setInterval(()=>{},1000);`],
+    { detached: true, stdio: "ignore" },
+  );
+  const exited = new Promise((resolve) => worker.once("exit", (code, signal) => resolve({ code, signal })));
+  worker.unref();
+  t.after(() => {
+    try {
+      process.kill(-worker.pid, "SIGKILL");
+    } catch {
+      // 已退出。
+    }
+  });
+  await waitUntil(() => existsSync(ready), "顽固后台进程就绪");
+  writeFileSync(join(dir, RUNS_DIR, run.id, "worker.json"), JSON.stringify({ pid: worker.pid, start: procStartTicks(worker.pid) }));
+
+  const before = Date.now();
+  await stopRunProcesses(dir, run.id, 150);
+  const elapsed = Date.now() - before;
+  const exit = await exited;
+
+  assert.equal(existsSync(sigterm), true);
+  assert.equal(exit.signal, "SIGKILL");
+  assert.equal(alive(worker.pid), false);
+  assert.ok(elapsed >= 130 && elapsed < 2000, `宽限期未按预期生效：${elapsed}ms`);
 });

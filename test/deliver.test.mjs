@@ -4,8 +4,7 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 import { parseTaskDocument } from "../dist/domain/task-document.js";
 import { knit, project } from "./helpers/cli.mjs";
-import { doneTask } from "./helpers/deliver.mjs";
-import { readyTask } from "./helpers/run.mjs";
+import { doneTask, readyTask } from "./helpers/run.mjs";
 
 const AUTHORIZATION = "交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的\n";
 const now = new Date();

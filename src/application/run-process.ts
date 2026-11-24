@@ -8,6 +8,15 @@ import { pidAlive, processTable, processTreePids, procStartTicks, recordedProces
 import { taskRunLockHeld } from "./run-lock.js";
 
 export const PANE_FILE = "pane.json";
+export const DEFAULT_STOP_GRACE_MS = 5000;
+
+function stopGraceMs(graceMs?: number): number {
+  if (graceMs !== undefined) return graceMs;
+  const configured = process.env.KNIT_STOP_GRACE_MS;
+  return configured !== undefined && /^[1-9]\d*$/.test(configured) && Number.isSafeInteger(Number(configured))
+    ? Number(configured)
+    : DEFAULT_STOP_GRACE_MS;
+}
 
 /** 一个进程：进程号会被别的进程重新用上，启动标识一样才是原来那个。 */
 export interface WorkerProcess {
@@ -42,9 +51,9 @@ function processChains(roots: readonly (number | null)[]): WorkerProcess[] {
 }
 
 /** Rex 关闭窗格时，进程可能仍在退出。 */
-export async function stopPaneProcesses(dir: string): Promise<void> {
+export async function stopPaneProcesses(dir: string, graceMs?: number): Promise<void> {
   const pane = recordedProcess(join(dir, PANE_FILE));
-  if (pane !== null) await stopProcesses(processChains([pane]));
+  if (pane !== null) await stopProcesses(processChains([pane]), graceMs);
 }
 
 /** 窗格客户端先登记再核对后台进程，取消期间晚启动的客户端不再发送消息。 */
@@ -54,26 +63,27 @@ export function registerPane(dir: string): boolean {
 }
 
 /** 等执行者及其后代全部停止；之后才能拍结算快照。 */
-export async function stopRunProcesses(root: string, runId: string): Promise<void> {
-  await stopProcesses(workerProcesses(root, runId));
+export async function stopRunProcesses(root: string, runId: string, graceMs?: number): Promise<void> {
+  await stopProcesses(workerProcesses(root, runId), graceMs);
   // 窗格客户端可能在后台退出期间才登记，再找一次。
-  await stopProcesses(workerProcesses(root, runId));
+  await stopProcesses(workerProcesses(root, runId), graceMs);
 }
 
-async function stopProcesses(chain: readonly WorkerProcess[]): Promise<void> {
+async function stopProcesses(chain: readonly WorkerProcess[], graceMs?: number): Promise<void> {
   if (chain[0] === undefined) return;
+  const waitMs = stopGraceMs(graceMs);
   signalProcessTree(chain[0].pid, "SIGTERM", chain.map((item) => item.pid));
-  const stubborn = await stillAlive(chain, Date.now() + 5000);
+  const stubborn = await stillAlive(chain, Date.now() + waitMs);
   if (stubborn[0] === undefined) return;
   signalProcessTree(stubborn[0].pid, "SIGKILL", stubborn.map((item) => item.pid));
   // 保留原有规则：等到上限仍然结算，不让任务永久卡在执行中。
-  await stillAlive(stubborn, Date.now() + 5000);
+  await stillAlive(stubborn, Date.now() + waitMs);
 }
 
 async function stillAlive(processes: readonly WorkerProcess[], deadline: number): Promise<WorkerProcess[]> {
   const alive = aliveAmong(processes);
   if (alive.length === 0 || Date.now() >= deadline) return alive;
-  await sleep(100);
+  await sleep(Math.min(50, Math.max(1, deadline - Date.now())));
   return stillAlive(alive, deadline);
 }
 

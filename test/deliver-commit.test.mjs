@@ -3,9 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { knit, project } from "./helpers/cli.mjs";
-import { doneTask, gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { readyTask } from "./helpers/run.mjs";
+import { doneTask, readyTask } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -22,7 +21,6 @@ function messageFile(t, text) {
 
 [false, true].forEach((autoMerge) => test(`没有 Worktree 时只在当前分支提交这个任务的文件（autoMerge=${autoMerge}）`, (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   writeFileSync(join(dir, ".knit/config.json"), JSON.stringify({ worktree: { autoMerge } }));
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src/a.ts"), "a\n");
@@ -59,7 +57,6 @@ function messageFile(t, text) {
 
 test("用 git mv 移动过的文件", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   mkdirSync(join(dir, "d"));
   writeFileSync(join(dir, "d/a.md"), "a\n");
   const task = readyTask(dir, { verification: "self" });
@@ -86,7 +83,6 @@ test("用 git mv 移动过的文件", (t) => {
 
 test("用 git rm 删除的文件", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   mkdirSync(join(dir, "d"));
   writeFileSync(join(dir, "d/a.md"), "a\n");
   const task = readyTask(dir, { verification: "self" });
@@ -110,7 +106,6 @@ test("用 git rm 删除的文件", (t) => {
 
 test("别的已经暂存的文件不受影响", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   mkdirSync(join(dir, "d"));
   writeFileSync(join(dir, "d/a.md"), "a\n");
   writeFileSync(join(dir, "other.txt"), "other\n");
@@ -137,7 +132,6 @@ test("别的已经暂存的文件不受影响", (t) => {
 
 test("没有提交文案时拒绝", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   const task = doneTask(dir);
   const stateOf = () => [
     git(dir, "rev-parse", "HEAD"),
@@ -167,7 +161,6 @@ test("没有提交文案时拒绝", (t) => {
 
 test("没有要提交的文件时不提交", (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   writeFileSync(join(dir, ".gitignore"), "/.knit/\n");
   commitAll(dir, "ignore");
   const task = doneTask(dir);

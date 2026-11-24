@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit } from "./helpers/cli.mjs";
-import { doneTask } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
+import { doneTask } from "./helpers/run.mjs";
 
 const text = (result) => result.content[0].text;
 const failed = (message) => ({ content: [{ type: "text", text: message }], details: undefined, isError: true });

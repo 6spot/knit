@@ -271,3 +271,30 @@ test("执行在读完记录之后、看后台进程之前正常结束", async (t
   assert.deepEqual(output, { stdout: knit(dir, "run", "status", task.id).stdout, stderr: "", code: 0 });
   assert.match(output.stdout, /^结果: 正常结束$/m);
 });
+
+test("快速结束的执行不再整秒空等，且支持显式 pollMs 与超时语义", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const workflow = parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
+  const input = { root, taskId: task.id, workflow, config: loadConfig(root).config, model: null };
+  const prepared = prepareRun(input);
+  assert.deepEqual(prepared.problems, []);
+  writeFileSync(join(root, prepared.run.dir, "worker.json"), JSON.stringify({ pid: process.pid, start: procStartTicks(process.pid) }));
+
+  const timedOutBefore = Date.now();
+  const timedOut = await waitRun(root, task.id, undefined, timedOutBefore + 120, { pollMs: 25 });
+  const timedOutMs = Date.now() - timedOutBefore;
+  assert.equal(timedOut.timedOut, true);
+  assert.ok(timedOutMs >= 110 && timedOutMs < 600, `超时耗时异常：${timedOutMs}ms`);
+
+  const quickBefore = Date.now();
+  const waiting = waitRun(root, task.id);
+  setTimeout(() => {
+    assert.deepEqual(finishRun({ ...input, agents, runId: prepared.run.id, verdict: null, failure: null, sessionFile: null }), []);
+  }, 60);
+  const waited = await waiting;
+  const quickMs = Date.now() - quickBefore;
+  assert.equal(waited.timedOut, undefined);
+  assert.equal(waited.task.record.runs.at(-1).endedAt !== null, true);
+  assert.ok(quickMs < 500, `短执行不应整秒空等：${quickMs}ms`);
+});

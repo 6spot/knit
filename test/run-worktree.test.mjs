@@ -12,8 +12,7 @@ import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { agents, readyTask, runProject } from "./helpers/run.mjs";
-import { nodeCommand, setupConfig } from "./helpers/setup.mjs";
+import { agents, nodeCommand, readyTask, runProject, setupConfig } from "./helpers/run.mjs";
 
 const workflowOf = (root) => parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")).workflow;
 const expectedWorktree = (root, task) => join(process.env.KNIT_HOME, "worktrees",

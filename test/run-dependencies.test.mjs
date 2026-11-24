@@ -8,7 +8,6 @@ import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { archiveDirOf } from "../dist/application/task-store.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
-import { gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
@@ -92,7 +91,6 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
 
 [false, true].forEach((ignored) => test(`依赖真实交付但未合并时拒绝，合并后 Worktree 拿到代码（任务目录${ignored ? "被忽略" : "未入库"}）`, (t) => {
   const root = runProject(t);
-  gitIdentity(root);
   writeFileSync(join(root, ".gitignore"), `.knit/.runtime/\n${ignored ? ".knit/tasks/\n" : ""}`);
   commitAll(root, "ignore runtime and optional task files");
   const dependency = readyTask(root, { verification: "self" });
@@ -147,7 +145,6 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
 
 test("主会话直接完成不检查依赖，直接交付且归档的依赖可以派发", (t) => {
   const root = runProject(t);
-  gitIdentity(root);
   writeFileSync(join(root, ".gitignore"), ".knit/.runtime/\n");
   commitAll(root, "ignore runtime");
   const unfinished = readyTask(root);

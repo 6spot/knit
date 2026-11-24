@@ -60,27 +60,41 @@ interface RunTaskResult {
   readonly problems: readonly string[];
 }
 
-/** 每次轮询沿用原批次和截止时间。没有截止时间时等到结束或进程消失。 */
-export async function waitRun(root: string, taskId: string, batchId?: string, deadline?: number): Promise<RunTaskResult & {
+const WAIT_POLL_MS = [50, 100, 200, 500, 1000] as const;
+
+type WaitRunResult = RunTaskResult & {
   readonly timedOut?: boolean;
   readonly workflow: WorkflowDefinition | null;
   readonly batchId?: string;
-}> {
-  const loaded = readRunTask(root, taskId);
-  if (loaded.task === null) return { ...loaded, workflow: null };
-  const workflow = readWorkflow(root);
-  if (workflow.workflow === null) return { task: null, ...workflow };
-  const running = loaded.task.record.runs.filter((run) => run.endedAt === null &&
-    (batchId === undefined || run.batchId === batchId));
-  const watched = { workflow: workflow.workflow, batchId: batchId ?? running[0]?.batchId };
-  if (!running.length) return { ...loaded, ...watched };
-  if (running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null)) {
-    return { ...readRunTask(root, taskId), ...watched };
-  }
-  const remaining = deadline === undefined ? Infinity : deadline - Date.now();
-  if (remaining <= 0) return { ...loaded, ...watched, timedOut: true };
-  await sleep(Math.min(1000, remaining));
-  return waitRun(root, taskId, watched.batchId, deadline);
+};
+
+/** 每次轮询沿用原批次和截止时间。没有截止时间时等到结束或进程消失。 */
+export async function waitRun(
+  root: string,
+  taskId: string,
+  batchId?: string,
+  deadline?: number,
+  options?: { readonly pollMs?: number },
+): Promise<WaitRunResult> {
+  const poll = async (watchedBatch: string | undefined, attempt: number): Promise<WaitRunResult> => {
+    const loaded = readRunTask(root, taskId);
+    if (loaded.task === null) return { ...loaded, workflow: null };
+    const workflow = readWorkflow(root);
+    if (workflow.workflow === null) return { task: null, ...workflow };
+    const running = loaded.task.record.runs.filter((run) => run.endedAt === null &&
+      (watchedBatch === undefined || run.batchId === watchedBatch));
+    const watched = { workflow: workflow.workflow, batchId: watchedBatch ?? running[0]?.batchId };
+    if (!running.length) return { ...loaded, ...watched };
+    if (running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null)) {
+      return { ...readRunTask(root, taskId), ...watched };
+    }
+    const remaining = deadline === undefined ? Infinity : deadline - Date.now();
+    if (remaining <= 0) return { ...loaded, ...watched, timedOut: true };
+    const interval = options?.pollMs ?? WAIT_POLL_MS[Math.min(attempt, WAIT_POLL_MS.length - 1)]!;
+    await sleep(Math.min(interval, remaining));
+    return poll(watched.batchId, attempt + 1);
+  };
+  return poll(batchId, 0);
 }
 
 export async function cancelRun(input: {
@@ -89,6 +103,7 @@ export async function cancelRun(input: {
   readonly taskId: string;
   readonly workflow: WorkflowDefinition;
   readonly runId?: string;
+  readonly graceMs?: number;
 }) {
   const loaded = readRunTask(input.root, input.taskId);
   if (loaded.task === null) return { cancelled: null, problems: loaded.problems };
@@ -97,7 +112,7 @@ export async function cancelRun(input: {
   while (running.some((run) => startingWorker(input.root, input.taskId, run))) await sleep(100);
   const results = await Promise.all(running.map(async (run) => {
     const workerMissing = liveWorker(input.root, run.id) === null;
-    await stopRunProcesses(input.root, run.id);
+    await stopRunProcesses(input.root, run.id, input.graceMs);
     const problems = finishRun({ ...input, runId: run.id, verdict: null,
       failure: workerMissing ? "执行进程意外退出" : "已取消", sessionFile: null });
     const ended = findTask(input.root, input.taskId)?.record?.runs.find((item) => item.id === run.id);

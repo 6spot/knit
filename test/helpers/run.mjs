@@ -4,10 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { builtinAgents } from "../../dist/adapters/agents.js";
 import { PiExecutionAdapter } from "../../dist/adapters/pi/execution.js";
+import { closeTask, readyTask } from "../../dist/application/task-lifecycle.js";
+import { createTask } from "../../dist/application/task-store.js";
 import { taskWorktree } from "../../dist/application/worktree.js";
 import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task-document.js";
-import { knit } from "./cli.mjs";
-import { commitAll, gitProject } from "./git.mjs";
+import { cachedGitProject, commitAll, git } from "./git.mjs";
 
 export const agents = {
   ...builtinAgents,
@@ -51,18 +52,18 @@ const REQUIREMENT = [
 
 /** 临时仓库：有实现、审查两个环节的流程和两份角色文件，都已提交；没有 .knit/config.json。 */
 export function runProject(t) {
-  const dir = gitProject(t);
-  const files = {
-    ".knit/workflow.yaml": WORKFLOW,
-    ".knit/agents/implement.md": "你是实现环节的执行者。\n",
-    ".knit/agents/review.md": "你是审查环节的执行者。\n",
-  };
-  for (const [path, text] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), text);
-  }
-  commitAll(dir, "workflow");
-  return dir;
+  return cachedGitProject(t, "run", (dir) => {
+    const files = {
+      ".knit/workflow.yaml": WORKFLOW,
+      ".knit/agents/implement.md": "你是实现环节的执行者。\n",
+      ".knit/agents/review.md": "你是审查环节的执行者。\n",
+    };
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), text);
+    }
+    commitAll(dir, "workflow");
+  });
 }
 
 export const worktreeOf = (root, task) => taskWorktree(root, task.dir).path;
@@ -72,23 +73,42 @@ export const worktreeLine = (root, task) => {
 };
 
 /** 建一个任务，写上带一个场景的需求并确认；返回任务的 id 和目录（相对项目根）。 */
-export function readyTask(dir, { verification = "independent", dependsOn = [] } = {}) {
-  const created = knit(
-    dir,
-    "task",
-    "new",
-    "--title",
-    "加问候语",
-    "--verification",
+function makeReadyTask(dir, { verification = "independent", dependsOn = [] } = {}) {
+  const created = createTask(dir, {
+    title: "加问候语",
+    slug: "task",
     verification,
-    ...(dependsOn.length > 0 ? ["--depends-on", ...dependsOn] : []),
-  );
-  assert.equal(created.code, 0, created.stderr);
-  const [first, file] = created.stdout.split("\n");
-  const id = first.replace("已创建 ", "");
+    priority: "P2",
+    parent: null,
+    dependsOn,
+  });
+  assert.deepEqual(created.problems, []);
+  const { id, file } = created.created;
   const { document } = parseTaskDocument(readFileSync(join(dir, file), "utf8"));
   writeFileSync(join(dir, file), renderTaskDocument({ ...document, requirement: REQUIREMENT }));
-  const ready = knit(dir, "task", "ready", id);
-  assert.equal(ready.code, 0, ready.stderr);
+  const ready = readyTask(dir, id);
+  assert.equal(ready.kind, "ready", JSON.stringify(ready));
   return { id, dir: dirname(file) };
 }
+
+export { makeReadyTask as readyTask };
+
+/** 建一个任务、确认，再记为完成（`paths` 是主会话登记的改动）；返回任务的 id 和目录。 */
+export function doneTask(dir, paths = []) {
+  const task = makeReadyTask(dir, { verification: "self" });
+  const closed = closeTask(dir, task.id, { result: "做完了", paths });
+  assert.deepEqual(closed, { kind: "done" });
+  return task;
+}
+
+/** 让临时仓库里的提交不依赖机器上的 Git 配置：身份、签名和 hook 的位置都写在仓库自己的配置里。 */
+export function gitIdentity(dir) {
+  git(dir, "config", "user.name", "knit");
+  git(dir, "config", "user.email", "knit@example.invalid");
+  git(dir, "config", "commit.gpgsign", "false");
+  git(dir, "config", "core.hooksPath", ".git/hooks");
+}
+
+// 测试源码只用单引号字面量；外层双引号同时适用于系统的 POSIX shell 和 cmd.exe。
+export const nodeCommand = (source) => `"${process.execPath}" -e "${source}"`;
+export const setupConfig = (root, commands) => writeFileSync(join(root, ".knit/config.json"), JSON.stringify({ worktree: { setup: commands } }));

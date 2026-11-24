@@ -11,7 +11,6 @@ import { archiveDirOf } from "../dist/application/task-store.js";
 import { taskWorktree } from "../dist/application/worktree.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
-import { gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
@@ -22,7 +21,6 @@ const crossDeviceSkip = crossDeviceDir === undefined || statSync(crossDeviceDir)
 
 function completed(t, tracked = false, ignored = false, crossDeviceDir = null, baseContent = null) {
   const root = runProject(t);
-  gitIdentity(root);
   if (baseContent !== null) {
     mkdirSync(join(root, "src"));
     writeFileSync(join(root, "src/a.txt"), baseContent);

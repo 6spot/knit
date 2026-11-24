@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { loadBridge } from "./helpers/bridge.mjs";
-import { doneTask, gitIdentity } from "./helpers/deliver.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
+import { doneTask } from "./helpers/run.mjs";
 
 const now = new Date();
 const archived = (task) =>
@@ -82,7 +82,6 @@ test("找不到原话时不交付", async (t) => {
 
 test("在 Git 仓库里带提交文案交付", async (t) => {
   const dir = gitProject(t);
-  gitIdentity(dir);
   const bridge = await loadBridge(t, dir);
   const task = doneTask(dir);
   commitAll(dir, "task");

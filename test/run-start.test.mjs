@@ -9,9 +9,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { RUNS_DIR } from "../dist/application/run-prepare.js";
 import { knit } from "./helpers/cli.mjs";
-import { readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { nodeCommand, readyTask, runProject, setupConfig, worktreeLine, worktreeOf } from "./helpers/run.mjs";
 import { git } from "./helpers/git.mjs";
-import { nodeCommand, setupConfig } from "./helpers/setup.mjs";
 
 const CLI = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const FAKE_PI = fileURLToPath(new URL("./helpers/fake-pi.mjs", import.meta.url));

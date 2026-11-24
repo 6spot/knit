@@ -1,0 +1,67 @@
+{
+  "confirmedDigest": "dddf2c43dc3898f49cfc66f5a8ce95ed5835b72f4b13877e5a5dfab3cc3c3b38",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-0257663be3ae",
+      "stage": "implement",
+      "agent": "antigravity",
+      "startedAt": "2026-11-23T23:36:04.417Z",
+      "endedAt": "2026-11-23T23:46:51.881Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "ec34f632f9221f4e87a1d1b9410f60a54a04dda442b6241043b26a253d36bde7",
+      "changedPaths": [
+        "src/application/run-control.ts",
+        "src/application/run-process.ts",
+        "test/application-use-cases.test.mjs",
+        "test/bridge-deliver-preview.test.mjs",
+        "test/bridge-deliver.test.mjs",
+        "test/deliver-commit.test.mjs",
+        "test/deliver-preview.test.mjs",
+        "test/deliver-problems.test.mjs",
+        "test/deliver-worktree.test.mjs",
+        "test/deliver.test.mjs",
+        "test/helpers/deliver.mjs",
+        "test/helpers/git.mjs",
+        "test/helpers/run.mjs",
+        "test/helpers/setup.mjs",
+        "test/run-cancel.test.mjs",
+        "test/run-dependencies.test.mjs",
+        "test/run-start.test.mjs",
+        "test/run-wait.test.mjs",
+        "test/run-worktree.test.mjs",
+        "test/task-show-commit.test.mjs"
+      ],
+      "sessionFile": "/Users/me/.gemini/antigravity-cli/brain/e1067036-225c-4138-8928-699f5b006f81/.system_generated/logs/transcript_full.jsonl",
+      "resumeId": "e1067036-225c-4138-8928-699f5b006f81"
+    },
+    {
+      "id": "r-c87474abb423",
+      "stage": "implement",
+      "agent": "antigravity",
+      "startedAt": "2026-11-23T23:48:00.482Z",
+      "endedAt": "2026-11-23T23:49:49.803Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "dddf2c43dc3898f49cfc66f5a8ce95ed5835b72f4b13877e5a5dfab3cc3c3b38",
+      "changedPaths": [],
+      "sessionFile": "/Users/me/.gemini/antigravity-cli/brain/97e40e09-6906-48a2-bb9a-608be08d930d/.system_generated/logs/transcript_full.jsonl",
+      "resumeId": "97e40e09-6906-48a2-bb9a-608be08d930d"
+    },
+    {
+      "id": "r-3a17ef7d29cf",
+      "stage": "review",
+      "agent": "antigravity",
+      "startedAt": "2026-11-23T23:50:01.249Z",
+      "endedAt": "2026-11-23T23:55:16.200Z",
+      "verdict": "pass",
+      "failure": null,
+      "requirementDigest": "dddf2c43dc3898f49cfc66f5a8ce95ed5835b72f4b13877e5a5dfab3cc3c3b38",
+      "changedPaths": [],
+      "sessionFile": "/Users/me/.gemini/antigravity-cli/brain/b31c2f4b-403f-4d96-a577-447f5b660e7f/.system_generated/logs/transcript_full.jsonl",
+      "resumeId": "b31c2f4b-403f-4d96-a577-447f5b660e7f"
+    }
+  ],
+  "authorization": "交付"
+}

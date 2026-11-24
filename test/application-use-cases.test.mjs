@@ -8,7 +8,6 @@ import { cancelTask, closeTask, readyTask } from "../dist/application/task-lifec
 import { createTask, findTask } from "../dist/application/task-store.js";
 import { ensureWorktree, taskWorktree } from "../dist/application/worktree.js";
 import { project } from "./helpers/cli.mjs";
-import { gitIdentity } from "./helpers/deliver.mjs";
 import { git } from "./helpers/git.mjs";
 import { runProject } from "./helpers/run.mjs";
 
@@ -20,7 +19,6 @@ function draft(root) {
 
 test("应用层确认、完成并交付主检出任务，Git 拒绝时恢复原记录且可以重试", (t) => {
   const root = runProject(t);
-  gitIdentity(root);
   const id = draft(root);
   assert.deepEqual(readyTask(root, id), { kind: "ready", scenarios: 0, assumed: 0 });
   assert.deepEqual(readyTask(root, id), { kind: "alreadyReady" });
