@@ -97,7 +97,7 @@ async function completed(t, tracked = false, ignored = false, device = null, bas
   t.after(() => rmSync(root, { recursive: true, force: true }));
   cpSync(template.root, root, { recursive: true });
   if (device !== null) {
-    const home = mkdtempSync(join(device, "knit-test-home-"));
+    const home = mkdtempSync(join(device, "knit-test home's-"));
     const previous = process.env.KNIT_HOME;
     process.env.KNIT_HOME = home;
     t.after(() => { process.env.KNIT_HOME = previous; rmSync(home, { recursive: true, force: true }); });
@@ -298,8 +298,8 @@ test("autoMerge 配置不是布尔值时在归档之前拒绝", async (t) => {
   assert.deepEqual([mainIdentity(root), taskFiles(root, task), git(worktree.path, "status", "--porcelain")], before);
 });
 
-test("显式关闭 autoMerge 时预览和交付沿用原文", async (t) => {
-  const { root, task, worktree, archive, cli } = await completed(t);
+test("显式关闭 autoMerge 时交付给出可以执行的合并和清理命令", async (t) => {
+  const { root, task, worktree, archive, cli } = await completed(t, false, false, tmpdir());
   autoMergeConfig(root, false);
   const before = mainIdentity(root);
   const preview = await cli("--preview");
@@ -307,8 +307,24 @@ test("显式关闭 autoMerge 时预览和交付沿用原文", async (t) => {
   assert.match(preview.stdout, /^提交在任务分支上，不会合并进主检出的分支$/m);
   const delivered = await cli();
   assert.equal(delivered.code, 0, delivered.stderr);
-  assert.equal(delivered.stdout, `已交付 ${task.id}\n归档: ${join(worktree.path, archive)}\n提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\nWorktree: ${worktree.path}（${worktree.branch}）\n这个提交还没有合并进主检出的分支\n`);
+  const lines = delivered.stdout.trimEnd().split("\n");
+  const hintPrefix = "在主检出运行 ";
+  const command = `git merge --no-edit '${worktree.branch}' && git worktree remove '${worktree.path.replace("test home's-", "test home'\\''s-")}' && git branch -d '${worktree.branch}'`;
+  assert.deepEqual(lines, [
+    `已交付 ${task.id}`,
+    `归档: ${join(worktree.path, archive)}`,
+    `提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}`,
+    `Worktree: ${worktree.path}（${worktree.branch}）`,
+    "这个提交还没有合并进主检出的分支",
+    `${hintPrefix}${command}`,
+  ]);
   assert.deepEqual(mainIdentity(root), before);
+  assert.ok(git(root, "worktree", "list", "--porcelain").includes(`branch refs/heads/${worktree.branch}`));
+
+  await exec("sh", ["-c", lines.at(-1).slice(hintPrefix.length)], { cwd: root });
+  assert.equal(readFileSync(join(root, "src/a.txt"), "utf8"), "worker result\n");
+  assert.equal(existsSync(worktree.path), false);
+  assert.equal(git(root, "branch", "--list", worktree.branch), "");
 });
 
 function newTask(root, options) {
@@ -430,10 +446,15 @@ describe("独立仓库中的归档查询与交付", { concurrency: 3 }, () => {
     assert.equal(existsSync(join(root, task.dir)), false);
     assert.match(readFileSync(join(worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
     assert.equal(JSON.parse(readFileSync(join(worktree.path, archive, "record.json"), "utf8")).authorization, "user:delivery");
-    assert.ok(delivered.stdout.includes(`归档: ${join(worktree.path, archive)}\n`), delivered.stdout);
-    assert.ok(delivered.stdout.includes(`提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\n`), delivered.stdout);
-    assert.ok(delivered.stdout.includes(`Worktree: ${worktree.path}（${worktree.branch}）\n`), delivered.stdout);
-    assert.equal(delivered.stdout, `已交付 ${task.id}\n归档: ${join(worktree.path, archive)}\n提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}\nWorktree: ${worktree.path}（${worktree.branch}）\n这个提交还没有合并进主检出的分支\n`);
+    assert.equal(delivered.stdout, [
+      `已交付 ${task.id}`,
+      `归档: ${join(worktree.path, archive)}`,
+      `提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}`,
+      `Worktree: ${worktree.path}（${worktree.branch}）`,
+      "这个提交还没有合并进主检出的分支",
+      `在主检出运行 git merge --no-edit '${worktree.branch}' && git worktree remove '${worktree.path}' && git branch -d '${worktree.branch}'`,
+      "",
+    ].join("\n"));
     assert.ok(git(root, "worktree", "list", "--porcelain").includes(`branch refs/heads/${worktree.branch}`));
   });
 });

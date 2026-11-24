@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { Command } from "commander";
 import { deliverTask, type DeliveryOptions, type DeliveryPreview, type DeliveryResult } from "../application/delivery.js";
+import { shellQuote } from "../infrastructure/process.js";
 import { fail, integrationLines, knitRoot } from "./shared.js";
 
 const indented = (text: string) => text.split("\n").map((line) => (line === "" ? "" : `  ${line}`));
@@ -67,7 +68,10 @@ function deliveredLines(root: string, id: string, result: Extract<DeliveryResult
     `提交: ${commit === null ? "这个项目不在 Git 仓库里，没有提交" : commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}`,
     ...(worktree === null ? [] : [
       `Worktree: ${worktree.path}（${worktree.branch}）`,
-      ...(commit?.kind === "committed" && integration === null ? ["这个提交还没有合并进主检出的分支"] : []),
+      ...(commit?.kind === "committed" && integration === null ? [
+        "这个提交还没有合并进主检出的分支",
+        `在主检出运行 git merge --no-edit ${shellQuote(worktree.branch)} && git worktree remove ${shellQuote(worktree.path)} && git branch -d ${shellQuote(worktree.branch)}`,
+      ] : []),
     ]),
     ...(commit?.kind === "committed" && commit.extra.length + commit.missing.length > 0
       ? [
