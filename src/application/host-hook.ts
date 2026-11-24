@@ -6,7 +6,6 @@ import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { withFileLock } from "../infrastructure/process.js";
 import { buildSessionContext, contextLines } from "./session-context.js";
-import { workGuidance } from "./work-choice.js";
 import { readTask } from "./task-store.js";
 
 export { checkHostCommand } from "./host-command.js";
@@ -80,7 +79,7 @@ function sessionText(root: string, taskId: string | null): string {
     return [...lines, `选中的 Knit 任务 ${taskId} 读不出来`, ...context.problems].join("\n");
   }
   const lines = contextLines(context);
-  if (taskId === null) lines.push(`没有选中 Knit 任务。${workGuidance} 用 knit task list 查看任务，用 knit context --use <id> 选中任务。`);
+  if (taskId === null) lines.push("没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。");
   return lines.join("\n");
 }
 

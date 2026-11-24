@@ -42,7 +42,7 @@ npm install /path/to/knit-0.1.0.tgz
 1. 在项目里运行 `knit init` 生成核心文件。首次启用主会话桥接时，按客户端运行 `knit init --pi`、`knit init --agy` 或 `knit init --workbuddy`。选项可以组合。
 2. 在 `.knit/workflow.yaml` 的环节用 `agent` 指定执行者。Pi 的 `model` 写成 `provider/模型`，`thinking` 可取 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。派发时分别取命令行覆盖、环节或执行器、流程顶层、主会话中首个有值的设置。Antigravity 使用自己的模型 ID，模型及思考等级取命令行覆盖或环节、执行器配置，缺省时由 `agy` 决定。
 3. `knit workflow validate`：校验流程文件，有问题时逐条给出行号。
-4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity 和 WorkBuddy 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。用户明确要求建任务时，主会话创建草稿、把已讨论清楚的需求写进 `task.md`，并在当轮回复给出标题、编号、链接、草稿状态及是否已选中。新建草稿保留当前选择，确认需求和开始实施按讨论规范处理。
+4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity 和 WorkBuddy 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。什么时候建任务、怎么确认需求和开始实施，按内置讨论规范处理。新建的任务是草稿，不改变当前选择。
 
 讨论、任务编写、任务拆分和交付四份规范由当前 Knit 安装包提供，升级即可生效。`knit standards list` 列出 `knit:standards/` 标识的内置规范，以及 `.knit/standards/` 下的项目规范。旧版 `init` 生成的同名文件会保留并标为停用，可将其中的团队约定迁入另名的项目规范。
 

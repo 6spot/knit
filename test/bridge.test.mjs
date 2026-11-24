@@ -7,7 +7,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildSessionContext, contextLines } from "../dist/application/session-context.js";
 import { createTask } from "../dist/application/task-store.js";
-import { workGuidance } from "../dist/application/work-choice.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
@@ -180,7 +179,7 @@ test("选一个不存在的任务", async (t) => {
   assert.deepEqual(bridge.entries, []);
 });
 
-const HINT = `没有选中 Knit 任务。${workGuidance} 用 list 查看任务，use 选中或取消选择。`;
+const HINT = "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中。";
 const DISCUSSION_PATHS = [
   "knit:standards/discussion.md",
   "knit:standards/task-splitting.md",
@@ -268,9 +267,10 @@ test("草稿切换、取消选择和待交付任务：每轮保留讨论规范�
 test("用户明确要求后用现有工具建草稿、写需求，成功或失败都保持选择", async (t) => {
   const { dir, bridge } = await bridged(t);
   const description = bridge.definitions.find((tool) => tool.name === "knit_task").description;
-  assert.match(description, /只有用户明确要求创建任务时才用 new 建草稿/);
-  assert.match(description, /当轮回复中给出任务标题、编号、task.md 链接、draft 草稿状态及当前会话是否已选中/);
-  assert.match(description, /创建失败时说明原因，当前讨论可以继续/);
+  for (const usage of [/new 建一份草稿（要有 title）/, /new 不改变当前的任务选择/, /use 选中一个任务/, /ready 确认需求/, /close 把任务记为完成/, /list 列出任务/]) {
+    assert.match(description, usage);
+  }
+  assert.doesNotMatch(description, /是否建 Knit 任务|委派|明确要求/);
   const first = await newTask(bridge, "现有草稿");
   assert.deepEqual(bridge.entries, []);
   assert.match((await sectionsAfterTurn(bridge)).knit, /没有选中 Knit 任务/);

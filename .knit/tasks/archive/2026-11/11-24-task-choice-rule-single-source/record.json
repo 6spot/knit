@@ -1,0 +1,15 @@
+{
+  "confirmedDigest": "48070de02f26ab8f1ab7e3f343c7b9fd658ef3a1925487d5e2480af798c826c5",
+  "changedPaths": [
+    "README.md",
+    "assets/standards/discussion.md",
+    "assets/templates/pi/extensions/knit.ts",
+    "docs/design/DESIGN.md",
+    "src/application/host-hook.ts",
+    "src/application/work-choice.ts",
+    "test/bridge.test.mjs",
+    "test/host-hook.test.mjs"
+  ],
+  "runs": [],
+  "authorization": "user:2c617ed3 1交付任务 2"
+}

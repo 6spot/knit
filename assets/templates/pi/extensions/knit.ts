@@ -98,7 +98,6 @@ interface DeliverParams {
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const SELECTION = "knit.selection";
-const WORK_GUIDANCE = "讨论、比较方案和只读查证直接进行。已授权且无需委派的单点小改直接处理。实施前、范围扩大或恢复会话时按讨论规范判断跨模块、多文件、查证量、独立审查及用户指定委派等条件。命中时若本次尚无建任务选择，说明命中的条件，直接问是否建 Knit 任务，等待答复再委派或写入。无关的已选任务不能代替本次选择。对实施问题的肯定只确认实施范围。澄清细节、恢复同一工作时沿用原选择，明确转入另一项工作时重新判断。已选中并获准实施的任务可继续执行。要建就创建草稿，仅同意草稿时停在 draft；不建就按已授权范围走宿主流程。";
 
 export default function knitBridge(pi: Pi): void {
   if (process.env.KNIT_PI_EXECUTOR === "1") return;
@@ -109,7 +108,7 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_task",
     label: "Knit task",
     description:
-      `管理 Knit 任务。${WORK_GUIDANCE}` + "只有用户明确要求创建任务时才用 new 建草稿（要有 title），随后用普通的读写工具把已经讨论清楚的需求写入返回路径的 task.md；在当轮回复中给出任务标题、编号、task.md 链接、draft 草稿状态及当前会话是否已选中。new 保持当前的任务选择，不自动选中新任务；创建失败时说明原因，当前讨论可以继续。建草稿不等于确认需求或授权实施，确认及开始实施按讨论规范另行处理。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      "管理 Knit 任务。new 建一份草稿（要有 title），返回任务标题、编号、task.md 的路径、draft 状态和当前会话是否选中了它；new 不改变当前的任务选择，创建失败时返回原因，选择不变。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
@@ -179,7 +178,7 @@ export default function knitBridge(pi: Pi): void {
     if (taskId === null) {
       sections.knit = [
         context.code === 0 ? context.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${context.stderr.trimEnd()}`,
-        `没有选中 Knit 任务。${WORK_GUIDANCE} 用 list 查看任务，use 选中或取消选择。`,
+        "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中。",
       ].join("\n");
       return;
     }

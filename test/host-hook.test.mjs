@@ -62,7 +62,7 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   assert.equal(called.status, 0, called.stderr);
   const first = JSON.parse(called.stdout).injectSteps[0].systemMessage.systemMessage;
   assert.ok(first.includes('<standard path="knit:standards/discussion.md"'));
-  assert.match(first, /没有选中 Knit 任务/);
+  assert.equal(first.split("\n").at(-1), "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。");
   const states = join(root, ".knit/.runtime/host-sessions");
   const state = () => JSON.parse(readFileSync(join(states, `agy-${session}.json`), "utf8"));
   assert.deepEqual(state(), { taskId: null, lastDigest: createHash("sha256").update(first).digest("hex") });
