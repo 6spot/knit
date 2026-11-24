@@ -1,0 +1,14 @@
+{
+  "confirmedDigest": "788685befbc1cd12dd80e531d5fd06685a95a0bc2821179ce70a4b1077542bf2",
+  "changedPaths": [
+    "AGENTS.md",
+    "assets/standards/task-splitting.md",
+    "assets/standards/task-writing.md",
+    "assets/templates/agents/implement.md",
+    "assets/templates/agents/review.md",
+    "assets/templates/pi/extensions/knit.ts",
+    "docs/design/DESIGN.md"
+  ],
+  "runs": [],
+  "authorization": "user:7a466833 确认交付任务 1。然后再开始任务2"
+}
