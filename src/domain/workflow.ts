@@ -13,7 +13,7 @@
  */
 import { isMap, isNode, isScalar, isSeq, LineCounter, parseDocument, type Node, type YAMLError } from "yaml";
 import type { ValidationError } from "@earendil-works/pi-schema";
-import { checkSchema, schemaErrors } from "../contracts/schema.js";
+import { checkSchema, schemaErrors } from "../contracts/primitives.js";
 import { validateAgentTarget } from "./agent-target.js";
 import {
   WORKFLOW_ANCHORS,

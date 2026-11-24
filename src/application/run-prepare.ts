@@ -13,7 +13,7 @@ import { completedBatches, countedRuns, dispatchLimit, nextStep, type NextStep }
 import { stageRules } from "../domain/stage-rules.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
 import type { WorkflowDefinition, WorkflowExecutor, WorkflowStage } from "../domain/workflow.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";
 import { assembleHandoff, resumeMessage, type HandoffReport } from "./handoff.js";

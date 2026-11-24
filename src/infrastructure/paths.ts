@@ -6,7 +6,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
-import { InfrastructureError } from "./errors.js";
+import { InfrastructureError } from "./fs.js";
 
 /** 项目根规范化：必须已存在；别名解析到同一真实路径。 */
 export function normalizeRoot(path: string): string {

@@ -1,8 +1,7 @@
 /** Knit 共用执行入口：Worktree 中启动客户端，优先窗格、回退后台，最后结算执行。 */
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentLaunch, AgentRegistry } from "../contracts/agent.js";
-import type { PaneHost } from "../contracts/pane.js";
+import type { AgentLaunch, AgentRegistry, PaneHost } from "../contracts/agent.js";
 import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
 import { finishRun } from "./run-finish.js";
 import { runInPane } from "./run-pane.js";

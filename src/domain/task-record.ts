@@ -1,5 +1,5 @@
 /** `record.json`：人不需要读的运行记录。只处理文本，不读写文件。 */
-import { checkSchema, schemaProblems } from "../contracts/schema.js";
+import { checkSchema, schemaProblems } from "../contracts/primitives.js";
 import { TaskRecordSchema, type TaskRecord } from "../contracts/task.js";
 
 export type TaskRecordParse =

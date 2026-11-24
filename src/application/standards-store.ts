@@ -2,9 +2,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { PITFALLS_PATH, recordPitfall } from "../domain/pitfalls.js";
 import { BUILTIN_STANDARDS, STANDARDS_DIR, builtinPath, parseStandard, standardReference, type Standard } from "../domain/standards.js";
-import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
+import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { safeJoin } from "../infrastructure/paths.js";
-import { withRunLock } from "./run-lock.js";
+import { withFileLock } from "../infrastructure/process.js";
 
 export { STANDARDS_DIR };
 
@@ -32,7 +32,7 @@ export function legacyStandardCopies(root: string): string[] {
 
 export function savePitfall(root: string, scope: string, title: string, detail: string): void {
   const path = safeJoin(root, PITFALLS_PATH);
-  withRunLock(join(root, ".knit/.runtime/locks/pitfalls.lock"), 5000, () => {
+  withFileLock(join(root, ".knit/.runtime/locks/pitfalls.lock"), 5000, () => {
     const current = readWithVersion(path);
     const original = current?.data.toString("utf8") ?? "";
     const standard = parseStandard(PITFALLS_PATH, original);

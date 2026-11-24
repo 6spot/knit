@@ -5,8 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { AgentAdapter, AgentLaunch } from "../contracts/agent.js";
-import type { PaneHost, PaneOptions } from "../contracts/pane.js";
+import type { AgentAdapter, AgentLaunch, PaneHost, PaneOptions } from "../contracts/agent.js";
 import { PANE_FILE, stopPaneProcesses } from "./run-process.js";
 import { PANE_OUTCOME_FILE, readSessionFile, type SessionOutcome } from "./run-session.js";
 

@@ -1,4 +1,14 @@
+import { createHash } from "node:crypto";
 import { compile, type JsonSchema, type Static, type ValidationError } from "@earendil-works/pi-schema";
+
+/** 字节指纹：sha256 hex；用于原子写预期版本与快照对照。 */
+export function sha256Bytes(data: Uint8Array): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+export function sha256Text(text: string): string {
+  return sha256Bytes(Buffer.from(text, "utf8"));
+}
 
 type SchemaValidator = ReturnType<typeof compile>;
 

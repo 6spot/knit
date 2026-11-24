@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { RUNS_DIR, type TaskRun } from "../contracts/task.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { pidAlive, processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree } from "../infrastructure/process.js";
 import { taskRunLockHeld } from "./run-lock.js";
 

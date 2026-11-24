@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { atomicWrite } from "../dist/infrastructure/atomic.js";
-import { sha256Text, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fingerprint.js";
+import { sha256Text } from "../dist/contracts/primitives.js";
+import { atomicWrite, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fs.js";
 import { normalizeRoot, hashKey, safeJoin, canonicalPath, samePath } from "../dist/infrastructure/paths.js";
 
 function freshDir(prefix) {

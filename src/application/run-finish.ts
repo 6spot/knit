@@ -7,7 +7,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import type { AgentRegistry } from "../contracts/agent.js";
 import { batchOf } from "../domain/progress.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { withTaskRunLock } from "./run-lock.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { readSessionFile } from "./run-session.js";

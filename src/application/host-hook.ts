@@ -1,16 +1,15 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { sha256Text } from "../contracts/digest.js";
+import { sha256Text } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
-import { atomicWrite, readWithVersion } from "../infrastructure/atomic.js";
-import { withRunLock } from "./run-lock.js";
+import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
+import { shellQuote, withFileLock } from "../infrastructure/process.js";
 import { buildSessionContext } from "./session-context.js";
 import { contextLines } from "./session-output.js";
 import { checkHostCommand } from "./host-command.js";
 import { toolEffects, workGuidance, workQuestion, workTurn, type WorkMessage } from "./work-choice.js";
 import { createTask, readTask, type NewTask } from "./task-store.js";
-import { shellQuote } from "../infrastructure/process.js";
 
 export { checkHostCommand } from "./host-command.js";
 
@@ -42,7 +41,7 @@ function withSession<T>(root: string, session: HostSession, action: (path: strin
   const host = /^[a-z0-9_]{1,64}$/.test(session.host) ? session.host : `~${sha256Text(session.host)}`;
   const id = /^[a-z0-9_-]{1,120}$/.test(session.sessionId) ? session.sessionId : `~${sha256Text(session.sessionId)}`;
   const path = join(root, ".knit/.runtime/host-sessions", `${host}-${id}.json`);
-  return withRunLock(`${path}.lock`, 5000, () => action(path), () => { throw new Error("会话状态正忙，请重试"); });
+  return withFileLock(`${path}.lock`, 5000, () => action(path), () => { throw new Error("会话状态正忙，请重试"); });
 }
 
 function saveState(path: string, state: SessionState) {

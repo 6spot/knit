@@ -7,8 +7,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-session.js";
-import { withRunLock } from "../../application/run-lock.js";
-import { atomicWrite } from "../../infrastructure/atomic.js";
+import { withFileLock } from "../../infrastructure/process.js";
+import { atomicWrite } from "../../infrastructure/fs.js";
 import { AgyBroker } from "./broker.js";
 import { agyExecutable, COMMAND_TEMP_PREFIX, commandScope, handoffReadPaths, HOOKS, permits, SANDBOX, sandboxProfile, stopCommandProcesses } from "./isolation.js";
 import { type AgyObject, errorText, object, permissionError, resultOf, SUBMIT, transcriptTurn, TURN_INSTRUCTIONS } from "./protocol.js";
@@ -30,7 +30,7 @@ export class AntigravityExecutionAdapter implements AgentAdapter {
 
   paneCommand(input: AgentLaunch): readonly string[] | null {
     const bin = agyExecutable();
-    return bin === null ? null : [process.execPath, fileURLToPath(new URL("./pane.js", import.meta.url)), bin, JSON.stringify(input)];
+    return bin === null ? null : [process.execPath, fileURLToPath(new URL("./client.js", import.meta.url)), "pane", bin, JSON.stringify(input)];
   }
 }
 
@@ -56,7 +56,7 @@ function updateHook(cwd: string, dir: string, install: boolean): void {
   const generated = join(dir, HOOK_TARGET);
   if (!existsSync(generated)) return;
   const owners = join(dirname(dirname(dir)), "agy-hooks", basename(cwd));
-  withRunLock(`${owners}.lock`, 5000, () => {
+  withFileLock(`${owners}.lock`, 5000, () => {
     const hook = join(cwd, HOOKS);
     const owner = join(owners, basename(dir));
     const entry = lstatSync(hook, { throwIfNoEntry: false });

@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { arr, bool, int, obj, opt, str, type Static } from "@earendil-works/pi-schema";
-import { schemaProblems } from "../contracts/schema.js";
+import { schemaProblems } from "../contracts/primitives.js";
 import { DEFAULT_HANDOFF_LIMITS, type HandoffLimits } from "./handoff.js";
 
 export const CONFIG_PATH = ".knit/config.json";

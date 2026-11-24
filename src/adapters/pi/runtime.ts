@@ -3,7 +3,7 @@
  * 复用本机客户端鉴权与模型配置；不导入 SDK，不另建模型运行时。
  * 缺能力显式报错，不用自动换模型或伪造成功补齐。
  */
-import { executorEnv, MAIN_SESSION_KEYS } from "./session-env.js";
+import { executorEnv, MAIN_SESSION_KEYS } from "../../infrastructure/process.js";
 import { randomUUID } from "node:crypto";
 import { checkNativeSessionFile, type NativeFileCheck } from "./native-file.js";
 import type { ToolCapability } from "../../contracts/workflow.js";

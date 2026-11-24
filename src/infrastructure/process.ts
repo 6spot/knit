@@ -4,7 +4,8 @@
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -219,4 +220,28 @@ export function signalProcessTree(
     }
   }
   return { signaled, errors };
+}
+
+export const MAIN_SESSION_KEYS = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
+
+export function executorEnv(): Record<string, string> {
+  const env = { ...process.env } as Record<string, string>;
+  MAIN_SESSION_KEYS.forEach((key) => delete env[key]);
+  return env;
+}
+
+/** SQLite 的文件锁随进程退出释放，派发、结算和共享钩子按各自的资源路径互斥。 */
+export function withFileLock<T>(path: string, timeout: number, action: () => T, busy: () => T, readOnly = false): T {
+  if (!readOnly) mkdirSync(dirname(path), { recursive: true });
+  const lock = new (process.getBuiltinModule("node:sqlite").DatabaseSync)(path, { timeout, readOnly });
+  try {
+    // 读取数据库头即可观察排他锁，在只读检出中也能查询进程状态。
+    lock.exec(readOnly ? "PRAGMA user_version" : "BEGIN EXCLUSIVE");
+    return action();
+  } catch (error) {
+    if (error instanceof Error && "errcode" in error && error.errcode === 5) return busy(); // SQLITE_BUSY
+    throw error;
+  } finally {
+    lock.close();
+  }
 }

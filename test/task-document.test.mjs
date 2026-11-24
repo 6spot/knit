@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { sha256Text } from "../dist/contracts/digest.js";
+import { sha256Text } from "../dist/contracts/primitives.js";
 import {
   currentStatus,
   parseTaskDocument,

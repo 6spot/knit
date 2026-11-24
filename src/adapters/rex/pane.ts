@@ -1,7 +1,7 @@
 /** Rex 浮动窗格的命令和行为见 docs/research/REX-PANE.md。 */
 import { spawn, spawnSync } from "node:child_process";
 import { delimiter } from "node:path";
-import type { PaneHost, PaneOptions } from "../../contracts/pane.js";
+import type { PaneHost, PaneOptions } from "../../contracts/agent.js";
 
 interface RexPane {
   readonly layerId: string;

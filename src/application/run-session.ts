@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentLaunch, AgentSession } from "../contracts/agent.js";
 import type { ReportFieldType } from "../contracts/workflow.js";
 import { type ReportOutcome, reportOutcome, reportRetryMessage } from "../domain/report.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { registerPane } from "./run-process.js";
 
 export const PANE_OUTCOME_FILE = "outcome.json";

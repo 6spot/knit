@@ -4,15 +4,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  PiAgentRuntime,
-  PiRpcConnection,
-  PiConnectionClosedError,
-  buildPiArgs,
-  checkNativeSessionFile,
-  isolatedEnv,
-  signalProcessGroup,
-} from "../dist/adapters/pi/index.js";
+import { PiConnectionClosedError, PiRpcConnection, signalProcessGroup } from "../dist/adapters/pi/connection.js";
+import { checkNativeSessionFile } from "../dist/adapters/pi/native-file.js";
+import { PiAgentRuntime, buildPiArgs, isolatedEnv } from "../dist/adapters/pi/runtime.js";
 
 const PI = process.env.PI_EXECUTABLE ?? "pi";
 const PROVIDER = process.env.PI_PROVIDER ?? "magpie";

@@ -1,60 +1,10 @@
-import { createSessionDraft } from "../application/host-hook.js";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { Option, type Command } from "commander";
-import {
-  createTask,
-  readTask,
-  scanTasks,
-  shownTaskDirectory,
-  taskCommit,
-  type LoadedTask,
-} from "../application/task-store.js";
+import { createSessionDraft } from "../application/host-hook.js";
+import { createTask, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
-import { cleanupLines } from "./worktree.js";
-import {
-  TASK_PRIORITIES,
-  TASK_VERIFICATIONS,
-  type TaskFrontmatter,
-  type TaskRecord,
-} from "../contracts/task.js";
-import { currentStatus, type TaskDocument } from "../domain/task-document.js";
+import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter } from "../contracts/task.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
-import { projectRoot } from "./root.js";
-
-export function fail(problems: readonly string[]): void {
-  process.stderr.write(problems.map((problem) => `${problem}\n`).join(""));
-  process.exitCode = 1;
-}
-
-/** 有 `.knit/` 目录的项目根；没有时报错并返回 null。 */
-export function knitRoot(dir: string): string | null {
-  const root = projectRoot(dir);
-  if (existsSync(join(root, ".knit"))) return root;
-  fail(["这个项目里没有 .knit/ 目录；运行 knit init 生成"]);
-  return null;
-}
-
-/** 按 id 读出一个任务；项目、任务不存在或文件有格式问题时报错并返回 null。 */
-export function loadTask(dir: string, id: string): LoadedTask | null {
-  const root = knitRoot(dir);
-  if (root === null) return null;
-  const result = readTask(root, id);
-  if (result.kind === "refused") {
-    fail(result.problems);
-    return null;
-  }
-  return result.task;
-}
-
-/** 显示用的状态；`stale` 表示文件里写着已确认，但确认之后需求被改过。 */
-export function shownStatus(document: TaskDocument, record: TaskRecord): { text: string; stale: boolean } {
-  const status = currentStatus(document, record);
-  return {
-    text: status === "active" ? `active(${document.frontmatter.stage})` : status,
-    stale: status !== document.frontmatter.status,
-  };
-}
+import { cleanupLines, fail, knitRoot, loadTask, shownStatus } from "./shared.js";
 
 function requirementLines(problems: RequirementProblems): string[] {
   return [

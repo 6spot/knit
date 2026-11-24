@@ -7,8 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
-import { shellQuote } from "../../infrastructure/process.js";
-import { executorEnv } from "../pi/session-env.js";
+import { executorEnv, shellQuote } from "../../infrastructure/process.js";
 import { COMMAND_CLIENT, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
 

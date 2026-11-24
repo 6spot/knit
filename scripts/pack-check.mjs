@@ -43,7 +43,6 @@ const required = [
   "assets/templates/workbuddy/knit-hook.sh",
   "dist/adapters/workbuddy/host-hook.js",
   "dist/adapters/antigravity/client.js",
-  "dist/adapters/antigravity/pane.js",
   "dist/adapters/pi/pane-worker.js",
   "dist/cli/knit.js",
   ...(process.platform === "darwin" ? ["dist/adapters/antigravity/command-processes"] : []),

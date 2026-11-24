@@ -3,8 +3,7 @@
  * 需求部分是开头字段之后、`## 结果` 之前的全部内容，交给执行者的和算摘要的都是这一段。
  */
 import { parseDocument, stringify } from "yaml";
-import { sha256Text } from "../contracts/digest.js";
-import { checkSchema, schemaProblems } from "../contracts/schema.js";
+import { checkSchema, schemaProblems, sha256Text } from "../contracts/primitives.js";
 import {
   TaskFrontmatterSchema,
   type TaskFrontmatter,

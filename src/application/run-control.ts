@@ -7,7 +7,7 @@ import type { AgentRegistry } from "../contracts/agent.js";
 import type { TaskRecord } from "../contracts/task.js";
 import type { TaskDocument } from "../domain/task-document.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { procStartTicks } from "../infrastructure/process.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";

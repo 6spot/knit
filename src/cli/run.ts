@@ -10,10 +10,9 @@ import { RUNS_DIR } from "../application/run-prepare.js";
 import { readResume } from "../application/run-session.js";
 import { buildTaskStatus } from "../application/session-context.js";
 import { statusLines } from "../application/session-output.js";
-import { checkSchema } from "../contracts/schema.js";
+import { checkSchema } from "../contracts/primitives.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
-import { fail, knitRoot, loadTask } from "./task.js";
-import { loadWorkflow } from "./workflow.js";
+import { fail, knitRoot, loadTask, loadWorkflow } from "./shared.js";
 
 export { statusLines };
 

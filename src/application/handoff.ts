@@ -5,7 +5,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { sha256Text } from "../contracts/digest.js";
+import { sha256Text } from "../contracts/primitives.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
 import type { TaskDocument } from "../domain/task-document.js";

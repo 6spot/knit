@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
-import { fileFacts } from "../infrastructure/fingerprint.js";
+import { fileFacts } from "../infrastructure/fs.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { gitSync } from "../infrastructure/process.js";
 import { CONFIG_PATH } from "./config.js";

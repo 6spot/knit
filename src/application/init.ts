@@ -1,7 +1,7 @@
 /** `knit init`：把随 Knit 发布的模板生成到项目里。 */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { atomicWrite } from "../infrastructure/atomic.js";
+import { atomicWrite } from "../infrastructure/fs.js";
 import { createTask, scanTasks } from "./task-store.js";
 
 /**

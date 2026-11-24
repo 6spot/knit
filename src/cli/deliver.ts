@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import type { Command } from "commander";
 import { deliverTask, type DeliveryOptions, type DeliveryPreview, type DeliveryResult } from "../application/delivery.js";
-import { fail, knitRoot } from "./task.js";
-import { integrationLines } from "./worktree.js";
+import { fail, integrationLines, knitRoot } from "./shared.js";
 
 const indented = (text: string) => text.split("\n").map((line) => (line === "" ? "" : `  ${line}`));
 
