@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadConfig } from "../dist/application/config.js";
+import { loadConfig } from "../dist/application/project-config.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { project } from "./helpers/cli.mjs";
 

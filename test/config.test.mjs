@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadConfig } from "../dist/application/config.js";
+import { loadConfig } from "../dist/application/project-config.js";
 import { project } from "./helpers/cli.mjs";
 
 /** 建一个临时项目；给了内容就写成它的 `.knit/config.json`。 */

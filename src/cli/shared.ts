@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readTask, type LoadedTask } from "../application/task-store.js";
-import { readWorkflow } from "../application/workflow-store.js";
+import { readWorkflow } from "../application/project-config.js";
 import type { WorktreeCleanup, WorktreeIntegration } from "../application/worktree.js";
 import type { TaskRecord } from "../contracts/task.js";
 import { currentStatus, type TaskDocument } from "../domain/task.js";

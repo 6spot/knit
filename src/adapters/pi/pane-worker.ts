@@ -3,7 +3,7 @@ import { verifiedPiResumeId } from "./native-file.js";
 import type { AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import type { ReportFieldType } from "../../contracts/workflow.js";
 import { modelFailure } from "../../domain/report.js";
-import { runPaneSession } from "../../application/run-session.js";
+import { runPaneSession } from "../../application/run-execute.js";
 
 interface Message {
   readonly role: string;

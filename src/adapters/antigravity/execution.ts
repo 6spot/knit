@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
-import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-session.js";
+import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-execute.js";
 import { withFileLock } from "../../infrastructure/process.js";
 import { atomicWrite } from "../../infrastructure/fs.js";
 import { AgyBroker } from "./broker.js";

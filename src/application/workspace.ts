@@ -9,8 +9,7 @@ import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js"
 import { fileFacts } from "../infrastructure/fs.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { gitSync } from "../infrastructure/process.js";
-import { CONFIG_PATH } from "./config.js";
-import { STANDARDS_DIR } from "./standards-store.js";
+import { CONFIG_PATH, STANDARDS_DIR } from "./project-config.js";
 
 /** 运行时资料所在的目录：执行过程中程序自己会写，不算改动。 */
 export const RUNTIME_PREFIX = ".knit/.runtime/";

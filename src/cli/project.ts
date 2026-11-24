@@ -1,9 +1,8 @@
 import { Option, type Command } from "commander";
 import { hostProjectRoot, selectHostTask } from "../application/host-hook.js";
 import { initProject } from "../application/init.js";
-import { buildSessionContext } from "../application/session-context.js";
-import { contextLines } from "../application/session-output.js";
-import { legacyStandardCopies, loadStandards, savePitfall } from "../application/standards-store.js";
+import { buildSessionContext, contextLines } from "../application/session-context.js";
+import { legacyStandardCopies, loadStandards, savePitfall } from "../application/project-config.js";
 import { AGENT_SPECS, DEFAULT_AGENT, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";

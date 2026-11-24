@@ -14,10 +14,10 @@ import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/t
 import { validateAgentTarget, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
-import type { ProjectConfig } from "./config.js";
+import type { ProjectConfig } from "./project-config.js";
 import { assembleHandoff, resumeMessage, type HandoffReport } from "./handoff.js";
-import { logSessionMode } from "./run-session.js";
-import { withTaskRunLock } from "./run-lock.js";
+import { logSessionMode } from "./run-execute.js";
+import { withTaskRunLock } from "./run-control.js";
 import { saveTask, scanTasks, type LoadedTask, type StoredTask } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
 import { ensureWorktree, rollbackWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { readMaterials } from "../dist/application/task-materials.js";
+import { readMaterials } from "../dist/application/handoff.js";
 import { referencesOf } from "../dist/domain/task.js";
 import { project } from "./helpers/cli.mjs";
 

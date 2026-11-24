@@ -3,15 +3,15 @@
  * 任务点名的资料、计划、上一个环节的报告，再次进入一个环节时还有它自己上一次的报告。
  * 「结果」、record.json 和没有点名的资料不给。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
-import { referencesOf, type TaskDocument } from "../domain/task.js";
+import { referencesOf, sectionOf, type TaskDocument, type TaskReference } from "../domain/task.js";
 import { projectRelative } from "../infrastructure/paths.js";
-import { loadStandards } from "./standards-store.js";
-import { readMaterials } from "./task-materials.js";
+import { DEFAULT_HANDOFF_LIMITS, loadStandards, type HandoffLimits } from "./project-config.js";
+import { TASKS_DIR } from "./task-store.js";
 
 export interface HandoffInput {
   /** 主检出；任务、报告、角色文件和规范的来源。 */
@@ -42,15 +42,7 @@ export interface HandoffReport {
   readonly text: string;
 }
 
-/** 按内容的 UTF-8 字节数算，不算块外面的标记行。 */
-export interface HandoffLimits {
-  /** 点名的资料、计划、每份报告，单独一块的上限。 */
-  readonly fileBytes: number;
-  /** 一次交接合计的上限；角色文件、规范和需求部分计入合计，但任何时候都全文给。 */
-  readonly totalBytes: number;
-}
-
-export const DEFAULT_HANDOFF_LIMITS: HandoffLimits = { fileBytes: 16384, totalBytes: 65536 };
+export { DEFAULT_HANDOFF_LIMITS, type HandoffLimits } from "./project-config.js";
 
 interface Block {
   readonly tag: string;
@@ -201,4 +193,53 @@ function readText(root: string, path: string): string | null {
 
 function trimBlankLines(text: string): string {
   return text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
+}
+
+export interface TaskMaterial {
+  readonly reference: TaskReference;
+  readonly kind: "file" | "section" | "directory";
+  /** 目录没有内容，是 null。 */
+  readonly text: string | null;
+}
+
+interface HandoffLocation {
+  readonly worktree: string;
+}
+
+/** 顺序和 references 相同；交接时仓库资料读 Worktree，任务目录（所有任务的）里的资料读主检出并给绝对路径。 */
+export function readMaterials(
+  root: string,
+  references: readonly TaskReference[],
+  handoff?: HandoffLocation,
+): { materials: TaskMaterial[]; problems: string[] } {
+  const results = references.map((reference) => readMaterial(root, reference, handoff));
+  return {
+    materials: results.flatMap((result) => (typeof result === "string" ? [] : [result])),
+    problems: results.flatMap((result) => (typeof result === "string" ? [result] : [])),
+  };
+}
+
+/** 读出来的资料，或者读不出来的原因。 */
+function readMaterial(root: string, reference: TaskReference, handoff?: HandoffLocation): TaskMaterial | string {
+  const path = projectRelative(reference.path);
+  if (path === null) return `相关资料里的路径要写项目内的相对路径：${reference.path}`;
+  // 任务目录交付之前没有入库，别的任务（例如主任务）的目录也一样，Worktree 里没有或者是旧的。
+  const taskMaterial = handoff !== undefined && (path === TASKS_DIR || path.startsWith(`${TASKS_DIR}/`));
+  const source = handoff !== undefined && !taskMaterial ? handoff.worktree : root;
+  const stats = statSync(join(source, path), { throwIfNoEntry: false });
+  if (stats === undefined) {
+    return `相关资料里点名的文件不存在：${reference.path}${
+      handoff !== undefined && !taskMaterial && existsSync(join(root, path))
+        ? "；它还没有提交，所以任务的 Worktree 里没有。"
+        : ""
+    }`;
+  }
+  const supplied = taskMaterial ? { ...reference, path: resolve(root, path) } : reference;
+  if (stats.isDirectory()) return { reference: supplied, kind: "directory", text: null };
+  const text = readFileSync(join(source, path), "utf8");
+  if (reference.anchor === null) return { reference: supplied, kind: "file", text };
+  const section = sectionOf(text, reference.anchor);
+  return section === null
+    ? `${reference.path} 里没有标题「${reference.anchor}」`
+    : { reference: supplied, kind: "section", text: section };
 }

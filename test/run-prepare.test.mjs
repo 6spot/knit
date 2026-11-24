@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
-import { loadConfig } from "../dist/application/config.js";
+import { loadConfig } from "../dist/application/project-config.js";
 import { assembleHandoff } from "../dist/application/handoff.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { takeSnapshot } from "../dist/application/workspace.js";

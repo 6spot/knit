@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadStandards } from "../dist/application/standards-store.js";
+import { loadStandards } from "../dist/application/project-config.js";
 import { PITFALLS_PATH, pitfallsForStage, recordPitfall } from "../dist/domain/pitfalls.js";
 import { parseStandard, standardsForStage } from "../dist/domain/standards.js";
 import { project } from "./helpers/cli.mjs";

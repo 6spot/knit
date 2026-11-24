@@ -9,7 +9,7 @@ import { lastPassedReview } from "../domain/progress.js";
 import { currentStatus } from "../domain/task.js";
 import { moveDirectory, removeCopy } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
-import { loadConfig } from "./config.js";
+import { loadConfig } from "./project-config.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, findTask, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
 import { fingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
