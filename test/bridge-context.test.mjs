@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { readyTask } from "./helpers/run.mjs";

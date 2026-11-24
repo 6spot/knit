@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { knit, project } from "./helpers/cli.mjs";
 
 const now = new Date();

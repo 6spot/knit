@@ -1,5 +1,5 @@
 import { WORKFLOW_STAGE_ID_PATTERN } from "../contracts/workflow.js";
-import { headingsOf } from "./markdown.js";
+import { headingsOf } from "./task.js";
 
 export const PITFALLS_PATH = ".knit/standards/pitfalls.md";
 const stageId = new RegExp(WORKFLOW_STAGE_ID_PATTERN);

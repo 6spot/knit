@@ -1,6 +1,6 @@
 /**
  * 任务的两个文件：`task.md` 的开头字段和 `record.json` 的结构。
- * 解析和写回在 domain/task-document.ts、domain/task-record.ts。
+ * 解析和写回在 domain/task.ts。
  */
 import { arr, nullable, obj, oneOf, opt, str, type Static } from "@earendil-works/pi-schema";
 import { AgentNameSchema, WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";

@@ -6,7 +6,7 @@ import { loadConfig } from "../dist/application/config.js";
 import { assembleHandoff } from "../dist/application/handoff.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
 import { takeSnapshot } from "../dist/application/workspace.js";
-import { parseTaskDocument, requirementDigest } from "../dist/domain/task-document.js";
+import { parseTaskDocument, requirementDigest } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit } from "./helpers/cli.mjs";
 import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";

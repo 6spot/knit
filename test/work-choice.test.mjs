@@ -7,7 +7,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkSessionTool, createSessionDraft, selectHostTask } from "../dist/application/host-hook.js";
 import { toolEffects, workQuestion, workTurn } from "../dist/application/work-choice.js";
-import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { readyTask } from "./helpers/run.mjs";

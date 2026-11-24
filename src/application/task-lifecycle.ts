@@ -1,6 +1,6 @@
 import type { TaskRecord, TaskStatus } from "../contracts/task.js";
 import { lastPassedReview } from "../domain/progress.js";
-import { currentStatus, requirementDigest } from "../domain/task-document.js";
+import { currentStatus, requirementDigest } from "../domain/task.js";
 import { clarifyStateOf, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { archiveTask, readTask, saveTask, type TaskRefusal } from "./task-store.js";

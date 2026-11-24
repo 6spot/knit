@@ -4,7 +4,7 @@ import { readTask, type LoadedTask } from "../application/task-store.js";
 import { readWorkflow } from "../application/workflow-store.js";
 import type { WorktreeCleanup, WorktreeIntegration } from "../application/worktree.js";
 import type { TaskRecord } from "../contracts/task.js";
-import { currentStatus, type TaskDocument } from "../domain/task-document.js";
+import { currentStatus, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
 

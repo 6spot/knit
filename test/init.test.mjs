@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CORE_TEMPLATES } from "../dist/application/init.js";
-import { parseTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument } from "../dist/domain/task.js";
 import { knit } from "./helpers/cli.mjs";
 
 const targets = CORE_TEMPLATES.map((item) => item.target);

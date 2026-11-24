@@ -2,8 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseTaskDocument, renderTaskDocument, requirementDigest } from "../dist/domain/task-document.js";
-import { renderTaskRecord } from "../dist/domain/task-record.js";
+import { parseTaskDocument, renderTaskDocument, renderTaskRecord, requirementDigest } from "../dist/domain/task.js";
 import { knit, project } from "./helpers/cli.mjs";
 
 const REQUIREMENT =

@@ -4,7 +4,7 @@ import type { TaskRecord } from "../contracts/task.js";
 import { batchOf, nextStep, sessionStage } from "../domain/progress.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardsForStage } from "../domain/standards.js";
-import { currentStatus, type TaskDocument } from "../domain/task-document.js";
+import { currentStatus, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { livePane, liveWorker, startingWorker } from "./run-process.js";

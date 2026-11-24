@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
-import { parseTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument } from "../dist/domain/task.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { doneTask, readyTask } from "./helpers/run.mjs";
 

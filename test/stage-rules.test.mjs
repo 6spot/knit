@@ -6,7 +6,7 @@ import { loadConfig } from "../dist/application/config.js";
 import { assembleHandoff } from "../dist/application/handoff.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { findTask } from "../dist/application/task-store.js";
-import { stageRules } from "../dist/domain/stage-rules.js";
+import { stageRules } from "../dist/domain/report.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 

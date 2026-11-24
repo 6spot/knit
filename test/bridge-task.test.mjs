@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument } from "../dist/domain/task.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit } from "./helpers/cli.mjs";
 import { readyTask } from "./helpers/run.mjs";

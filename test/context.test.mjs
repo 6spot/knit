@@ -7,7 +7,7 @@ import { loadConfig } from "../dist/application/config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { ARCHIVE_DIR, findTask } from "../dist/application/task-store.js";
-import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";

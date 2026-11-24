@@ -8,11 +8,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, dirname, join, resolve } from "node:path";
 import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
-import { validateAgentTarget } from "../domain/agent-target.js";
 import { completedBatches, countedRuns, dispatchLimit, nextStep, type NextStep } from "../domain/progress.js";
-import { stageRules } from "../domain/stage-rules.js";
-import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task-document.js";
-import type { WorkflowDefinition, WorkflowExecutor, WorkflowStage } from "../domain/workflow.js";
+import { stageRules } from "../domain/report.js";
+import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task.js";
+import { validateAgentTarget, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./config.js";

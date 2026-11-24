@@ -6,8 +6,13 @@ import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
-import { parseTaskDocument, renderTaskDocument, type TaskDocument } from "../domain/task-document.js";
-import { parseTaskRecord, renderTaskRecord } from "../domain/task-record.js";
+import {
+  parseTaskDocument,
+  parseTaskRecord,
+  renderTaskDocument,
+  renderTaskRecord,
+  type TaskDocument,
+} from "../domain/task.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { projectWorktreeRoot, taskWorktree } from "./worktree.js";

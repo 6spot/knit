@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseTaskRecord, renderTaskRecord } from "../dist/domain/task-record.js";
+import { parseTaskRecord, renderTaskRecord } from "../dist/domain/task.js";
 
 const runOf = (id, failure) => ({
   id,

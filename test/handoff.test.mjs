@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { assembleHandoff } from "../dist/application/handoff.js";
 import { findTask } from "../dist/application/task-store.js";
-import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { knit, project } from "./helpers/cli.mjs";
 
 /** 往临时项目里写文件，`files` 是路径到内容的对照。 */

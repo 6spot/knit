@@ -1,8 +1,7 @@
 /** 读出任务点名的资料：整个文件、文件里的一节，或一个目录（目录只给路径）。 */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { sectionOf } from "../domain/markdown.js";
-import type { TaskReference } from "../domain/task-references.js";
+import { sectionOf, type TaskReference } from "../domain/task.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { TASKS_DIR } from "./task-store.js";
 

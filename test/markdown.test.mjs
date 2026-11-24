@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { headingsOf, sectionOf } from "../dist/domain/markdown.js";
+import { headingsOf, sectionOf } from "../dist/domain/task.js";
 
 test("取出一节和它的下级内容", () => {
   const document = [

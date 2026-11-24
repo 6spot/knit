@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { dirname, join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
 import { lastPassedReview } from "../domain/progress.js";
-import { currentStatus } from "../domain/task-document.js";
+import { currentStatus } from "../domain/task.js";
 import { moveDirectory, removeCopy } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { loadConfig } from "./config.js";

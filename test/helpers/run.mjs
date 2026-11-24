@@ -7,7 +7,7 @@ import { PiExecutionAdapter } from "../../dist/adapters/pi/execution.js";
 import { closeTask, readyTask } from "../../dist/application/task-lifecycle.js";
 import { createTask } from "../../dist/application/task-store.js";
 import { taskWorktree } from "../../dist/application/worktree.js";
-import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task-document.js";
+import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task.js";
 import { cachedGitProject, commitAll, git } from "./git.mjs";
 
 export const agents = {

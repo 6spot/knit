@@ -4,10 +4,11 @@ import { sha256Text } from "../dist/contracts/primitives.js";
 import {
   currentStatus,
   parseTaskDocument,
+  parseTaskRecord,
   renderTaskDocument,
+  renderTaskRecord,
   requirementDigest,
-} from "../dist/domain/task-document.js";
-import { parseTaskRecord, renderTaskRecord } from "../dist/domain/task-record.js";
+} from "../dist/domain/task.js";
 
 const FRONTMATTER = `id: k-19c962be9fb8
 title: 交接只传需求部分
