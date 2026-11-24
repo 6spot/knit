@@ -1,17 +1,21 @@
-import test from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { initProject } from "../dist/application/init.js";
 import { checkSessionTool, createSessionDraft, selectHostTask } from "../dist/application/host-hook.js";
 import { toolEffects, workQuestion, workTurn } from "../dist/application/work-choice.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { loadBridge } from "./helpers/bridge.mjs";
-import { knit, project } from "./helpers/cli.mjs";
+import { project } from "./helpers/cli.mjs";
 import { readyTask } from "./helpers/run.mjs";
 
+const exec = promisify(execFile);
+const systemPath = process.env.PATH;
 const cli = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const proposal = "要按这个范围，把避坑清单合并和按区传递一起落实到仓库里吗？";
 const approval = "可以，记得我们系统内置的规范 也内置到系统里面，不需要复制进去给用户修改";
@@ -333,21 +337,19 @@ test("内存矩阵：单点小改直通，范围扩大在下一次写入前询�
 
 // Dispatch the tool only after the installed extension or hook admits it. A delegated
 // worker writes a marker so an accidental dispatch is observable independently of the reply.
-async function host(t, name, cwd = project(t), recordSearch = false) {
+async function host(t, name, cwd, recordSearch = false) {
   const bridge = name === "pi" ? await loadBridge(t, cwd) : null;
-  if (!bridge) assert.equal(knit(cwd, "init", `--${name}`).code, 0);
-  const home = process.env.KNIT_HOME;
+  if (!bridge) initProject(cwd, false, { [name]: true });
+  const home = mkdtempSync(join(tmpdir(), "knit-choice-host-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
   const bin = join(home, ".local/share/mise/shims");
   mkdirSync(bin, { recursive: true });
   symlinkSync(cli, join(bin, "knit"));
   symlinkSync(process.execPath, join(bin, "node"));
   installFakeRg(bin, "ok");
-  const env = { ...process.env, HOME: home, PATH: `${bin}${delimiter}${process.env.PATH}` };
-  if (bridge) {
-    const previousPath = process.env.PATH;
-    process.env.PATH = env.PATH;
-    t.after(() => { process.env.PATH = previousPath; });
-  }
+  const env = { ...process.env, HOME: home, PATH: `${bin}${delimiter}${systemPath}` };
+  // 只有 Pi 桥接在当前进程找命令。loadBridge 在用例结束时恢复原来的 PATH。
+  if (bridge) process.env.PATH = `${bin}${delimiter}${process.env.PATH}`;
   const transcript = join(home, `${name}.jsonl`);
   const agy = name === "agy";
   const settings = bridge ? null : JSON.parse(readFileSync(join(cwd, agy ? ".agents/plugins/knit/hooks.json" : ".workbuddy/settings.json")));
@@ -362,15 +364,15 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
       : { type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] });
     writeFileSync(transcript, rows.map((row) => JSON.stringify(row)).join("\n"));
   }
-  function shell(command) {
-    const result = spawnSync("/bin/sh", ["-c", command], { cwd, env, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    return result.stdout.trimEnd();
+  async function shell(command) {
+    const { stdout } = await exec("/bin/sh", ["-c", command], { cwd, env });
+    return stdout.trimEnd();
   }
-  function hook(command, payload) {
-    const result = spawnSync("/bin/sh", ["-c", command], { cwd, encoding: "utf8", env: { ...env, CODEBUDDY_PROJECT_DIR: cwd }, input: JSON.stringify(payload) });
-    assert.equal(result.status, 0, result.stderr);
-    return result.stdout ? JSON.parse(result.stdout) : {};
+  async function hook(command, payload) {
+    const execution = exec("/bin/sh", ["-c", command], { cwd, env: { ...env, CODEBUDDY_PROJECT_DIR: cwd } });
+    execution.child.stdin.end(JSON.stringify(payload));
+    const { stdout } = await execution;
+    return stdout ? JSON.parse(stdout) : {};
   }
   async function resume() {
     if (bridge) {
@@ -380,7 +382,7 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
       return event.systemPromptOptions.sections.knit;
     }
     const entry = hooks.SessionStart[0];
-    const out = hook(entry.command ?? entry.hooks[0].command, agy ? { cwd, conversationId: "choice" } : { cwd, session_id: "choice" });
+    const out = await hook(entry.command ?? entry.hooks[0].command, agy ? { cwd, conversationId: "choice" } : { cwd, session_id: "choice" });
     return out.injectSteps?.[0].systemMessage.systemMessage ?? out.hookSpecificOutput?.additionalContext;
   }
   async function call(kind, value = "", replacement) {
@@ -389,17 +391,17 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
       : ["edit", "write", "read"].includes(kind) ? (agy ? { TargetFile: join(cwd, value) } : bridge ? { path: value } : { file_path: join(cwd, value) }) : value;
     if (replacement) Object.assign(input, agy ? { TargetContent: replacement.from, ReplacementContent: replacement.to }
       : bridge ? { edits: [{ oldText: replacement.from, newText: replacement.to }] } : { old_string: replacement.from, new_string: replacement.to });
-    const decision = () => {
+    const decision = async () => {
       if (!new RegExp(group.matcher).test(tool)) return {};
       const payload = agy ? { conversationId: "choice", cwd, transcriptPath: transcript, toolCall: { name: tool, args: input } }
         : { session_id: "choice", cwd, transcript_path: transcript, tool_name: tool, tool_input: input };
-      const out = hook(group.hooks[0].command, payload);
+      const out = await hook(group.hooks[0].command, payload);
       const blocked = agy ? out.decision === "deny" : out.hookSpecificOutput?.permissionDecision === "deny";
       if (agy) assert.ok(["allow", "deny"].includes(out.decision));
       if (blocked && !agy && out.hookSpecificOutput.permissionDecisionReason.endsWith("任务吗？")) assert.equal(out.systemMessage, out.hookSpecificOutput.permissionDecisionReason);
       return { block: blocked, reason: out.reason ?? out.hookSpecificOutput?.permissionDecisionReason, command: out.overwrite?.CommandLine ?? out.hookSpecificOutput?.updatedInput?.command };
     };
-    const result = bridge ? await bridge.fire("tool_call", { toolName: tool, input }) : decision();
+    const result = bridge ? await bridge.fire("tool_call", { toolName: tool, input }) : await decision();
     if (result?.block) {
       assert.equal(typeof result.reason, "string");
       if (result.reason.includes("任务吗？")) questions.push(result.reason);
@@ -407,7 +409,7 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
     }
     calls.push(tool);
     if (kind === "command") {
-      const output = shell(result?.command ?? (bridge ? input.command : value));
+      const output = await shell(result?.command ?? (bridge ? input.command : value));
       if (recordSearch && value.startsWith("rg ")) {
         const id = `search-${calls.length}`;
         if (bridge) bridge.entries.push(
@@ -424,7 +426,7 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
       return { output };
     }
     if (kind === "read") return { output: readFileSync(join(cwd, value), "utf8") };
-    if (kind === "delegate") return { output: shell("printf dispatched > worker") };
+    if (kind === "delegate") return { output: await shell("printf dispatched > worker") };
     if (replacement) {
       const path = join(cwd, value);
       const content = readFileSync(path, "utf8");
@@ -440,9 +442,13 @@ async function host(t, name, cwd = project(t), recordSearch = false) {
   };
 }
 
-for (const name of Object.keys(tools)) {
-  test(`${name} 协议冒烟：转录搜索读取、拒绝文案与不建后恢复`, async (t) => {
-    const h = await host(t, name, project(t), true);
+test("三宿主工作选择协议", { concurrency: 3 }, async (suite) => {
+  await Promise.all(Object.keys(tools).map((name) => hostChecks(name, suite)));
+});
+
+async function hostChecks(name, suite) {
+  await suite.test(`${name} 协议冒烟：转录搜索读取、拒绝文案与不建后恢复`, async (t) => {
+    const h = await host(t, name, project(suite), true);
     const files = ["README.md", "USAGE.md", "CHANGELOG.md"];
     files.forEach((file) => writeFileSync(join(h.cwd, file), "管里任务"));
     writeFileSync(join(h.cwd, "source"), "original");
@@ -476,8 +482,8 @@ for (const name of Object.keys(tools)) {
     assert.equal(readFileSync(join(h.cwd, "source"), "utf8"), "original");
   });
 
-  test(`${name} 协议冒烟：草稿回执、幂等复投与停在 draft`, async (t) => {
-    const h = await host(t, name);
+  await suite.test(`${name} 协议冒烟：草稿回执、幂等复投与停在 draft`, async (t) => {
+    const h = await host(t, name, project(suite));
     const reference = readyTask(h.cwd);
     const { requirement } = parseTaskDocument(readFileSync(join(h.cwd, reference.dir, "task.md"), "utf8")).document;
     const before = h.taskFiles();

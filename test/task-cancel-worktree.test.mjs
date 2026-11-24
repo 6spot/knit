@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
+import { cancelTask } from "../dist/application/task-lifecycle.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
-import { archiveDirOf } from "../dist/application/task-store.js";
+import { archiveDirOf, findTask } from "../dist/application/task-store.js";
 import { taskWorktree } from "../dist/application/worktree.js";
 import { gitSync } from "../dist/infrastructure/process.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
@@ -27,10 +27,9 @@ const gitState = (root) => [git(root, "worktree", "list", "--porcelain"), git(ro
 const mainHead = (root) => [git(root, "branch", "--show-current"), git(root, "rev-parse", "HEAD")];
 
 function assertArchived(root, task) {
-  const shown = knit(root, "task", "show", task.id);
-  assert.equal(shown.code, 0, shown.stderr);
-  assert.ok(shown.stdout.includes(`目录: ${archiveDirOf(task)}\n`), shown.stdout);
-  assert.match(shown.stdout, /^状态: cancelled$/m);
+  const stored = findTask(root, task.id);
+  assert.equal(stored.dir, archiveDirOf(task));
+  assert.equal(stored.document.frontmatter.status, "cancelled");
   assert.match(readFileSync(join(root, archiveDirOf(task), "task.md"), "utf8"), /已取消：不做了/);
   assert.equal(git(root, "ls-files", "--", archiveDirOf(task)), "", "归档不提交");
 }
@@ -64,15 +63,13 @@ test("取消真实派发且已结束的任务：强制丢弃各类改动，只�
   writeFileSync(join(other.worktree.path, "other.txt"), "must remain\n");
   const before = [mainHead(root), git(other.worktree.path, "status", "--porcelain"), git(root, "rev-parse", other.worktree.branch)];
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
-  assert.equal(cancelled.stderr, "");
+  assert.equal(cancelled.kind, "cancelled");
   assertArchived(root, task);
   assertRemoved(root, worktree);
-  assert.ok(cancelled.stdout.includes(`已删除 Worktree: ${worktree.path}\n`), cancelled.stdout);
-  assert.ok(cancelled.stdout.includes(`已删除分支: ${worktree.branch}\n`), cancelled.stdout);
-  assert.match(cancelled.stdout, /已丢弃未提交的改动（6 个文件）/);
+  assert.equal(cancelled.archiveDir, archiveDirOf(task));
+  assert.deepEqual(cancelled.cleanup, { kind: "removed", worktree, branch: "deleted", discardedFiles: 6 });
   assert.deepEqual([mainHead(root), git(other.worktree.path, "status", "--porcelain"), git(root, "rev-parse", other.worktree.branch)], before);
   assert.equal(readFileSync(join(other.worktree.path, "other.txt"), "utf8"), "must remain\n");
   assert.ok(git(root, "worktree", "list", "--porcelain").includes(other.worktree.path));
@@ -123,13 +120,12 @@ test("Worktree 目录已丢失时 prune 登记并强制删除任务分支，另�
   assert.ok(git(root, "worktree", "list", "--porcelain").includes(worktree.path));
   const before = [git(other.worktree.path, "status", "--porcelain"), git(root, "rev-parse", other.worktree.branch)];
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelled.kind, "cancelled");
   assertArchived(root, task);
   assertRemoved(root, worktree);
-  assert.ok(cancelled.stdout.includes(worktree.path), cancelled.stdout);
-  assert.ok(cancelled.stdout.includes(`已删除分支: ${worktree.branch}\n`), cancelled.stdout);
+  assert.deepEqual(cancelled.cleanup, { kind: "pruned", worktree, branch: "deleted", discardedFiles: 0 });
   assert.deepEqual([git(other.worktree.path, "status", "--porcelain"), git(root, "rev-parse", other.worktree.branch)], before);
   assert.ok(git(root, "worktree", "list", "--porcelain").includes(other.worktree.path));
 });
@@ -139,13 +135,13 @@ test("Worktree 已正常移除且仅剩任务分支时仍删除分支", (t) => {
   const { task, worktree } = dispatch(root);
   git(root, "worktree", "remove", worktree.path);
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelled.kind, "cancelled");
   assertArchived(root, task);
   assertRemoved(root, worktree);
-  assert.ok(cancelled.stdout.includes(`已删除分支: ${worktree.branch}\n`), cancelled.stdout);
-  assert.equal(cancelled.stdout.includes("已丢弃"), false);
+  assert.equal(cancelled.cleanup.branch, "deleted");
+  assert.equal(cancelled.cleanup.discardedFiles, 0);
 });
 
 test("Worktree 已移除但任务分支在别处检出：仍取消，报告分支删除失败和主检出位置", (t) => {
@@ -158,13 +154,13 @@ test("Worktree 已移除但任务分支在别处检出：仍取消，报告分�
   const refused = gitSync(["branch", "-D", worktree.branch], root);
   assert.notEqual(refused.code, 0);
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
-  assert.equal(cancelled.stderr, "");
+  assert.equal(cancelled.kind, "cancelled");
   assertArchived(root, task);
-  assert.ok(cancelled.stdout.includes((refused.stdout + refused.stderr).trimEnd()), cancelled.stdout);
-  assert.ok(cancelled.stdout.includes(`分支保留: ${worktree.branch}（主检出: ${realpathSync(root)}）`), cancelled.stdout);
+  assert.equal(cancelled.cleanup.error.trimEnd(), (refused.stdout + refused.stderr).trimEnd());
+  assert.equal(cancelled.cleanup.branch, "retained");
+  assert.deepEqual(cancelled.cleanup.worktree, worktree);
   assert.deepEqual(gitState(root), before);
   assert.equal(readFileSync(join(moved, "keep.txt"), "utf8"), "must remain\n");
 });
@@ -177,24 +173,12 @@ test("取消发生版本冲突时不归档、不删除 Worktree 或分支", (t) 
   const edited = `${readFileSync(file, "utf8")}\n用户同时编辑的一行\n`;
   const record = readFileSync(join(root, task.dir, "record.json"), "utf8");
   const before = gitState(root);
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    import { Command } from ${JSON.stringify(import.meta.resolve("commander"))};
-    import { writeFileSync } from "node:fs";
-    import { registerTaskCommands } from ${JSON.stringify(new URL("../dist/cli/task.js", import.meta.url).href)};
-    const program = new Command();
-    registerTaskCommands(program);
-    program.hook("preAction", (_, command) => {
-      Object.defineProperty(command.opts(), "reason", { get() {
-        writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(edited)});
-        return "不做了";
-      }});
-    });
-    program.parse(["task", "cancel", ${JSON.stringify(task.id)}, "--reason", "不做了", "--dir", ${JSON.stringify(root)}], { from: "user" });
-  `], { encoding: "utf8" });
-
-  assert.equal(result.status, 1, result.stderr);
-  assert.equal(result.stdout, "");
-  assert.match(result.stderr, /task\.md 在读入之后被改过，没有写入/);
+  const result = cancelTask(root, task.id, { get reason() {
+    writeFileSync(file, edited);
+    return "不做了";
+  } });
+  assert.equal(result.kind, "refused");
+  assert.match(result.problems[0], /task\.md 在读入之后被改过，没有写入/);
   assert.equal(readFileSync(file, "utf8"), edited);
   assert.equal(readFileSync(join(root, task.dir, "record.json"), "utf8"), record);
   assert.equal(existsSync(join(root, archiveDirOf(task))), false);
@@ -212,9 +196,9 @@ test("执行还没结束时拒绝取消，Worktree、分支和未提交文件保
   writeFileSync(join(worktree.path, "keep.txt"), "must remain\n");
   const before = [gitState(root), readFileSync(join(root, task.dir, "task.md"), "utf8"), readFileSync(join(root, task.dir, "record.json"), "utf8")];
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.deepEqual(cancelled, { code: 1, stdout: "", stderr: `任务 ${task.id} 的执行 ${prepared.run.id} 还没有结束；等它结束，或运行 knit run cancel ${task.id}\n` });
+  assert.deepEqual(cancelled, { kind: "refused", problems: [`任务 ${task.id} 的执行 ${prepared.run.id} 还没有结束；等它结束，或运行 knit run cancel ${task.id}`] });
   assert.deepEqual([gitState(root), readFileSync(join(root, task.dir, "task.md"), "utf8"), readFileSync(join(root, task.dir, "record.json"), "utf8")], before);
   assert.equal(existsSync(join(root, archiveDirOf(task))), false);
   assert.equal(readFileSync(join(worktree.path, "keep.txt"), "utf8"), "must remain\n");
@@ -224,10 +208,10 @@ test("真实派发的干净 Worktree 也删除，不报丢弃改动", (t) => {
   const root = runProject(t);
   const { task, worktree } = dispatch(root);
 
-  const cancelled = knit(root, "task", "cancel", task.id, "--reason", "不做了");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
 
-  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelled.kind, "cancelled");
   assertArchived(root, task);
   assertRemoved(root, worktree);
-  assert.equal(cancelled.stdout.includes("已丢弃"), false);
+  assert.equal(cancelled.cleanup.discardedFiles, 0);
 });

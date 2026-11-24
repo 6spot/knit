@@ -5,10 +5,13 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
 import { basename, join, relative } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
+import { initProject } from "../dist/application/init.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
+import { buildSessionContext, contextLines, statusLines } from "../dist/application/session-context.js";
+import { closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
@@ -171,7 +174,7 @@ test("预期位置被普通非空目录占用时保留原文件，Git 拒绝且�
 test("没有提交的仓库拒绝派发并提示先提交一次", (t) => {
   const root = project(t);
   git(root, "init", "-q");
-  assert.equal(knit(root, "init").code, 0);
+  initProject(root);
   const task = readyTask(root);
   const before = filesOf(root, task);
   const refused = prepare(root, task, { model: "fake/model" });
@@ -189,13 +192,16 @@ test("Worktree 定位解析主检出符号链接，状态和每轮上下文逐�
   symlinkSync(root, link, "dir");
   assert.deepEqual(prepare(link, task).problems, []);
   const line = `Worktree: ${expectedWorktree(root, task)}（${branchOf(task)}）`;
-  const status = knit(root, "run", "status", task.id);
-  assert.equal(status.code, 0, status.stderr);
-  assert.ok(status.stdout.split("\n").includes(line), status.stdout);
-  assert.deepEqual(knit(link, "run", "status", task.id), status);
-  const context = knit(root, "context", task.id);
-  assert.ok(context.stdout.split("\n").includes(line), context.stdout);
-  assert.deepEqual(knit(root, "context", task.id), context);
+  const canonical = buildSessionContext(root, task.id);
+  const linked = buildSessionContext(link, task.id);
+  assert.equal(canonical.kind, "context");
+  assert.equal(linked.kind, "context");
+  assert.deepEqual(contextLines(linked), contextLines(canonical));
+  const status = statusLines(canonical.task.status);
+  assert.ok(status.includes(line));
+  assert.deepEqual(statusLines(linked.task.status), status);
+  assert.deepEqual(knit(link, "run", "status", task.id), { code: 0, stdout: `${status.join("\n")}\n`, stderr: "" });
+  assert.deepEqual(knit(link, "context", task.id), { code: 0, stdout: `${contextLines(canonical).join("\n")}\n`, stderr: "" });
 });
 
 test("相对 KNIT_HOME 按主检出定位，快照、执行和状态使用同一绝对路径", async (t) => {
@@ -215,8 +221,10 @@ test("相对 KNIT_HOME 按主检出定位，快照、执行和状态使用同一
   assert.equal(lastRun(root, task).failure, null);
   assert.deepEqual(lastRun(root, task).changedPaths, ["src/a.txt"]);
   const line = `Worktree: ${worktree}（${branchOf(task)}）`;
-  assert.ok(knit(root, "run", "status", task.id).stdout.split("\n").includes(line));
-  assert.ok(knit(root, "context", task.id).stdout.split("\n").includes(line));
+  const context = buildSessionContext(root, task.id);
+  assert.equal(context.kind, "context");
+  assert.ok(statusLines(context.task.status).includes(line));
+  assert.ok(contextLines(context).includes(line));
 });
 
 test("目录丢失后重新运行准备命令，原分支提交和旧执行记录保留", (t) => {
@@ -267,7 +275,7 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
     const root = reason === "没有提交" ? project(t) : runProject(t);
     if (reason === "没有提交") {
       git(root, "init", "-q");
-      assert.equal(knit(root, "init").code, 0);
+      initProject(root);
     }
     const dependency = reason === "依赖没完成" ? readyTask(root) : null;
     const task = readyTask(root, reason === "依赖没完成" ? { dependsOn: [dependency.id] } : {});
@@ -280,7 +288,7 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
       if (reason === "资料没提交") writeFileSync(join(root, "new-material.md"), "new material");
       const path = join(root, task.dir, "task.md");
       writeFileSync(path, `${readFileSync(path, "utf8")}\n- \`new-material.md\` — 资料\n`);
-      assert.equal(knit(root, "task", "ready", task.id).code, 0);
+      assert.equal(confirmTask(root, task.id).kind, "ready");
     }
     if (reason === "角色文件不存在") rmSync(join(root, ".knit/agents/implement.md"));
     if (reason === "没有模型") {
@@ -313,7 +321,9 @@ test("重建目录的准备命令失败时强制撤回新目录，但不删已�
 test("主会话直接完成任务不建 Worktree", (t) => {
   const root = runProject(t);
   const task = readyTask(root, { verification: "self" });
-  assert.equal(knit(root, "task", "close", task.id, "--result", "直接完成").code, 0);
+  assert.equal(closeTask(root, task.id, { result: "直接完成", paths: [] }).kind, "done");
   assert.equal(existsSync(join(process.env.KNIT_HOME, "worktrees")), false);
-  assert.doesNotMatch(knit(root, "run", "status", task.id).stdout, /Worktree:/);
+  const context = buildSessionContext(root, task.id);
+  assert.equal(context.kind, "context");
+  assert.doesNotMatch(statusLines(context.task.status).join("\n"), /Worktree:/);
 });

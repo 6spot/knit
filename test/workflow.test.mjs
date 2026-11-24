@@ -1,17 +1,8 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  DEFAULT_MAX_REPAIR_ROUNDS,
-  parseWorkflow,
-} from "../dist/domain/workflow.js";
-import {
-  TOOL_CAPABILITIES,
-  WORKFLOW_ANCHORS,
-  WORKFLOW_STAGE_ID_REGEX,
-  WorkflowIssueSchema,
-  WorkflowValidationSchema,
-} from "../dist/contracts/workflow.js";
+import { test } from "node:test";
 import { checkSchema } from "../dist/contracts/primitives.js";
+import { TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_STAGE_ID_REGEX, WorkflowIssueSchema, WorkflowValidationSchema } from "../dist/contracts/workflow.js";
+import { DEFAULT_MAX_REPAIR_ROUNDS, parseWorkflow } from "../dist/domain/workflow.js";
 
 /** docs/design/DESIGN.md 第 6.1 节的示例流程。 */
 const SAMPLE_WORKFLOW_YAML = `version: 1
@@ -608,4 +599,157 @@ test("tools 解析：列表混入 all、单元素 [all] 与非 all 标量都报 
   }
   const mixed = parseWorkflow(stagesYaml(["[all, read]"]));
   assert.match(mixed.validation.issues[0].message, /不能在能力列表里写 all/);
+});
+
+const parallelWorkflow = `version: 1
+stages:
+  - id: implement
+    tools: all
+  - id: review
+    tools: [read, exec]
+    prompt: .knit/agents/review.md
+    executors:
+      - id: pi-review
+        agent: pi
+        model: provider/reviewer
+        thinking: minimal
+      - agent: antigravity
+        model: gemini-reviewer
+        thinking: high
+`;
+
+test("并行环节配置错误时，解析器指出具体行号", () => {
+  const tools = "    tools: [read, exec]\n";
+  const cases = [
+    [tools, "    tools: [read, write, exec]\n", "parallel_stage_requires_readonly_tools", 6],
+    [tools, "    tools:\n      - read\n      - write\n", "parallel_stage_requires_readonly_tools", 8],
+    [tools, "", "parallel_stage_requires_readonly_tools", 5],
+    [tools, "    tools: ALL\n", "parallel_stage_requires_readonly_tools", 6],
+    [tools, "    tools: [all]\n", "invalid_tools", 6],
+    [tools, "    tools: read\n", "invalid_tools", 6],
+    ...["agent: pi", "model: p/m", "thinking: high"].map((field) =>
+      [tools, `${tools}    ${field}\n`, "conflicting_executor_fields", 7]),
+    ["- agent: antigravity", "- id: pi-review\n        agent: antigravity", "duplicate_executor_id", 13],
+    ["id: pi-review", "id: executor-2", "duplicate_executor_id", 13],
+    ["id: pi-review", "id: Bad", "invalid_executor_id", 9],
+    ["model: provider/reviewer", "model: invalid", "invalid_model", 11],
+    ["model: gemini-reviewer", "model: p/m", "invalid_model", 14],
+    ["thinking: high", "thinking: off", "invalid_thinking", 15],
+    ["agent: pi", "agent: unknown", "invalid_agent", 10],
+    [parallelWorkflow.slice(parallelWorkflow.indexOf("executors:")), "executors: []\n", "invalid_executors", 8],
+  ];
+  for (const [original, replacement, code, line] of cases) {
+    const source = parallelWorkflow.replace(original, replacement);
+    const parsed = parseWorkflow(source);
+    assert.equal(parsed.workflow, null, source);
+    assert.equal(parsed.validation.reason, code, source);
+    const [issue] = parsed.validation.issues;
+    assert.equal(issue.line, line, issue.message);
+    if (code === "parallel_stage_requires_readonly_tools" || code === "invalid_tools") {
+      assert.match(issue.message, /必须只读.*不得含 write.*tools: \[read, exec\]/);
+      assert.doesNotMatch(issue.message, /tools: all|不写 tools/);
+    }
+  }
+});
+
+test("顶层的模型是缺省，环节可以写自己的", () => {
+  const withModels = "version: 1\nmodel: p/a\nstages:\n  - id: implement\n  - id: review\n    model: p/b\n";
+  const parsed = parseWorkflow(withModels);
+  assert.deepEqual(parsed.validation.issues, []);
+  assert.equal(parsed.workflow.model, "p/a");
+  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.model), [null, "p/b"]);
+
+  const withoutModels = "version: 1\nstages:\n  - id: implement\n  - id: review\n";
+  const bare = parseWorkflow(withoutModels);
+  assert.equal(bare.validation.ok, true);
+  assert.deepEqual(bare.workflow.stages.map((stage) => stage.model), [null, null]);
+
+});
+
+test("返工上限写在流程文件里", () => {
+  const limited = "version: 1\nmaxRepairRounds: 2\nstages:\n  - id: implement\n  - id: review\n    maxVisits: 7\n";
+  const parsed = parseWorkflow(limited);
+  assert.deepEqual(parsed.validation.issues, []);
+  assert.equal(parsed.workflow.defaultMaxVisits, 2);
+  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.maxVisits), [2, 7]);
+
+  const unset = parseWorkflow("version: 1\nstages:\n  - id: implement\n  - id: review\n    maxVisits: 7\n");
+  assert.equal(unset.workflow.defaultMaxVisits, 5);
+  assert.deepEqual(unset.workflow.stages.map((stage) => stage.maxVisits), [5, 7]);
+});
+
+test("写错时指出行号", () => {
+  const cases = [
+    ["version: 1\nmodel: nomodel\nstages:\n  - id: implement\n", "invalid_model", 2, "第 2 行：model 要写成 provider/模型"],
+    [
+      "version: 1\nstages:\n  - id: implement\n  - id: review\n    model: /m\n",
+      "invalid_model",
+      5,
+      "第 5 行：stages[1].model 要写成 provider/模型",
+    ],
+    [
+      "version: 1\nstages:\n  - id: implement\nmaxRepairRounds: -1\n",
+      "invalid_max_repair_rounds",
+      4,
+      "第 4 行：maxRepairRounds 必须是非负整数",
+    ],
+    [
+      "version: 1\nmaxRepairRounds: 1.5\nstages:\n  - id: implement\n",
+      "invalid_max_repair_rounds",
+      2,
+      "第 2 行：maxRepairRounds 必须是非负整数",
+    ],
+  ];
+  for (const [source, code, line, message] of cases) {
+    const parsed = parseWorkflow(source);
+    assert.equal(parsed.workflow, null, source);
+    assert.deepEqual(
+      parsed.validation.issues.map((issue) => [issue.code, issue.line, issue.message]),
+      [[code, line, message]],
+      source,
+    );
+  }
+
+  // a/b/c 合法：provider 是 a
+  assert.equal(parseWorkflow("version: 1\nmodel: a/b/c\nstages:\n  - id: implement\n").workflow.model, "a/b/c");
+});
+
+const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+test("思考等级由顶层提供缺省，环节的只管本环节", () => {
+  const source = "version: 1\nthinking: high\nstages:\n  - id: implement\n  - id: review\n    thinking: off\n  - id: check\n";
+  const parsed = parseWorkflow(source);
+  assert.deepEqual(parsed.validation.issues, []);
+  assert.equal(parsed.workflow.thinking, "high");
+  assert.deepEqual(parsed.workflow.stages.map((stage) => stage.thinking), [null, "off", null]);
+  const unset = "version: 1\nstages:\n  - id: implement\n  - id: review\n    thinking: high\n";
+  assert.deepEqual(parseWorkflow(unset).workflow.stages.map((stage) => stage.thinking), [null, "high"]);
+
+});
+
+LEVELS.forEach((level) => {
+  test(`顶层和环节都接受 Pi 思考等级 ${level}`, () => {
+    const source = `version: 1\nthinking: ${level}\nstages:\n  - id: implement\n    thinking: ${level}\n`;
+    const parsed = parseWorkflow(source);
+    assert.deepEqual(parsed.validation.issues, []);
+    assert.equal(parsed.workflow.stages[0].thinking, level);
+  });
+});
+
+["ultra", "HIGH", "false", "42", "null", "[]", "{}", '""'].forEach((value) => {
+  [
+    { source: `version: 1\nthinking: ${value}\nstages:\n  - id: implement\n`, line: 2, path: "thinking" },
+    { source: `version: 1\nstages:\n  - id: implement\n  - id: review\n    thinking: ${value}\n`, line: 5, path: "stages[1].thinking" },
+  ].forEach((scenario) => {
+    test(`${scenario.path} 写成 ${value} 时指出准确行号`, () => {
+      const parsed = parseWorkflow(scenario.source);
+      const message = `第 ${scenario.line} 行：${scenario.path} 只允许 off／minimal／low／medium／high／xhigh／max`;
+      assert.equal(parsed.workflow, null);
+      assert.equal(parsed.validation.reason, "invalid_thinking");
+      assert.deepEqual(
+        parsed.validation.issues.map((issue) => [issue.code, issue.line, issue.message]),
+        [["invalid_thinking", scenario.line, message]],
+      );
+    });
+  });
 });

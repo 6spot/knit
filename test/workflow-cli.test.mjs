@@ -11,6 +11,9 @@ const cli = new URL("../dist/cli/knit.js", import.meta.url).pathname;
 
 /** docs/design/DESIGN.md 第 6.1 节的示例流程。 */
 const SAMPLE_WORKFLOW_YAML = `version: 1
+model: p/a
+thinking: high
+maxRepairRounds: 2
 stages:
   - id: implement
     name: 实现
@@ -18,6 +21,9 @@ stages:
     tools: [read, write, exec]
   - id: review
     name: 审查
+    model: p/b
+    thinking: off
+    maxVisits: 7
     prompt: .knit/agents/review.md
     tools: [read, write, exec]
     report:
@@ -53,7 +59,9 @@ test("配置正确：show 打印流程和两个环节，validate 退出码为 0"
   assert.ok(lines.includes("     工具: read、write、exec"), show.stdout);
   assert.ok(lines.includes("     报告字段: verdict(pass|changes_requested|blocked)"), show.stdout);
   assert.ok(lines.includes("     按结论跳转: changes_requested → implement；blocked → review"), show.stdout);
-  assert.ok(lines.includes("     进入次数上限: 5"), show.stdout);
+  assert.deepEqual(lines.filter(line => line.startsWith("     模型:")), ["     模型: p/a", "     模型: p/b"]);
+  assert.deepEqual(lines.filter(line => line.startsWith("     思考等级:")), ["     思考等级: high", "     思考等级: off"]);
+  assert.deepEqual(lines.filter(line => line.startsWith("     进入次数上限:")), ["     进入次数上限: 2", "     进入次数上限: 7"]);
 
   const validate = run("validate", dir);
   assert.equal(validate.status, 0, validate.stderr);
@@ -97,50 +105,20 @@ test("只读审查可并列两个执行器，按各自的 Agent 展示模型、�
     "       模型: gemini-reviewer", "       思考等级: high",
   ].join("\n")), show.stdout);
   assert.doesNotMatch(show.stdout, /执行器: executor-1/);
-});
-
-test("并行环节配置错误时，解析器和 validate 定位到同一行", (t) => {
-  const tools = "    tools: [read, exec]\n";
-  const cases = [
-    [tools, "    tools: [read, write, exec]\n", "parallel_stage_requires_readonly_tools", 6],
-    [tools, "    tools:\n      - read\n      - write\n", "parallel_stage_requires_readonly_tools", 8],
-    [tools, "", "parallel_stage_requires_readonly_tools", 5],
-    [tools, "    tools: ALL\n", "parallel_stage_requires_readonly_tools", 6],
-    [tools, "    tools: [all]\n", "invalid_tools", 6],
-    [tools, "    tools: read\n", "invalid_tools", 6],
-    ...["agent: pi", "model: p/m", "thinking: high"].map((field) =>
-      [tools, `${tools}    ${field}\n`, "conflicting_executor_fields", 7]),
-    ["- agent: antigravity", "- id: pi-review\n        agent: antigravity", "duplicate_executor_id", 13],
-    ["id: pi-review", "id: executor-2", "duplicate_executor_id", 13],
-    ["id: pi-review", "id: Bad", "invalid_executor_id", 9],
-    ["model: provider/reviewer", "model: invalid", "invalid_model", 11],
-    ["model: gemini-reviewer", "model: p/m", "invalid_model", 14],
-    ["thinking: high", "thinking: off", "invalid_thinking", 15],
-    ["agent: pi", "agent: unknown", "invalid_agent", 10],
-    [parallelWorkflow.slice(parallelWorkflow.indexOf("executors:")), "executors: []\n", "invalid_executors", 8],
-  ];
-  for (const [original, replacement, code, line] of cases) {
-    const source = parallelWorkflow.replace(original, replacement);
-    const parsed = parseWorkflow(source);
-    assert.equal(parsed.workflow, null, source);
-    assert.equal(parsed.validation.reason, code, source);
-    const [issue] = parsed.validation.issues;
-    assert.equal(issue.line, line, issue.message);
-    const validate = run("validate", project(t, source));
-    assert.equal(validate.status, 1, source);
-    assert.equal(validate.stderr, `${issue.message}\n`);
-    if (code === "parallel_stage_requires_readonly_tools" || code === "invalid_tools") {
-      assert.match(issue.message, /必须只读.*不得含 write.*tools: \[read, exec\]/);
-      assert.doesNotMatch(issue.message, /tools: all|不写 tools/);
-    }
-  }
+  assert.match(show.stdout, /模型: （没有指定，用主会话的模型）/);
+  assert.match(show.stdout, /思考等级: （没有指定，用主会话的等级）/);
+  const agy = run("show", project(t, "version: 1\nmodel: p/a\nthinking: off\nstages:\n  - id: review\n    agent: antigravity\n"));
+  assert.equal(agy.status, 0, agy.stderr);
+  assert.match(agy.stdout, /模型: （用 agy 的缺省）/);
+  assert.match(agy.stdout, /思考等级: （用 agy 的缺省）/);
 });
 
 test("并行环节的工具、顶层冲突与执行器字段错误按源文件行序一并报告", (t) => {
   const source = parallelWorkflow
     .replace("tools: [read, exec]", "tools: [read, write]\n    model: p/m")
     .replace("id: pi-review", "id: Pi")
-    .replace("model: provider/reviewer", "model: invalid");
+    .replace("model: provider/reviewer", "model: invalid")
+    .replace("thinking: minimal", "thinking: invalid");
   const parsed = parseWorkflow(source);
   assert.equal(parsed.workflow, null);
   assert.deepEqual(parsed.validation.issues.map((issue) => [issue.code, issue.line]), [
@@ -148,6 +126,7 @@ test("并行环节的工具、顶层冲突与执行器字段错误按源文件�
     ["conflicting_executor_fields", 7],
     ["invalid_executor_id", 10],
     ["invalid_model", 12],
+    ["invalid_thinking", 13],
   ]);
   const validate = run("validate", project(t, source));
   assert.equal(validate.status, 1);

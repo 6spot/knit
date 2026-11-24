@@ -6,8 +6,8 @@ import { loadConfig } from "../dist/application/project-config.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
+import { readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
-import { knit } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
 
@@ -19,7 +19,7 @@ const finish = (root, task, run) => finishRun({ agents, root, taskId: task.id, r
 function nameMaterials(root, task, paths) {
   const path = join(root, task.dir, "task.md");
   writeFileSync(path, `${readFileSync(path, "utf8")}\n${paths.map((named) => `- \`${named}\` — 资料`).join("\n")}\n`);
-  assert.equal(knit(root, "task", "ready", task.id).code, 0);
+  assert.equal(confirmTask(root, task.id).kind, "ready");
 }
 
 

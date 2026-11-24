@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PiConnectionClosedError, PiRpcConnection, signalProcessGroup } from "../dist/adapters/pi/connection.js";
@@ -17,8 +17,9 @@ function piAvailable() {
   return probe.status === 0;
 }
 
-function makeWorkspace(name) {
+function makeWorkspace(t, name) {
   const root = mkdtempSync(path.join(tmpdir(), `knit-pi-${name}-`));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const sessionDir = path.join(root, "sessions");
   mkdirSync(sessionDir, { recursive: true });
   return { root, sessionDir };
@@ -26,8 +27,8 @@ function makeWorkspace(name) {
 
 const HAS_PI = piAvailable();
 
-test("checkNativeSessionFile 识别合法文件与损坏文件", async () => {
-  const { root } = makeWorkspace("check");
+test("checkNativeSessionFile 识别合法文件与损坏文件", async (t) => {
+  const { root } = makeWorkspace(t, "check");
   const good = path.join(root, "good.jsonl");
   writeFileSync(good, '{"type":"session","version":3,"id":"sid-9","cwd":"/tmp/x"}\n{"type":"model_change","id":"m1"}\n');
   const goodCheck = await checkNativeSessionFile(good, "sid-9");
@@ -56,7 +57,7 @@ test("isolatedEnv 移除主会话变量并设置离线标志", () => {
 
 test("连接在进程被杀后以 PiConnectionClosedError 拒绝未决请求并给出真实信号", { timeout: 60_000 }, async (t) => {
   if (!HAS_PI) { t.skip("本机无 pi CLI"); return; }
-  const { root } = makeWorkspace("eof");
+  const { root } = makeWorkspace(t, "eof");
   const connection = new PiRpcConnection(
     PI,
     ["--mode", "rpc", "--offline", "--no-extensions", "--no-approve", "--no-tools", "--no-session", "--provider", PROVIDER, "--model", MODEL],
@@ -78,7 +79,7 @@ test("连接在进程被杀后以 PiConnectionClosedError 拒绝未决请求并�
 });
 
 test("连接层把非 JSON 与非对象帧归入 invalidFrames，不作响应或事件", { timeout: 30_000 }, async (t) => {
-  const { root } = makeWorkspace("frames");
+  const { root } = makeWorkspace(t, "frames");
   const script = [
     "process.stdout.write('{\"type\":\"response\",\"id\":\"a1\",\"success\":true}\\n')",
     "process.stdout.write('not-json-at-all\\n')",
@@ -95,8 +96,8 @@ test("连接层把非 JSON 与非对象帧归入 invalidFrames，不作响应或
   }
 });
 
-test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout: 30_000 }, async () => {
-  const { root } = makeWorkspace("stderr-settle");
+test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout: 30_000 }, async (t) => {
+  const { root } = makeWorkspace(t, "stderr-settle");
   const script = [
     "process.stderr.write('startup detail: model missing\\n')",
     "setInterval(() => {}, 1000)",
@@ -126,8 +127,8 @@ test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout
   }
 });
 
-test("runtime 启动失败后 dispose 保留 stderr 尾部快照且幂等", { timeout: 30_000 }, async () => {
-  const workspace = makeWorkspace("stderr-dispose");
+test("runtime 启动失败后 dispose 保留 stderr 尾部快照且幂等", { timeout: 30_000 }, async (t) => {
+  const workspace = makeWorkspace(t, "stderr-dispose");
   // 独立假 pi：get_state 成功、set_model 先写 stderr 再回错误，用于固定“响应早于 stderr 读取”的顺序。
   const executable = path.join(workspace.root, "fake-pi-start-fail.mjs");
   writeFileSync(

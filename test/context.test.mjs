@@ -1,3 +1,7 @@
+import { buildSessionContext, contextLines, statusLines } from "../dist/application/session-context.js";
+import { initProject } from "../dist/application/init.js";
+import { waitRun } from "../dist/application/run-control.js";
+import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -6,7 +10,7 @@ import { dirname, join } from "node:path";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
-import { ARCHIVE_DIR, findTask } from "../dist/application/task-store.js";
+import { ARCHIVE_DIR, createTask, findTask } from "../dist/application/task-store.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
@@ -56,26 +60,24 @@ function ranStage(dir, id, verdict) {
 
 /** 先给完整讨论规范，再给状态与目录；返回任务的补充规范。 */
 function standardsPart(dir, id, taskDir) {
-  const shown = knit(dir, "context", id);
-  assert.equal(shown.code, 0, shown.stderr);
-  const discussion = knit(dir, "context");
-  assert.equal(discussion.code, 0, discussion.stderr);
-  const head = `${discussion.stdout}${knit(dir, "run", "status", id).stdout}目录: ${taskDir}\n`;
-  assert.equal(shown.stdout.slice(0, head.length), head);
-  return shown.stdout.slice(head.length);
+  const context = buildSessionContext(dir, id);
+  assert.equal(context.kind, "context");
+  const head = [...contextLines(buildSessionContext(dir)), ...statusLines(context.task.status), `目录: ${taskDir}`];
+  const lines = contextLines(context);
+  assert.deepEqual(lines.slice(0, head.length), head);
+  return lines.slice(head.length).map(line => `${line}\n`).join("");
 }
 
 test("各个状态给对应环节的规范", (t) => {
   const dir = projectWith(t, [A, B, C]);
-  const [first, file] = knit(dir, "task", "new", "--title", "加问候语", "--verification", "independent").stdout.split("\n");
-  const id = first.replace("已创建 ", "");
-  const taskDir = file.replace("/task.md", "");
+  const { id, file } = createTask(dir, { title: "加问候语", slug: "task", verification: "independent", priority: "P2", parent: null, dependsOn: [] }).created;
+  const taskDir = dirname(file);
 
   assert.equal(standardsPart(dir, id, taskDir), "");
 
   const { document } = parseTaskDocument(readFileSync(join(dir, file), "utf8"));
   writeFileSync(join(dir, file), renderTaskDocument({ ...document, requirement: REQUIREMENT }));
-  assert.equal(knit(dir, "task", "ready", id).code, 0);
+  assert.equal(confirmTask(dir, id).kind, "ready");
   assert.equal(standardsPart(dir, id, taskDir), `规范（implement 环节）:\n${B.block}`);
 
   ranStage(dir, id, null);
@@ -85,7 +87,7 @@ test("各个状态给对应环节的规范", (t) => {
   const delivery = `规范（deliver 环节）:\n${builtinDelivery}\n${C.block}`;
   assert.equal(standardsPart(dir, id, taskDir), delivery);
 
-  assert.equal(knit(dir, "task", "close", id, "--result", "做完了").code, 0);
+  assert.equal(closeTask(dir, id, { result: "做完了", paths: [] }).kind, "done");
   assert.equal(standardsPart(dir, id, taskDir), delivery);
 });
 
@@ -93,46 +95,41 @@ test("没有规范和已经结束的任务", (t) => {
   const dir = projectWith(t, [A]);
   const confirmed = readyTask(dir);
   const cancelled = readyTask(dir);
-  assert.equal(knit(dir, "task", "cancel", cancelled.id, "--reason", "不做了").code, 0);
+  assert.equal(cancelTask(dir, cancelled.id, { reason: "不做了" }).kind, "cancelled");
 
   assert.equal(standardsPart(dir, confirmed.id, confirmed.dir), "规范（implement 环节）: 没有\n");
 
-  const ended = knit(dir, "context", cancelled.id);
-  assert.equal(ended.code, 0, ended.stderr);
-  assert.match(ended.stdout.trimEnd().split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
-  assert.equal(ended.stdout.split("任务:")[0], `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}`);
+  const ended = contextLines(buildSessionContext(dir, cancelled.id)).join("\n");
+  assert.match(ended.split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
+  assert.equal(ended.split("任务:")[0], `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}`);
 });
 
-test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", (t) => {
+test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", async (t) => {
   const root = runProject(t);
   const active = readyTask(root);
   const archived = readyTask(root);
-  const cancelled = knit(root, "task", "cancel", archived.id, "--reason", "不做了");
-  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.equal(cancelTask(root, archived.id, { reason: "不做了" }).kind, "cancelled");
 
   // task.md 是目录，尝试按普通文件读取就会报 EISDIR。
   const broken = join(root, ARCHIVE_DIR, "2000-01", "broken", "task.md");
   mkdirSync(broken, { recursive: true });
   assert.equal(findTask(root, active.id)?.dir, active.dir);
-  for (const args of [["context"], ["run", "status"], ["run", "wait"]]) {
-    const result = knit(root, ...args, active.id);
-    assert.equal(result.code, 0, result.stderr);
-    assert.ok(result.stdout.includes(active.id));
-  }
+  const context = buildSessionContext(root, active.id);
+  assert.equal(context.kind, "context");
+  assert.ok(statusLines(context.task.status)[0].includes(active.id));
+  const waited = await waitRun(root, active.id);
+  assert.deepEqual(waited.problems, []);
+  assert.equal(waited.task.document.frontmatter.id, active.id);
   rmSync(broken, { recursive: true });
   assert.equal(findTask(root, archived.id)?.archived, true);
 });
 
 test("初始化直接使用安装包中的通用规范", (t) => {
   const dir = project(t);
-  const initialized = knit(dir, "init");
-  assert.equal(initialized.code, 0, initialized.stderr);
-  const created = knit(dir, "task", "new", "--title", "加问候语");
-  assert.equal(created.code, 0, created.stderr);
-  const [first] = created.stdout.split("\n");
-  const id = first.replace("已创建 ", "");
-
-  const shown = knit(dir, "context", id);
+  initProject(dir);
+  const task = createTask(dir, { title: "加问候语", slug: "task", verification: "self", priority: "P2", parent: null, dependsOn: [] });
+  assert.deepEqual(task.problems, []);
+  const shown = knit(dir, "context", task.created.id);
   assert.equal(shown.code, 0, shown.stderr);
   const unselected = knit(dir, "context");
   assert.equal(unselected.code, 0, unselected.stderr);
@@ -149,14 +146,14 @@ test("初始化直接使用安装包中的通用规范", (t) => {
 
 test("讨论与当前环节按路径去重，嵌套目录里的规范也完整提供", (t) => {
   const dir = projectWith(t, [D, C, A, B]);
-  const discussion = knit(dir, "context");
-  assert.deepEqual(discussion, { code: 0, stdout: `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}\n${D.block}`, stderr: "" });
-  assert.deepEqual(knit(dir, "context"), discussion);
+  const discussion = contextLines(buildSessionContext(dir)).join("\n");
+  assert.equal(`${discussion}\n`, `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}\n${D.block}`);
+  assert.equal(contextLines(buildSessionContext(dir)).join("\n"), discussion);
   const task = readyTask(dir, { verification: "self" });
   ranStage(dir, task.id, null);
   assert.equal(standardsPart(dir, task.id, task.dir), `规范（deliver 环节）:\n${builtinDelivery}\n${C.block}`);
-  const shown = knit(dir, "context", task.id);
-  assert.equal((shown.stdout.match(new RegExp(`<standard path="${D.path}"`, "g")) ?? []).length, 1);
+  const shown = contextLines(buildSessionContext(dir, task.id)).join("\n");
+  assert.equal((shown.match(new RegExp(`<standard path="${D.path}"`, "g")) ?? []).length, 1);
 
   const sharedOnly = projectWith(t, [D]);
   const other = readyTask(sharedOnly, { verification: "self" });
@@ -166,7 +163,7 @@ test("讨论与当前环节按路径去重，嵌套目录里的规范也完整�
 
 test("没有项目讨论规范时给出完整内置规范", (t) => {
   const dir = projectWith(t, [B]);
-  assert.deepEqual(knit(dir, "context"), { code: 0, stdout: `规范（discuss 环节）:\n${builtinDiscussion}`, stderr: "" });
+  assert.equal(contextLines(buildSessionContext(dir)).join("\n") + "\n", `规范（discuss 环节）:\n${builtinDiscussion}`);
 });
 
 test("主会话随讨论、实现、审查和交付切换清单，正文与 CLI 选区一致", (t) => {
@@ -175,11 +172,10 @@ test("主会话随讨论、实现、审查和交付切换清单，正文与 CLI 
   const dir = projectWith(t, [{ path, text }]);
   const task = readyTask(dir);
   function check(stage, ...args) {
-    const shown = knit(dir, "context", ...args);
+    const shown = contextLines(buildSessionContext(dir, ...args)).join("\n");
     const expected = knit(dir, "standards", "pitfalls", stage);
-    assert.equal(shown.code, 0, shown.stderr);
     assert.equal(expected.code, 0, expected.stderr);
-    const blocks = [...shown.stdout.matchAll(/<standard path="\.knit\/standards\/pitfalls\.md" title="避坑清单">\n([\s\S]*?)<\/standard>/g)];
+    const blocks = [...shown.matchAll(/<standard path="\.knit\/standards\/pitfalls\.md" title="避坑清单">\n([\s\S]*?)<\/standard>/g)];
     assert.equal(blocks.length, 1);
     assert.equal(blocks[0][1], expected.stdout);
     return blocks[0][1];
@@ -196,12 +192,10 @@ test("状态没变时输出逐字不变", (t) => {
   const dir = projectWith(t, [A, B, C]);
   const task = readyTask(dir);
 
-  const first = knit(dir, "context", task.id);
-  assert.equal(first.code, 0, first.stderr);
-  assert.match(first.stdout, /^规范（implement 环节）:$/m);
-  assert.deepEqual(knit(dir, "context", task.id), first);
-
-  const missing = knit(dir, "context", "k-000000000000");
-  assert.deepEqual(missing, { code: 1, stdout: "", stderr: knit(dir, "run", "status", "k-000000000000").stderr });
-  assert.notEqual(missing.stderr, "");
+  const first = contextLines(buildSessionContext(dir, task.id)).join("\n");
+  assert.match(first, /^规范（implement 环节）:$/m);
+  assert.equal(contextLines(buildSessionContext(dir, task.id)).join("\n"), first);
+  assert.deepEqual(buildSessionContext(dir, "k-000000000000"), {
+    kind: "refused", problems: ["没有任务 k-000000000000；用 knit task list 查看现有任务"],
+  });
 });
