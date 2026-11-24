@@ -1,4 +1,0 @@
- M .knit/config.json
-?? .knit/tasks/11-12-local-real-pi-acceptance/
-?? .pi/agents/deepseek-reviewer.md
-?? validation/local-real-pi-acceptance-2026-11/
