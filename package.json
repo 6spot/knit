@@ -26,7 +26,6 @@
   "dependencies": {
     "@earendil-works/pi-schema": "1.5.0",
     "commander": "15.0.0",
-    "re2js": "2.10.0",
     "sh-syntax": "0.8.7",
     "yaml": "2.9.0"
   },
