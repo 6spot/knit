@@ -42,7 +42,6 @@ interface TurnStart {
 }
 
 interface Context {
-  cwd?: string;
   model?: { provider: string; id: string };
   thinkingLevel?: string;
   /** 当前分支上的全部会话记录，从最早到最新；压缩之前的也在。 */
@@ -55,10 +54,7 @@ interface SessionEntry {
   id: string;
   customType?: string;
   data?: unknown;
-  content?: string;
-  message?: { role: string; toolName?: string; toolCallId?: string; isError?: boolean; content: string | {
-    type: string; text?: string; id?: string; name?: string; arguments?: { command?: string };
-  }[] };
+  message?: { role: string; content: string | { type: string; text?: string }[] };
 }
 
 interface CommandResult {
@@ -69,7 +65,6 @@ interface CommandResult {
 
 interface TaskParams {
   action: "new" | "use" | "ready" | "close" | "list";
-  draftChoice?: string;
   taskId?: string;
   title?: string;
   slug?: string;
@@ -108,7 +103,6 @@ const WORK_GUIDANCE = "讨论、比较方案和只读查证直接进行。已授
 export default function knitBridge(pi: Pi): void {
   // 正在等执行结束的 knit run wait，按任务 id 记。派发成功时才启动：这个函数可能在没有会话的调用里运行。
   const waiting = new Map<string, ChildProcess>();
-  const asked = new Set<string>();
 
   pi.registerTool<TaskParams>({
     name: "knit_task",
@@ -200,42 +194,24 @@ export default function knitBridge(pi: Pi): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (["read", "grep", "ls", "find"].includes(event.toolName)) return;
-    const branch = ctx.sessionManager.getBranch();
-    const searches = new Map<string, string>();
-    const messages = branch.flatMap<{ role: string; text: string; command?: string; cwd?: string }>((entry) => {
-      if (entry.type === "custom_message" && entry.customType === "knit.task-question" && typeof entry.content === "string") return [{ role: "assistant", text: entry.content }];
-      const message = entry.message;
-      if (entry.type !== "message" || !message) return [];
-      if (message.role === "assistant" && Array.isArray(message.content)) {
-        message.content.forEach((part) => {
-          const command = part.arguments?.command;
-          if (part.type === "toolCall" && part.name === "bash" && part.id && command && /^rg\s+(?:-l|--files-with-matches)\s/.test(command)) searches.set(part.id, command);
-        });
-      }
-      const command = message.toolCallId && searches.get(message.toolCallId);
-      if (message.role === "toolResult" && (!command || message.toolName !== "bash" || message.isError)) return [];
-      if (!["user", "assistant", "toolResult"].includes(message.role)) return [];
-      const text = typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-      if (message.role === "toolResult") return [{ role: "search", text, command, cwd: ctx.cwd ?? ROOT }];
-      return text.trim() ? [{ role: message.role, text }] : [];
-    });
-    const checked = await startKnit(["hook", "pi", "tool-call"], process.env, JSON.stringify({
-      name: event.toolName, input: event.input, messages, selected: selectedTask(ctx), sessionId: ctx.sessionManager.getSessionId(),
-    })).result;
-    if (checked.code === 0) {
-      const admitted: { command?: string; draftChoice?: string } = JSON.parse(checked.stdout);
-      if (event.toolName === "bash" && admitted.command) event.input.command = admitted.command;
-      if (event.toolName === "knit_task" && admitted.draftChoice) event.input.draftChoice = admitted.draftChoice;
-      return;
+    if (event.toolName !== "bash" || typeof event.input.command !== "string") return;
+    const check = (messages: { role: "user"; text: string }[], quotesOnly = false) => startKnit(["hook", "pi", "tool-call"], process.env,
+      JSON.stringify({ name: "bash", input: event.input, sessionId: ctx.sessionManager.getSessionId(), messages, quotesOnly })).result;
+    let checked = await check([], true);
+    // 旧 CLI 忽略 quotesOnly，要求核对交付时才给它用户消息重试。
+    if (checked.code !== 0 && checked.stderr.startsWith("无法核对交付授权。")) {
+      const messages = ctx.sessionManager.getBranch().flatMap((entry) => {
+        const text = userText(entry);
+        return text === undefined ? [] : [{ role: "user" as const, text }];
+      });
+      checked = await check(messages);
     }
-    const reason = checked.stderr.trimEnd();
-    const turn = branch.findLast((entry) => entry.message?.role === "user")?.id;
-    if (turn && reason.endsWith("任务吗？") && !asked.has(turn)) {
-      asked.add(turn);
-      pi.sendMessage({ customType: "knit.task-question", content: reason, display: true }, { deliverAs: "followUp", triggerTurn: false });
+    if (checked.code !== 0) return { block: true, reason: checked.stderr.trimEnd() };
+    const { quotes = [], command }: { quotes?: string[]; command?: string } = JSON.parse(checked.stdout);
+    if (quotes.some((quote) => !quote || !userMessageSaying(ctx, quote))) {
+      return { block: true, reason: "无法核对交付授权。请用 --authorization 引用当前会话中用户的整条消息或完整一行。只需预览时请用 knit deliver --preview <id>。" };
     }
-    return { block: true, reason };
+    if (typeof command === "string") event.input.command = command;
   });
 
   // 会话重新加载或重开之后不接着等：结果在下一轮的系统提示里能看到，也可以用 status 查。
@@ -259,7 +235,7 @@ async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResul
         ...single("--priority", params.priority),
         ...single("--parent", params.parent),
         ...several("--depends-on", params.dependsOn),
-      ], { ...process.env, KNIT_HOST: "pi", KNIT_HOST_SESSION: ctx.sessionManager.getSessionId(), KNIT_SELECTED_TASK: selectedTask(ctx) ?? undefined, KNIT_DRAFT_CHOICE: params.draftChoice }),
+      ], { ...process.env, KNIT_HOST: "pi", KNIT_HOST_SESSION: ctx.sessionManager.getSessionId() }),
     );
   }
   if (params.action === "use") return use(pi, params.taskId);
@@ -355,17 +331,15 @@ async function deliver(params: DeliverParams, ctx: Context): Promise<ToolResult>
  */
 function userMessageSaying(ctx: Context, quote: string): SessionEntry | undefined {
   return ctx.sessionManager.getBranch().findLast((entry) => {
-    if (entry.type !== "message" || entry.message?.role !== "user") return false;
-    const content = entry.message.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text ?? "")
-            .join("\n");
-    return text.trim() === quote || text.split("\n").some((line) => line.trim() === quote);
+    const text = userText(entry);
+    return text !== undefined && (text.trim() === quote || text.split("\n").some((line) => line.trim() === quote));
   });
+}
+
+function userText(entry: SessionEntry): string | undefined {
+  if (entry.type !== "message" || entry.message?.role !== "user") return undefined;
+  const content = entry.message.content;
+  return typeof content === "string" ? content : content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
 }
 
 /** 运行 knit；给了提交文案时写进一个临时文件，用 --message-file 交给命令，做完删掉。 */

@@ -30,12 +30,21 @@ registerDeliverCommand(program);
 const hook = program.command("hook", { hidden: true });
 hook.command("pi <event>", { hidden: true }).action(async (event: string) => {
   if (event !== "tool-call") return fail(["未知的 Pi 工具事件"]);
-  const { checkSessionTool } = await import("../application/host-hook.js");
   const call = JSON.parse(readFileSync(0, "utf8"));
-  const checked = await checkSessionTool(process.cwd(), { host: "pi", sessionId: call.sessionId }, call.name, call.input,
-    call.name === "bash" ? call.input.command : undefined, () => call.messages, {}, call.selected);
+  if (call.name !== "bash" || typeof call.input?.command !== "string") {
+    process.stdout.write("{}");
+    return;
+  }
+  const { checkHostCommand, inspectHostCommand } = await import("../application/host-command.js");
+  if (call.quotesOnly === true) {
+    const { quotes } = await inspectHostCommand(call.input.command);
+    process.stdout.write(JSON.stringify({ quotes }));
+    return;
+  }
+  const checked = await checkHostCommand(call.input.command, () => call.messages
+    .filter((message: { role: string }) => message.role === "user").map((message: { text: string }) => message.text));
   if (checked.reason) return fail([checked.reason]);
-  process.stdout.write(JSON.stringify({ draftChoice: checked.draftChoice, command: checked.command }));
+  process.stdout.write(JSON.stringify({ command: checked.command }));
 });
 hook.command("agy <event>").action(async (event: string) => {
   const { agyHostHook } = await import("../adapters/antigravity/host-hook.js");

@@ -4,11 +4,10 @@ import { dirname, join, resolve } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
-import { shellQuote, withFileLock } from "../infrastructure/process.js";
+import { withFileLock } from "../infrastructure/process.js";
 import { buildSessionContext, contextLines } from "./session-context.js";
-import { checkHostCommand } from "./host-command.js";
-import { toolEffects, workGuidance, workQuestion, workTurn, type WorkMessage } from "./work-choice.js";
-import { createTask, readTask, type NewTask } from "./task-store.js";
+import { workGuidance } from "./work-choice.js";
+import { readTask } from "./task-store.js";
 
 export { checkHostCommand } from "./host-command.js";
 
@@ -20,7 +19,6 @@ export interface HostSession {
 interface SessionState {
   taskId: string | null;
   lastDigest: string | null;
-  draft?: { choice: string; id: string; file: string };
 }
 
 export function hostProjectRoot(dir: string): string | null {
@@ -52,47 +50,13 @@ function readState(path: string): SessionState {
   return file === null ? { taskId: null, lastDigest: null } : JSON.parse(file.data.toString());
 }
 
-export function createSessionDraft(root: string, session: HostSession, choice: string, input: NewTask) {
-  return withSession(root, session, (path) => {
-    const state = readState(path);
-    if (state.draft?.choice === choice) {
-      const found = readTask(root, state.draft.id);
-      if (found.kind === "refused") return { created: null, problems: found.problems };
-      return { created: { id: state.draft.id, file: join(found.task.stored.dir, "task.md") }, problems: [],
-        title: found.task.document.frontmatter.title, status: found.task.document.frontmatter.status, selected: state.taskId === state.draft.id };
-    }
-    const result = createTask(root, input);
-    if (result.created) saveState(path, { ...state, draft: { choice, ...result.created } });
-    return result;
-  });
-}
-
 export function selectHostTask(root: string, session: HostSession, taskId: string | null): readonly string[] {
   if (taskId !== null) {
     const loaded = readTask(root, taskId);
     if (loaded.kind === "refused") return loaded.problems;
   }
-  withSession(root, session, (path) => saveState(path, { ...readState(path), taskId, lastDigest: null }));
+  withSession(root, session, (path) => saveState(path, { taskId, lastDigest: null }));
   return [];
-}
-
-export async function checkSessionTool(root: string | null, session: HostSession | null, name: string, input: Record<string, unknown>,
-  command: string | undefined, transcript: () => WorkMessage[], environment: Partial<Record<"select" | "start", string>> = {}, selected?: string | null) {
-  const effects = toolEffects(name, input);
-  const initialized = root !== null && existsSync(join(root, WORKFLOW_CONFIG_PATH));
-  const checked = command === undefined ? { command, reason: null } : await checkHostCommand(command,
-    () => transcript().filter((message) => message.role === "user").map((message) => message.text), {
-      ...environment,
-      draft: () => initialized && session ? `KNIT_HOST=${shellQuote(session.host)} KNIT_HOST_SESSION=${shellQuote(session.sessionId)} KNIT_DRAFT_CHOICE=${workTurn(transcript()).key}` : undefined,
-    }, initialized ? effects : undefined);
-  if (checked.reason || !initialized || !effects.length) return { ...checked, draftChoice: undefined };
-  const turn = workTurn(transcript());
-  const state = session ? withSession(root, session, readState) : null;
-  const id = selected === undefined ? state?.taskId : selected;
-  const loaded = id ? readTask(root, id) : null;
-  const task = loaded?.kind === "loaded" ? loaded.task.document.frontmatter : null;
-  return { command: checked.command, reason: workQuestion(root, effects, turn, task, state?.draft?.choice === turn.key ? state.draft : undefined),
-    draftChoice: effects.some((effect) => effect.kind === "draft") ? turn.key : undefined };
 }
 
 export function hostContext(dirs: readonly string[], session: HostSession): string | null {
@@ -103,7 +67,7 @@ export function hostContext(dirs: readonly string[], session: HostSession): stri
     const text = sessionText(root, state.taskId);
     const lastDigest = sha256Text(text);
     if (lastDigest === state.lastDigest) return null;
-    saveState(path, { ...state, lastDigest });
+    saveState(path, { taskId: state.taskId, lastDigest });
     return text;
   });
 }

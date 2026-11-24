@@ -255,7 +255,7 @@ test("已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版
   symlinkSync(cli, join(shims, "knit"));
   symlinkSync(process.execPath, join(shims, "node"));
   const hooks = JSON.parse(readFileSync(join(root, ".workbuddy/settings.json"))).hooks;
-  assert.equal(hooks.PreToolUse[0].matcher, ".*");
+  assert.equal(hooks.PreToolUse[0].matcher, "^Bash$");
   const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEBUDDY_PROJECT_DIR: root };
   const invoke = (event, fields) => spawnSync("/bin/sh", ["-c", hooks[event][0].hooks[0].command], { cwd: home, env,
     input: JSON.stringify({ hook_event_name: event, session_id: buddySession, ...fields }), encoding: "utf8" });

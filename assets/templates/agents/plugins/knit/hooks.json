@@ -8,7 +8,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": ".*",
+        "matcher": "run_command",
         "hooks": [{ "type": "command", "command": "knit hook agy PreToolUse" }]
       }
     ]
