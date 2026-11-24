@@ -62,6 +62,13 @@ test("初始化生成桥接", (t) => {
   assert.equal(checked.status, 0, checked.stdout);
 });
 
+test("Pi 执行者加载桥接时跳过全部工具和钩子，保留原有系统提示", async (t) => {
+  const bridge = await loadBridge(t, emptyDir(t), { executor: true });
+  assert.deepEqual(bridge.definitions, []);
+  assert.deepEqual(bridge.events, []);
+  assert.deepEqual(await sectionsAfterTurn(bridge, { other: "其他扩展" }), { other: "其他扩展" });
+});
+
 test("四个动作转交命令", async (t) => {
   const dir = emptyDir(t);
   const bridge = await loadBridge(t, dir);
