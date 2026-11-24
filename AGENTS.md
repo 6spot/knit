@@ -4,33 +4,25 @@
 
 给 Knit 增加功能前，先和用户把必要性问透。谁在什么场景下遇到了什么问题？现有功能单独或组合使用，能解决到哪一步？加上这项功能，使用者会得到什么具体改善？如果不加，实际影响有多大？理由还笼统，就拿具体例子继续追问。现有办法够用就沿用，确有值得解决的缺口再新增。
 
-## 开发入口与任务管理
+## 架构与源码入口
 
-本仓库用 Knit 管理开发任务。管理本仓库的是装在全局的安装版（`npm run pack:install`），不是工作区里的 `dist/`。流程在 [.knit/workflow.yaml](.knit/workflow.yaml)，任务在 `.knit/tasks/`。Knit 按环节提供安装包[内置规范](assets/standards/)和本仓库的[项目规范](.knit/standards/)。项目避坑经验按适用环节记入同一份[避坑清单](.knit/standards/pitfalls.md)。
+以 `knit run start` 为例。`src/cli/` 接收命令，`src/application/` 读取任务目录里的 `task.md` 和 `record.json`，核对需求是否已确认、依赖是否满足、上一次执行是否结束。`src/domain/` 的 `nextStep` 根据工作流、任务的验证方式和执行记录，判断接下来该派哪个环节，或该由主会话裁决、收尾。[派发准备](src/application/run-prepare.ts) · [下一步判断](src/domain/progress.ts)
 
-- 各任务的 `task.md` 是需求的入口。复杂任务按需在任务目录里补 `plan.md`、`design.md` 或 `research/`，不另建一份全局的任务状态表。
-- 用户指定任务时按指定的任务推进。接手已有任务前先看它的状态、需求和执行记录，确认原来的执行已经结束；不凭旧目录、总结或 todo 完成认定实现成功。
-- 验证方式按任务的目标、影响范围和风险选 `none`、`self` 或 `independent`，用户明确要求的优先。独立审查由没有参与实现的执行者做，如实记录运行过的检查和结果。
-- 遇到阻塞时，把根因、证据和要用户决定的事写进对应任务的「待澄清」。不依赖这个缺口、又已经得到授权的工作可以继续，有新事实再复验。
-- Knit 自身的故障阻碍任务推进时，主会话可以用宿主工具直接修复并保留证据，恢复后把实际的修改和验证记回任务；不靠出了故障的那条链路来修它自己。
-- 禁止过度思考、过度设计、过多的防御性编程，不为未遇到的事情设计过多的防御性编程。
+派发时，应用层准备任务工作树和交接内容，调用执行者，结束后保存报告并把执行结果记回 `record.json`。`src/contracts/` 定义任务、工作流和执行者接口，`src/adapters/` 对接具体客户端和 Rex 窗格，`src/infrastructure/` 提供文件、路径和进程操作。[执行过程](src/application/run-execute.ts) · [结果记录](src/application/run-finish.ts)
 
-[旧任务索引](docs/history/TASKS.md)、[001–060 执行记录](docs/history/tasks/)和[旧阻塞记录](docs/history/BLOCKERS.md)保留为历史档案，不再排新任务或维护后续任务状态。其旧启动指令、编号顺序和各任务执行时的边界只说明当时约定。历史证据保留在 [validation/](validation/)。
+改主会话里的工具、钩子或上下文注入，从宿主桥接模板看起。接入能跑工作流环节的客户端，从 `AgentAdapter` 接口和内置执行者注册表看起，Pi 和 Antigravity 都有现成实现。[宿主模板](assets/templates/) · [执行者接口](src/contracts/agent.ts) · [注册表](src/adapters/agents.ts)
 
-macOS 的支持级别是开发环境：在 macOS 开发机上 `npm test` 必须全绿（Rex 终端与普通终端各跑一次）。开发机测试通过不等于完成了 macOS 的安装与运行验收；Linux 上 `npm test` 跑过一次（见 `validation/slim-linux-2026-11/`），没有用真的 Pi 和模型走过。NPM 发布、外部部署和其它真实项目操作尚未进行。
+## 本仓库开发与验证
 
-本文件是本仓库自己的。Knit 不写入项目的 `AGENTS.md`。
+本仓库由全局安装的 `knit` 管理。改桥接、角色文件或默认工作流时，编辑 `assets/templates/` 中的源文件。要在本仓库试用新版本，先运行 `npm run pack:install`，再用 `knit init --force` 刷新生成副本。刷新前有差异的副本会备份到 `.knit/.runtime/backups/<时间>/`。从备份恢复本仓库定制的模型配置后，用 `knit workflow validate` 核对。[仓库工作流](.knit/workflow.yaml)
 
-## 文档与目录
+- 接手用户指定的任务，先看 `task.md`、当前状态和执行记录。需求、计划和补充研究放在该任务目录，完成情况用实际改动和验证结果核实。验证方式按用户要求、目标和风险确定，独立审查交给未参与实现的执行者。
+- 遇到阻塞，把根因、证据和需要用户决定的事项记入任务的「待澄清」。可独立完成且已获授权的工作继续推进。Knit 自身故障阻碍任务推进时，主会话可用宿主工具直接修复，保留证据，恢复后把修改和验证记回任务。
+- 优先用能解决当前问题的简单实现，按实际风险决定需要的防御措施。编码和测试约定按环节加载，遇到的项目问题按适用环节记入避坑清单。[开发规范](.knit/standards/development.md) · [避坑清单](.knit/standards/pitfalls.md)
+- macOS 是开发环境。`npm test` 在 Rex 终端和普通终端各跑一次，两次都须通过。平台安装、真实客户端和模型的验收情况查对应的[验证记录](docs/README.md#验证记录)。
 
-- [docs/design/DESIGN.md](docs/design/DESIGN.md)：现行设计。
-- [.knit/tasks/archive/2026-11/11-14-slim-refactor/plan.md](.knit/tasks/archive/2026-11/11-14-slim-refactor/plan.md)：重构的子任务清单和进度，已收尾。
-- [docs/history/design/](docs/history/design/)：重构之前的旧 Knit 的规范、架构和状态说明，只作历史档案。
-- [docs/research/](docs/research/)：研究依据。研究不自动扩大范围。
-- [docs/history/](docs/history/)：旧开发队列、阻塞与执行档案。
-- [validation/](validation/)：可追溯的实验、验收、复核材料与夹具。
-- `.knit/`：本仓库的任务、流程、规范和运行资料。`.knit/agents/`、`.knit/workflow.yaml` 和 `.pi/extensions/knit.ts` 是安装版 `knit init` 生成的副本，模板只有 `assets/templates/` 一份来源：改模板，不改副本，升级安装版之后重新生成。
+## 文档入口与写法
 
-设计正文直接定义当前方案：目录结构、字段、职责、默认值、触发条件、操作顺序和实际结果。每段围绕一个具体问题展开，规则适合用目录树、示例或字段表表达时，正文补充必要语义。讨论结论写回对应章节并替换过期方案，讨论经过保留在会话中。
+查任务、工作流和交付机制，读现行设计。接入客户端时，读宿主和执行者各自的协议与验收场景。研究、演练和平台验证按文档索引查找。根目录 `AGENTS.md` 由本仓库维护。[现行设计](docs/design/DESIGN.md) · [Agent 接入规范](docs/AGENT-INTEGRATION.md) · [文档索引](docs/README.md)
 
-说明取舍时写出与需求直接相关的理由，研究依据集中在 [RESEARCH.md](docs/research/RESEARCH.md)。权限、数据保护、并发和恢复规则放在对应操作旁，写清触发条件和处理行为。假设和待定项指向影响实施的具体问题；验证记录区分已验证事实、实验范围与待验收行为。
+设计正文一段回答一个问题，写明字段、默认值、触发条件和操作结果。把权限、并发与恢复规则放在相应操作旁。取舍说明写与需求直接相关的理由，研究和验证给出出处。讨论定稿后直接更新对应章节，待定项写清影响哪项实施，验收记录写清观察到的结果、实验范围和待验证项。
