@@ -194,7 +194,7 @@ createdAt: 2026-11-14T13:36:56Z
 - 不传：「结果」、`record.json`、其它任务、没有点名的 `design.md` 和研究资料。
 - 分块的单位有两级：任务本身按拆分规范保持小；大文档用 `#标题` 只取一节。
 - 字节上限的初始值：单个文件 16KB，一次交接合计 64KB。超出的只给路径和一句说明，由执行者自己读。受上限约束的是点名的资料、`plan.md`、上一批的报告和本执行器上一次的报告；完整交接中的角色文件、规范、需求部分和主会话修改指令全文给出，只计入合计。
-- 执行者像普通智能体一样读取项目的 `AGENTS.md`。环节的 `tools` 里没有 `external` 时不加载扩展、技能和 MCP。
+- 执行者像普通智能体一样读取项目的 `AGENTS.md`。环节的 `tools` 显式列出能力且没有 `external` 时，关闭扩展、技能和 MCP 的自动发现。
 - 主会话从第一轮起、每轮都收到适用 `discuss` 的普通规范，不依赖任务选择，也不创建任务或执行记录。选中 `draft` 时，任务部分只提供任务信息；其他状态按环节补充规范：`ready`、`active` 是正在跑的那次执行的环节，没有在跑的就是下一步要做的环节，所以主会话直接做某个环节时也收到该环节的规范；环节都做完、等主会话核对和 `task close` 时，以及 `done`，补充 `deliver`（不再提供开发规范）；`delivered`、`cancelled` 不补充环节规范，讨论规范仍在。
 - 普通规范按资源标识或项目路径去重。避坑清单只出现一次，按当前任务环节选区。无选中任务、草稿和已归档任务按 `discuss` 选区。
 
@@ -206,7 +206,7 @@ createdAt: 2026-11-14T13:36:56Z
 - `.knit/tasks/` 下的点名资料（本任务的，和别的任务的，例如主任务的设计）、`task.md` 的需求部分、`plan.md` 和各次报告从主检出读，块上的路径给主检出里的绝对路径，章节路径保留 `#标题`。超过字节上限时仍只给路径和说明，执行者可以按绝对路径读到当前资料，不会读到 Worktree 里的旧任务副本。
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 内置规范从安装包读取。角色文件、项目规范和避坑分区从主检出读取。系统提示先给角色，再给内置和项目规范，各来源内按路径排序。
-- Pi 主会话的规范放在桥接维护的系统提示里。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。插件直接使用钩子和 CLI，无需 MCP 服务。
+- Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 同时注入上下文和桌面主会话指引。会话选择与内容摘要由共用宿主钩子内核维护，普通目录及内容未变的轮次均零输出。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use` 和 `--unuse` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
@@ -300,7 +300,7 @@ Pi 和 Antigravity 按 Agent 名在 `src/adapters/agents.ts` 登记。派发读�
 - Knit 读取的流程、项目规范、配置、角色文件、任务目录和运行资料来自主检出。`knit run start`、`knit run status` 和每轮任务状态在 Worktree 存在时都显示它的位置和分支；任务状态不变时这一行逐字不变。
 - 派发过的任务在任务 Worktree 里交付，提交留在任务分支上（第 8.2 节）；主会话要补代码改动时也在这个 Worktree 里改，不在主检出里改。
 - 后台 Pi 使用 `--mode rpc`，后台 `agy` 使用双向 stream JSON。`knit run start` 在准备命令完成并派发执行者后返回。Rex 中优先使用原生交互窗格（第 7.2 节）。
-- 执行者能用哪些工具，由环节的 `tools` 决定。
+- 执行者能用哪些工具，由环节的 `tools` 决定。Pi 后台 RPC 和 Rex 窗格都在启动 Pi 时设置 `KNIT_PI_EXECUTOR=1`。桥接入口读到该值就返回，跳过三个主会话工具及全部钩子的注册。`tools` 包含 `external`、写 `all` 或省略时，Pi 仍可发现其他扩展。
 - 结束时：读取报告；对比派发前后在 Worktree 拍的工作区记录，得出相对 Worktree 的改动文件路径，写入主检出的 `record.json`；推进任务状态。改动文件以对比结果为准，不依赖执行者自报。主检出里其他人的改动不计入。
 - 派发执行者要求项目在 Git 仓库里：改动文件是靠 Git 列出文件对比出来的，执行者有没有提交也靠它判断。不在 Git 仓库里的项目，任务由主会话直接做，照样可以确认、完成和交付。要让这类项目也能派发，得另外定怎么列出要对比的文件、跳过哪些目录；现在不做。
 - 执行者不能提交：结束时 Worktree 的 `HEAD` 变了，本次执行记为失败。

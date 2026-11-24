@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PiConnectionClosedError, PiRpcConnection, signalProcessGroup } from "../dist/adapters/pi/connection.js";
 import { checkNativeSessionFile } from "../dist/adapters/pi/native-file.js";
-import { PiAgentRuntime, buildPiArgs, isolatedEnv } from "../dist/adapters/pi/runtime.js";
+import { PiAgentRuntime, buildPiArgs, interactivePiCommand, isolatedEnv } from "../dist/adapters/pi/runtime.js";
 
 const PI = process.env.PI_EXECUTABLE ?? "pi";
 const PROVIDER = process.env.PI_PROVIDER ?? "magpie";
@@ -48,7 +48,8 @@ test("checkNativeSessionFile 识别合法文件与损坏文件", async (t) => {
 });
 
 test("isolatedEnv 移除主会话变量并设置离线标志", () => {
-  const env = isolatedEnv({ EXTRA: "1" });
+  const env = isolatedEnv({ EXTRA: "1", KNIT_PI_EXECUTOR: "0" });
+  assert.equal(env.KNIT_PI_EXECUTOR, "1");
   assert.equal(env.PI_SESSION_ID, undefined);
   assert.equal(env.PI_SESSION_FILE, undefined);
   assert.equal(env.PI_OFFLINE, "1");
@@ -276,6 +277,19 @@ test("能力→Pi 参数：缺省收紧，external 放开扩展／MCP／技能�
   assert.ok(network.includes("--no-mcp"));
   const env = isolatedEnv({}, { offline: false });
   assert.equal("PI_OFFLINE" in env, false, "network 时环境不注入 PI_OFFLINE");
+});
+
+test("Rex 窗格在 external 或全部能力下标记 Pi 执行者并清理主会话环境", () => {
+  for (const capabilities of [["read", "write", "exec", "external"], null]) {
+    const command = interactivePiCommand({ ...BASE, capabilities, tools: null }, { KNIT_PI_EXECUTOR: "0" });
+    const envArgs = command.slice(1, command.indexOf(BASE.executablePath));
+    assert.ok(envArgs.includes("KNIT_PI_EXECUTOR=1"));
+    for (const key of ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"]) {
+      assert.deepEqual(envArgs.slice(envArgs.indexOf(key) - 1, envArgs.indexOf(key) + 1), ["-u", key]);
+    }
+    assert.equal(envArgs.includes("PI_OFFLINE=1"), capabilities !== null);
+    assert.equal(command.includes("--no-extensions"), false);
+  }
 });
 
 test("能力→Pi 参数：空能力全部禁用（--no-tools，离线并禁用扩展／MCP／技能）", () => {

@@ -17,6 +17,8 @@ import {
 
 export const PI_ADAPTER_VERSION = 1;
 
+const PI_EXECUTOR_ENV = { KNIT_PI_EXECUTOR: "1" };
+
 /** dispose 等待 stderr 流收敛的上限；超时保留已有尾部，不阻塞收尾。 */
 const STDERR_SETTLE_TIMEOUT_MS = 1_000;
 
@@ -112,8 +114,7 @@ export function isolatedEnv(
   if (options.offline !== false) env.PI_OFFLINE = "1";
   env.PI_SKIP_VERSION_CHECK = "1";
   env.PI_TELEMETRY = "0";
-  for (const [key, value] of Object.entries(extra)) env[key] = value;
-  return env;
+  return { ...env, ...extra, ...PI_EXECUTOR_ENV };
 }
 
 /** 构造 Pi RPC 参数；导出供能力→参数单测直接核对，不启动进程。 */
@@ -160,7 +161,7 @@ export function buildPiArgs(options: PiRuntimeOptions): string[] {
  * 所以写成 `/usr/bin/env -u … KEY=VALUE … pi 参数`，隔离的内容和 isolatedEnv 一样。
  */
 export function interactivePiCommand(options: PiRuntimeOptions, extra: Record<string, string>): string[] {
-  const env = { PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", ...extra };
+  const env = { PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", ...extra, ...PI_EXECUTOR_ENV };
   return [
     "/usr/bin/env",
     ...MAIN_SESSION_KEYS.flatMap((key) => ["-u", key]),
@@ -214,7 +215,7 @@ export class PiAgentRuntime {
     const switches = capabilitySwitches(this.options.capabilities);
     const connection = new PiRpcConnection(this.options.executablePath, buildPiArgs(this.options), {
       cwd: this.options.cwd,
-      env: this.options.env ?? isolatedEnv(undefined, { offline: switches.offline }),
+      env: this.options.env ? { ...this.options.env, ...PI_EXECUTOR_ENV } : isolatedEnv(undefined, { offline: switches.offline }),
     });
     this.connection = connection;
     try {
