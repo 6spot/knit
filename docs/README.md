@@ -24,9 +24,8 @@
 
 ## 研究
 
-- [research/RESEARCH.md](research/RESEARCH.md)：旧 Knit 的调研依据。
-- [research/WORKTREE.md](research/WORKTREE.md)：旧 Knit 的 Worktree 规则，只作历史参考。
-- [research/REX-PANE.md](research/REX-PANE.md)：Rex 窗格的接口和核实记录，现行。
+- Rex 窗格的接口和核实记录见 [REX-PANE.md](research/REX-PANE.md)。
+- 源码拆分和测试耗时的实测依据见[文件粒度与测试效率研究](research/file-granularity-and-test-review.md)。
 
 ## 验证记录
 
@@ -35,14 +34,7 @@
 - [slim-h1-2026-11](../validation/slim-h1-2026-11/)：用真的 Pi 和真的模型，从创建任务走到交付的全流程演练（2026-11-17）。
 - [slim-h5-2026-11](../validation/slim-h5-2026-11/)：设计文档整理用的脚本和核实，含链接检查与执行目录文件损坏后的恢复测试（2026-11-18）。
 - [slim-rex-2026-11](../validation/slim-rex-2026-11/)：在真的 Rex 窗格里用真的模型走一遍，含失败与回退（2026-11-17）。
+- Linux 上既跑过自动测试，也用真实 Pi 和模型走过从建任务到交付的流程。[Linux 验证记录](../validation/slim-linux-2026-11/README.md)
+- macOS 上用真实 Pi 和模型演练了任务工作树的并行执行、依赖和取消。[Worktree 演练](../validation/worktree-drill-2026-11/README.md)
 - 多宿主主会话的验收范围包括真实 Antigravity 会话和 WorkBuddy 安装桥接的协议验证。[多宿主验收记录](../validation/multi-host-main-session/README.md)
 - 真实 Pi 与 Antigravity 执行者的并行审查、原生续聊和回退在临时项目内验证。[并行审查与续聊记录](../validation/adversarial-review-resume/README.md)
-
-## 历史
-
-- [history/design/](history/design/)：旧设计七份（设计、架构、状态、技术选型、运行规则、阶段契约与术语）。
-- [history/TASKS.md](history/TASKS.md)：旧任务索引。
-- [history/tasks/](history/tasks/)：旧任务的执行记录。
-- [history/BLOCKERS.md](history/BLOCKERS.md)：旧阻塞记录。
-
-文档整理只调整文件位置与可导航的引用；历史执行日志、固定提交来源、任务身份和运行证据保留原值。旧档案里的命令、路径或启动指令按记录产生时的布局理解，不回填：复跑前用 `knit <命令> --help` 核对当前参数。当前目录与协作方式以本索引和 `AGENTS.md` 为准。

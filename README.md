@@ -4,7 +4,7 @@ Knit 管一个项目的开发周期。它记录任务的需求、可验证的完
 
 ## 现在的情况
 
-2026-11 重写为小核心。主会话已接入 Pi、Antigravity CLI 和 WorkBuddy Desktop，工作流可派发 Pi 或 Antigravity CLI。项目尚未发布到 NPM（`private: true`），目前没有 LICENSE。[旧实现记录](https://github.com/6spot/knit/tree/main/docs/history) · [平台验证情况](https://github.com/6spot/knit/blob/main/AGENTS.md)
+2026-11 重写为小核心。主会话已接入 Pi、Antigravity CLI 和 WorkBuddy Desktop，工作流可派发 Pi 或 Antigravity CLI。项目尚未发布到 NPM（`private: true`），目前没有 LICENSE。[平台验证记录](https://github.com/6spot/knit/blob/main/docs/README.md#验证记录)
 
 ## 安装
 
@@ -90,9 +90,8 @@ scripts/           构建、打包检查与本地安装
 docs/
   README.md        文档索引
   design/          现行设计
-  history/         旧 Knit 的设计、任务索引和执行记录
   research/        研究依据
-validation/        流程演练、客户端接入与历史验证记录
+validation/        流程演练、平台验证与客户端接入记录
 ```
 
 ## 接着读
