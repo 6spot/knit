@@ -81,8 +81,8 @@ test("四个动作转交命令", async (t) => {
   assert.equal(created.isError, undefined, text(created));
   assert.equal(created.details, undefined);
   const [first, file, ...rest] = text(created).split("\n");
-  const id = first.replace("已创建 ", "");
-  assert.match(id, /^k-[0-9a-f]{12}$/);
+  const id = /^已创建 - 以横线开头（(k-[0-9a-f]{12})）$/.exec(first)?.[1];
+  assert.match(id ?? "", /^k-[0-9a-f]{12}$/);
   assert.deepEqual(rest, [`- 以横线开头（${id}） · draft · 当前会话未选中新草稿`, `[task.md](${file})`]);
   const { frontmatter } = parseTaskDocument(readFileSync(join(dir, file), "utf8")).document;
   assert.deepEqual(
@@ -147,12 +147,12 @@ const selections = (bridge) => bridge.entries.map((entry) => [entry.type, entry.
 
 test("选中和取消选中", async (t) => {
   const { dir, bridge } = await bridged(t);
-  const id = knit(dir, "task", "new", "--title", "要选中的任务").stdout.split("\n")[0].replace("已创建 ", "");
+  const id = /^已创建 要选中的任务（(k-[0-9a-f]{12})）$/.exec(knit(dir, "task", "new", "--title", "要选中的任务").stdout.split("\n")[0])[1];
   assert.deepEqual(bridge.entries, []);
 
   const used = await bridge.tool("knit_task", { action: "use", taskId: id });
   assert.equal(used.isError, undefined, text(used));
-  assert.equal(text(used), `已选中 ${id}\n${knit(dir, "task", "show", id).stdout.trimEnd()}`);
+  assert.equal(text(used), `已选中 要选中的任务（${id}）\n${knit(dir, "task", "show", id).stdout.trimEnd()}`);
   assert.deepEqual(selections(bridge), [["custom", "knit.selection", { taskId: id }]]);
 
   const cleared = await bridge.tool("knit_task", { action: "use" });
@@ -197,7 +197,7 @@ async function newTask(bridge, title) {
   const created = await bridge.tool("knit_task", { action: "new", title });
   assert.equal(created.isError, undefined, created.content[0].text);
   const [first, file] = created.content[0].text.split("\n");
-  return { id: first.replace("已创建 ", ""), file };
+  return { id: /^已创建 .+（(k-[0-9a-f]+)）$/.exec(first)[1], file };
 }
 
 function contextText(dir, id) {
@@ -418,7 +418,7 @@ test("找到原话时交付并记下是哪一条", async (t) => {
   assert.equal(delivered.isError, undefined, text(delivered));
   assert.equal(
     text(delivered),
-    `已交付 ${task.id}\n归档: ${archived(task)}\n提交: 这个项目不在 Git 仓库里，没有提交`,
+    `已交付 加问候语（${task.id}）\n归档: ${archived(task)}\n提交: 这个项目不在 Git 仓库里，没有提交`,
   );
   assert.equal(existsSync(join(dir, task.dir)), false);
   const [document, record] = filesOf(dir, archived(task));

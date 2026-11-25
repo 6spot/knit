@@ -159,7 +159,7 @@ test("桥接派发透传模型、思考等级、多行指令与 fresh，立即�
   assert.equal(started.isError, undefined, text(started));
   const run = lastRun(dir, task);
   try {
-    assert.equal(text(started), `已派发 ${task.id}：实现（${run.id}）\n${worktreeLine(dir, task)}会话记录：${RUNS_DIR}/${run.id}/session/`);
+    assert.equal(text(started), `已派发 加问候语（${task.id}）：实现（${run.id}）\n${worktreeLine(dir, task)}会话记录：${RUNS_DIR}/${run.id}/session/`);
     assert.equal(run.endedAt, null);
     assert.deepEqual(bridge.messages, []);
   } finally {
@@ -277,7 +277,7 @@ test("自己取消的不通知", async (t) => {
 
   const cancelled = await bridge.tool("knit_run", { action: "cancel", taskId: task.id });
   assert.equal(cancelled.isError, undefined, text(cancelled));
-  assert.equal(text(cancelled).split("\n")[0], `已取消 ${task.id} 的执行 ${runId}`);
+  assert.equal(text(cancelled).split("\n")[0], `已取消 加问候语（${task.id}）的执行 ${runId}`);
   assert.equal(lastRun(dir, task).failure, "已取消");
   await ended(dir, task);
   await waitUntil(() => waitersOf(task).length === 0, "取消后 knit run wait 退出");

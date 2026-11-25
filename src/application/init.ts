@@ -39,7 +39,7 @@ export interface InitResult {
   /** 相对项目根，结尾不带 `/`；这一次没有备份时是 null。 */
   backupDir: string | null;
   /** 这一次建的初始化任务，`file` 相对项目根；没有建时是 null。 */
-  task: { id: string; file: string } | null;
+  task: { id: string; title: string; file: string } | null;
 }
 
 /**

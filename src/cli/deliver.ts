@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import { deliverTask, type DeliveryOptions, type DeliveryPreview, type DeliveryResult } from "../application/delivery.js";
 import { shellQuote } from "../infrastructure/process.js";
-import { fail, integrationLines, knitRoot } from "./shared.js";
+import { fail, integrationLines, knitRoot, taskLabel } from "./shared.js";
 
 const indented = (text: string) => text.split("\n").map((line) => (line === "" ? "" : `  ${line}`));
 
@@ -32,7 +32,7 @@ function hintLines(preview: DeliveryPreview): string[] {
       : []),
     ...(others > 0 ? [`工作区里还有 ${others} 处不属于这个任务的改动，不会被提交`] : []),
     ...(preview.openChildren.length > 0
-      ? [`子任务还没有结束：${preview.openChildren.map((child) => `${child.id}（${child.status}）`).join("、")}`]
+      ? [`子任务还没有结束：${preview.openChildren.map((child) => `${child.title}（${child.id}，${child.status}）`).join("、")}`]
       : []),
   ];
   return hints.length === 0 ? [] : ["提示:", ...hints.map((hint) => `  - ${hint}`)];
@@ -63,7 +63,7 @@ export function registerDeliverCommand(program: Command): void {
 function deliveredLines(root: string, id: string, result: Extract<DeliveryResult, { kind: "delivered" }>): string[] {
   const { worktree, commit, integration } = result;
   return [
-    `已交付 ${id}`,
+    `已交付 ${taskLabel(result.title, id)}`,
     `归档: ${worktree === null ? result.archiveDir : join(result.archiveRoot, result.archiveDir)}`,
     `提交: ${commit === null ? "这个项目不在 Git 仓库里，没有提交" : commit.kind === "nothing" ? "没有要提交的文件" : commit.summary}`,
     ...(worktree === null ? [] : [
@@ -87,7 +87,7 @@ function deliveredLines(root: string, id: string, result: Extract<DeliveryResult
 function previewLines(id: string, result: Extract<DeliveryResult, { kind: "preview" }>): string[] {
   const { preview, message, mergeBranch } = result;
   return [
-    `任务: ${result.title}（${id}）`,
+    `任务: ${taskLabel(result.title, id)}`,
     `归档: ${result.taskDir} → ${preview.worktree === null ? preview.archiveDir : join(preview.archiveRoot, preview.archiveDir)}`,
     ...(preview.worktree === null ? [] : [
       `Worktree: ${preview.worktree.path}（${preview.worktree.branch}）`,

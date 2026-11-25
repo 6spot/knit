@@ -311,7 +311,7 @@ test("显式关闭 autoMerge 时交付给出可以执行的合并和清理命令
   const hintPrefix = "在主检出运行 ";
   const command = `git merge --no-edit '${worktree.branch}' && git worktree remove '${worktree.path.replace("test home's-", "test home'\\''s-")}' && git branch -d '${worktree.branch}'`;
   assert.deepEqual(lines, [
-    `已交付 ${task.id}`,
+    `已交付 加问候语（${task.id}）`,
     `归档: ${join(worktree.path, archive)}`,
     `提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}`,
     `Worktree: ${worktree.path}（${worktree.branch}）`,
@@ -447,7 +447,7 @@ describe("独立仓库中的归档查询与交付", { concurrency: 3 }, () => {
     assert.match(readFileSync(join(worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
     assert.equal(JSON.parse(readFileSync(join(worktree.path, archive, "record.json"), "utf8")).authorization, "user:delivery");
     assert.equal(delivered.stdout, [
-      `已交付 ${task.id}`,
+      `已交付 加问候语（${task.id}）`,
       `归档: ${join(worktree.path, archive)}`,
       `提交: ${git(worktree.path, "log", "-1", "--format=%h %s")}`,
       `Worktree: ${worktree.path}（${worktree.branch}）`,

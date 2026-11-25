@@ -164,7 +164,7 @@ createdAt: 2026-11-14T13:36:56Z
 - Knit 从安装包 `assets/standards/` 加载讨论、任务编写、任务拆分和交付规范，标识分别为 `knit:standards/discussion.md`、`knit:standards/task-writing.md`、`knit:standards/task-splitting.md` 和 `knit:standards/delivery.md`。升级安装包后下次读取即生效。
 - 内置规范和角色模板随安装包进入每个项目，只写任务怎么讨论、拆分、编写和交付。代码怎么分层、测试怎么组织、哪些改动要独立审查或单独授权，由项目写在自己的 `.knit/standards/` 和 `AGENTS.md` 里，不写进内置规范和角色模板。项目不能用同名文件覆盖内置规范，内容有偏差时直接改内置文本。
 - `knit init` 和 `knit standards list` 会列出旧版留在 `.knit/standards/` 顶层的四份同名副本并提示迁移。原文保留，任务点名旧路径会解析到对应的内置资源。项目可在另名文件中调整提问数量、提交文案语言等团队约定。任务状态、交付授权、受保护文件和报告字段仍由对应操作的代码核验。
-- 项目自己的开发规范由一个初始化任务带着写。`knit init` 运行时项目里一个任务都没有（归档的也算）就建这个任务：标题「完善项目的开发规范」，目录名里的名称 `bootstrap-standards`，状态 `draft`，验证方式 `self`，优先级 `P1`，正文是模板 `assets/templates/tasks/bootstrap-standards.md`。它只做一件事：照代码现在的做法写出 `.knit/standards/development.md`，用户看过、同意后保存。这个任务不自动选中，不自动确认，不派给执行者，由主会话和用户一起做；`knit init` 的输出在最后一行给出它的 id 和路径。项目里已经有任务时不建，所以重复运行 `knit init` 不会多建，已经在用 Knit 的项目也不会收到；没有关掉它的选项。
+- 项目自己的开发规范由一个初始化任务带着写。`knit init` 运行时项目里一个任务都没有（归档的也算）就建这个任务：标题「完善项目的开发规范」，目录名里的名称 `bootstrap-standards`，状态 `draft`，验证方式 `self`，优先级 `P1`，正文是模板 `assets/templates/tasks/bootstrap-standards.md`。它只做一件事：照代码现在的做法写出 `.knit/standards/development.md`，用户看过、同意后保存。这个任务不自动选中，不自动确认，不派给执行者，由主会话和用户一起做；`knit init` 的输出在最后一行给出它的标题、id 和路径。项目里已经有任务时不建，所以重复运行 `knit init` 不会多建，已经在用 Knit 的项目也不会收到；没有关掉它的选项。
 - 项目规范保存在 `.knit/standards/` 下，支持嵌套目录。普通规范在 Markdown 开头声明适用的环节。
 
   ```markdown

@@ -41,7 +41,7 @@ test("在空目录里初始化", (t) => {
     result.stdout,
     `${[
       ...listed("已生成:", targets),
-      `初始化任务: ${frontmatter.id}（${taskFile}）`,
+      `初始化任务: 完善项目的开发规范（${frontmatter.id}，${taskFile}）`,
     ].join("\n")}\n`,
   );
   assert.deepEqual(readdirSync(dir), [".knit"]);
@@ -174,7 +174,7 @@ test("初始化任务的正文通得过确认", (t) => {
   const dir = emptyDir(t);
   initProject(dir);
   const id = parseTaskDocument(readFileSync(join(dir, taskFiles(dir)[0]), "utf8")).document.frontmatter.id;
-  assert.deepEqual(knit(dir, "task", "ready", id), { code: 0, stdout: `已确认 ${id}：0 个场景\n`, stderr: "" });
+  assert.deepEqual(knit(dir, "task", "ready", id), { code: 0, stdout: `已确认 完善项目的开发规范（${id}）：0 个场景\n`, stderr: "" });
   assert.equal(knit(dir, "task", "list").stdout, `P1  ${id}  ready  完善项目的开发规范\n`);
 });
 

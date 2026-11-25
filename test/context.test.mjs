@@ -142,6 +142,7 @@ test("初始化直接使用安装包中的通用规范", (t) => {
       "knit:standards/task-writing.md",
     ],
   );
+  assert.match(unselected.stdout, /## 指称任务[\s\S]*标题（ID）/);
 });
 
 test("讨论与当前环节按路径去重，嵌套目录里的规范也完整提供", (t) => {

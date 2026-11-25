@@ -31,7 +31,7 @@ test("Pi 将建任务的判断留给主会话，同一轮可显式创建两份�
     const result = await bridge.tool("knit_task", params);
     assert.equal(result.isError, undefined, result.content[0].text);
     const [first, file] = result.content[0].text.split("\n");
-    assert.match(first, /^已创建 k-[0-9a-f]+$/);
+    assert.match(first, new RegExp(`^已创建 ${title}（k-[0-9a-f]+）$`));
     assert.match(readFileSync(join(cwd, file), "utf8"), new RegExp(`title: ${title}`));
     created.push(first);
   }
@@ -124,11 +124,11 @@ for (const host of ["agy", "workbuddy"]) {
     run("printf ok > a.txt");
     assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "ok");
     assert.match(run("knit task new --help"), /--title/);
-    const previous = /^已创建 (k-[0-9a-f]+)/.exec(knit(cwd, "task", "new", "--title", "前项").stdout)[1];
+    const previous = /^已创建 前项（(k-[0-9a-f]+)）/.exec(knit(cwd, "task", "new", "--title", "前项").stdout)[1];
     run(`knit context --use ${previous}`);
     const ids = ["实现", "检查"].map((title) => {
       const [first, file, receipt, link] = run(`knit task new --title ${title}`).trimEnd().split("\n");
-      const id = /^已创建 (k-[0-9a-f]+)$/.exec(first)[1];
+      const id = new RegExp(`^已创建 ${title}（(k-[0-9a-f]+)）$`).exec(first)[1];
       assert.equal(receipt, `${title}（${id}） · draft · 当前会话未选中新草稿`);
       assert.equal(link, `[task.md](${file})`);
       assert.match(readFileSync(join(cwd, file), "utf8"), new RegExp(`title: ${title}`));

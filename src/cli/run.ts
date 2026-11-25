@@ -10,7 +10,7 @@ import { RUNS_DIR } from "../application/run-prepare.js";
 import { buildTaskStatus, statusLines } from "../application/session-context.js";
 import { checkSchema } from "../contracts/primitives.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
-import { fail, knitRoot, loadTask, loadWorkflow } from "./shared.js";
+import { fail, knitRoot, loadTask, loadWorkflow, taskLabel } from "./shared.js";
 
 export { statusLines };
 
@@ -64,8 +64,9 @@ export function registerRunCommands(program: Command): void {
         ],
       });
       if (prepared.run === null) return fail(prepared.problems);
+      const label = taskLabel(prepared.title, id);
       prepared.runs.forEach((started) => process.stdout.write(
-        `已派发 ${id}：${started.stage.name}（${started.id}）${started.executor ? ` ${started.executor}` : ""}\n` +
+        `已派发 ${label}：${started.stage.name}（${started.id}）${started.executor ? ` ${started.executor}` : ""}\n` +
         `Worktree: ${started.worktree.path}（${started.worktree.branch}）\n` +
         (started.setupCommands === undefined ? "" : `已运行准备命令：${started.setupCommands} 条\n`) +
         (readResume(join(root, started.dir)) ? `会话记录位置见 knit run status ${id}\n` : `会话记录：${started.dir}/session/\n`),
@@ -118,8 +119,11 @@ export function registerRunCommands(program: Command): void {
       const taskId = loaded.document.frontmatter.id;
       const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents, runId: options.run });
       if (result.cancelled === null) return fail(result.problems);
+      const label = taskLabel(loaded.document.frontmatter.title, taskId);
       result.runs.forEach((run) => {
-        const first = run.workerMissing ? `执行 ${run.runId} 的进程已经不在了，已记为失败` : `已取消 ${taskId} 的执行 ${run.runId}`;
+        const first = run.workerMissing
+          ? `${label}的执行 ${run.runId} 进程已经不在了，已记为失败`
+          : `已取消 ${label}的执行 ${run.runId}`;
         process.stdout.write(`${first}\n改动文件: ${run.changedPaths.length} 个\n`);
       });
     });

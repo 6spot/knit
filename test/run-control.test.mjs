@@ -391,7 +391,7 @@ test("进程已经不在时记为失败", (t) => {
   const cancelled = knit(dir, "run", "cancel", task.id);
 
   assert.equal(cancelled.code, 0, cancelled.stderr);
-  assert.equal(cancelled.stdout, `执行 ${run.id} 的进程已经不在了，已记为失败\n改动文件: 0 个\n`);
+  assert.equal(cancelled.stdout, `加问候语（${task.id}）的执行 ${run.id} 进程已经不在了，已记为失败\n改动文件: 0 个\n`);
   const ended = lastRun(dir, task);
   assert.ok(!Number.isNaN(Date.parse(ended.endedAt)));
   assert.deepEqual({ id: ended.id, failure: ended.failure }, { id: run.id, failure: "执行进程意外退出" });
@@ -492,7 +492,7 @@ function parallelProject(t, root) {
       assert.equal(result.status, 0, result.stderr);
       started.push(task);
       const run = lastRun(root, task);
-      assert.equal(result.stdout, `已派发 ${task.id}：实现（${run.id}）\n${worktreeLine(root, task)}会话记录：${RUNS_DIR}/${run.id}/session/\n`);
+      assert.equal(result.stdout, `已派发 加问候语（${task.id}）：实现（${run.id}）\n${worktreeLine(root, task)}会话记录：${RUNS_DIR}/${run.id}/session/\n`);
       return run;
     },
     release: (task) => writeFileSync(join(process.env.KNIT_HOME, `${task.id}.go`), ""),
@@ -669,7 +669,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     const cancelled = await cliCommand(["run", "cancel", task.id, "--dir", dir]);
 
     assert.equal(cancelled.code, 0, cancelled.stderr);
-    assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${run.id}\n改动文件: 1 个\n`);
+    assert.equal(cancelled.stdout, `已取消 加问候语（${task.id}）的执行 ${run.id}\n改动文件: 1 个\n`);
     const ended = lastRun(dir, task);
     assert.ok(!Number.isNaN(Date.parse(ended.endedAt)));
     assert.deepEqual(
@@ -745,7 +745,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     });
 
     assert.equal(cancelled.code, 0, cancelled.stderr);
-    assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${run.id}\n改动文件: 1 个\n`);
+    assert.equal(cancelled.stdout, `已取消 加问候语（${task.id}）的执行 ${run.id}\n改动文件: 1 个\n`);
     const ended = lastRun(dir, task);
     assert.deepEqual(
       { id: ended.id, verdict: ended.verdict, failure: ended.failure, changedPaths: ended.changedPaths },
@@ -802,7 +802,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     assert.equal(started.code, 0, started.stderr);
     const runId = lastRun(dir, task).id;
     const runDir = `${RUNS_DIR}/${runId}`;
-    assert.equal(started.stdout, `已派发 ${task.id}：实现（${runId}）\n${worktreeLine(dir, task)}会话记录：${runDir}/session/\n`);
+    assert.equal(started.stdout, `已派发 加问候语（${task.id}）：实现（${runId}）\n${worktreeLine(dir, task)}会话记录：${runDir}/session/\n`);
     const worker = JSON.parse(readFileSync(join(dir, runDir, "worker.json"), "utf8"));
     assert.ok(Number.isInteger(worker.pid) && worker.pid > 0);
     assert.equal(typeof worker.start, "string");
@@ -830,7 +830,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     const first = lastRun(dir, task);
     const setupText = existsSync(join(worktreeOf(dir, task), "setup.txt")) ? readFileSync(join(worktreeOf(dir, task), "setup.txt"), "utf8") : null;
     assert.equal((await finished(dir, task, first.id)).failure, null);
-    assert.equal(started.stdout, `已派发 ${task.id}：实现（${first.id}）\n${worktreeLine(dir, task)}已运行准备命令：2 条\n会话记录：${RUNS_DIR}/${first.id}/session/\n`);
+    assert.equal(started.stdout, `已派发 加问候语（${task.id}）：实现（${first.id}）\n${worktreeLine(dir, task)}已运行准备命令：2 条\n会话记录：${RUNS_DIR}/${first.id}/session/\n`);
     assert.equal(setupText, "first:second:inherited");
     assert.equal(existsSync(join(dir, "setup.txt")), false);
     assert.deepEqual(lastRun(dir, task).changedPaths, ["worker.txt"]);
@@ -1078,7 +1078,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
 
     const cancelled = knit(project.root, "run", "cancel", first.id);
     assert.equal(cancelled.code, 0, cancelled.stderr);
-    assert.equal(cancelled.stdout, `已取消 ${first.id} 的执行 ${firstRun.id}\n改动文件: 2 个\n`);
+    assert.equal(cancelled.stdout, `已取消 加问候语（${first.id}）的执行 ${firstRun.id}\n改动文件: 2 个\n`);
     assert.equal(processesOf(firstRun.id).length, 0);
     assert.equal(lastRun(project.root, first).failure, "已取消");
     assert.notEqual(lastRun(project.root, first).endedAt, null);

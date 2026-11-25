@@ -38,7 +38,7 @@ export interface DeliveryPreview {
     /** 工作区里不属于这个任务的改动有几处。 */
     readonly others: number;
   } | null;
-  readonly openChildren: readonly { readonly id: string; readonly status: string }[];
+  readonly openChildren: readonly { readonly id: string; readonly title: string; readonly status: string }[];
 }
 
 export interface DeliveryOptions {
@@ -52,7 +52,7 @@ export type DeliveryResult = TaskRefusal
       message: string | undefined; mergeBranch: string | null }
   | { kind: "rolledBack"; reason: "move"; error: unknown }
   | { kind: "rolledBack"; reason: "commit"; error: string; taskDir: string }
-  | { kind: "delivered"; archiveDir: string; archiveRoot: string; worktree: TaskWorktree | null;
+  | { kind: "delivered"; title: string; archiveDir: string; archiveRoot: string; worktree: TaskWorktree | null;
       commit: Exclude<DeliveryCommit, { kind: "refused" }> | null; integration: WorktreeIntegration | null };
 
 export function deliverTask(root: string, id: string, options: DeliveryOptions): DeliveryResult {
@@ -137,7 +137,7 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   const integration = worktree !== null && mergeBranch !== null ? mergeAndCleanWorktree(root, worktree, mergeBranch) : null;
   // --abort 会恢复主检出里已入库的旧任务目录；当前记录已经在任务 Worktree 的归档里。
   if (integration?.merged === false && archiveRoot !== root) removeCopy(source);
-  return { kind: "delivered", archiveDir, archiveRoot: integration?.merged ? root : archiveRoot, worktree, commit, integration };
+  return { kind: "delivered", title: document.frontmatter.title, archiveDir, archiveRoot: integration?.merged ? root : archiveRoot, worktree, commit, integration };
 }
 
 export function insideGit(root: string): boolean {
@@ -181,7 +181,7 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
     if (frontmatter === undefined || frontmatter.parent !== id) return [];
     return ["done", "delivered", "cancelled"].includes(frontmatter.status)
       ? []
-      : [{ id: frontmatter.id, status: frontmatter.status }];
+      : [{ id: frontmatter.id, title: frontmatter.title, status: frontmatter.status }];
   });
   const archiveDir = archiveDirOf(stored);
   if (!insideGit(root)) return { archiveDir, archiveRoot: root, worktree: null, commit: null, openChildren };

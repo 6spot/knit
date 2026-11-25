@@ -363,7 +363,9 @@ async function use(pi: Pi, taskId: string | undefined): Promise<ToolResult> {
   const shown = await runKnit(["task", "show", taskId]);
   if (shown.code !== 0) return toResult(shown);
   pi.appendEntry(SELECTION, { taskId });
-  return { content: [{ type: "text", text: `已选中 ${taskId}\n${shown.stdout.trimEnd()}` }], details: undefined };
+  const title = /^标题: (.+)$/m.exec(shown.stdout)?.[1];
+  const label = title ? `${title}（${taskId}）` : taskId;
+  return { content: [{ type: "text", text: `已选中 ${label}\n${shown.stdout.trimEnd()}` }], details: undefined };
 }
 
 /** 最后一条选择记录里的任务；没有选过或者取消了是 null。 */

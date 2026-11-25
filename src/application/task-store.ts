@@ -47,7 +47,7 @@ export interface NewTask {
 }
 
 export type CreateTaskResult =
-  | { readonly created: { readonly id: string; readonly file: string }; readonly problems: readonly [] }
+  | { readonly created: { readonly id: string; readonly title: string; readonly file: string }; readonly problems: readonly [] }
   | { readonly created: null; readonly problems: readonly string[] };
 
 /** 所有任务，含已归档的。写坏的任务也列出来，带着问题，不挡住其它任务。 */
@@ -187,7 +187,7 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
     expectedSha256: null,
     mode: 0o644,
   });
-  return { created: { id, file: `${dir}/${TASK_FILE}` }, problems: [] };
+  return { created: { id, title: input.title, file: `${dir}/${TASK_FILE}` }, problems: [] };
 }
 
 function availableTaskName(root: string, base: string, refs: readonly string[]) {

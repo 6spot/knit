@@ -14,13 +14,13 @@ export interface RequirementProblems {
   readonly missingScenarios: boolean;
 }
 
-export function readyTask(root: string, id: string): TaskRefusal | RequirementProblems | { kind: "alreadyReady" } |
-  { kind: "ready"; scenarios: number; assumed: number } {
+export function readyTask(root: string, id: string): TaskRefusal | RequirementProblems | { kind: "alreadyReady"; title: string } |
+  { kind: "ready"; title: string; scenarios: number; assumed: number } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
   const status = currentStatus(document, record);
-  if (status === "ready") return { kind: "alreadyReady" };
+  if (status === "ready") return { kind: "alreadyReady", title: document.frontmatter.title };
   if (status === "active") {
     return { kind: "refused", problems: [`任务正在 ${document.frontmatter.stage} 环节，需求没有变化，不需要重新确认`] };
   }
@@ -38,7 +38,7 @@ export function readyTask(root: string, id: string): TaskRefusal | RequirementPr
     { ...record, confirmedDigest: requirementDigest(document) },
   );
   if (conflicts.length > 0) return { kind: "refused", problems: conflicts };
-  return { kind: "ready", scenarios: scenarios.scenarios.length, assumed: clarify.assumed };
+  return { kind: "ready", title: document.frontmatter.title, scenarios: scenarios.scenarios.length, assumed: clarify.assumed };
 }
 
 interface CloseOptions {
@@ -47,7 +47,7 @@ interface CloseOptions {
   readonly reason?: string;
 }
 
-export function closeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done" } {
+export function closeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done"; title: string } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
@@ -70,7 +70,7 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
     frontmatter: { ...document.frontmatter, status: "done", stage: null },
     result: unreviewed ? `${result}\n\n没有经过独立审查，直接完成：${options.reason}` : result,
   }, { ...record, changedPaths: [...new Set([...record.changedPaths, ...paths.flatMap((item) => item.relative ?? [])])].sort() });
-  return conflicts.length ? { kind: "refused", problems: conflicts } : { kind: "done" };
+  return conflicts.length ? { kind: "refused", problems: conflicts } : { kind: "done", title: document.frontmatter.title };
 }
 
 function closeRefusal(status: TaskStatus, id: string): string | null {
@@ -88,7 +88,7 @@ function unfinishedRunRefusal(record: TaskRecord, id: string): TaskRefusal | nul
 }
 
 export function cancelTask(root: string, id: string, options: { readonly reason: string }): TaskRefusal |
-  { kind: "cancelled"; archiveDir: string; cleanup: WorktreeCleanup } {
+  { kind: "cancelled"; title: string; archiveDir: string; cleanup: WorktreeCleanup } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
@@ -105,5 +105,5 @@ export function cancelTask(root: string, id: string, options: { readonly reason:
   }, record);
   if (conflicts.length > 0) return { kind: "refused", problems: conflicts };
   const archiveDir = archiveTask(root, stored);
-  return { kind: "cancelled", archiveDir, cleanup: cleanCancelledWorktree(root, taskWorktree(root, stored.dir)) };
+  return { kind: "cancelled", title: document.frontmatter.title, archiveDir, cleanup: cleanCancelledWorktree(root, taskWorktree(root, stored.dir)) };
 }

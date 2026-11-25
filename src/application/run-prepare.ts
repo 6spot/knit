@@ -60,7 +60,7 @@ export interface PreparedRun {
 }
 
 export type PrepareRunResult =
-  | { readonly run: PreparedRun; readonly runs: readonly PreparedRun[]; readonly problems: readonly [] }
+  | { readonly run: PreparedRun; readonly runs: readonly PreparedRun[]; readonly title: string; readonly problems: readonly [] }
   | { readonly run: null; readonly problems: readonly string[] };
 
 function refuse(...problems: string[]): PrepareRunResult {
@@ -186,7 +186,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
       endedAt: null, verdict: null, failure: null, requirementDigest: requirementDigest(document), changedPaths: [], sessionFile: null,
     }))] });
   if (conflicts.length) return discard(conflicts);
-  return { run: runs[0]!, runs, problems: [] };
+  return { run: runs[0]!, runs, title: document.frontmatter.title, problems: [] };
 }
 
 function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string, standardsDigest: string): void {

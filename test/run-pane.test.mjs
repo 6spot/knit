@@ -300,7 +300,7 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
     );
 
     const cancelled = await rex.knit("run", "cancel", task.id);
-    assert.equal(cancelled.stdout, `执行 ${run.id} 的进程已经不在了，已记为失败\n改动文件: 0 个\n`);
+    assert.equal(cancelled.stdout, `加问候语（${task.id}）的执行 ${run.id} 进程已经不在了，已记为失败\n改动文件: 0 个\n`);
     await waitUntil(() => processesOf(run.id).length === 0, `执行 ${run.id} 的进程退出`);
   });
 
@@ -341,7 +341,7 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
     const cancelled = await rex.knit("run", "cancel", task.id);
 
     assert.equal(cancelled.code, 0, cancelled.stderr);
-    assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${first.id}\n改动文件: 1 个\n`);
+    assert.equal(cancelled.stdout, `已取消 加问候语（${task.id}）的执行 ${first.id}\n改动文件: 1 个\n`);
     assert.equal(lastRun(dir, task).failure, "已取消");
     assert.equal(processesOf(first.id).length, 0);
 
@@ -389,7 +389,7 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
     const cancelled = await rex.knit("run", "cancel", task.id);
 
     assert.equal(cancelled.code, 0, cancelled.stderr);
-    assert.equal(cancelled.stdout, `已取消 ${task.id} 的执行 ${run.id}\n改动文件: 0 个\n`);
+    assert.equal(cancelled.stdout, `已取消 加问候语（${task.id}）的执行 ${run.id}\n改动文件: 0 个\n`);
     assert.ok(!existsSync(join(dir, RUNS_DIR, run.id, "pane.json")));
     // 窗格里的 Pi 这时才起来：后台进程已经不在了，它不发消息就退出。
     await waitUntil(() => processesOf(run.id).length === 0, "窗格里的 Pi 退出");

@@ -35,7 +35,7 @@ test("创建一个任务：文件能解析，输出 id 和路径", (t) => {
   assert.equal(created.code, 0, created.stderr);
   const file = `.knit/tasks/${TODAY}-handoff/task.md`;
   const document = readCreated(dir, file);
-  assert.equal(created.stdout, `已创建 ${document.frontmatter.id}\n${file}\n`);
+  assert.equal(created.stdout, `已创建 交接只传需求部分（${document.frontmatter.id}）\n${file}\n`);
   assert.match(document.frontmatter.id, /^k-[0-9a-f]{12}$/);
   assert.deepEqual(
     { ...document.frontmatter, id: null, createdAt: null },
@@ -126,7 +126,7 @@ test("确认通过：状态变成 ready，记下需求摘要", (t) => {
 
   assert.deepEqual(knit(dir, "task", "ready", task.id), {
     code: 0,
-    stdout: `已确认 ${task.id}：2 个场景\n还有 1 项 [assumed] 没有得到用户确认\n`,
+    stdout: `已确认 任务（${task.id}）：2 个场景\n还有 1 项 [assumed] 没有得到用户确认\n`,
     stderr: "",
   });
   const after = read(task);
@@ -136,7 +136,7 @@ test("确认通过：状态变成 ready，记下需求摘要", (t) => {
 
   // self／none 的任务可以不写场景，完成条件用普通列表。
   const plain = create(dir, requirementOf({ acceptance: "- 能跑通\n" }), {}, { slug: "plain", verification: "none" });
-  assert.deepEqual(readyTask(dir, plain.id), { kind: "ready", scenarios: 0, assumed: 0 });
+  assert.deepEqual(readyTask(dir, plain.id), { kind: "ready", title: "任务", scenarios: 0, assumed: 0 });
 });
 
 test("不满足时拒绝并说明怎么改，不写文件", (t) => {
@@ -172,7 +172,7 @@ test("确认后改了需求要重新确认；没改时不写文件", (t) => {
   assert.equal(readyTask(dir, task.id).kind, "ready");
   const confirmed = [readFileSync(task.file, "utf8"), readFileSync(task.record, "utf8")];
 
-  assert.deepEqual(readyTask(dir, task.id), { kind: "alreadyReady" });
+  assert.deepEqual(readyTask(dir, task.id), { kind: "alreadyReady", title: "任务" });
   assert.deepEqual([readFileSync(task.file, "utf8"), readFileSync(task.record, "utf8")], confirmed);
 
   // 正在某个环节里的任务：需求没变时不需要重新确认。
@@ -186,7 +186,7 @@ test("确认后改了需求要重新确认；没改时不写文件", (t) => {
   const changed = requirementOf({ acceptance: `${TWO}${scenario("第三场景")}` });
   writeFileSync(task.file, renderTaskDocument({ ...active, requirement: changed }));
   assert.equal(currentStatus(read(task), record(task)), "draft");
-  assert.deepEqual(readyTask(dir, task.id), { kind: "ready", scenarios: 3, assumed: 0 });
+  assert.deepEqual(readyTask(dir, task.id), { kind: "ready", title: "任务", scenarios: 3, assumed: 0 });
   const after = read(task);
   assert.equal(after.frontmatter.status, "ready");
   assert.equal(after.frontmatter.stage, null);
@@ -237,7 +237,7 @@ test("完成一个已确认的任务：状态 done，写下结果，登记改动
 
   assert.deepEqual(
     knit(dir, "task", "close", task.id, "--result", "  做完了  ", "--paths", "next/src/b.ts", "./next/src/a.ts", "--reason", "不用写"),
-    { code: 0, stdout: `已完成 ${task.id}\n`, stderr: "" },
+    { code: 0, stdout: `已完成 任务（${task.id}）\n`, stderr: "" },
   );
   const after = read(task);
   assert.deepEqual(after, { ...before, frontmatter: { ...before.frontmatter, status: "done" }, result: "做完了" });
@@ -347,7 +347,7 @@ test("取消并归档：目录移到当月的归档目录，状态 cancelled，�
 
   assert.deepEqual(knit(dir, "task", "cancel", task.id, "--reason", " 不做了 "), {
     code: 0,
-    stdout: `已取消 ${task.id}\n${archivedDir}\n`,
+    stdout: `已取消 取消任务（${task.id}）\n${archivedDir}\n`,
     stderr: "",
   });
   assert.equal(existsSync(join(dir, task.dir)), false);

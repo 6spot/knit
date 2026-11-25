@@ -74,7 +74,9 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
     return spawnSync("/bin/sh", ["-c", modified.overwrite.CommandLine], { encoding: "utf8", cwd: subdir,
       env: { ...process.env, PATH: `${plain}:${process.env.PATH}` } });
   };
-  assert.equal((await select(`TASK_ID=${task.id} sh -c 'knit context --use="$TASK_ID"'`)).status, 0);
+  const used = await select(`TASK_ID=${task.id} sh -c 'knit context --use="$TASK_ID"'`);
+  assert.equal(used.status, 0);
+  assert.equal(used.stdout, `已选中 加问候语（${task.id}）\n`);
   assert.equal(state().taskId, task.id);
   assert.equal(state().lastDigest, null);
   const selected = await injected();

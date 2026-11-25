@@ -83,7 +83,7 @@ test("没有派发过的任务：取消输出逐字不变，Worktree 和分支�
 
   assert.deepEqual(knit(root, "task", "cancel", task.id, "--reason", "不做了"), {
     code: 0,
-    stdout: `已取消 ${task.id}\n${archiveDirOf(task)}\n`,
+    stdout: `已取消 加问候语（${task.id}）\n${archiveDirOf(task)}\n`,
     stderr: "",
   });
   assertArchived(root, task);

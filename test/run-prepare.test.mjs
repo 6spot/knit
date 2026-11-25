@@ -302,7 +302,7 @@ function refusedWithoutChanges(root, task, expected) {
     writeFileSync(file, readFileSync(file, "utf8").replace("status: ready", "status: draft"));
   }
   if (status === "active") assert.deepEqual(prepare(root, dependency.id).problems, []);
-  if (status === "done") assert.deepEqual(closeTask(root, dependency.id, { result: "还没有交付", paths: [] }), { kind: "done" });
+  if (status === "done") assert.deepEqual(closeTask(root, dependency.id, { result: "还没有交付", paths: [] }), { kind: "done", title: "加问候语" });
   const problem = refusedWithoutChanges(root, task, /依赖的任务还没有交付/);
   assert.ok(problem.includes(`${dependency.id}（${status}）`), problem);
   assert.match(problem, /交付并合并之后再派发/);
@@ -360,7 +360,7 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   const worktree = dispatched.run.worktree;
   writeFileSync(join(worktree.path, "dependency.txt"), "delivered dependency code\n");
   assert.deepEqual(finishRun({ agents, root, taskId: dependency.id, runId: dispatched.run.id, workflow: workflowOf(root), verdict: null, failure: null, sessionFile: null }), []);
-  assert.deepEqual(closeTask(root, dependency.id, { result: "实现已验证", paths: [] }), { kind: "done" });
+  assert.deepEqual(closeTask(root, dependency.id, { result: "实现已验证", paths: [] }), { kind: "done", title: "加问候语" });
   const message = join(project(t), "message.txt");
   writeFileSync(message, "feat: dependency\n");
   const delivered = deliverTask(realpathSync(root), dependency.id, { authorization: "user:delivery", messageFile: message });
@@ -410,7 +410,7 @@ test("主会话直接完成不检查依赖，直接交付且归档的依赖可�
   const dependency = readyTask(root, { verification: "self", dependsOn: [unfinished.id] });
   const task = readyTask(root, { dependsOn: [dependency.id] });
   writeFileSync(join(root, "dependency.txt"), "main session code\n");
-  assert.deepEqual(closeTask(root, dependency.id, { result: "主会话完成", paths: ["dependency.txt"] }), { kind: "done" });
+  assert.deepEqual(closeTask(root, dependency.id, { result: "主会话完成", paths: ["dependency.txt"] }), { kind: "done", title: "加问候语" });
   const message = join(project(t), "message.txt");
   writeFileSync(message, "feat: main session dependency\n");
   const delivered = deliverTask(realpathSync(root), dependency.id, { authorization: "user:delivery", messageFile: message });

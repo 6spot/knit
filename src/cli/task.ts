@@ -3,7 +3,7 @@ import { createTask, scanTasks, shownTaskDirectory, taskCommit } from "../applic
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
 import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter } from "../contracts/task.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
-import { cleanupLines, fail, knitRoot, loadTask, shownStatus } from "./shared.js";
+import { cleanupLines, fail, knitRoot, loadTask, shownStatus, taskLabel } from "./shared.js";
 
 function requirementLines(problems: RequirementProblems): string[] {
   return [
@@ -57,9 +57,10 @@ export function registerTaskCommands(program: Command): void {
           dependsOn: options.dependsOn,
         });
         if (result.created === null) return fail(result.problems);
-        process.stdout.write(`已创建 ${result.created.id}\n${result.created.file}\n`);
+        const label = taskLabel(result.created.title, result.created.id);
+        process.stdout.write(`已创建 ${label}\n${result.created.file}\n`);
         if (process.env.KNIT_HOST && process.env.KNIT_HOST_SESSION) {
-          process.stdout.write(`${options.title.trim()}（${result.created.id}） · draft · 当前会话未选中新草稿\n[task.md](${result.created.file})\n`);
+          process.stdout.write(`${label} · draft · 当前会话未选中新草稿\n[task.md](${result.created.file})\n`);
         }
       },
     );
@@ -139,9 +140,10 @@ export function registerTaskCommands(program: Command): void {
       const result = readyTask(root, id);
       if (result.kind === "refused") return fail(result.problems);
       if (result.kind === "invalidRequirement") return fail(requirementLines(result));
-      if (result.kind === "alreadyReady") return void process.stdout.write("已确认，需求没有变化\n");
+      const label = taskLabel(result.title, id);
+      if (result.kind === "alreadyReady") return void process.stdout.write(`已确认 ${label}，需求没有变化\n`);
       process.stdout.write(
-        `已确认 ${id}：${result.scenarios} 个场景\n` +
+        `已确认 ${label}：${result.scenarios} 个场景\n` +
           (result.assumed > 0 ? `还有 ${result.assumed} 项 [assumed] 没有得到用户确认\n` : ""),
       );
     });
@@ -159,7 +161,7 @@ export function registerTaskCommands(program: Command): void {
       if (root === null) return;
       const result = closeTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
-      process.stdout.write(`已完成 ${id}\n`);
+      process.stdout.write(`已完成 ${taskLabel(result.title, id)}\n`);
     });
 
   task
@@ -172,7 +174,7 @@ export function registerTaskCommands(program: Command): void {
       if (root === null) return;
       const result = cancelTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
-      const lines = [`已取消 ${id}`, result.archiveDir, ...cleanupLines(root, result.cleanup)];
+      const lines = [`已取消 ${taskLabel(result.title, id)}`, result.archiveDir, ...cleanupLines(root, result.cleanup)];
       process.stdout.write(`${lines.join("\n")}\n`);
     });
 }

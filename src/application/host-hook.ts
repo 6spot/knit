@@ -49,13 +49,13 @@ function readState(path: string): SessionState {
   return file === null ? { taskId: null, lastDigest: null } : JSON.parse(file.data.toString());
 }
 
-export function selectHostTask(root: string, session: HostSession, taskId: string | null): readonly string[] {
-  if (taskId !== null) {
-    const loaded = readTask(root, taskId);
-    if (loaded.kind === "refused") return loaded.problems;
-  }
+export function selectHostTask(root: string, session: HostSession, taskId: string | null):
+  | { readonly kind: "selected"; readonly title: string | null }
+  | { readonly kind: "refused"; readonly problems: readonly string[] } {
+  const loaded = taskId === null ? null : readTask(root, taskId);
+  if (loaded?.kind === "refused") return loaded;
   withSession(root, session, (path) => saveState(path, { taskId, lastDigest: null }));
-  return [];
+  return { kind: "selected", title: loaded?.task.document.frontmatter.title ?? null };
 }
 
 export function hostContext(dirs: readonly string[], session: HostSession): string | null {

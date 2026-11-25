@@ -7,7 +7,7 @@ import { AGENT_SPECS, DEFAULT_AGENT, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isR
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
 import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
-import { fail, knitRoot, loadWorkflow, projectRoot } from "./shared.js";
+import { fail, knitRoot, loadWorkflow, projectRoot, taskLabel } from "./shared.js";
 
 export function registerInitCommand(program: Command): void {
   program
@@ -29,7 +29,7 @@ export function registerInitCommand(program: Command): void {
         ...section("旧版通用规范副本（保留原文，已停用；请把项目定制迁入另名的项目规范）:", legacyStandardCopies(root)),
         ...(result.task === null
           ? []
-          : [`初始化任务: ${result.task.id}（${result.task.file}）`]),
+          : [`初始化任务: ${result.task.title}（${result.task.id}，${result.task.file}）`]),
       ];
       process.stdout.write(`${lines.join("\n")}\n`);
     });
@@ -55,9 +55,9 @@ export function registerContextCommand(program: Command): void {
         if (!host || !sessionId) return fail(["选择任务需要 KNIT_HOST 和 KNIT_HOST_SESSION"]);
         const root = hostProjectRoot(options.dir);
         if (root === null) return fail(["这个项目里没有 .knit/ 目录"]);
-        const problems = selectHostTask(root, { host, sessionId }, options.use ?? null);
-        if (problems.length) return fail(problems);
-        process.stdout.write(options.unuse ? "已取消选中\n" : `已选中 ${options.use}\n`);
+        const selected = selectHostTask(root, { host, sessionId }, options.use ?? null);
+        if (selected.kind === "refused") return fail(selected.problems);
+        process.stdout.write(options.unuse ? "已取消选中\n" : `已选中 ${taskLabel(selected.title!, options.use!)}\n`);
         return;
       }
       const root = knitRoot(options.dir);

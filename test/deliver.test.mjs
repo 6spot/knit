@@ -35,7 +35,7 @@ function assertMainDelivery(dir, task, autoMerge, messageFile) {
   }
   const result = knit(dir, "deliver", task.id, "--authorization", options.authorization, ...(messageFile ? ["--message-file", messageFile] : []));
   const summary = messageFile ? `${git(dir, "rev-parse", "--short", "HEAD")} feat: 加问候语` : "这个项目不在 Git 仓库里，没有提交";
-  assert.deepEqual(result, { code: 0, stdout: `已交付 ${task.id}\n归档: ${archived(task)}\n提交: ${summary}\n`, stderr: "" });
+  assert.deepEqual(result, { code: 0, stdout: `已交付 加问候语（${task.id}）\n归档: ${archived(task)}\n提交: ${summary}\n`, stderr: "" });
 }
 
 [false, true].forEach((autoMerge) => test(`不在 Git 仓库里交付一个完成的任务（autoMerge=${autoMerge}）`, (t) => {
@@ -127,7 +127,7 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
       "提示:",
       "  - 记录里有 1 个路径现在没有改动，不会被提交：src/gone.ts",
       "  - 工作区里还有 1 处不属于这个任务的改动，不会被提交",
-      `  - 子任务还没有结束：${childId}（draft）`,
+      `  - 子任务还没有结束：子任务（${childId}，draft）`,
       "结果:",
       "  做完了",
       "",

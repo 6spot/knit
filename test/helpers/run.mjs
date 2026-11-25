@@ -97,7 +97,7 @@ export { makeReadyTask as readyTask };
 export function doneTask(dir, paths = []) {
   const task = makeReadyTask(dir, { verification: "self" });
   const closed = closeTask(dir, task.id, { result: "做完了", paths });
-  assert.deepEqual(closed, { kind: "done" });
+  assert.deepEqual(closed, { kind: "done", title: "加问候语" });
   return task;
 }
 
