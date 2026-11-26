@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { registerHooks } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { agyHostHook } from "../dist/adapters/antigravity/host-hook.js";
 import { workbuddyHostHook } from "../dist/adapters/workbuddy/host-hook.js";
 import { deliverTask } from "../dist/application/delivery.js";
+import { canSkipHostCommand, inspectHostCommand } from "../dist/application/host-command.js";
 import { selectHostTask } from "../dist/application/host-hook.js";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig, readWorkflow } from "../dist/application/project-config.js";
@@ -43,6 +45,46 @@ function preTool(payload, command) {
     CommandLine: command, Cwd: payload.cwd, WaitMsBeforeAsync: 5000,
   } } });
 }
+
+test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析及改写", async (t) => {
+  const bridgeTemplate = await import("../assets/templates/pi/extensions/knit.ts");
+  const imports = [];
+  const hook = registerHooks({ resolve(specifier, context, nextResolve) {
+    if (specifier === "sh-syntax") imports.push(specifier);
+    return nextResolve(specifier, context);
+  } });
+  t.after(() => hook.deregister());
+  const environment = { session: "KNIT_HOST=agy", start: "KNIT_SESSION_AGENT=antigravity" };
+  for (const command of ["ls -la", "git status", "git diff --stat", "npm test", "node --test test/a.test.mjs",
+    'cat "README.md"', "grep 'hello' src/", "rg 'foo' src/"]) {
+    assert.equal(canSkipHostCommand(command), true, command);
+    assert.equal(bridgeTemplate.canSkipHostCommand(command), true, command);
+    assert.deepEqual(await inspectHostCommand(command, environment), { command, quotes: [] });
+  }
+  assert.deepEqual(imports, []);
+  for (const command of ["knit deliver id", 'k"nit" deliver id', "k'n'it deliver id", String.raw`k\nit deliver id`,
+    "knit deliver --preview id", "knit context --use id", "knit task new --title example", "knit run start id",
+    "$CMD deliver", "$(printf knit) deliver", "echo `date`", "KNIT --version", "eval 'echo hello'", "e'val' 'echo hello'",
+    "sh -c 'echo hello'", "/bin/bash -c 'echo hello'", 'b"ash" -c true', "zsh --version", "dash -c true", "ksh -c true",
+    "source setup", ". setup", "base64 file"]) {
+    assert.equal(canSkipHostCommand(command), false, command);
+    assert.equal(bridgeTemplate.canSkipHostCommand(command), false, command);
+  }
+  for (const command of ["knit deliver id", 'k"nit" deliver id', "k'n'it deliver id", String.raw`k\nit deliver id`,
+    "eval 'knit deliver id'", "sh -c 'knit deliver id'", "bash -c 'knit deliver id'"]) {
+    assert.deepEqual(await inspectHostCommand(command, environment), { command, quotes: [""] });
+  }
+  assert.ok(imports.length > 0, "完整检查必须加载 sh-syntax");
+  const preview = "knit deliver --preview id";
+  assert.deepEqual(await inspectHostCommand(preview, environment), { command: preview, quotes: [] });
+  const authorized = "knit deliver id --authorization '同意交付'";
+  assert.deepEqual(await inspectHostCommand(authorized, environment), { command: authorized, quotes: ["同意交付"] });
+  for (const command of ["knit context --use id", "knit context --unuse", "knit task new --title example"]) {
+    assert.deepEqual(await inspectHostCommand(command, environment), { command: `env ${environment.session} ${command}`, quotes: [] });
+  }
+  const start = "knit run start id";
+  assert.deepEqual(await inspectHostCommand(start, environment), { command: `env ${environment.start} ${start}`, quotes: [] });
+});
 
 test("普通目录的上级是 Knit 用户目录时，继续查找实际工作区", async (t) => {
   isolateEnvironment(t);
@@ -387,10 +429,12 @@ test("已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版
   const shims = join(home, ".local/share/mise/shims");
   mkdirSync(shims, { recursive: true });
   symlinkSync(cli, join(shims, "knit"));
-  symlinkSync(process.execPath, join(shims, "node"));
+  writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_NODE_CALLS"\nexec "$KNIT_TEST_NODE" "$@"\n', { mode: 0o755 });
+  const nodeCalls = join(home, "node-calls");
   const hooks = JSON.parse(readFileSync(join(root, ".workbuddy/settings.json"))).hooks;
   assert.equal(hooks.PreToolUse[0].matcher, "^Bash$");
-  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEBUDDY_PROJECT_DIR: root };
+  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEBUDDY_PROJECT_DIR: root,
+    KNIT_TEST_NODE_CALLS: nodeCalls, KNIT_TEST_NODE: process.execPath };
   const invoke = (event, fields) => spawnSync("/bin/sh", ["-c", hooks[event][0].hooks[0].command], { cwd: home, env,
     input: JSON.stringify({ hook_event_name: event, session_id: buddySession, ...fields }), encoding: "utf8" });
   const result = invoke("SessionStart", { source: "startup" });
@@ -402,4 +446,38 @@ test("已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版
   const denied = invoke("PreToolUse", { cwd: root, tool_name: "Bash", tool_input: { command: "knit deliver id" } });
   assert.equal(denied.status, 0, denied.stderr);
   assert.equal(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecision, "deny");
+  assert.equal(readFileSync(nodeCalls, "utf8"), `-v\n${join(shims, "knit")}\n`.repeat(3));
+});
+
+test("WorkBuddy 的 Node 22 和缺少 knit 两种情况都由登录 shell 启动钩子", (t) => {
+  const root = project(t);
+  initProject(root, false, { workbuddy: true });
+  const home = process.env.KNIT_HOME;
+  const shims = join(home, ".local/share/mise/shims");
+  const loginBin = join(home, "login-bin");
+  const calls = join(home, "calls");
+  mkdirSync(shims, { recursive: true });
+  mkdirSync(loginBin);
+  symlinkSync(cli, join(shims, "knit"));
+  symlinkSync(cli, join(loginBin, "knit"));
+  symlinkSync(process.execPath, join(loginBin, "node"));
+  writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_CALLS"\n[ "$1" = -v ] || exit 99\nprintf "v22.0.0\\n"\n', { mode: 0o755 });
+  writeFileSync(join(home, ".profile"), 'printf "login\\n" >> "$KNIT_TEST_CALLS"\nexport PATH="$KNIT_TEST_LOGIN_BIN:$PATH"\n');
+  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/bin/sh",
+    KNIT_TEST_CALLS: calls, KNIT_TEST_LOGIN_BIN: loginBin };
+  const hook = join(root, ".workbuddy/knit-hook.sh");
+  const input = JSON.stringify({ hook_event_name: "PreToolUse", session_id: buddySession, cwd: root,
+    tool_name: "Bash", tool_input: { command: "knit deliver id" } });
+  // 模拟找不到 knit，不依赖机器的 Homebrew 等固定 PATH 目录是否装了 knit。
+  const scenarios = [
+    { name: "Node 22", args: [hook, "pre-tool-use"], calls: "-v\nlogin\n" },
+    { name: "缺少 knit", args: ["-c", 'command() { return 1; }; . "$0"', hook, "pre-tool-use"], calls: "login\n" },
+  ];
+  for (const scenario of scenarios) {
+    writeFileSync(calls, "");
+    const result = spawnSync("/bin/sh", scenario.args, { cwd: root, env, input, encoding: "utf8" });
+    assert.equal(result.status, 0, `${scenario.name}: ${result.stderr}`);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "deny", scenario.name);
+    assert.equal(readFileSync(calls, "utf8"), scenario.calls, scenario.name);
+  }
 });

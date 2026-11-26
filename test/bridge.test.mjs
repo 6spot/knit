@@ -145,6 +145,35 @@ async function bridged(t) {
 }
 const selections = (bridge) => bridge.entries.map((entry) => [entry.type, entry.customType, entry.data]);
 
+test("Pi Bash 钩子仅为需要核对的命令启动 CLI", async (t) => {
+  const { bridge } = await bridged(t);
+  const bin = emptyDir(t);
+  const calls = join(bin, "calls");
+  const cli = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
+  writeFileSync(join(bin, "knit"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nexec '${process.execPath}' '${cli}' "$@"\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  const ordinary = ["ls -la", "git status", "git diff --stat", "npm test", "node --test test/a.test.mjs",
+    'cat "README.md"', "grep 'hello' src/", "rg 'foo' src/"];
+  for (const command of ordinary) {
+    const event = { toolName: "bash", input: { command } };
+    assert.equal(await bridge.fire("tool_call", event), undefined);
+    assert.equal(event.input.command, command);
+  }
+  assert.equal(existsSync(calls), false);
+  const denied = ["knit deliver id", 'k"nit" deliver id'];
+  for (const command of denied) {
+    const result = await bridge.fire("tool_call", { toolName: "bash", input: { command } });
+    assert.equal(result?.block, true, command);
+    assert.match(result.reason, /--authorization/);
+  }
+  bridge.entries.push(SECOND);
+  const checked = ["knit deliver --preview id", "knit deliver id --authorization '授权交付'"];
+  for (const command of checked) {
+    assert.equal(await bridge.fire("tool_call", { toolName: "bash", input: { command } }), undefined, command);
+  }
+  assert.equal(readFileSync(calls, "utf8"), "hook pi tool-call\n".repeat(denied.length + checked.length));
+});
+
 test("选中和取消选中", async (t) => {
   const { dir, bridge } = await bridged(t);
   const id = /^已创建 要选中的任务（(k-[0-9a-f]{12})）$/.exec(knit(dir, "task", "new", "--title", "要选中的任务").stdout.split("\n")[0])[1];

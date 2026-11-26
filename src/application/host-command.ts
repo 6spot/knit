@@ -116,7 +116,14 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
   return { flags, operands, ...state };
 }
 
+// 与 Pi 模板中的判定保持一致。反斜杠和展开交给语法树；引号拼接后也不能出现待检查名称。
+export function canSkipHostCommand(command: string): boolean {
+  return !/[$`\\]/.test(command) &&
+    !/knit|\b(eval|sh|bash|zsh|dash|ksh|source|base64)\b|(?:^|[\s/;&|()<>])\.(?=$|[\s;&|()<>])/i.test(command.replace(/['"]/g, ""));
+}
+
 export async function inspectHostCommand(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
+  if (canSkipHostCommand(command)) return { command, quotes: [] };
   const quotes: string[] = [];
   const { parse, createSourceIndex, walk } = await import("sh-syntax");
   async function inspect(source: string): Promise<string> {
