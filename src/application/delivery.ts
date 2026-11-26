@@ -12,7 +12,7 @@ import { gitSync } from "../infrastructure/process.js";
 import { loadConfig } from "./project-config.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, findTask, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
-import { fingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
+import { matchesFingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
 import { mergeAndCleanWorktree, taskWorktree, type TaskWorktree, type WorktreeIntegration } from "./worktree.js";
 
 export interface DeliveryPreview {
@@ -208,7 +208,7 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
       files: files.map((path) => ({
         path,
         reviewed: reviewed.has(path),
-        changedAfterReview: passed !== null && passed[path] !== fingerprint(workspace, path),
+        changedAfterReview: passed !== null && !matchesFingerprint(workspace, path, passed[path]),
       })),
       taskDir: gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0,
       unchanged: recorded.filter(

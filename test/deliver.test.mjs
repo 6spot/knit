@@ -157,6 +157,8 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
 test("审查通过之后又改过的文件标出来", (t) => {
   const dir = runProject(t);
   mkdirSync(join(dir, "src"));
+  writeFileSync(join(dir, "src/a.ts"), "base\n");
+  writeFileSync(join(dir, "src/staged.ts"), "base\n");
   const task = readyTask(dir);
   commitAll(dir, "task");
   const write = (path, text, cwd = worktreeOf(dir, task)) => {
@@ -164,8 +166,22 @@ test("审查通过之后又改过的文件标出来", (t) => {
     writeFileSync(join(cwd, path), text);
   };
   const files = () => previewDelivery(dir, findTask(dir, task.id)).commit.files;
-  run(dir, task, null, (cwd) => ["src/a.ts", "src/b.ts"].forEach((path) => write(path, "1\n", cwd)));
-  run(dir, task, "pass", (cwd) => write("src/c.ts", "1\n", cwd));
+  run(dir, task, null, (cwd) => {
+    ["src/a.ts", "src/b.ts", "src/staged.ts"].forEach((path) => write(path, "1\n", cwd));
+    git(cwd, "add", "src/b.ts");
+  });
+  run(dir, task, "pass", (cwd) => {
+    write("src/c.ts", "1\n", cwd);
+    write("src/staged.ts", "base\n", cwd);
+  });
+  assert.deepEqual(files().map((file) => [file.path, file.changedAfterReview]), [["src/a.ts", false], ["src/b.ts", false], ["src/c.ts", false]]);
+  const cwd = worktreeOf(dir, task);
+  git(cwd, "add", "src/a.ts");
+  git(cwd, "reset", "-q", "HEAD", "--", "src/b.ts");
+  write("src/staged.ts", "staged\n");
+  git(cwd, "add", "src/staged.ts");
+  write("src/staged.ts", "base\n");
+  assert.deepEqual(files().map((file) => [file.path, file.changedAfterReview]), [["src/a.ts", false], ["src/b.ts", false], ["src/c.ts", false], ["src/staged.ts", false]]);
   const reviewId = JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs.at(-1).id;
   write("src/a.ts", "2\n");
   write("src/c.ts", "2\n");
@@ -177,12 +193,13 @@ test("审查通过之后又改过的文件标出来", (t) => {
     { path: "src/b.ts", reviewed: false, changedAfterReview: false },
     { path: "src/c.ts", reviewed: true, changedAfterReview: true },
     { path: "src/d.ts", reviewed: false, changedAfterReview: true },
+    { path: "src/staged.ts", reviewed: true, changedAfterReview: false },
   ]);
   write("src/a.ts", "1\n");
   assert.deepEqual(files().filter((file) => file.changedAfterReview).map((file) => file.path), ["src/c.ts", "src/d.ts"]);
   rmSync(join(dir, ".knit/.runtime/runs", reviewId, "after.json"));
   assert.equal(files().some((file) => file.changedAfterReview), false);
-  assert.deepEqual(files().filter((file) => file.reviewed).map((file) => file.path), ["src/c.ts"]);
+  assert.deepEqual(files().filter((file) => file.reviewed).map((file) => file.path), ["src/c.ts", "src/staged.ts"]);
 });
 
 test("最后一次审查没有通过时不标", (t) => {

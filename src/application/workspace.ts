@@ -3,6 +3,7 @@
  * 只对比，不恢复；也不区分改动是谁做的。`root` 要是 Git 仓库的顶层目录。
  * 审查通过时拍的那一份留在执行目录里（after.json），交付预览拿它看哪些文件之后又改过。
  */
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
@@ -42,26 +43,102 @@ export function fingerprint(root: string, path: string): string {
   }
 }
 
-export function takeSnapshot(root: string): WorkspaceSnapshot {
-  const head = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
-  // 已跟踪的文件加上没被忽略的新文件。
-  const listed = gitSync(["ls-files", "-tco", "--exclude-standard", "-z"], root);
+export function takeSnapshot(root: string, protectedPaths: readonly string[] = [], before?: WorkspaceSnapshot): WorkspaceSnapshot {
+  const resolved = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
+  const head = resolved.code === 0 ? resolved.stdout.trim() : null;
+  const listed = gitSync(["ls-files", "-v", "--stage", "-z"], root);
   if (listed.code !== 0) throw new Error(`git ls-files 失败：${listed.stderr.trim()}`);
-  const files: Record<string, string> = {};
-  for (const entry of listed.stdout.split("\0")) {
-    const path = entry.slice(2);
-    if (path === "" || path.startsWith(RUNTIME_PREFIX)) continue;
-    const observed = fingerprint(root, path);
-    // Git 的 ? 标记未跟踪文件。拍照期间消失的临时文件不应留下一条新增记录。
-    if (entry.startsWith("? ") && observed === ABSENT_FINGERPRINT) continue;
-    files[path] = observed;
+  const status = gitSync(["-c", "core.filemode=true", "-c", "core.symlinks=true", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--no-renames", "--untracked-files=all", "-z"], root);
+  if (status.code !== 0) throw new Error(`git status 失败：${status.stderr.trim()}`);
+  const states = new Map<string, string>();
+  for (const entry of status.stdout.split("\0").filter(Boolean)) {
+    const path = entry.slice(3);
+    const state = entry.slice(0, 2);
+    // git rm --cached 后同一路径可能同时报告 D 和 ??，仍需和 HEAD 的指纹可比。
+    if (state === "??" && states.has(path)) continue;
+    states.set(path, state);
   }
-  return { head: head.code === 0 ? head.stdout.trim() : null, files };
+  // 旧快照只有原始字节指纹，结算时仍用原始字节和它比较。
+  const rawPaths = new Set([
+    ...protectedPaths.map(projectRelative),
+    ...Object.entries(before?.files ?? {}).filter(([, value]) => !value.startsWith("git ") && !value.includes("\0")).map(([path]) => path),
+  ]);
+  const raw = (path: string) => path.startsWith(".knit/") || rawPaths.has(path);
+  const files: Record<string, string> = Object.create(null);
+  const candidates = new Map<string, string>();
+  const observed = (path: string, tracked: boolean) => {
+    const value = fingerprint(root, path);
+    if (tracked && !raw(path) && head !== null) candidates.set(path, value);
+    return value;
+  };
+  for (const entry of listed.stdout.split("\0").filter(Boolean)) {
+    const tab = entry.indexOf("\t");
+    const [tag, mode, oid, stage] = entry.slice(0, tab).split(" ");
+    const path = entry.slice(tab + 1);
+    if (path.startsWith(RUNTIME_PREFIX) || Object.hasOwn(files, path)) continue;
+    // 非普通索引条目（冲突、gitlink、skip-worktree、assume-unchanged）仍实际读取。
+    const clean = head !== null && tag === "H" && stage === "0" &&
+      (mode === "100644" || mode === "100755" || mode === "120000") && !states.has(path) && !raw(path);
+    files[path] = clean ? `git ${mode} ${oid}` : observed(path, true);
+  }
+  for (const [path, state] of states) {
+    if (path.startsWith(RUNTIME_PREFIX) || Object.hasOwn(files, path)) continue;
+    const value = observed(path, state !== "??");
+    if (state === "??" && value === ABSENT_FINGERPRINT) continue;
+    files[path] = value;
+  }
+  if (head !== null) {
+    for (const [path, git] of gitFingerprints(root, [...candidates], head.length)) {
+      files[path] = `${files[path]}\0${git}`;
+    }
+  }
+  return { head, files: { ...files } };
+}
+
+/** 普通文件跨干净/脏状态比较时，使用 Git 的内容身份；两边都是脏文件时仍比较原始字节。 */
+function gitFingerprints(root: string, entries: readonly [string, string][], oidLength: number): Map<string, string> {
+  const links = entries.filter(([, raw]) => raw.startsWith("link ")).map(([path, raw]) => {
+    const target = Buffer.from(raw.slice(5, -2));
+    const oid = createHash(oidLength === 64 ? "sha256" : "sha1").update(`blob ${target.length}\0`).update(target).digest("hex");
+    return [path, `git 120000 ${oid}`] as const;
+  });
+  const regular = entries.filter(([, raw]) => raw.startsWith("file "));
+  // Git 随路径应用 clean 规则。分批传 argv，避免每个脏文件单独启动一个 Git 进程。
+  const batchSize = 32;
+  const files = Array.from({ length: Math.ceil(regular.length / batchSize) }, (_, index) => {
+    const batch = regular.slice(index * batchSize, (index + 1) * batchSize);
+    const hashed = gitSync(["hash-object", "--", ...batch.map(([path]) => path)], root);
+    if (hashed.code !== 0) throw new Error(`git hash-object 失败：${hashed.stderr.trim()}`);
+    const oids = hashed.stdout.trim().split("\n");
+    return batch.map(([path, raw], i) => {
+      const mode = (Number.parseInt(raw.split(" ")[1]!, 8) & 0o100) !== 0 ? "100755" : "100644";
+      return [path, `git ${mode} ${oids[i]}`] as const;
+    });
+  }).flat();
+  return new Map([...links, ...files]);
+}
+
+function sameFingerprint(before: string | undefined, after: string | undefined): boolean {
+  if (before === after) return true;
+  if (typeof before !== "string" || typeof after !== "string") return false;
+  const [beforeRaw, beforeGit] = before.split("\0");
+  const [afterRaw, afterGit] = after.split("\0");
+  if (before.startsWith("git ")) return before === afterGit;
+  if (after.startsWith("git ")) return after === beforeGit;
+  return beforeRaw === afterRaw;
+}
+
+/** 用审查快照里的格式比较当前单路径，也兼容旧的纯字节快照。 */
+export function matchesFingerprint(root: string, path: string, expected: string | undefined): boolean {
+  if (typeof expected !== "string") return false;
+  const raw = fingerprint(root, path);
+  if (!expected.startsWith("git ")) return sameFingerprint(expected, raw);
+  return expected === gitFingerprints(root, [[path, raw]], expected.split(" ")[2]!.length).get(path);
 }
 
 export function changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): WorkspaceChanges {
   const changedPaths = [...new Set([...Object.keys(before.files), ...Object.keys(after.files)])]
-    .filter((path) => before.files[path] !== after.files[path])
+    .filter((path) => !sameFingerprint(before.files[path], after.files[path]))
     .sort();
   return { changedPaths, head: before.head === after.head ? null : { before: before.head, after: after.head } };
 }

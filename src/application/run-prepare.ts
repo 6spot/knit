@@ -11,7 +11,7 @@ import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type To
 import { completedBatches, dispatchLimit, nextStep, resumableRun, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/report.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task.js";
-import { validateAgentTarget, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
+import { validateAgentTarget, workflowPrompts, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./project-config.js";
@@ -165,7 +165,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
       if (unavailableAfterSetup.length) return refusePrepared(unavailableAfterSetup, true);
     }
     const changes = Object.hasOwn(stage.report, "verdict") ? reviewChanges(worktree.path) : null;
-    const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
+    const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path, workflowPrompts(input.workflow)), null, 2)}\n`);
     runs.forEach((run, index) => {
       const dir = join(root, run.dir);
       mkdirSync(dir, { recursive: true });

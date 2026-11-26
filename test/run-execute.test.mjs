@@ -550,6 +550,27 @@ test("提交了改动或改了受保护的文件时记为失败", (t) => {
   assert.deepEqual(second.changedPaths, [".knit/standards/development.md", "src/b.ts"]);
 });
 
+test("派发与结算对 .knit 外的流程角色文件都使用字节指纹", (t) => {
+  const dir = runProject(t);
+  const role = "roles/implement.md";
+  const workflow = join(dir, ".knit/workflow.yaml");
+  writeFileSync(workflow, readFileSync(workflow, "utf8").replace(".knit/agents/implement.md", role));
+  put(dir, role, "implementation\n");
+  put(dir, ".gitattributes", "roles/*.md text\n");
+  commitAll(dir, "external role");
+  const task = readyTask(dir);
+  const run = prepare(dir, task);
+  const before = JSON.parse(readFileSync(join(dir, run.dir, "before.json"), "utf8"));
+  assert.match(before.files[role], /^file /);
+  const cwd = worktreeOf(dir, task);
+  put(cwd, role, "implementation\r\n");
+  git(cwd, "add", role);
+  assert.equal(git(cwd, "status", "--porcelain", "--", role), "");
+  assert.deepEqual(finish(dir, task, run), []);
+  assert.equal(lastRun(dir, task).failure, `执行者改了受保护的文件：${role}`);
+  assert.deepEqual(lastRun(dir, task).changedPaths, [role]);
+});
+
 test("调用方给的失败原因照记，结束过的不能再结束", (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
