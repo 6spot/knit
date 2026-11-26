@@ -73,7 +73,7 @@ export function registerTaskCommands(program: Command): void {
     .action((options: { archive: boolean; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
-      const tasks = scanTasks(root).filter((stored) => stored.archived === options.archive);
+      const tasks = scanTasks(root, options.archive ? "archived" : "active");
       const readable = tasks
         .flatMap((stored) =>
           stored.document === null || stored.record === null

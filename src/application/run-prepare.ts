@@ -18,7 +18,7 @@ import type { ProjectConfig } from "./project-config.js";
 import { appendReviewChanges, assembleHandoff, resumeMessage, reviewChanges, type HandoffReport } from "./handoff.js";
 import { logSessionMode } from "./run-execute.js";
 import { withTaskRunLock } from "./run-control.js";
-import { saveTask, scanTasks, type LoadedTask, type StoredTask } from "./task-store.js";
+import { findTask, saveTask, type LoadedTask } from "./task-store.js";
 import { takeSnapshot } from "./workspace.js";
 import { ensureWorktree, rollbackWorktree, taskWorktree, type TaskWorktree } from "./worktree.js";
 
@@ -69,9 +69,8 @@ function refuse(...problems: string[]): PrepareRunResult {
 
 export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedRun) => void): PrepareRunResult {
   const { root, taskId } = input;
-  const tasks = scanTasks(root);
-  const stored = tasks.find((task) => task.id === taskId);
-  if (stored === undefined) return refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
+  const stored = findTask(root, taskId, { includeWorktrees: false });
+  if (stored === null) return refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
   const { document, record } = stored;
   if (document === null || record === null) return refuse(...stored.problems);
   if (gitSync(["rev-parse", "--is-inside-work-tree"], root).code !== 0) {
@@ -81,7 +80,7 @@ export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedR
   if (status === "draft") return refuse(`需求还没有确认，或确认之后改过；先运行 knit task ready ${taskId}`);
   if (status !== "ready" && status !== "active") return refuse(`任务已经结束（${status}），不能再派发`);
   // 依赖的任务已经归档的也算在内。
-  const waiting = document.frontmatter.dependsOn.flatMap((id) => dependencyProblems(root, tasks, id));
+  const waiting = document.frontmatter.dependsOn.flatMap((id) => dependencyProblems(root, id));
   if (waiting.length > 0) return refuse(...waiting);
   const running = record.runs.find((run) => run.endedAt === null);
   if (running !== undefined) {
@@ -234,10 +233,9 @@ export function arbitrationNotice(id: string, step: Extract<NextStep, { kind: "a
     `主会话汇总后派发${step.stage.name}：knit run start ${id} --instruction <修改指令>；指定环节用 --stage <环节>。`];
 }
 
-function dependencyProblems(root: string, tasks: readonly StoredTask[], id: string): string[] {
-  const dependency = tasks.find((task) => task.document?.frontmatter.id === id);
-  const status = dependency?.document?.frontmatter.status;
-  if (dependency === undefined || status === undefined) {
+function dependencyProblems(root: string, id: string): string[] {
+  const dependency = findTask(root, id, { includeWorktrees: false, requireDocument: true });
+  if (!dependency?.document) {
     const branches = gitSync(["for-each-ref", "--format=%(refname)", "refs/heads/knit/"], root).stdout
       .split("\n")
       .filter((reference) => reference !== "")
@@ -255,6 +253,7 @@ function dependencyProblems(root: string, tasks: readonly StoredTask[], id: stri
       branches.map((branch) => `\n任务分支：${branch}；在主检出里运行 git merge ${branch}`).join(""),
     ];
   }
+  const status = dependency.document.frontmatter.status;
   if (status === "cancelled") return [`依赖的任务还没有完成：${id}（${status}）`];
   if (status !== "delivered") return [`依赖的任务还没有交付：${id}（${status}）；交付并合并之后再派发`];
   const branch = taskWorktree(root, dependency.dir).branch;

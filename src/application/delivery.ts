@@ -176,7 +176,7 @@ export function recordedPaths(record: TaskRecord): string[] {
 /** 交付会做什么；只读。 */
 export function previewDelivery(root: string, stored: StoredTask): DeliveryPreview {
   const id = stored.document?.frontmatter.id;
-  const openChildren = scanTasks(root).flatMap((task) => {
+  const openChildren = scanTasks(root, "active").flatMap((task) => {
     const frontmatter = task.document?.frontmatter;
     if (frontmatter === undefined || frontmatter.parent !== id) return [];
     return ["done", "delivered", "cancelled"].includes(frontmatter.status)

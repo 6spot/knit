@@ -12,6 +12,7 @@ import { createTask, scanTasks } from "../dist/application/task-store.js";
 import { parseTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
+import { writeArchiveHistory } from "./helpers/run.mjs";
 
 const targets = CORE_TEMPLATES.map((item) => item.target);
 const draft = { title: "试一下", slug: "task", priority: "P2", verification: "self", parent: null, dependsOn: [] };
@@ -155,7 +156,8 @@ test("项目里已经有任务时不建初始化任务，归档的也算", (t) =
   const dir = emptyDir(t);
   initProject(dir);
   const [taskFile] = taskFiles(dir);
-  const id = parseTaskDocument(readFileSync(join(dir, taskFile), "utf8")).document.frontmatter.id;
+  const document = parseTaskDocument(readFileSync(join(dir, taskFile), "utf8")).document;
+  const id = document.frontmatter.id;
   const again = () =>
     [false, true].forEach((force) => assert.deepEqual(initProject(dir, force),
       { created: [], restored: [], kept: targets, backupDir: null, task: null }));
@@ -168,6 +170,16 @@ test("项目里已经有任务时不建初始化任务，归档的也算", (t) =
   assert.deepEqual(taskFiles(dir), []);
   assert.equal(knit(dir, "task", "list").stdout, "没有任务\n");
   assert.equal(knit(dir, "task", "list", "--archive").stdout, `P1  ${id}  cancelled  完善项目的开发规范\n`);
+
+  const [first, second] = writeArchiveHistory(dir, document);
+  // 第一份 task.md 可读但写坏了：不读对应记录，也不到后面继续读。
+  for (const path of [join(first, "record.json"), join(second, "task.md")]) {
+    rmSync(path);
+    mkdirSync(path);
+  }
+  again();
+  assert.deepEqual(knit(dir, "init"), { code: 0, stdout: `${listed("已有，没有动:", targets).join("\n")}\n`, stderr: "" });
+  assert.deepEqual(taskFiles(dir), []);
 });
 
 test("初始化任务的正文通得过确认", (t) => {

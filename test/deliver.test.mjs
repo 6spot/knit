@@ -12,7 +12,7 @@ import { parseTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
-import { agents, doneTask, readyTask, runProject, worktreeLine, worktreeOf } from "./helpers/run.mjs";
+import { agents, doneTask, readyTask, runProject, worktreeLine, worktreeOf, writeArchiveHistory } from "./helpers/run.mjs";
 
 // 在 macOS 上直接使用工具链的 Git 来创建和检查交付夹具。
 if (process.platform === "darwin") process.env.PATH = `${git(process.cwd(), "--exec-path")}:${process.env.PATH}`;
@@ -109,6 +109,10 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
   writeFileSync(join(dir, "main-only.txt"), "main only\n");
   const message = join(dir, ".knit/.runtime/message.txt");
   writeFileSync(message, "\nfeat: 加问候语\n\n说明一行\n\n");
+  const childrenHistory = writeArchiveHistory(dir, parseTaskDocument(readFileSync(join(dir, child.created.file), "utf8")).document);
+  const unread = join(childrenHistory.at(-1), "task.md");
+  rmSync(unread);
+  mkdirSync(unread);
   const before = [git(dir, "status", "--porcelain"), git(worktreeOf(dir, task), "status", "--porcelain"), ...filesOf(dir, task.dir)];
 
   const preview = knit(dir, "deliver", task.id, "--preview", "--message-file", message);

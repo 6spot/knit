@@ -7,7 +7,7 @@ import { PiExecutionAdapter } from "../../dist/adapters/pi/execution.js";
 import { closeTask, readyTask } from "../../dist/application/task-lifecycle.js";
 import { createTask } from "../../dist/application/task-store.js";
 import { taskWorktree } from "../../dist/application/worktree.js";
-import { parseTaskDocument, renderTaskDocument } from "../../dist/domain/task.js";
+import { parseTaskDocument, renderTaskDocument, renderTaskRecord } from "../../dist/domain/task.js";
 import { cachedGitProject, commitAll, git } from "./git.mjs";
 
 export const agents = {
@@ -99,6 +99,21 @@ export function doneTask(dir, paths = []) {
   const closed = closeTask(dir, task.id, { result: "做完了", paths });
   assert.deepEqual(closed, { kind: "done", title: "加问候语" });
   return task;
+}
+
+/** 生成一批归档，夹杂开头字段写坏、但还保留 ID 的任务。 */
+export function writeArchiveHistory(root, document) {
+  const record = renderTaskRecord({ confirmedDigest: null, changedPaths: [], runs: [], authorization: null });
+  return Array.from({ length: 128 }, (_, index) => {
+    const id = `k-${(index + 1).toString(16).padStart(12, "0")}`;
+    const dir = join(root, ".knit/tasks/archive/2000-01", id);
+    const markdown = renderTaskDocument({ ...document,
+      frontmatter: { ...document.frontmatter, id, status: "delivered", stage: null } });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "task.md"), index % 8 === 0 ? markdown.replace("stage: null", "stage: [") : markdown);
+    writeFileSync(join(dir, "record.json"), record);
+    return dir;
+  });
 }
 
 /** 让临时仓库里的提交不依赖机器上的 Git 配置：身份、签名和 hook 的位置都写在仓库自己的配置里。 */

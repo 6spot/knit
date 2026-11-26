@@ -24,19 +24,29 @@ export type TaskDocumentParse =
   | { readonly document: TaskDocument; readonly problems: readonly [] }
   | { readonly document: null; readonly problems: readonly string[] };
 
+const taskFrontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/;
+const rawIdLine = /^id:[ \t]*(\S+)[ \t]*$/m;
+
+export function unparsedTaskId(markdown: string): string | null {
+  return rawIdLine.exec(taskFrontmatter.exec(markdown)?.[1] ?? "")?.[1] ?? null;
+}
+
+/** 先筛掉 ID 不同的常规任务；手写 YAML 可能用引号、显式键或别名。 */
+export function taskDocumentMayHaveId(markdown: string, id: string): boolean {
+  const header = taskFrontmatter.exec(markdown)?.[1];
+  if (header === undefined) return false;
+  const rawId = rawIdLine.exec(header)?.[1];
+  if (rawId === id) return true;
+  // 首行是普通 ID，且后面没有复杂的顶层键时，别的键不会改变它。
+  if (/^id: [a-z0-9-]+\n/.test(header) && !/^(?![A-Za-z][\w-]*:(?:[ \t]|$))[^ \t#\r\n]/m.test(header)) return false;
+  return parseTaskFrontmatter(header).frontmatter?.id === id;
+}
+
 export function parseTaskDocument(markdown: string): TaskDocumentParse {
-  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown);
-  if (match === null) return invalid(["没有开头字段：文件要以 --- 开头，字段之后再用一行 --- 结束"]);
-  const yaml = parseDocument(match[1] ?? "");
-  if (yaml.errors.length > 0) return invalid(yaml.errors.map((error) => `开头字段不是合法的 YAML：${error.message}`));
-  const frontmatter: unknown = yaml.toJS();
-  if (!checkSchema(TaskFrontmatterSchema, frontmatter)) return invalid(schemaProblems(TaskFrontmatterSchema, frontmatter));
-  if (frontmatter.status === "active" && frontmatter.stage === null) {
-    return invalid(["字段 stage 的值不对：status 是 active 时要写所在环节的 id"]);
-  }
-  if (frontmatter.status !== "active" && frontmatter.stage !== null) {
-    return invalid([`字段 stage 的值不对：status 是 ${frontmatter.status} 时要写 null`]);
-  }
+  const match = taskFrontmatter.exec(markdown);
+  if (match === null) return { document: null, problems: ["没有开头字段：文件要以 --- 开头，字段之后再用一行 --- 结束"] };
+  const { frontmatter, problems } = parseTaskFrontmatter(match[1] ?? "");
+  if (frontmatter === null) return { document: null, problems };
   const lines = markdown.slice(match[0].length).split("\n");
   const heading = resultHeadingLine(lines);
   return {
@@ -82,8 +92,21 @@ export function currentStatus(document: TaskDocument, record: TaskRecord): TaskS
   return record.confirmedDigest === requirementDigest(document) ? status : "draft";
 }
 
-function invalid(problems: readonly string[]): TaskDocumentParse {
-  return { document: null, problems };
+function parseTaskFrontmatter(header: string): {
+  frontmatter: TaskFrontmatter | null;
+  problems: readonly string[];
+} {
+  const yaml = parseDocument(header);
+  if (yaml.errors.length > 0) return { frontmatter: null, problems: yaml.errors.map((error) => `开头字段不是合法的 YAML：${error.message}`) };
+  const frontmatter: unknown = yaml.toJS();
+  if (!checkSchema(TaskFrontmatterSchema, frontmatter)) return { frontmatter: null, problems: schemaProblems(TaskFrontmatterSchema, frontmatter) };
+  if (frontmatter.status === "active" && frontmatter.stage === null) {
+    return { frontmatter: null, problems: ["字段 stage 的值不对：status 是 active 时要写所在环节的 id"] };
+  }
+  if (frontmatter.status !== "active" && frontmatter.stage !== null) {
+    return { frontmatter: null, problems: [`字段 stage 的值不对：status 是 ${frontmatter.status} 时要写 null`] };
+  }
+  return { frontmatter, problems: [] };
 }
 
 function trimSection(text: string): string {

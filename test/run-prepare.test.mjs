@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { deliverTask } from "../dist/application/delivery.js";
@@ -16,7 +16,7 @@ import { parseTaskDocument, requirementDigest } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
+import { agents, readyTask, runProject, worktreeOf, writeArchiveHistory } from "./helpers/run.mjs";
 
 // 在 macOS 上直接使用工具链的 Git 来准备和检查各轮派发的快照。
 if (process.platform === "darwin") process.env.PATH = `${git(process.cwd(), "--exec-path")}:${process.env.PATH}`;
@@ -370,6 +370,10 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   assert.equal(existsSync(join(root, archive)), ignored);
   assert.match(readFileSync(join(ignored ? root : worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
   assert.equal(existsSync(join(root, "dependency.txt")), false);
+  const history = writeArchiveHistory(root, documentOf(root, task));
+  const unrelatedRecord = join(history.at(-1), "record.json");
+  rmSync(unrelatedRecord);
+  mkdirSync(unrelatedRecord);
   // 其它任务分支可以带着这份归档；任务身份要对应它自己的目录名和分支。
   git(root, "branch", "knit/unrelated", worktree.branch);
   const problem = refusedWithoutChanges(root, task, /还没有合并/);
@@ -377,6 +381,10 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   assert.ok(problem.includes(`git merge ${worktree.branch}`), problem);
   assert.equal(problem.includes("knit/unrelated"), false);
   if (!ignored) {
+    assert.equal(findTask(root, dependency.id).storeRoot, worktree.path);
+    assert.deepEqual(prepare(root, dependency.id), {
+      run: null, problems: [`没有任务 ${dependency.id}；用 knit task list 查看现有任务`],
+    });
     assert.match(problem, /可能.*已经.*交付.*还没有合并/);
     assert.match(problem, /不存在/);
   }

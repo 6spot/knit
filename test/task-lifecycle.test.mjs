@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
@@ -13,7 +13,7 @@ import { currentStatus, parseTaskDocument, renderTaskDocument, renderTaskRecord,
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { git, gitProject } from "./helpers/git.mjs";
-import { agents, doneTask, runProject } from "./helpers/run.mjs";
+import { agents, doneTask, runProject, writeArchiveHistory } from "./helpers/run.mjs";
 
 const now = new Date();
 const TODAY = [now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-");
@@ -423,12 +423,33 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
     confirmedDigest: requirementDigest(document),
   }));
   rewrite(dir, archived, withFrontmatter({ status: "delivered" }));
-  mkdirSync(join(dir, ".knit/tasks/archive/2026-10"), { recursive: true });
+  const archivedMonths = ["2026-10", "2026-09", "2026-12"];
+  archivedMonths.forEach((month) => mkdirSync(join(dir, ".knit/tasks/archive", month), { recursive: true }));
+  const archiveDoc = read(archived);
+  const newest = ".knit/tasks/archive/2026-12/newest";
+  const important = ".knit/tasks/archive/2026-09/important";
+  const archivedBroken = ".knit/tasks/archive/2026-09/broken";
+  for (const [archiveDir, id, priority, createdAt] of [
+    [newest, "k-aaaaaaaaaaaa", "P2", "2030-01-02T00:00:00Z"],
+    [important, "k-bbbbbbbbbbbb", "P1", "2030-01-04T00:00:00Z"],
+    [archivedBroken, "k-cccccccccccc", "PX", "2030-01-01T00:00:00Z"],
+  ]) {
+    mkdirSync(join(dir, archiveDir));
+    writeFileSync(join(dir, archiveDir, "task.md"), renderTaskDocument(withFrontmatter({ id, priority, createdAt })(archiveDoc)));
+  }
+  rewrite(dir, archived, withFrontmatter({ createdAt: "2030-01-01T00:00:00Z" }));
   renameSync(join(dir, archived.dir), join(dir, ".knit/tasks/archive/2026-10/10-01-old"));
   mkdirSync(join(dir, ".knit/tasks/00-broken"));
   writeFileSync(join(dir, ".knit/tasks/00-broken/task.md"), "只有正文\n");
   writeFileSync(join(dir, third.dir, "record.json"), "{");
 
+  const all = scanTasks(dir, "all");
+  assert.deepEqual(scanTasks(dir), all);
+
+  // 若碰到另一组的 task.md，读取目录会报错，而不是安静地被输出过滤掉。
+  const archiveTrap = join(dir, ".knit/tasks/archive/2026-09/unread/task.md");
+  mkdirSync(archiveTrap, { recursive: true });
+  assert.deepEqual(scanTasks(dir, "active"), all.filter((task) => !task.archived));
   const listed = knit(dir, "task", "list");
   assert.equal(listed.code, 0, listed.stderr);
   const lines = listed.stdout.trimEnd().split("\n");
@@ -437,7 +458,46 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
   assert.match(lines[3], new RegExp(`^${third.dir}：record\\.json：不是合法的 JSON`));
   assert.equal(lines.length, 4);
 
-  assert.equal(knit(dir, "task", "list", "--archive").stdout, `P2  ${archived.id}  delivered  旧的\n`);
+  rmdirSync(archiveTrap);
+  mkdirSync(join(dir, ".knit/tasks/unread/task.md"), { recursive: true });
+  assert.deepEqual(scanTasks(dir, "archived"), all.filter((task) => task.archived));
+  const listedArchive = knit(dir, "task", "list", "--archive");
+  assert.equal(listedArchive.code, 0, listedArchive.stderr);
+  const [importantLine, olderLine, newestLine, brokenLine, ...rest] = listedArchive.stdout.trimEnd().split("\n");
+  assert.deepEqual([importantLine, olderLine, newestLine], [
+    "P1  k-bbbbbbbbbbbb  delivered  旧的", `P2  ${archived.id}  delivered  旧的`, "P2  k-aaaaaaaaaaaa  delivered  旧的",
+  ]);
+  assert.ok(brokenLine.startsWith(`${archivedBroken}：task.md：字段 priority 的值不对：`), brokenLine);
+  assert.deepEqual(rest, []);
+});
+
+test("按 ID 查找跳过无关归档的记录与 YAML，同时保留损坏任务和手写 ID 的查找语义", (t) => {
+  const root = project(t);
+  const active = draft(root);
+  const [broken, normal, quoted, alias, , , unread] = writeArchiveHistory(root, read(active));
+  const editArchive = (dir, change) => {
+    const file = join(dir, "task.md");
+    writeFileSync(file, change(readFileSync(file, "utf8")));
+  };
+  editArchive(quoted, (text) => text.replace(`id: ${basename(quoted)}`, `"id": "${basename(quoted)}" # 手写 ID`));
+  const aliasId = "k-ffffffffffff";
+  editArchive(alias, (text) => text.replace("title: 任务", `title: &key id\n*key : ${aliasId}`));
+  const expected = new Map(scanTasks(root).map((task) => [task.id, task]));
+  // 仍是正常输出的顶层键；完整解读这份 YAML 会遇到未定义锚点。
+  editArchive(unread, (text) => text.replace("title: 任务", "title: *missing"));
+  const unreadRecord = join(unread, "record.json");
+  rmSync(unreadRecord);
+  mkdirSync(unreadRecord);
+
+  for (const id of [active.id, basename(broken), basename(normal), basename(quoted), aliasId]) {
+    assert.equal(expected.has(id), true, id);
+    assert.deepEqual(findTask(root, id), expected.get(id));
+  }
+  assert.equal(findTask(root, basename(alias)), null);
+  assert.equal(findTask(root, "k-000000000000"), null);
+  const shown = knit(root, "task", "show", basename(broken));
+  assert.equal(shown.code, 1);
+  assert.match(shown.stderr, /^task\.md：开头字段不是合法的 YAML：/);
 });
 
 test("task show：标题、状态、场景数、待澄清数和改动文件", (t) => {

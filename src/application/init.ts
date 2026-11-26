@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "../infrastructure/fs.js";
-import { createTask, scanTasks } from "./task-store.js";
+import { createTask, hasTasks } from "./task-store.js";
 
 /**
  * `template` 相对模板目录，`target` 相对项目根；顺序就是输出的顺序。
@@ -79,7 +79,7 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
     restored: changed.map((item) => item.target),
     kept: templates.filter((item) => !missing.includes(item) && !changed.includes(item)).map((item) => item.target),
     backupDir: changed.length === 0 ? null : backupDir,
-    task: scanTasks(root).length > 0 ? null : createStandardsTask(root),
+    task: hasTasks(root) ? null : createStandardsTask(root),
   };
 }
 

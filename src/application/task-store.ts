@@ -3,14 +3,17 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { sha256Bytes } from "../contracts/primitives.js";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
 import {
   parseTaskDocument,
   parseTaskRecord,
   renderTaskDocument,
   renderTaskRecord,
+  taskDocumentMayHaveId,
+  unparsedTaskId,
   type TaskDocument,
 } from "../domain/task.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
@@ -50,43 +53,58 @@ export type CreateTaskResult =
   | { readonly created: { readonly id: string; readonly title: string; readonly file: string }; readonly problems: readonly [] }
   | { readonly created: null; readonly problems: readonly string[] };
 
-/** 所有任务，含已归档的。写坏的任务也列出来，带着问题，不挡住其它任务。 */
-export function scanTasks(root: string): StoredTask[] {
-  return [...storedTasks(root)];
+type TaskScope = "active" | "archived" | "all";
+
+/** 默认包含归档；写坏的任务也带着问题列出来，不挡住其它任务。 */
+export function scanTasks(root: string, scope: TaskScope = "all"): StoredTask[] {
+  return [...storedTasks(root, taskDirectories(root, scope))];
 }
 
-function* storedTasks(root: string, directories = taskDirectories(root)): Generator<StoredTask> {
+export function hasTasks(root: string): boolean {
+  for (const entry of taskDirectories(root, "all")) {
+    if (readTaskBytes(root, entry.dir) !== null) return true;
+  }
+  return false;
+}
+
+function readTaskBytes(root: string, dir: string): Buffer | null {
+  const path = join(root, dir, TASK_FILE);
+  return existsSync(path) ? readFileSync(path) : null;
+}
+
+function* storedTasks(root: string, directories: ReturnType<typeof taskDirectories>, id?: string): Generator<StoredTask> {
   for (const entry of directories) {
-    const taskFile = readWithVersion(join(root, entry.dir, TASK_FILE));
+    const taskFile = readTaskBytes(root, entry.dir);
     if (taskFile === null) continue;
-    const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
-    const markdown = taskFile.data.toString("utf8");
+    const markdown = taskFile.toString("utf8");
+    if (id !== undefined && !taskDocumentMayHaveId(markdown, id)) continue;
     const document = parseTaskDocument(markdown);
+    // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
+    const taskId = document.document?.frontmatter.id ?? unparsedTaskId(markdown);
+    if (id !== undefined && taskId !== id) continue;
+    const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
     const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
     yield {
       storeRoot: root,
       dir: entry.dir,
       archived: entry.archived,
-      // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
-      id:
-        document.document?.frontmatter.id ??
-        /^id:[ \t]*(\S+)[ \t]*$/m.exec(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown)?.[1] ?? "")?.[1] ??
-        null,
+      id: taskId,
       document: document.document,
       record: record.record,
       problems: [
         ...document.problems.map((problem) => `${TASK_FILE}：${problem}`),
         ...record.problems.map((problem) => `${RECORD_FILE}：${problem}`),
       ],
-      versions: { task: taskFile.sha256, record: recordFile?.sha256 ?? null },
+      versions: { task: sha256Bytes(taskFile), record: recordFile?.sha256 ?? null },
     };
   }
 }
 
-export function findTask(root: string, id: string): StoredTask | null {
-  for (const task of storedTasks(root)) {
-    if (task.id === id) return task;
+export function findTask(root: string, id: string, { includeWorktrees = true, requireDocument = false } = {}): StoredTask | null {
+  for (const task of storedTasks(root, taskDirectories(root, "all"), id)) {
+    if (!requireDocument || task.document !== null) return task;
   }
+  if (!includeWorktrees) return null;
   const worktrees = projectWorktreeRoot(root);
   for (const entry of directoryEntries(worktrees)) {
     const checkout = join(worktrees, entry.name);
@@ -95,8 +113,8 @@ export function findTask(root: string, id: string): StoredTask | null {
       if (linkedRepo === null || linkedRepo !== gitCommonDirectory(root)) continue;
     }
     // 其它任务的归档可能随建分支时的 HEAD 一起检出，只读该分支自己的交付。
-    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name))) {
-      if (task.id === id && task.document?.frontmatter.status === "delivered") return task;
+    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name), id)) {
+      if (task.document?.frontmatter.status === "delivered") return task;
     }
   }
   return null;
@@ -256,11 +274,13 @@ export function archiveTask(root: string, stored: StoredTask, targetRoot = root)
   return dir;
 }
 
-function* taskDirectories(root: string) {
-  for (const name of directoryNames(join(root, TASKS_DIR))) {
-    if (name !== "archive") yield { dir: `${TASKS_DIR}/${name}`, archived: false };
+function* taskDirectories(root: string, scope: TaskScope) {
+  if (scope !== "archived") {
+    for (const name of directoryNames(join(root, TASKS_DIR))) {
+      if (name !== "archive") yield { dir: `${TASKS_DIR}/${name}`, archived: false };
+    }
   }
-  yield* archiveDirectories(root);
+  if (scope !== "active") yield* archiveDirectories(root);
 }
 
 function* archiveDirectories(root: string, taskName?: string) {
