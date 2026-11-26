@@ -38,21 +38,22 @@ stages:
   - id: implement
     name: 实现
     prompt: .knit/agents/implement.md
-    # resume: true
+    resume: true
     tools: [read, write, exec]
   - id: review
     name: 审查
     # agent: antigravity
     # model: gemini-3.8-flash-low
-    # thinking: max
+    # thinking: high  # 普通审查建议 high，高风险改动可用 max
     prompt: .knit/agents/review.md
+    resume: true
     tools: [read, write, exec]
     # 多模型只读并行对抗审查示例（启用时删掉上面的单执行器 agent/model/thinking，并去掉 tools 里的 write）：
     # tools: [read, exec]
     # executors:
     #   - id: pi-review
     #     agent: pi
-    #     thinking: max
+    #     thinking: high
     #   - id: agy-review
     #     agent: antigravity
     #     model: gemini-3.8-flash-low

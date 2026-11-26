@@ -88,12 +88,12 @@ const GIT_ENV: Record<string, string> = {
 };
 
 /** 同步 Git 调用：参数数组直接传给 git，不经 shell。 */
-export function gitSync(args: string[], cwd: string): { code: number; stdout: string; stderr: string } {
+export function gitSync(args: string[], cwd: string, maxBuffer = 64 * 1024 * 1024): { code: number; stdout: string; stderr: string } {
   const result = spawnSync("git", args, {
     cwd,
     env: { ...process.env, ...GIT_ENV },
     encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer,
   });
   return { code: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? String(result.error ?? "") };
 }

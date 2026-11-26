@@ -9,6 +9,8 @@ import { sha256Text } from "../contracts/primitives.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
 import { referencesOf, sectionOf, type TaskDocument, type TaskReference } from "../domain/task.js";
+import type { WorkflowStage } from "../domain/workflow.js";
+import { gitSync } from "../infrastructure/process.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { DEFAULT_HANDOFF_LIMITS, loadStandards, type HandoffLimits } from "./project-config.js";
 import { TASKS_DIR } from "./task-store.js";
@@ -21,7 +23,7 @@ export interface HandoffInput {
   /** 任务目录（相对项目根）和解析出的 task.md。 */
   readonly task: { readonly dir: string; readonly document: TaskDocument };
   /** 环节 id 和角色文件的路径（相对项目根）。 */
-  readonly stage: { readonly id: string; readonly prompt: string | null };
+  readonly stage: Pick<WorkflowStage, "id" | "prompt" | "tools">;
   /** 上一个环节的报告。 */
   readonly previous: HandoffReport | readonly HandoffReport[] | null;
   readonly instruction?: string;
@@ -87,29 +89,34 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     attributes: { path: resolve(input.root, input.task.dir, "task.md") },
     content: trimBlankLines(`# ${input.task.document.frontmatter.title}\n\n${input.task.document.requirement}`),
   };
-  // 受上限约束的块，按第一条消息里的先后；content 是 null 的是目录，没有内容可附。
+  // 受上限约束的块，按第一条消息里的先后。
   const instructions: Block[] = input.instruction === undefined ? [] : [
     { tag: "main-instruction", attributes: {}, content: input.instruction },
   ];
-  const attached = [
-    ...materials.materials.map((material) => ({
-      tag: "material",
-      attributes: {
-        path: `${material.reference.path}${material.reference.anchor === null ? "" : `#${material.reference.anchor}`}`,
-      },
-      content: material.text === null ? null : trimBlankLines(material.text),
-    })),
+  const canRead = input.stage.tools == null || input.stage.tools.includes("read");
+  const shortDocumentLimits = { ...limits, fileBytes: Math.min(4096, limits.fileBytes) };
+  const attached: (Block & { notice?: string; limits?: HandoffLimits })[] = [
+    ...materials.materials.map((material) => {
+      const { path, anchor } = material.reference;
+      const slim = canRead && path !== resolve(input.root, planPath);
+      const pathOnly = slim && material.kind === "file" && !path.toLowerCase().endsWith(".md");
+      return {
+        tag: "material",
+        attributes: { path: `${path}${anchor === null ? "" : `#${anchor}`}` },
+        content: material.text === null || pathOnly ? "" : trimBlankLines(material.text),
+        ...(pathOnly ? { notice: "需要时按路径自己读。" } :
+          material.kind === "directory" ? { notice: "这是一个目录，没有附上内容。" } : {}),
+        limits: slim ? shortDocumentLimits : limits,
+      };
+    }),
     ...(plan === null ? [] : [{ tag: "plan", attributes: { path: resolve(input.root, planPath) }, content: trimBlankLines(plan) }]),
     ...[input.previous ?? []].flat().map((report) => reportBlock("previous-report", report)),
     ...(input.own == null ? [] : [reportBlock("own-last-report", input.own)]),
   ];
   const fitted = attached.reduce(
     (state, part) => {
-      if (part.content === null) {
-        return { used: state.used, blocks: [...state.blocks, { ...part, content: "这是一个目录，没有附上内容。" }] };
-      }
       const bytes = Buffer.byteLength(part.content);
-      const notice = attachmentNotice(bytes, state.used, limits);
+      const notice = part.notice ?? attachmentNotice(bytes, state.used, part.limits ?? limits);
       return notice === null
         ? { used: state.used + bytes, blocks: [...state.blocks, { ...part, content: part.content }] }
         : { used: state.used, blocks: [...state.blocks, { ...part, content: notice }] };
@@ -146,6 +153,32 @@ function attachmentNotice(bytes: number, used: number, limits: HandoffLimits): s
   if (bytes > limits.fileBytes) return `这份资料有 ${bytes} 字节，超过单个文件的上限 ${limits.fileBytes} 字节，没有附上；需要时按路径自己读。`;
   if (used + bytes > limits.totalBytes) return `加上这份资料会超过一次交接的上限 ${limits.totalBytes} 字节，没有附上；需要时按路径自己读。`;
   return null;
+}
+
+const MAX_DIFF_BYTES = 8192;
+
+/** 准备命令完成后，在同批审查者共用的 Worktree 读取一次。 */
+export function reviewChanges(worktree: string) {
+  const gitArgs = ["-c", "core.quotePath=false"];
+  const diffArgs = [...gitArgs, "diff", "--no-color", "--no-ext-diff", "--no-textconv"];
+  const stat = gitSync([...diffArgs, "--stat", "HEAD", "--"], worktree);
+  const untracked = gitSync([...gitArgs, "ls-files", "--others", "--exclude-standard"], worktree);
+  if (stat.code !== 0 || untracked.code !== 0) throw new Error(`无法读取 Worktree 改动摘要：${stat.stderr}${untracked.stderr}`);
+  if (!stat.stdout && !untracked.stdout) return null;
+  const summary = [stat.stdout.trimEnd(), untracked.stdout && `未跟踪文件：\n${untracked.stdout.trimEnd()}`].filter(Boolean).join("\n\n");
+  const diff = stat.stdout ? gitSync([...diffArgs, "--unified=1", "HEAD", "--"], worktree, MAX_DIFF_BYTES) : null;
+  return { summary, patch: diff === null ? "" : diff.code === 0 ? diff.stdout : null };
+}
+
+export function appendReviewChanges(message: string, changes: ReturnType<typeof reviewChanges>, limits: HandoffLimits, systemBytes = 0): string {
+  if (!changes) return message;
+  const block = (detail: string) => render({ tag: "worktree-changes", attributes: { base: "HEAD" },
+    content: detail ? `${changes.summary}\n\n${detail}` : changes.summary });
+  const patch = changes.patch;
+  const full = `${message}\n\n${block(patch?.replace(/\n$/, "") ?? "")}`;
+  if (patch === "" || (patch !== null && Buffer.byteLength(patch) <= Math.min(MAX_DIFF_BYTES, limits.fileBytes) &&
+    systemBytes + Buffer.byteLength(full) <= limits.totalBytes)) return full;
+  return `${message}\n\n${block("需要时在 Worktree 运行 git diff HEAD 查看补丁。")}`;
 }
 
 /** 无读取工具的执行者无法打开报告路径，按交接预算随消息附上报告。 */

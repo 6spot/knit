@@ -81,6 +81,64 @@ test("下个环节的仓库资料取 Worktree 的内容，仍给相对路径", a
   assert.match(readFileSync(join(worktreeOf(root, task), task.dir, "plan.md"), "utf8"), /旧计划/);
 }));
 
+test("自定义审查环节的首次和续聊交接按本轮预算附上 Worktree 摘要", (t) => {
+  const root = runProject(t);
+  writeFileSync(join(root, "tracked.ts"), "original\n");
+  commitAll(root, "tracked source");
+  const task = readyTask(root);
+  nameMaterials(root, task, ["tracked.ts"]);
+  const workflow = parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")
+    .replace("id: review", "id: inspect\n    resume: true").replace("blocked: review", "blocked: inspect")
+    .replaceAll("tools: [read, write, exec]", "tools: []")).workflow;
+  const dispatch = (limits) => {
+    const result = prepare(root, task, { workflow, ...(limits && { config: { handoff: limits } }) });
+    assert.deepEqual(result.problems, []);
+    return result.run;
+  };
+  const implement = dispatch();
+  assert.match(message(root, implement), /<material path="tracked.ts">\noriginal\n<\/material>/);
+  assert.deepEqual(finish(root, task, implement), []);
+  const clean = dispatch();
+  assert.equal(clean.stage.id, "inspect");
+  assert.doesNotMatch(message(root, clean), /<worktree-changes/);
+  const end = (run) => assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: run.id, workflow,
+    verdict: "blocked", failure: null, sessionFile: null, resumeId: "test-native-session" }), []);
+  end(clean);
+  const tree = clean.worktree.path;
+  writeFileSync(join(tree, "new file.txt"), "untracked body\n");
+  const checkMessages = (run, check) => {
+    for (const file of ["message.md", "resume-message.md"]) {
+      const text = readFileSync(join(root, run.dir, file), "utf8");
+      const changes = text.match(/<worktree-changes base="HEAD">([\s\S]*?)<\/worktree-changes>/)?.[1];
+      assert.ok(changes, file);
+      assert.match(changes, /未跟踪文件：\nnew file\.txt/);
+      assert.doesNotMatch(changes, /untracked body/);
+      check(changes);
+    }
+  };
+  const untracked = dispatch();
+  checkMessages(untracked, (changes) => assert.doesNotMatch(changes, /diff --git|git diff HEAD/));
+  end(untracked);
+  writeFileSync(join(tree, "tracked.ts"), "staged\n");
+  git(tree, "add", "tracked.ts");
+  const small = dispatch();
+  checkMessages(small, (changes) => {
+    assert.match(changes, /tracked\.ts\s*\|/);
+    assert.match(changes, /-original\n\+staged/);
+  });
+  end(small);
+  for (const limits of [{ totalBytes: 100, fileBytes: 16000 }, { totalBytes: 64000, fileBytes: 80 }, undefined]) {
+    if (!limits) writeFileSync(join(tree, "tracked.ts"), "x".repeat(9000));
+    const review = dispatch(limits);
+    checkMessages(review, (changes) => {
+      assert.match(changes, /tracked\.ts\s*\|/);
+      assert.match(changes, /git diff HEAD/);
+      assert.doesNotMatch(changes, /diff --git|\+staged|xxx/);
+    });
+    end(review);
+  }
+});
+
 test("别的任务目录里没提交的资料从主检出读，给绝对路径", (t) => {
   const root = runProject(t);
   const task = readyTask(root);

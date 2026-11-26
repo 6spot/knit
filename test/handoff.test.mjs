@@ -32,7 +32,7 @@ function taskWith(dir, references, result = null) {
   return findTask(dir, id);
 }
 
-const IMPLEMENT = { id: "implement", prompt: ".knit/agents/implement.md" };
+const IMPLEMENT = { id: "implement", prompt: ".knit/agents/implement.md", tools: ["read"] };
 const location = (dir, task) => `你在任务的 Worktree 里工作：${dir}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${dir}），只读，不要改。任务目录：${join(dir, task.dir)}；这些资料和报告按给出的绝对路径读取。`;
 
 test("系统提示里是角色文件和规范", (t) => {
@@ -113,7 +113,7 @@ test("第一条消息里是需求、资料、计划和上一环节的报告", (t
     root: dir,
     worktree: dir,
     task: findTask(dir, task.document.frontmatter.id),
-    stage: { id: "review", prompt: null },
+    stage: { id: "review", prompt: null, tools: [] },
     previous: {
       stage: "implement",
       path: join(dir, ".knit/.runtime/runs/r-1/report.md"),
@@ -161,7 +161,7 @@ test("缺少文件时说明问题", (t) => {
   assert.equal(
     handoff.firstMessage,
     `${location(dir, task)}\n\n<task path="${join(dir, task.dir, "task.md")}">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>\n\n` +
-      '<material path="src/a.ts">\nexport const a = 1;\n</material>',
+      '<material path="src/a.ts">\n需要时按路径自己读。\n</material>',
   );
 
   // 「相关资料」点名了自己的 plan.md 时只按点名的给，不再另给一块计划。
@@ -272,7 +272,7 @@ test("多报告的失败原因计入字节上限，裁决指令和成员路径�
   }
 });
 
-test("没有超出时和原来相同", (t) => {
+test("没有 read 时沿用配置的单文件上限", (t) => {
   const dir = project(t);
   write(dir, {
     ".knit/agents/implement.md": "角色\n",
@@ -285,7 +285,7 @@ test("没有超出时和原来相同", (t) => {
     root: dir,
     worktree: dir,
     task,
-    stage: STAGE,
+    stage: { ...STAGE, tools: [] },
     previous: { stage: "implement", path: join(dir, ".knit/.runtime/runs/r-1/report.md"), changedPaths: ["docs/one.md"], text: "做完了。" },
   };
   const handoff = assembleHandoff(input);
@@ -294,6 +294,33 @@ test("没有超出时和原来相同", (t) => {
   assert.ok(!`${handoff.systemPrompt}${handoff.firstMessage}`.includes("没有附上"));
   assert.ok(handoff.firstMessage.includes("字".repeat(5000)));
   assert.deepEqual(DEFAULT_HANDOFF_LIMITS, { fileBytes: 16384, totalBytes: 65536 });
+});
+
+test("具备 read 时按呈现内容的字节筛选短文档和章节，计划和报告沿用配置预算", (t) => {
+  const dir = project(t);
+  const exact = `短${"a".repeat(4093)}`;
+  const large = `${exact}b`;
+  const task = taskNaming(dir, ["code.ts", "short.md", "long.md", "notes.txt#证据"]);
+  write(dir, {
+    "code.ts": "export const answer = 42;",
+    "short.md": exact,
+    "long.md": large,
+    "notes.txt": `## 证据\n\n章节正文\n\n## 附录\n\n${large}`,
+    [`${task.dir}/plan.md`]: large,
+  });
+  for (const tools of [null, ["read"]]) {
+    const input = { root: dir, worktree: dir, task, stage: { id: "custom", prompt: null, tools },
+      previous: { stage: "previous", path: "report.md", changedPaths: [], text: large } };
+    const handoff = assembleHandoff(input);
+    assert.deepEqual(handoff.problems, []);
+    assert.deepEqual(assembleHandoff(input), handoff);
+    assert.doesNotMatch(handoff.firstMessage, /export const answer/);
+    assert.ok(handoff.firstMessage.includes(`<material path="short.md">\n${exact}\n</material>`));
+    assert.match(handoff.firstMessage, /<material path="long.md">\n这份资料有 4097 字节，超过单个文件的上限 4096/);
+    assert.match(handoff.firstMessage, /<material path="notes.txt#证据">\n## 证据\n\n章节正文\n<\/material>/);
+    assert.ok(handoff.firstMessage.includes(`${large}\n</plan>`));
+    assert.ok(handoff.firstMessage.includes(`${large}\n</previous-report>`));
+  }
 });
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
@@ -356,7 +383,7 @@ test("返工和再审时两份报告都拿到", (t) => {
   const again = prepare(dir, task);
   assert.equal(again.stage.id, "review");
   assert.ok(
-    again.message.endsWith(
+    again.message.includes(
       [
         block("previous-report", "implement", rework, "改动的文件：\n- src/a.ts\n\n返工的实现报告。"),
         block("own-last-report", "review", review, "改动的文件：无\n\n第一轮审查：a 的值不对。"),

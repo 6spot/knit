@@ -299,10 +299,10 @@ test("流程模板通过校验", () => {
   const { workflow, validation } = parseWorkflow(template("workflow.yaml"));
   assert.deepEqual(validation.issues, []);
   assert.deepEqual(
-    workflow.stages.map((stage) => [stage.id, stage.model, stage.prompt]),
+    workflow.stages.map((stage) => [stage.id, stage.model, stage.prompt, stage.resume]),
     [
-      ["implement", null, ".knit/agents/implement.md"],
-      ["review", null, ".knit/agents/review.md"],
+      ["implement", null, ".knit/agents/implement.md", true],
+      ["review", null, ".knit/agents/review.md", true],
     ],
   );
   const review = workflow.stages[1];

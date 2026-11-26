@@ -15,7 +15,7 @@ import { validateAgentTarget, type WorkflowDefinition, type WorkflowExecutor, ty
 import { atomicWrite } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./project-config.js";
-import { assembleHandoff, resumeMessage, type HandoffReport } from "./handoff.js";
+import { appendReviewChanges, assembleHandoff, resumeMessage, reviewChanges, type HandoffReport } from "./handoff.js";
 import { logSessionMode } from "./run-execute.js";
 import { withTaskRunLock } from "./run-control.js";
 import { saveTask, scanTasks, type LoadedTask, type StoredTask } from "./task-store.js";
@@ -147,7 +147,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
     const handoffs = targets.map(({ executor }) => {
       const own = batches.flat().findLast((run) => run.stage === stage.id && (!run.executor || run.executor === executor.id));
       return assembleHandoff({ root, worktree: worktree.path, task: { dir: stored.dir, document },
-        stage: { id: stage.id, prompt: executor.prompt }, previous: reports,
+        stage: { id: stage.id, prompt: executor.prompt, tools: stage.tools }, previous: reports,
         own: own && !previous.includes(own) ? reportOf(root, own) : null,
         instruction: input.instruction, limits: input.config.handoff });
     });
@@ -165,14 +165,17 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
       const unavailableAfterSetup = checkIsolation();
       if (unavailableAfterSetup.length) return refusePrepared(unavailableAfterSetup, true);
     }
+    const changes = Object.hasOwn(stage.report, "verdict") ? reviewChanges(worktree.path) : null;
     const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path), null, 2)}\n`);
     runs.forEach((run, index) => {
       const dir = join(root, run.dir);
       mkdirSync(dir, { recursive: true });
       const rules = stageRules(input.workflow, stage);
-      writeFileSync(join(dir, "system.md"), `${handoffs[index]!.systemPrompt}\n\n${rules}`);
-      prepareResumeHandoff(dir, input, record, run, reports, rules, handoffs[index]!.standardsDigest);
-      writeFileSync(join(dir, "message.md"), handoffs[index]!.firstMessage);
+      const handoff = handoffs[index]!;
+      const system = `${handoff.systemPrompt}\n\n${rules}`;
+      writeFileSync(join(dir, "system.md"), system);
+      prepareResumeHandoff(dir, input, record, run, reports, rules, handoff.standardsDigest, changes);
+      writeFileSync(join(dir, "message.md"), appendReviewChanges(handoff.firstMessage, changes, input.config.handoff, Buffer.byteLength(system)));
       atomicWrite({ path: join(dir, "before.json"), data: snapshot });
     });
   } catch (error) {
@@ -189,7 +192,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
   return { run: runs[0]!, runs, title: document.frontmatter.title, problems: [] };
 }
 
-function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string, standardsDigest: string): void {
+function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskRecord, run: PreparedRun, reports: readonly HandoffReport[], rules: string, standardsDigest: string, changes: ReturnType<typeof reviewChanges>): void {
   if (run.stage.resume) writeFileSync(join(dir, "standards.sha256"), standardsDigest);
   if (input.fresh) return logSessionMode(dir, "新会话（指定了 --fresh）");
   if (!run.stage.resume) return;
@@ -202,7 +205,8 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
     }
     const inlineLimits = run.stage.tools !== null && !run.stage.tools.includes("read") ? input.config.handoff : undefined;
     writeFileSync(join(dir, "resume-id.txt"), prior.resumeId);
-    writeFileSync(join(dir, "resume-message.md"), resumeMessage(input.instruction, reports, rules, inlineLimits));
+    const message = resumeMessage(input.instruction, reports, rules, inlineLimits);
+    writeFileSync(join(dir, "resume-message.md"), appendReviewChanges(message, changes, input.config.handoff));
     return;
   }
   const last = record.runs.findLast((item) => item.stage === run.stage.id);
