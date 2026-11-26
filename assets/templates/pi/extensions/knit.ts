@@ -99,6 +99,12 @@ const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const SELECTION = "knit.selection";
 
+// 与 src/application/host-command.ts 中的判定保持一致；模板须能独立运行。
+export function canSkipHostCommand(command: string): boolean {
+  return !/[$`\\]/.test(command) &&
+    !/knit|\b(eval|sh|bash|zsh|dash|ksh|source|base64)\b|(?:^|[\s/;&|()<>])\.(?=$|[\s;&|()<>])/i.test(command.replace(/['"]/g, ""));
+}
+
 export default function knitBridge(pi: Pi): void {
   if (process.env.KNIT_PI_EXECUTOR === "1") return;
   // 正在等执行结束的 knit run wait，按任务 id 记。派发成功时才启动：这个函数可能在没有会话的调用里运行。
@@ -195,6 +201,7 @@ export default function knitBridge(pi: Pi): void {
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "bash" || typeof event.input.command !== "string") return;
+    if (canSkipHostCommand(event.input.command)) return;
     const check = (messages: { role: "user"; text: string }[], quotesOnly = false) => startKnit(["hook", "pi", "tool-call"], process.env,
       JSON.stringify({ name: "bash", input: event.input, sessionId: ctx.sessionManager.getSessionId(), messages, quotesOnly })).result;
     let checked = await check([], true);

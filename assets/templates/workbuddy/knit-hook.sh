@@ -3,7 +3,11 @@ for dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin" "$HOME/.volta/bin
   [ -d "$dir" ] && PATH="$dir:$PATH"
 done
 export PATH
-if command -v knit >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)' 2>/dev/null; then
-  exec knit hook workbuddy "$1"
+if command -v knit >/dev/null 2>&1 && version=$(node -v 2>/dev/null); then
+  major=${version#v}
+  major=${major%%.*}
+  if [ "$major" -ge 24 ] 2>/dev/null; then
+    exec knit hook workbuddy "$1"
+  fi
 fi
 exec "${SHELL:-/bin/zsh}" -lc 'exec knit hook workbuddy "$1"' sh "$1"
