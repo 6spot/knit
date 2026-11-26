@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import fs, { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changesBetween, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
+import { changesBetween, fingerprint, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { project } from "./helpers/cli.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
@@ -43,6 +43,114 @@ test("新增、修改、删除的文件都算改动", (t) => {
   // 改回去就不算改动
   write(dir, "src/edited.ts", "src/edited.ts\n");
   assert.deepEqual(changesBetween(before, takeSnapshot(dir)).changedPaths, ["scripts/run.sh", "src/added.ts", "src/removed.ts"]);
+});
+
+test("干净普通文件免读内容，受保护路径始终保留字节指纹", (t) => {
+  const dir = gitProject(t);
+  const ordinary = ["src/a.txt", "src/with\tspace\n.txt"];
+  const guarded = [".knit/config.json", ".knit/workflow.yaml", ".knit/standards/a.md", "roles/shared.md", "roles/chosen.md"];
+  for (const path of [...ordinary, ...guarded]) write(dir, path, "one\n");
+  write(dir, ".gitattributes", "*.md text\n");
+  write(dir, ".knit/.runtime/tracked", "runtime\n");
+  commitAll(dir, "files");
+  const original = fs.readFileSync;
+  const reads = [];
+  const handle = t.mock.method(fs, "readFileSync", (path, ...args) => {
+    reads.push(path);
+    return original(path, ...args);
+  });
+  syncBuiltinESMExports();
+  const roles = ["./roles/shared.md", "roles/chosen.md"];
+  const before = takeSnapshot(dir, roles);
+  handle.mock.restore();
+  syncBuiltinESMExports();
+  for (const path of ordinary) {
+    assert.match(before.files[path], /^git 100644 [a-f0-9]{40,64}$/);
+    assert.ok(!reads.includes(join(dir, path)), path);
+  }
+  for (const path of guarded) {
+    assert.equal(before.files[path], fingerprint(dir, path));
+    assert.ok(reads.includes(join(dir, path)), path);
+  }
+  assert.ok(!Object.hasOwn(before.files, ".knit/.runtime/tracked"));
+  for (const path of [".knit/standards/a.md", "roles/shared.md", "roles/chosen.md"]) {
+    write(dir, path, "one\r\n");
+    git(dir, "add", "--", path);
+  }
+  assert.equal(git(dir, "status", "--porcelain"), "");
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir, roles)).changedPaths, [".knit/standards/a.md", "roles/chosen.md", "roles/shared.md"]);
+});
+
+test("符号链接目标、类型变化及仅暂存状态变化", (t) => {
+  const dir = gitProject(t);
+  write(dir, "a.txt", "one\n");
+  symlinkSync("a.txt", join(dir, "link"));
+  commitAll(dir, "files");
+  const clean = takeSnapshot(dir);
+  rmSync(join(dir, "link"));
+  symlinkSync("other", join(dir, "link"));
+  const changedLink = takeSnapshot(dir);
+  assert.deepEqual(changesBetween(clean, changedLink).changedPaths, ["link"]);
+  git(dir, "add", "link");
+  assert.deepEqual(changesBetween(changedLink, takeSnapshot(dir)).changedPaths, []);
+  rmSync(join(dir, "link"));
+  write(dir, "link", "other");
+  assert.deepEqual(changesBetween(changedLink, takeSnapshot(dir)).changedPaths, ["link"]);
+  rmSync(join(dir, "link"));
+  symlinkSync("a.txt", join(dir, "link"));
+  assert.deepEqual(changesBetween(clean, takeSnapshot(dir)).changedPaths, []);
+  git(dir, "reset", "-q", "HEAD", "--", "link");
+  git(dir, "rm", "--cached", "a.txt");
+  const cachedRemoval = takeSnapshot(dir);
+  assert.deepEqual(changesBetween(clean, cachedRemoval).changedPaths, []);
+  git(dir, "reset", "-q", "HEAD", "--", "a.txt");
+  assert.deepEqual(changesBetween(cachedRemoval, takeSnapshot(dir)).changedPaths, []);
+  write(dir, "a.txt", "two\n");
+  write(dir, "new.txt", "new\n");
+  const dirty = takeSnapshot(dir);
+  assert.deepEqual(changesBetween(clean, dirty).changedPaths, ["a.txt", "new.txt"]);
+  git(dir, "add", "a.txt", "new.txt");
+  assert.deepEqual(changesBetween(dirty, takeSnapshot(dir)).changedPaths, []);
+  write(dir, "a.txt", "one\n");
+  const stagedOnly = takeSnapshot(dir);
+  assert.deepEqual(changesBetween(clean, stagedOnly).changedPaths, ["new.txt"]);
+  git(dir, "reset", "-q", "HEAD", "--", "a.txt", "new.txt");
+  assert.deepEqual(changesBetween(stagedOnly, takeSnapshot(dir)).changedPaths, []);
+  rmSync(join(dir, "a.txt"));
+  const removed = takeSnapshot(dir);
+  git(dir, "add", "-u");
+  assert.deepEqual(changesBetween(removed, takeSnapshot(dir)).changedPaths, []);
+});
+
+test("普通文本按 Git 干净语义跨指纹比较，脏状态之间仍按原始字节比较", (t) => {
+  const dir = gitProject(t);
+  write(dir, ".gitattributes", "*.txt text\n");
+  write(dir, "a.txt", "one\n");
+  commitAll(dir, "files");
+  write(dir, "a.txt", "one\r\n");
+  git(dir, "add", "a.txt");
+  const clean = takeSnapshot(dir);
+  assert.match(clean.files["a.txt"], /^git /);
+  write(dir, "a.txt", "two\n");
+  git(dir, "add", "a.txt");
+  write(dir, "a.txt", "one\r\n");
+  const staged = takeSnapshot(dir);
+  assert.deepEqual(changesBetween(clean, staged).changedPaths, []);
+  write(dir, "a.txt", "one\n");
+  assert.deepEqual(changesBetween(staged, takeSnapshot(dir)).changedPaths, ["a.txt"]);
+  write(dir, "a.txt", "one\r\n");
+  git(dir, "reset", "-q", "HEAD", "--", "a.txt");
+  assert.deepEqual(changesBetween(staged, takeSnapshot(dir)).changedPaths, []);
+});
+
+test("旧快照仍可按原始字节结算", (t) => {
+  const dir = gitProject(t);
+  write(dir, "a.txt", "one\n");
+  write(dir, "b.txt", "one\n");
+  commitAll(dir, "files");
+  const before = JSON.parse(JSON.stringify({ head: git(dir, "rev-parse", "HEAD"), files: Object.fromEntries(["a.txt", "b.txt"].map((path) => [path, fingerprint(dir, path)])) }));
+  write(dir, "b.txt", "two\n");
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir, [], before)).changedPaths, ["b.txt"]);
 });
 
 test("Git 列出未跟踪的钩子后，另一成员在取指纹期间删除它", (t) => {
@@ -87,8 +195,11 @@ test("HEAD 动了能看出来", (t) => {
   const empty = project(t);
   git(empty, "init", "-q");
   write(empty, "a.txt", "a\n");
-  assert.deepEqual(Object.keys(takeSnapshot(empty).files), ["a.txt"]);
-  assert.equal(takeSnapshot(empty).head, null);
+  write(empty, "b.txt", "b\n");
+  git(empty, "add", "a.txt");
+  const initial = takeSnapshot(empty);
+  assert.deepEqual(initial.files, { "a.txt": fingerprint(empty, "a.txt"), "b.txt": fingerprint(empty, "b.txt") });
+  assert.equal(initial.head, null);
 });
 
 test("单执行器覆盖角色时仍保护流程引用的共享路径", () => {

@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { AgentRegistry } from "../contracts/agent.js";
 import { batchOf } from "../domain/progress.js";
-import type { WorkflowDefinition } from "../domain/workflow.js";
+import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
 import { withTaskRunLock } from "./run-control.js";
 import { RUNS_DIR } from "./run-prepare.js";
@@ -47,7 +47,8 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     ? cleanRun(input.agents[run.agent ?? "pi"], cwd, dir)
     : previousCleanupFailure;
   const beforeFile = join(dir, "before.json");
-  const after = existsSync(beforeFile) ? takeSnapshot(cwd) : null;
+  const before = existsSync(beforeFile) ? JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot : null;
+  const after = before === null ? null : takeSnapshot(cwd, workflowPrompts(input.workflow), before);
   if (after && run.batchId) {
     for (const member of batchOf(stored.record, run)) {
       const memberDir = join(root, RUNS_DIR, member.id);
@@ -59,9 +60,9 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     }
   }
   const changes =
-    after === null
+    before === null || after === null
       ? { changedPaths: [], head: null }
-      : changesBetween(JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot, after);
+      : changesBetween(before, after);
   const guarded = protectedChanges(changes.changedPaths, input.workflow);
   const runFailure =
     input.failure ??
