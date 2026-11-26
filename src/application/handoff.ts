@@ -182,15 +182,16 @@ export function appendReviewChanges(message: string, changes: ReturnType<typeof 
 }
 
 /** 无读取工具的执行者无法打开报告路径，按交接预算随消息附上报告。 */
-export function resumeMessage(instruction: string | undefined, reports: readonly HandoffReport[], rules: string, inlineLimits?: HandoffLimits): string {
+export function resumeMessage(instruction: string | undefined, reports: readonly HandoffReport[], rules: string, inlineLimits?: HandoffLimits, failure?: string | null): string {
+  const recovery = failure ? [`上一次同环节执行因「${failure}」中断，Worktree 保留了当时的改动。请检查当前 Worktree 状态，接着完成剩余工作和验证，并按要求的格式提交完整报告。`] : [];
   const instructions = instruction ? [render({ tag: "main-instruction", attributes: {}, content: instruction })] : [];
   const previous = reports.reduce((state, report) => {
     const reference = `${report.executor ?? report.stage}（${report.failure ?? report.verdict ?? "正常结束"}）的报告：${report.path}`;
     const bytes = Buffer.byteLength(report.text);
     const include = inlineLimits && attachmentNotice(bytes, state.used, inlineLimits) === null;
     return { used: state.used + (include ? bytes : 0), messages: [...state.messages, include ? `${reference}\n${report.text}` : reference] };
-  }, { used: Buffer.byteLength(instruction ?? "") + Buffer.byteLength(rules), messages: [] as string[] });
-  return [...instructions, ...previous.messages, rules].join("\n\n");
+  }, { used: Buffer.byteLength(instruction ?? "") + Buffer.byteLength(rules) + Buffer.byteLength(recovery.join("")), messages: [] as string[] });
+  return [...recovery, ...instructions, ...previous.messages, rules].join("\n\n");
 }
 
 /** 一份报告：先是改动的文件，再是原文。 */

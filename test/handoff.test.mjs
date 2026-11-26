@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { DEFAULT_HANDOFF_LIMITS, assembleHandoff } from "../dist/application/handoff.js";
+import { DEFAULT_HANDOFF_LIMITS, assembleHandoff, resumeMessage } from "../dist/application/handoff.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { RUNS_DIR, prepareRun } from "../dist/application/run-prepare.js";
@@ -294,6 +294,23 @@ test("没有 read 时沿用配置的单文件上限", (t) => {
   assert.ok(!`${handoff.systemPrompt}${handoff.firstMessage}`.includes("没有附上"));
   assert.ok(handoff.firstMessage.includes("字".repeat(5000)));
   assert.deepEqual(DEFAULT_HANDOFF_LIMITS, { fileBytes: 16384, totalBytes: 65536 });
+});
+
+test("失败续聊消息附带原因和续做提示，正常返工消息保持原样", () => {
+  const instruction = "优先完成剩余测试";
+  const rules = "<rules>完整报告</rules>";
+  const reports = [{ stage: "implement", path: "/report.md", changedPaths: [], text: "实现报告" }];
+  const normal = `<main-instruction>\n${instruction}\n</main-instruction>\n\nimplement（正常结束）的报告：/report.md\n\n${rules}`;
+  assert.equal(resumeMessage(instruction, reports, rules), normal);
+  assert.equal(resumeMessage(instruction, reports, rules, undefined, null), normal);
+  const failure = "执行者出错：HTTP 429";
+  const recovered = resumeMessage(instruction, reports, rules, undefined, failure);
+  assert.match(recovered, /上一次同环节执行因「执行者出错：HTTP 429」中断/);
+  assert.match(recovered, /Worktree 保留了当时的改动.*检查当前 Worktree 状态.*剩余工作和验证.*完整报告/);
+  assert.ok(recovered.endsWith(normal));
+  const limits = { fileBytes: 100, totalBytes: bytes(instruction + rules + reports[0].text) };
+  assert.ok(resumeMessage(instruction, reports, rules, limits).includes(reports[0].text));
+  assert.ok(!resumeMessage(instruction, reports, rules, limits, failure).includes(reports[0].text));
 });
 
 test("具备 read 时按呈现内容的字节筛选短文档和章节，计划和报告沿用配置预算", (t) => {

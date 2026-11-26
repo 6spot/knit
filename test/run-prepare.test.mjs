@@ -91,6 +91,54 @@ test("能派发时存好交接内容并登记", (t) => {
   assert.equal(recordOf(dir, task).runs.length, 2);
 });
 
+test("失败续聊准备沿用规范、需求和 fresh 的回退条件，违规后不恢复旧会话", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const workflow = workflowOf(root, (text) => text.replace("  - id: implement", "  - id: implement\n    resume: true"));
+  const input = { root, taskId: task.id, workflow, config: loadConfig(root).config, model: null, instruction: "继续测试" };
+  const first = prepareRun(input).run;
+  const resumeId = join(root, first.dir, "session", "native.jsonl");
+  const digest = join(root, first.dir, "standards.sha256");
+  const failure = "执行者出错：HTTP 429";
+  assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: first.id, workflow,
+    verdict: null, failure, resumeId, sessionFile: resumeId }), []);
+  const paths = ["task.md", "record.json"].map((file) => join(root, task.dir, file));
+  const baseline = paths.map((path) => readFileSync(path));
+  const standards = readFileSync(digest);
+  for (const [mode, reason] of [
+    ["resume", null], ["fresh", /指定了 --fresh/], ["changed", /需求摘要已变更/],
+    ["standards", /适用规范已有更新/], ["missing", /旧执行没有规范摘要/],
+    ["执行者提交了改动：HEAD 从 abc 变成 def", /没有匹配的可恢复执行/],
+    ["执行者改了受保护的文件：.knit/config.json", /没有匹配的可恢复执行/],
+    ["执行者出错：HTTP 429；执行清理失败：清理异常", /没有匹配的可恢复执行/],
+  ]) {
+    paths.forEach((path, index) => writeFileSync(path, baseline[index]));
+    writeFileSync(digest, standards);
+    if (mode === "changed") {
+      writeFileSync(paths[0], readFileSync(paths[0], "utf8").replace("加一个问候语。", "修改需求。"));
+      assert.equal(confirmTask(root, task.id).kind, "ready");
+    }
+    if (mode === "standards") writeFileSync(digest, "old-digest");
+    if (mode === "missing") rmSync(digest);
+    if (mode.startsWith("执行者")) endLastRun(root, task, { failure: mode });
+    const { run, problems } = prepareRun({ ...input, fresh: mode === "fresh" });
+    assert.deepEqual(problems, [], mode);
+    const dir = join(root, run.dir);
+    assert.match(readFileSync(join(dir, "message.md"), "utf8"), /<task [\s\S]*<main-instruction>\n继续测试/);
+    assert.deepEqual(readFileSync(join(dir, "standards.sha256")), standards);
+    if (reason) {
+      assert.equal(existsSync(join(dir, "resume-id.txt")), false, mode);
+      assert.equal(existsSync(join(dir, "resume-message.md")), false, mode);
+      assert.match(readFileSync(join(dir, "worker.log"), "utf8"), reason);
+    } else {
+      assert.equal(readFileSync(join(dir, "resume-id.txt"), "utf8"), resumeId);
+      const message = readFileSync(join(dir, "resume-message.md"), "utf8");
+      assert.match(message, /HTTP 429.*检查当前 Worktree 状态.*完整报告/);
+      assert.match(message, /<main-instruction>\n继续测试/);
+    }
+  }
+});
+
 test("省略 agent 时配置逐字段接受，派发按实际客户端校验", (t) => {
   const root = runProject(t);
   const task = readyTask(root);

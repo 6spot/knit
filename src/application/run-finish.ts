@@ -63,14 +63,12 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
       ? { changedPaths: [], head: null }
       : changesBetween(JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot, after);
   const guarded = protectedChanges(changes.changedPaths, input.workflow);
-  const runFailure =
-    input.failure ??
-    (changes.head !== null
-      ? `执行者提交了改动：HEAD 从 ${changes.head.before?.slice(0, 7) ?? "没有提交"} 变成 ${changes.head.after?.slice(0, 7) ?? "没有提交"}`
-      : guarded.length > 0
-        ? `执行者改了受保护的文件：${guarded.join("、")}`
-        : null);
-  const failure = [runFailure, cleanupFailure].filter(Boolean).join("；") || null;
+  const violation = changes.head !== null
+    ? `执行者提交了改动：HEAD 从 ${changes.head.before?.slice(0, 7) ?? "没有提交"} 变成 ${changes.head.after?.slice(0, 7) ?? "没有提交"}`
+    : guarded.length > 0
+      ? `执行者改了受保护的文件：${guarded.join("、")}`
+      : null;
+  const failure = [input.failure, violation, cleanupFailure].filter(Boolean).join("；") || null;
   const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
   const verdict = failure === null && (run.batchId === undefined || (declared && Object.hasOwn(declared, "verdict"))) ? input.verdict : null;
   const persist = () => {

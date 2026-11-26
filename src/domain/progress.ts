@@ -1,7 +1,7 @@
 /** 任务走到哪了：每次从流程定义和执行记录推出来，不单独保存。只做计算，不读写文件。 */
 import { RUNS_DIR } from "../contracts/task.js";
 import type { TaskFrontmatter, TaskRecord, TaskRun, TaskStatus } from "../contracts/task.js";
-import { WORKFLOW_VERDICT_ANCHOR } from "../contracts/workflow.js";
+import { DEFAULT_AGENT, WORKFLOW_VERDICT_ANCHOR, type AgentName } from "../contracts/workflow.js";
 import type { WorkflowDefinition, WorkflowStage } from "./workflow.js";
 
 /**
@@ -23,6 +23,18 @@ export function countedRuns(record: TaskRecord): TaskRun[] {
   return record.runs.filter(
     (run) => run.endedAt !== null && run.failure === null && run.requirementDigest === record.confirmedDigest,
   );
+}
+
+/** 续聊候选独立于状态推进；违规后不能借更早的记录恢复同一原生会话。 */
+export function resumableRun(record: TaskRecord, target: { stage: string; executor?: string; agent: AgentName }): TaskRun | undefined {
+  const prior = record.runs.findLast((run) => run.endedAt !== null && run.requirementDigest === record.confirmedDigest &&
+    run.stage === target.stage && run.executor === target.executor && (run.agent ?? DEFAULT_AGENT) === target.agent &&
+    (run.resumeId || preventsResume(run.failure)));
+  return prior?.resumeId && !preventsResume(prior.failure) ? prior : undefined;
+}
+
+function preventsResume(failure: string | null): boolean {
+  return failure !== null && /(?:^|；)(?:执行者提交了改动|执行者改了受保护的文件|执行清理失败)(?:：|$)/.test(failure);
 }
 
 export function batchOf(record: TaskRecord, member: TaskRun | undefined): TaskRun[] {

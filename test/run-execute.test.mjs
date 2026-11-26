@@ -7,6 +7,7 @@ import { loadConfig } from "../dist/application/project-config.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
+import { lastPassedReview, stageEntries } from "../dist/domain/progress.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
@@ -298,6 +299,96 @@ test("模型请求出错时记下模型服务给的原因，不要求补报", as
   const again = reviewAgain(dir, task);
   assert.deepEqual(await execute(dir, task, again), []);
   assert.equal(lastRun(dir, task).failure, "执行者出错：没有给出原因");
+});
+
+test("审查 API 失败、报告失败后重派恢复原生会话，最后才计为通过", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const pi = fakePi(t);
+  const file = join(dir, ".knit/workflow.yaml");
+  writeFileSync(file, "version: 1\nmodel: fake/model\nstages:\n  - id: review\n    resume: true\n    maxVisits: 0\n    report: {verdict: [pass, changes_requested, blocked]}\n");
+  const first = prepare(dir, task);
+  pi.script({ nativeSession: true, modelError: "HTTP 429", writes: [{ path: "partial.txt", content: "partial work\n" }] });
+  assert.deepEqual(await execute(dir, task, first), []);
+  const failed = lastRun(dir, task);
+  assert.equal(failed.failure, "执行者出错：HTTP 429");
+  assert.ok(failed.resumeId && existsSync(failed.resumeId));
+  const { run: second, problems } = prepareRun({ root: dir, taskId: task.id, workflow: workflowOf(dir), config: loadConfig(dir).config,
+    model: null, instruction: "核对剩余测试" });
+  assert.deepEqual(problems, []);
+  const resumeMessage = (run) => readFileSync(join(dir, run.dir, "resume-message.md"), "utf8");
+  assert.equal(readFileSync(join(dir, second.dir, "resume-id.txt"), "utf8"), failed.resumeId);
+  assert.match(resumeMessage(second), /HTTP 429.*检查当前 Worktree 状态.*完整报告/);
+  assert.match(resumeMessage(second), /<main-instruction>\n核对剩余测试/);
+  assert.match(resumeMessage(second), /<worktree-changes base="HEAD">\n未跟踪文件：\npartial.txt/);
+  assert.equal(readFileSync(join(second.worktree.path, "partial.txt"), "utf8"), "partial work\n");
+  pi.script({ nativeSession: true, texts: ["报告没有 JSON"] });
+  assert.deepEqual(await execute(dir, task, second), []);
+  assert.equal(valueOf(pi.args(), "--session"), failed.resumeId);
+  assert.equal(pi.messages()[1], resumeMessage(second));
+  assert.equal(lastRun(dir, task).resumeId, failed.resumeId);
+  assert.match(lastRun(dir, task).failure, /^报告读不出来/);
+  const record = () => JSON.parse(fileOf(dir, task, "record.json"));
+  assert.equal(stageEntries(record(), "review"), 0);
+  assert.equal(lastPassedReview(record()), undefined);
+  const third = prepare(dir, task);
+  assert.match(resumeMessage(third), /报告读不出来.*检查当前 Worktree 状态/);
+  assert.doesNotMatch(resumeMessage(third), /HTTP 429/);
+  pi.script({ nativeSession: true, texts: [PASS] });
+  assert.deepEqual(await execute(dir, task, third), []);
+  assert.equal(valueOf(pi.args(), "--session"), failed.resumeId);
+  assert.equal(pi.messages().at(-1), resumeMessage(third));
+  assert.match(readFileSync(join(dir, third.dir, "worker.log"), "utf8"), /续聊原会话/);
+  assert.equal(lastRun(dir, task).failure, null);
+  assert.equal(lastRun(dir, task).verdict, "pass");
+  assert.equal(stageEntries(record(), "review"), 1);
+  assert.equal(lastPassedReview(record()).id, third.id);
+});
+
+for (const mode of ["deleted", "rejected"]) {
+  test(`失败原生会话${mode}时自动回退完整交接`, async (t) => {
+    const dir = runProject(t);
+    const task = readyTask(dir);
+    const pi = fakePi(t);
+    const file = join(dir, ".knit/workflow.yaml");
+    writeFileSync(file, readFileSync(file, "utf8").replace("  - id: implement", "  - id: implement\n    resume: true"));
+    pi.script({ nativeSession: true, modelError: "HTTP 429" });
+    assert.deepEqual(await execute(dir, task, prepare(dir, task)), []);
+    const prior = lastRun(dir, task);
+    assert.ok(prior.resumeId);
+    assert.equal(prior.failure, "执行者出错：HTTP 429");
+    const run = prepare(dir, task);
+    assert.equal(readFileSync(join(dir, run.dir, "resume-id.txt"), "utf8"), prior.resumeId);
+    if (mode === "deleted") rmSync(prior.resumeId);
+    pi.script({ nativeSession: true, rejectResume: mode === "rejected" });
+    assert.deepEqual(await execute(dir, task, run), []);
+    assert.equal(valueOf(pi.args(), "--session"), undefined);
+    assert.equal(pi.messages().at(-1), readFileSync(join(dir, run.dir, "message.md"), "utf8"));
+    assert.equal(lastRun(dir, task).failure, null);
+    assert.notEqual(lastRun(dir, task).resumeId, prior.resumeId);
+    const log = readFileSync(join(dir, run.dir, "worker.log"), "utf8");
+    assert.match(log, /已自动回退新会话/);
+    assert.match(log, mode === "deleted" ? /原生会话文件不存在/ : /执行者启动失败/);
+  });
+}
+
+test("模型失败同时发生违规时保留违规原因，不恢复该会话", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const pi = fakePi(t);
+  const file = join(dir, ".knit/workflow.yaml");
+  writeFileSync(file, readFileSync(file, "utf8").replace("  - id: implement", "  - id: implement\n    resume: true"));
+  pi.script({ nativeSession: true, modelError: "HTTP 429", writes: [{ path: ".knit/config.json", content: "{}" }] });
+  assert.deepEqual(await execute(dir, task, prepare(dir, task)), []);
+  const prior = lastRun(dir, task);
+  assert.ok(prior.resumeId);
+  assert.equal(prior.failure, "执行者出错：HTTP 429；执行者改了受保护的文件：.knit/config.json");
+  const retry = prepare(dir, task);
+  assert.equal(existsSync(join(dir, retry.dir, "resume-id.txt")), false);
+  pi.script({ nativeSession: true });
+  assert.deepEqual(await execute(dir, task, retry), []);
+  assert.equal(valueOf(pi.args(), "--session"), undefined);
+  assert.equal(pi.messages().at(-1), readFileSync(join(dir, retry.dir, "message.md"), "utf8"));
 });
 
 test("模型请求先出错两次、重试之后成功时，后台执行照常读报告和结论", async (t) => {

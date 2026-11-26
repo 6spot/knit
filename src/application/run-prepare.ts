@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, dirname, join, resolve } from "node:path";
 import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
-import { completedBatches, countedRuns, dispatchLimit, nextStep, type NextStep } from "../domain/progress.js";
+import { completedBatches, dispatchLimit, nextStep, resumableRun, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/report.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task.js";
 import { validateAgentTarget, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
@@ -195,8 +195,7 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
   if (run.stage.resume) writeFileSync(join(dir, "standards.sha256"), standardsDigest);
   if (input.fresh) return logSessionMode(dir, "新会话（指定了 --fresh）");
   if (!run.stage.resume) return;
-  const prior = countedRuns(record).findLast((item) => item.stage === run.stage.id && item.executor === run.executor &&
-    (item.agent ?? DEFAULT_AGENT) === run.agent && item.resumeId != null);
+  const prior = resumableRun(record, { stage: run.stage.id, executor: run.executor, agent: run.agent });
   if (prior?.resumeId) {
     const priorDigest = join(input.root, RUNS_DIR, prior.id, "standards.sha256");
     if (!existsSync(priorDigest) || readFileSync(priorDigest, "utf8") !== standardsDigest) {
@@ -204,7 +203,7 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
     }
     const inlineLimits = run.stage.tools !== null && !run.stage.tools.includes("read") ? input.config.handoff : undefined;
     writeFileSync(join(dir, "resume-id.txt"), prior.resumeId);
-    const message = resumeMessage(input.instruction, reports, rules, inlineLimits);
+    const message = resumeMessage(input.instruction, reports, rules, inlineLimits, prior.failure);
     writeFileSync(join(dir, "resume-message.md"), appendReviewChanges(message, changes, input.config.handoff));
     return;
   }

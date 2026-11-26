@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { countedRuns, lastPassedReview, nextStep, stageEntries } from "../dist/domain/progress.js";
+import { countedRuns, dispatchLimit, lastPassedReview, nextStep, resumableRun, stageEntries } from "../dist/domain/progress.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 
 const DIGEST = "sha256:now";
@@ -187,6 +187,58 @@ test("到上限时返回 limit", () => {
   blocked.runs.at(-1).verdict = "blocked";
   assert.equal(stageEntries(blocked, "review"), 7);
   assert.deepEqual(nextStep(workflow, "independent", blocked), { kind: "stage", stage: workflow.stages[1] });
+});
+
+test("续聊按需求、环节、执行器和 Agent 匹配，不依赖成功计数", () => {
+  const target = { stage: "implement", agent: "pi" };
+  const success = runOf("implement", { resumeId: "old" });
+  const failure = runOf("implement", { resumeId: "latest", failure: "执行者出错：HTTP 429" });
+  const unrelated = [
+    runOf("review", { resumeId: "other-stage" }),
+    runOf("implement", { resumeId: "other-executor", executor: "a" }),
+    runOf("implement", { resumeId: "other-agent", agent: "antigravity" }),
+    runOf("implement", { resumeId: "other-digest", requirementDigest: "old" }),
+    runOf("implement", { resumeId: "running", endedAt: null }),
+    runOf("implement", { resumeId: null }),
+    runOf("implement", { resumeId: "" }),
+  ];
+  assert.equal(resumableRun(recordOf(success, failure, ...unrelated), target), failure);
+  assert.equal(resumableRun(recordOf(...unrelated), target), undefined);
+  assert.equal(resumableRun(recordOf(...unrelated), { ...target, executor: "a" }), unrelated[1]);
+  assert.equal(resumableRun(recordOf(...unrelated), { ...target, agent: "antigravity" }), unrelated[2]);
+  for (const reason of ["报告读不出来：格式错误", "执行者中途退出", "执行者被中止", "已取消", null]) {
+    const latest = { ...failure, failure: reason };
+    assert.equal(resumableRun(recordOf(success, latest), target), latest);
+  }
+  for (const reason of ["执行者提交了改动：HEAD 从 abc 变成 def", "执行者改了受保护的文件：.knit/config.json",
+    "执行清理失败：无法删除临时文件", "执行者出错：HTTP 429；执行清理失败：无法删除临时文件",
+    "执行者出错：HTTP 429；执行者提交了改动：HEAD 从 abc 变成 def"]) {
+    for (const resumeId of [null, success.resumeId, "different"]) {
+      assert.equal(resumableRun(recordOf(success, { ...failure, failure: reason, resumeId }), target), undefined, reason);
+    }
+  }
+});
+
+test("连续失败的审查续聊不消耗返工次数，也不提前通过", () => {
+  const workflow = workflowOf(["  - id: implement", ...REVIEW, "    maxVisits: 0"]);
+  const implement = runOf("implement");
+  const target = { stage: "review", agent: "pi" };
+  const failed = ["执行者出错：HTTP 429", "报告读不出来：缺少 json"].map((failure) => runOf("review", { failure, resumeId: "same" }));
+  for (const count of [1, 2]) {
+    const record = recordOf(implement, ...failed.slice(0, count));
+    assert.equal(resumableRun(record, target), failed[count - 1]);
+    assert.deepEqual(countedRuns(record), [implement]);
+    assert.equal(stageEntries(record, "review"), 0);
+    assert.equal(dispatchLimit(record, workflow.stages[1], "implement"), null);
+    assert.equal(stepOf(workflow, "independent", record), "review");
+    assert.equal(lastPassedReview(record), undefined);
+  }
+  const pass = runOf("review", { verdict: "pass", resumeId: "same" });
+  const record = recordOf(implement, ...failed, pass);
+  assert.deepEqual(countedRuns(record), [implement, pass]);
+  assert.equal(stageEntries(record, "review"), 1);
+  assert.equal(stepOf(workflow, "independent", record), "close");
+  assert.equal(lastPassedReview(record), pass);
 });
 
 test("上限可以改，也可以不设", () => {
