@@ -47,9 +47,9 @@ export async function workbuddyHostHook(event: string, input: unknown) {
   const sessionId = payload?.session_id;
   if (event === "session-start" || event === "user-prompt-submit") {
     if (typeof sessionId !== "string" || !sessionId) return null;
-    const text = hostContext([cwd], { host: "workbuddy", sessionId });
+    const text = hostContext([cwd], { host: "workbuddy", sessionId }, guidance);
     return text === null ? null : { hookSpecificOutput: {
-      hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: `${text}\n\n${guidance}`,
+      hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: text,
     } };
   }
   const command = record(payload?.tool_input)?.command;

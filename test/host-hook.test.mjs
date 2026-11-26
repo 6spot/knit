@@ -2,19 +2,35 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { agyHostHook } from "../dist/adapters/antigravity/host-hook.js";
 import { workbuddyHostHook } from "../dist/adapters/workbuddy/host-hook.js";
+import { deliverTask } from "../dist/application/delivery.js";
+import { selectHostTask } from "../dist/application/host-hook.js";
 import { initProject } from "../dist/application/init.js";
-import { cancelTask } from "../dist/application/task-lifecycle.js";
+import { loadConfig, readWorkflow } from "../dist/application/project-config.js";
+import { finishRun } from "../dist/application/run-finish.js";
+import { prepareRun } from "../dist/application/run-prepare.js";
+import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { buildSessionContext, contextLines } from "../dist/application/session-context.js";
-import { project } from "./helpers/cli.mjs";
-import { readyTask } from "./helpers/run.mjs";
+import { createTask } from "../dist/application/task-store.js";
+import { knit, project } from "./helpers/cli.mjs";
+import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
 const cli = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const session = "ec33ebf9-0cba-4100-8142-c61503f6c587";
+const discussionPaths = ["discussion", "task-splitting", "task-writing"].map((name) => `knit:standards/${name}.md`);
+const standardPaths = (text) => [...text.matchAll(/^<standard path="([^"]+)"/gm)].map((match) => match[1]);
+const unselected = "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。";
+
+function writeStandard(root, name, frontmatter, body) {
+  const path = `.knit/standards/${name}.md`;
+  mkdirSync(join(root, dirname(path)), { recursive: true });
+  writeFileSync(join(root, path), `---\n${frontmatter}\n---\n\n${body}\n`);
+  return path;
+}
 
 function isolateEnvironment(t) {
   const previous = process.env;
@@ -53,7 +69,8 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   for (const event of ["SessionStart", "PreInvocation"]) assert.deepEqual(await agyHostHook(event, payload), {});
   assert.equal(existsSync(join(plain, ".knit")), false);
   initProject(root);
-  const task = readyTask(root);
+  const task = createTask(root, { title: "加问候语", slug: "task", verification: "self", priority: "P2", parent: null, dependsOn: [] }).created;
+  const development = writeStandard(root, "development", "title: 开发规范\nstages: [implement]", "验证输出。");
   const subdir = join(root, "subdir");
   mkdirSync(subdir);
   payload.workspacePaths = [subdir];
@@ -61,11 +78,12 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   const called = spawnSync(process.execPath, [cli, "hook", "agy", "SessionStart"], { input: JSON.stringify(payload), encoding: "utf8" });
   assert.equal(called.status, 0, called.stderr);
   const first = JSON.parse(called.stdout).injectSteps[0].systemMessage.systemMessage;
-  assert.ok(first.includes('<standard path="knit:standards/discussion.md"'));
-  assert.equal(first.split("\n").at(-1), "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。");
+  assert.deepEqual(standardPaths(first), discussionPaths);
+  assert.equal(first.split("\n").at(-1), unselected);
   const states = join(root, ".knit/.runtime/host-sessions");
   const state = () => JSON.parse(readFileSync(join(states, `agy-${session}.json`), "utf8"));
-  assert.deepEqual(state(), { taskId: null, lastDigest: createHash("sha256").update(first).digest("hex") });
+  const initialState = state();
+  assert.equal(initialState.taskId, null);
   assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
   symlinkSync(cli, join(plain, "knit"));
   const select = async (command) => {
@@ -78,13 +96,20 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   assert.equal(used.status, 0);
   assert.equal(used.stdout, `已选中 加问候语（${task.id}）\n`);
   assert.equal(state().taskId, task.id);
-  assert.equal(state().lastDigest, null);
+  assert.equal(state().digests.discussion, initialState.digests.discussion);
+  assert.equal(state().digests.status, undefined);
   const selected = await injected();
-  assert.equal(selected, contextLines(buildSessionContext(root, task.id)).join("\n").trimEnd());
-  assert.match(selected, /^状态: ready$/m);
-  assert.match(selected, /^下一步: .*knit run start /m);
-  assert.ok(selected.includes(`目录: ${task.dir}`));
-  assert.match(selected, /^规范（implement 环节）:/m);
+  assert.match(selected, /^状态: draft$/m);
+  assert.ok(selected.includes(`下一步: 先确认需求（knit task ready ${task.id}）`));
+  assert.ok(selected.includes(`目录: ${dirname(task.file)}`));
+  assert.deepEqual(standardPaths(selected), []);
+
+  assert.equal(confirmTask(root, task.id).kind, "ready");
+  const ready = await injected();
+  assert.match(ready, /^状态: ready$/m);
+  assert.match(ready, /^下一步: .*knit run start /m);
+  assert.match(ready, /^规范（implement 环节）:/m);
+  assert.deepEqual(standardPaths(ready), [development]);
   assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
   assert.equal((await select("knit context --use missing")).status, 1);
   assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
@@ -92,9 +117,13 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   const ended = await injected();
   assert.match(ended, /状态: cancelled/);
   assert.match(ended, /目录: .knit\/tasks\/archive\//);
+  assert.deepEqual(standardPaths(ended), []);
   const archive = /^目录: (.*)$/m.exec(ended)[1];
   renameSync(join(root, archive, "task.md"), join(root, archive, "moved"));
-  assert.match(await injected(), /discussion.md[\s\S]*选中的 Knit 任务 .* 读不出来/);
+  const error = await injected();
+  assert.ok(error.startsWith(`选中的 Knit 任务 ${task.id} 读不出来\n`));
+  assert.deepEqual(standardPaths(error), []);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
   payload.conversationId = "another/session's id";
   assert.equal(await injected(), first);
   assert.equal((await select("sh -o errexit -c -- 'knit context --unuse'")).status, 0);
@@ -102,7 +131,94 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   assert.equal(state().taskId, task.id);
   payload.conversationId = session;
   assert.equal((await select("knit context --unuse")).status, 0);
-  assert.equal(await injected(), first);
+  assert.equal(await injected(), unselected);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
+});
+
+test("环节、项目规范和避坑分区分别更新；同环节开始执行只刷新状态", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root, { verification: "self" });
+  const payload = { cwd: root, conversationId: session };
+  const injected = async (event = "PreInvocation") => (await agyHostHook(event, payload)).injectSteps[0].systemMessage.systemMessage;
+  const setDevelopment = (body) => writeStandard(root, "development", "title: 开发规范\nstages: [implement]", body);
+  const setPitfalls = (implement, deliver) => writeStandard(root, "pitfalls", "title: 避坑清单",
+    `## 通用\n\n每轮核实\n\n## discuss\n\n核对需求\n\n## implement\n\n${implement}\n\n## deliver\n\n${deliver}`);
+  const development = setDevelopment("实现要求初版。");
+  const pitfalls = setPitfalls("实现避坑初版。", "交付避坑初版。");
+  const first = await injected("SessionStart");
+  assert.deepEqual(standardPaths(first), [...discussionPaths, pitfalls]);
+  assert.match(first, /核对需求/);
+  assert.equal(selectHostTask(root, { host: "agy", sessionId: session }, task.id).kind, "selected");
+  const selected = await injected();
+  assert.deepEqual(standardPaths(selected), [development, pitfalls]);
+  assert.match(selected, /实现避坑初版/);
+
+  setDevelopment("实现要求新版。");
+  const edited = await injected();
+  assert.match(edited, /^状态: ready$/m);
+  assert.match(edited, /实现要求新版/);
+  assert.deepEqual(standardPaths(edited), [development]);
+  setPitfalls("实现避坑初版。", "交付避坑新版。");
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
+  setPitfalls("实现避坑新版。", "交付避坑新版。");
+  const updated = await injected();
+  assert.match(updated, /^状态: ready$/m);
+  assert.match(updated, /实现避坑新版/);
+  assert.deepEqual(standardPaths(updated), [pitfalls]);
+
+  const workflow = readWorkflow(root).workflow;
+  const { run, problems } = prepareRun({ root, taskId: task.id, workflow, config: loadConfig(root).config, model: null });
+  assert.deepEqual(problems, []);
+  const active = await injected();
+  assert.match(active, /^状态: active\(implement\)$/m);
+  assert.deepEqual(standardPaths(active), []);
+  assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
+  const finished = await injected();
+  assert.match(finished, /^下一步: 核对之后运行 knit task close /m);
+  assert.match(finished, /交付避坑新版/);
+  assert.doesNotMatch(finished, /实现避坑新版/);
+  assert.deepEqual(standardPaths(finished), ["knit:standards/delivery.md", pitfalls]);
+  assert.equal(closeTask(root, task.id, { result: "结束", paths: [] }).kind, "done");
+  const closed = await injected();
+  assert.match(closed, /^状态: done$/m);
+  assert.deepEqual(standardPaths(closed), []);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
+});
+
+test("旧会话保留任务并迁移摘要，CLI 仍完整输出，任务损坏只报告一次", async (t) => {
+  const root = project(t);
+  initProject(root);
+  const task = readyTask(root);
+  const development = writeStandard(root, "development", "title: 开发规范\nstages: [implement]", "验证输出。");
+  const full = contextLines(buildSessionContext(root, task.id)).join("\n");
+  assert.deepEqual(knit(root, "context", task.id), { code: 0, stdout: `${full}\n`, stderr: "" });
+  assert.deepEqual(standardPaths(full), [...discussionPaths, development]);
+  assert.ok(full.includes(`目录: ${task.dir}`));
+  const path = join(root, `.knit/.runtime/host-sessions/agy-${session}.json`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ taskId: task.id, lastDigest: createHash("sha256").update(full).digest("hex") }));
+  const payload = { cwd: root, conversationId: session };
+  const injected = async () => (await agyHostHook("PreInvocation", payload)).injectSteps[0].systemMessage.systemMessage;
+  const migrated = await injected();
+  assert.deepEqual(standardPaths(migrated), [...discussionPaths, development]);
+  assert.match(migrated, /^状态: ready$/m);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.taskId, task.id);
+  assert.equal(state.lastDigest, undefined);
+  assert.match(state.digests.status, /^[a-f0-9]{64}$/);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
+
+  const record = join(root, task.dir, "record.json");
+  const original = readFileSync(record);
+  writeFileSync(record, "{");
+  const error = await injected();
+  assert.match(error, /读不出来[\s\S]*record\.json[\s\S]*不是合法的 JSON/);
+  assert.deepEqual(standardPaths(error), []);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
+  writeFileSync(record, original);
+  const restored = await injected();
+  assert.match(restored, /^状态: ready$/m);
+  assert.deepEqual(standardPaths(restored), []);
 });
 
 test("交付只接受本次调用的预览选项或转录中完整的用户原话", async (t) => {
@@ -178,9 +294,11 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
   assert.equal(await buddyHook({ ...prompt, cwd: plain }), null);
   initProject(cwd);
   const task = readyTask(cwd);
+  const development = writeStandard(cwd, "development", "title: 开发规范\nstages: [implement]", "验证输出。");
   const first = await buddyHook(start);
   assert.equal(first.hookEventName, "SessionStart");
-  assert.match(first.additionalContext, /discussion\.md/);
+  assert.deepEqual(standardPaths(first.additionalContext), discussionPaths);
+  assert.ok(first.additionalContext.includes(unselected));
   assert.match(first.additionalContext, /原生子 Agent[\s\S]*显式指定外部执行者/);
   assert.match(first.additionalContext, /run_in_background: true[\s\S]*--timeout 60[\s\S]*下一轮/);
   assert.match(first.additionalContext, /dangerouslyDisableSandbox: true/);
@@ -193,19 +311,33 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
     const ran = spawnSync("/bin/sh", ["-c", result.updatedInput.command], { cwd, env: { ...process.env, PATH: `${plain}:${process.env.PATH}` }, encoding: "utf8" });
     assert.equal(ran.status, 0, ran.stderr);
   };
+  const refreshed = async (expectedStatus, paths = [], payload = prompt) => {
+    const output = await buddyHook(payload);
+    assert.equal(output.hookEventName, "UserPromptSubmit");
+    assert.match(output.additionalContext, expectedStatus);
+    assert.deepEqual(standardPaths(output.additionalContext), paths);
+    assert.doesNotMatch(output.additionalContext, /WorkBuddy 是桌面 GUI 主会话宿主|dangerouslyDisableSandbox|run_in_background/);
+    return output.additionalContext;
+  };
   await select(`knit context --use ${task.id}`);
-  const selected = await buddyHook(prompt);
-  assert.equal(selected.hookEventName, "UserPromptSubmit");
-  assert.ok(selected.additionalContext.startsWith(contextLines(buildSessionContext(cwd, task.id)).join("\n").trimEnd()));
+  const selected = await refreshed(/^状态: ready$/m, [development]);
+  assert.ok(selected.includes(`目录: ${task.dir}`));
+  await select(`knit context --use ${task.id}`);
   assert.equal(await buddyHook(prompt), null);
   assert.equal(cancelTask(cwd, task.id, { reason: "结束" }).kind, "cancelled");
-  assert.match((await buddyHook({ ...prompt, is_internal_continuation: true })).additionalContext, /状态: cancelled/);
-  const other = readyTask(cwd);
+  await refreshed(/^状态: cancelled$/m, [], { ...prompt, is_internal_continuation: true });
+  const other = readyTask(cwd, { verification: "self" });
   await select(`knit context --use ${other.id}`);
-  assert.ok((await buddyHook(prompt)).additionalContext.startsWith(contextLines(buildSessionContext(cwd, other.id)).join("\n").trimEnd()));
+  await refreshed(/^状态: ready$/m, [development]);
   assert.equal(await buddyHook(prompt), null);
+  assert.equal(closeTask(cwd, other.id, { result: "结束", paths: [] }).kind, "done");
+  await refreshed(/^状态: done$/m, ["knit:standards/delivery.md"]);
+  assert.equal(deliverTask(cwd, other.id, { authorization: "同意交付" }).kind, "delivered");
+  const delivered = await refreshed(/^状态: delivered$/m);
+  assert.match(delivered, /^目录: \.knit\/tasks\/archive\//m);
   await select("knit context --unuse");
-  assert.equal((await buddyHook(prompt)).additionalContext, first.additionalContext);
+  assert.equal(await refreshed(/没有选中 Knit 任务/), unselected);
+  assert.equal(await buddyHook(prompt), null);
 });
 
 test("Bash 交付只接受转录中完整的用户原话，预览和派发原样放行", async (t) => {

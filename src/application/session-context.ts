@@ -124,13 +124,34 @@ export function statusLines(task: SessionTaskStatus): string[] {
   ];
 }
 
-export function contextLines(context: Extract<ReturnType<typeof buildSessionContext>, { kind: "context" }>): string[] {
-  const task = context.task;
+type SessionContext = Extract<ReturnType<typeof buildSessionContext>, { kind: "context" }>;
+
+export function contextLines(context: SessionContext): string[] {
+  const supplement = context.task?.supplement;
   return [
     ...standardLines("discuss", context.discussion),
-    ...(task === null ? [] : [...statusLines(task.status), `目录: ${task.dir}`]),
-    ...(task?.commit == null ? [] : [`提交: ${task.commit}`]),
-    ...(task?.supplement == null ? [] : standardLines(task.supplement.stage, task.supplement.standards)),
+    ...taskContextLines(context.task),
+    ...(supplement == null ? [] : standardLines(supplement.stage, supplement.standards)),
+  ];
+}
+
+export function contextBlocks(context: SessionContext) {
+  const supplement = context.task?.supplement;
+  const pitfalls = (supplement?.standards ?? context.discussion).find((standard) => standard.path === PITFALLS_PATH);
+  const supplemental = supplement?.standards.filter((standard) => standard.path !== PITFALLS_PATH) ?? [];
+  return {
+    discussion: standardLines("discuss", context.discussion.filter((standard) => standard.path !== PITFALLS_PATH)).join("\n"),
+    status: taskContextLines(context.task).join("\n"),
+    supplement: supplement != null && supplemental.length > 0 ? standardLines(supplement.stage, supplemental).join("\n") : "",
+    pitfalls: pitfalls === undefined ? "" : renderStandard(pitfalls),
+  };
+}
+
+function taskContextLines(task: SessionContext["task"]): string[] {
+  return task === null ? [] : [
+    ...statusLines(task.status),
+    `目录: ${task.dir}`,
+    ...(task.commit === null ? [] : [`提交: ${task.commit}`]),
   ];
 }
 

@@ -5,7 +5,7 @@ import { sha256Text } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { withFileLock } from "../infrastructure/process.js";
-import { buildSessionContext, contextLines } from "./session-context.js";
+import { buildSessionContext, contextBlocks } from "./session-context.js";
 import { readTask } from "./task-store.js";
 
 export { checkHostCommand } from "./host-command.js";
@@ -15,9 +15,13 @@ export interface HostSession {
   sessionId: string;
 }
 
+const blockNames = ["discussion", "status", "supplement", "pitfalls", "guidance"] as const;
+type BlockName = (typeof blockNames)[number];
+
 interface SessionState {
   taskId: string | null;
-  lastDigest: string | null;
+  // 旧会话的整段摘要不能拆分；没有分块摘要时按首次注入处理。
+  digests?: Partial<Record<BlockName, string>>;
 }
 
 export function hostProjectRoot(dir: string): string | null {
@@ -46,7 +50,7 @@ function saveState(path: string, state: SessionState) {
 
 function readState(path: string): SessionState {
   const file = readWithVersion(path);
-  return file === null ? { taskId: null, lastDigest: null } : JSON.parse(file.data.toString());
+  return file === null ? { taskId: null } : JSON.parse(file.data.toString());
 }
 
 export function selectHostTask(root: string, session: HostSession, taskId: string | null):
@@ -54,33 +58,54 @@ export function selectHostTask(root: string, session: HostSession, taskId: strin
   | { readonly kind: "refused"; readonly problems: readonly string[] } {
   const loaded = taskId === null ? null : readTask(root, taskId);
   if (loaded?.kind === "refused") return loaded;
-  withSession(root, session, (path) => saveState(path, { taskId, lastDigest: null }));
+  withSession(root, session, (path) => {
+    const state = readState(path);
+    if (state.taskId === taskId) return;
+    saveState(path, { taskId, digests: { ...state.digests, status: undefined } });
+  });
   return { kind: "selected", title: loaded?.task.document.frontmatter.title ?? null };
 }
 
-export function hostContext(dirs: readonly string[], session: HostSession): string | null {
+export function hostContext(dirs: readonly string[], session: HostSession, guidance?: string): string | null {
   const root = dirs.map(hostProjectRoot).find((path) => path !== null);
   if (root === undefined) return null;
   return withSession(root, session, (path) => {
     const state = readState(path);
-    const text = sessionText(root, state.taskId);
-    const lastDigest = sha256Text(text);
-    if (lastDigest === state.lastDigest) return null;
-    saveState(path, { taskId: state.taskId, lastDigest });
-    return text;
+    const blocks = sessionBlocks(root, state.taskId, guidance);
+    const digests = { ...state.digests };
+    const changed = blockNames.filter((name) => {
+      const text = blocks[name];
+      if (text === undefined) return false;
+      const digest = sha256Text(text);
+      if (digest === digests[name]) return false;
+      digests[name] = digest;
+      return true;
+    });
+    if (changed.length === 0) return null;
+    saveState(path, { taskId: state.taskId, digests });
+    return blockNames.filter((name) => name === "status" || changed.includes(name))
+      .map((name) => blocks[name]).filter(Boolean).join("\n\n");
   });
 }
 
-function sessionText(root: string, taskId: string | null): string {
+function sessionBlocks(root: string, taskId: string | null, guidance: string | undefined): Partial<Record<BlockName, string>> {
   const context = readContext(root, taskId);
   if (context.kind === "refused") {
     const discussion = buildSessionContext(root);
-    const lines = discussion.kind === "context" ? contextLines(discussion) : discussion.problems;
-    return [...lines, `选中的 Knit 任务 ${taskId} 读不出来`, ...context.problems].join("\n");
+    return {
+      discussion: discussion.kind === "context" ? contextBlocks(discussion).discussion : undefined,
+      status: [
+        `选中的 Knit 任务 ${taskId} 读不出来`, ...context.problems,
+        ...(discussion.kind === "refused" ? discussion.problems : []),
+      ].join("\n"),
+    };
   }
-  const lines = contextLines(context);
-  if (taskId === null) lines.push("没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。");
-  return lines.join("\n");
+  const blocks = contextBlocks(context);
+  return {
+    ...blocks,
+    status: taskId === null ? "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。" : blocks.status,
+    guidance,
+  };
 }
 
 function readContext(root: string, taskId: string | null) {
