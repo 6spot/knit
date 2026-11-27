@@ -75,6 +75,33 @@ test("CRLF 任务的开头字段、ID、需求摘要和渲染结果与 LF 一致
   assert.equal(unparsedTaskId(crlf.replace("priority: P2", "priority: PX")), lf.frontmatter.id);
 });
 
+test("损坏任务的引号、注释和别名 ID 仍可用于诊断", () => {
+  const id = "k-19c962be9fb8";
+  for (const fields of [`id: "${id}"\ntitle: 任务`, `id: ${id} # 注释\ntitle: 任务`, `title: &id ${id}\nid: *id`]) {
+    const text = EXAMPLE.replace(`id: ${id}\ntitle: 交接只传需求部分`, fields).replace("priority: P2", "priority: PX");
+    assert.match(parseTaskDocument(text).problems[0], /priority/);
+    assert.equal(unparsedTaskId(text), id);
+    assert.equal(taskDocumentMayHaveId(text, new Set([id])), true);
+    assert.equal(taskDocumentMayHaveId(text, new Set(["k-000000000000"])), false);
+  }
+});
+
+test("YAML 别名转换失败进入 problems，循环引用按字段类型诊断", () => {
+  const aliases = (count) => EXAMPLE.replace("id: k-", "id: &id k-")
+    .replace("dependsOn: []", `dependsOn: [${Array(count).fill("*id").join(", ")}]`);
+  assert.equal(documentOf(aliases(99)).frontmatter.dependsOn.length, 99);
+  for (const [text, expected] of [
+    [aliases(100), /YAML.*alias count/i],
+    [EXAMPLE.replace("priority: P2", "priority: *missing"), /YAML.*alias/i],
+    [EXAMPLE.replace("dependsOn: []", "dependsOn: &deps [*deps]"), /dependsOn/],
+  ]) {
+    const parsed = parseTaskDocument(text);
+    assert.equal(parsed.document, null);
+    assert.match(parsed.problems.join("\n"), expected);
+    assert.equal(taskDocumentMayHaveId(text, new Set(["k-000000000000"])), false);
+  }
+});
+
 test("解析后再渲染与原文逐字相同", () => {
   assert.equal(renderTaskDocument(documentOf(EXAMPLE)), EXAMPLE);
   const full = EXAMPLE.replace("status: draft\nstage: null", "status: active\nstage: implement")

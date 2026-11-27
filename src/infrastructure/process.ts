@@ -83,9 +83,9 @@ export function recordedProcess(file: string): number | null {
   return registeredPid(readProcessRegistration(file));
 }
 
-export function registeredPid(recorded: WorkerProcess | null): number | null {
+export function registeredPid(recorded: WorkerProcess | null, identities?: ProcessTable | null): number | null {
   if (!recorded) return null;
-  const table = processIdentities([recorded.pid]);
+  const table = identities === undefined ? processIdentities([recorded.pid]) : identities;
   if (table === null) return pidAlive(recorded.pid) ? recorded.pid : null;
   const current = table.get(recorded.pid)?.startTicks;
   return current != null && (recorded.start === null || sameProcessStart(recorded.start, current)) ? recorded.pid : null;

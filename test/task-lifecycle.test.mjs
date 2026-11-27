@@ -707,7 +707,7 @@ const withFrontmatter = (fields) => (document) => ({ ...document, frontmatter: {
 test("task list：按优先级和创建时间排，写坏的排在最后", (t) => {
   const dir = project(t);
   assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: "没有任务\n", stderr: "" });
-  for (const value of ["0", "-2", "2.5", "3x", ""]) {
+  for (const value of ["0", "-2", "2.5", "3x", "", "01", "9007199254740992"]) {
     const invalid = knit(dir, "task", "list", `--limit=${value}`);
     assert.notEqual(invalid.code, 0);
     assert.match(invalid.stderr, /--limit.*正整数/);
@@ -762,18 +762,33 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
   rmdirSync(archiveTrap);
   mkdirSync(join(dir, ".knit/tasks/unread/task.md"), { recursive: true });
   assert.deepEqual(scanTasks(dir, "archived"), all.filter((task) => task.archived));
+  mkdirSync(join(dir, newest, "record.json")); // 归档列表只读头部，尝试读取记录会报错。
   const listedArchive = knit(dir, "task", "list", "--archive");
   assert.equal(listedArchive.code, 0, listedArchive.stderr);
-  const [newestLine, tiedLine, olderLine, brokenLine, ...rest] = listedArchive.stdout.trimEnd().split("\n");
+  assert.equal(listedArchive.stderr, "");
+  const [newestLine, tiedLine, olderLine, ...rest] = listedArchive.stdout.trimEnd().split("\n");
   assert.deepEqual([newestLine, tiedLine, olderLine], [
     "P2  k-aaaaaaaaaaaa  delivered  旧的", "P1  k-bbbbbbbbbbbb  delivered  旧的", `P2  ${archived.id}  delivered  旧的`,
   ]);
   const list = (...args) => knit(dir, "task", "list", "--archive", ...args).stdout.trimEnd().split("\n");
-  assert.deepEqual(list("--grep=旧", "--limit=2"), [newestLine, tiedLine, "仅显示前 2 条，共 3 条", brokenLine]);
-  assert.deepEqual(list("--grep=K-AAAA", "--limit=1"), [newestLine, brokenLine]);
-  assert.deepEqual(list("--grep=missing"), ["没有匹配的任务", brokenLine]);
-  assert.ok(brokenLine.startsWith(`${archivedBroken}：task.md：字段 priority 的值不对：`), brokenLine);
+  assert.deepEqual(list("--grep=旧", "--limit=2"), [newestLine, tiedLine, "仅显示前 2 条，共 3 条"]);
+  assert.deepEqual(list("--grep=K-AAAA", "--limit=1"), [newestLine]);
+  assert.deepEqual(list("--grep=missing"), ["没有匹配的任务"]);
   assert.deepEqual(rest, []);
+});
+
+test("task list：七个损坏目录仅显示前五条和剩余数量", (t) => {
+  const root = project(t);
+  const dirs = Array.from({ length: 7 }, (_, i) => `.knit/tasks/broken-${i}`);
+  for (const dir of dirs) {
+    mkdirSync(join(root, dir), { recursive: true });
+    writeFileSync(join(root, dir, "task.md"), "只有正文\n");
+  }
+  const listed = knit(root, "task", "list");
+  assert.equal(listed.code, 0, listed.stderr);
+  const lines = listed.stdout.trimEnd().split("\n");
+  assert.deepEqual(lines.slice(0, -1).map((line) => line.split("：task.md：")[0]), dirs.slice(0, 5));
+  assert.equal(lines.at(-1), "另有 2 个损坏目录未列出");
 });
 
 test("task list：子任务逐层排序，只标出未满足的依赖和未合并的非活跃分支", (t) => {
@@ -804,7 +819,7 @@ test("task list：子任务逐层排序，只标出未满足的依赖和未合�
   before[3] += `, ${old.id}`;
   const listed = knit(dir, "task", "list");
   assert.equal(listed.code, 0, listed.stderr);
-  const hints = ["", "尚未合并进 HEAD 的任务分支，可在当前检出运行：", `  git merge '${branch}'`];
+  const hints = ["", "尚未合并进 HEAD 的任务分支，可在当前检出运行：", `  git merge --no-edit '${branch}'`];
   const filtered = (...args) => knit(dir, "task", "list", ...args).stdout.trimEnd().split("\n");
   assert.deepEqual(filtered("--grep=子任务", "--limit=1"), [`P0  ${child.id}  draft  高优先级子任务  父:${parent.id}`, "仅显示前 1 条，共 2 条", ...hints]);
   assert.deepEqual(filtered(`--grep=${grandchild.id.toUpperCase()}`), [before[3].trimStart().replace("  阻塞:", `  父:${child.id}  阻塞:`), ...hints]);
@@ -822,7 +837,8 @@ test("task list：逐个识别批次成员进程，流程损坏或缺失时仍�
   const members = ["first", "second"].map((executor) => ({ ...runOf(`r-${executor}`, "review", "pass"),
     agent: "pi", batchId: "b-review", executor, resumeId: null }));
   for (const task of [running, waiting]) {
-    rewrite(dir, task, withFrontmatter({ status: "active", stage: "review", verification: "independent" }), (doc) => ({
+    const createdAt = task === running ? "2026-11-15T10:00:00+08:00" : "2026-11-15T03:00:00Z";
+    rewrite(dir, task, withFrontmatter({ status: "active", stage: "review", verification: "independent", createdAt }), (doc) => ({
       ...EMPTY_RECORD, confirmedDigest: requirementDigest(doc), runs: members.map((member) => ({
         ...member, id: `${member.id}-${task.id}`, requirementDigest: requirementDigest(doc),
         ...(task === running ? { startedAt: new Date(Date.now() - 180000).toISOString(), endedAt: null, verdict: null }
@@ -1023,7 +1039,7 @@ test("task.md 写坏了：按 id 的命令说出哪里坏了", (t) => {
   const dir = project(t);
   const task = draft(dir, { title: "写坏的", slug: "broken" });
   const file = join(dir, task.dir, "task.md");
-  writeFileSync(file, readFileSync(file, "utf8").replace("priority: P2", "priority: PX"));
+  writeFileSync(file, readFileSync(file, "utf8").replace("priority: P2", "priority: PX").replace(`id: ${task.id}`, `id: "${task.id}" # 手写 ID`));
 
   for (const command of [["task", "show"], ["context"], ["run", "status"]]) {
     const result = knit(dir, ...command, task.id);
@@ -1136,7 +1152,7 @@ test("在 Git 仓库里交付过的任务显示提交", (t) => {
   const commit = git(dir, "log", "-1", "--format=%h");
   writeFileSync(join(dir, "later.txt"), "later\n");
   git(dir, "add", "later.txt");
-  git(dir, "commit", "-q", "-m", "later");
+  git(dir, "commit", "-q", "-m", "later", "-m", `正文示例\nKnit-Task: ${task.id}\n示例结束`);
 
   assert.equal(taskCommit(readTask(dir, task.id).task), `${commit} feat: 加问候语`);
 });

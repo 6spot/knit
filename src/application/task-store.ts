@@ -13,6 +13,7 @@ import {
   renderTaskDocument,
   renderTaskRecord,
   taskDocumentMayHaveId,
+  taskHeaderFields,
   unparsedTaskId,
   type TaskDocument,
 } from "../domain/task.js";
@@ -30,7 +31,7 @@ export interface StoredTask {
   /** 任务目录，相对所在检出根，用 `/` 分隔。 */
   readonly dir: string;
   readonly archived: boolean;
-  /** task.md 开头字段里的 id；文档解析不出来时是从 `id:` 那一行直接取的，连这一行都没有时是 null。 */
+  /** 文档损坏时仍尽量读出开头字段的 id，无法识别时为 null。 */
   readonly id: string | null;
   /** 文件写坏了、解析不出来时是 null，原因在 problems 里。 */
   readonly document: TaskDocument | null;
@@ -62,22 +63,42 @@ export function scanTasks(root: string, scope: TaskScope = "all"): StoredTask[] 
 
 export function hasTasks(root: string): boolean {
   for (const entry of taskDirectories(root, "all")) {
-    if (readTaskBytes(root, entry.dir) !== null) return true;
+    if (existsSync(join(root, entry.dir, TASK_FILE))) return true;
   }
   return false;
 }
 
-function readTaskBytes(root: string, dir: string, ids?: ReadonlySet<string>): Buffer | null {
+export function archivedTaskHeaders(root: string): TaskFrontmatter[] {
+  const headers: TaskFrontmatter[] = [];
+  for (const entry of archiveDirectories(root, false)) {
+    const prefix = readTaskBytes(root, entry.dir, "header");
+    const fields = prefix === null ? null : taskHeaderFields(prefix.toString("utf8"));
+    if (fields !== null) headers.push(fields);
+  }
+  return headers;
+}
+
+function readTaskBytes(root: string, dir: string, selection?: ReadonlySet<string> | "header"): Buffer | null {
   const path = join(root, dir, TASK_FILE);
-  if (!existsSync(path)) return null;
-  if (ids === undefined) return readFileSync(path);
+  if (selection === "header" ? !statSync(path, { throwIfNoEntry: false })?.isFile() : !existsSync(path)) return null;
+  if (selection === undefined) return readFileSync(path);
   const fd = openSync(path, "r");
   try {
-    const buffer = Buffer.allocUnsafe(2048);
-    const prefix = buffer.subarray(0, readSync(fd, buffer));
-    const text = prefix.toString("utf8");
-    // 结束标记必须连换行一起读到，缓冲区末尾的 --- 可能只是一行的开头。
-    if (/^---\r?\n[\s\S]*?\n---\r?\n/.test(text) && !taskDocumentMayHaveId(text, ids)) return null;
+    const chunks: Buffer[] = [];
+    for (;;) {
+      const buffer = Buffer.allocUnsafe(2048);
+      const chunk = buffer.subarray(0, readSync(fd, buffer));
+      // 结束行可能跨块，必须读到换行或文件尾才能确定 --- 后没有其它字符。
+      const tail = chunks.at(-1)?.subarray(-5).toString("latin1") ?? "";
+      chunks.push(chunk);
+      const text = chunk.toString("latin1");
+      if (chunks.length === 1 && !/^---\r?\n/.test(text)) return null;
+      const afterOpening = chunks.length === 1 ? text.slice(text.indexOf("\n") + 1) : tail + text;
+      if (chunk.length < buffer.length || /\n---\r?\n/.test(afterOpening)) break;
+    }
+    const prefix = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks);
+    if (selection === "header") return prefix;
+    if (!taskDocumentMayHaveId(prefix.toString("utf8"), selection)) return null;
     return Buffer.concat([prefix, readFileSync(fd)]);
   } finally {
     closeSync(fd);
@@ -89,7 +110,6 @@ function* storedTasks(root: string, directories: ReturnType<typeof taskDirectori
     const taskFile = readTaskBytes(root, entry.dir, ids);
     if (taskFile === null) continue;
     const markdown = taskFile.toString("utf8");
-    if (ids !== undefined && !taskDocumentMayHaveId(markdown, ids)) continue;
     const document = parseTaskDocument(markdown);
     // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
     const taskId = document.document?.frontmatter.id ?? unparsedTaskId(markdown);
@@ -169,15 +189,18 @@ export function shownTaskDirectory(task: LoadedTask): string {
 export function taskCommit(task: LoadedTask): string | null {
   if (task.document.frontmatter.status !== "delivered") return null;
   const id = task.document.frontmatter.id;
-  const log = (ref: string, skip = 0): string | null => {
-    // 正文也可能引用完整的标记行，只有 Git 解析出的文末字段才标识交付提交。
-    const [summary, ...taskIds] = gitSync([
-      "-c", "trailer.separators=:", "log", "-1", `--skip=${skip}`,
-      "--format=%h %s%x00%(trailers:key=Knit-Task,valueonly,separator=%x00)",
+  const log = (ref: string): string | null => {
+    // -z 分隔提交，只有 Git 解析出的文末字段才标识交付提交。
+    const output = gitSync([
+      "-c", "trailer.separators=:", "log", "-n", "20", "-z",
+      "--format=%h %s%n%(trailers:key=Knit-Task,valueonly,separator=%x0a)",
       "--basic-regexp", "--grep", `^Knit-Task: ${id}$`, ref, "--",
-    ], task.root).stdout.trimEnd().split("\0");
-    if (!summary) return null;
-    return taskIds.includes(id) ? summary : log(ref, skip + 1);
+    ], task.root).stdout;
+    for (const entry of output.split("\0")) {
+      const [summary, ...taskIds] = entry.split("\n");
+      if (summary && taskIds.includes(id)) return summary;
+    }
+    return null;
   };
   return log("HEAD") ?? log(`refs/heads/${taskWorktree(task.root, task.stored.dir).branch}`);
 }

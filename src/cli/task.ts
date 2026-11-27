@@ -1,15 +1,17 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
+import { recordedPaths } from "../application/delivery.js";
 import { readWorkflow } from "../application/project-config.js";
-import { liveWorker, startingWorker } from "../application/run-control.js";
-import { createTask, findArchivedTasks, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
+import { startingWorker } from "../application/run-control.js";
+import { archivedTaskHeaders, createTask, findArchivedTasks, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
 import { taskBranch, taskWorktree } from "../application/worktree.js";
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
-import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
+import { DEFAULT_AGENT } from "../contracts/workflow.js";
+import { RUNS_DIR, TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { gitSync, shellQuote } from "../infrastructure/process.js";
+import { gitSync, processIdentities, readProcessRegistration, registeredPid, shellQuote } from "../infrastructure/process.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
 import { cleanupLines, fail, knitRoot, loadTask, shownStatus, taskLabel } from "./shared.js";
 
@@ -39,7 +41,19 @@ interface TaskRow {
 
 function taskListLines(root: string, archive: boolean, grep?: string, limit?: number): string[] {
   const keyword = grep?.toLowerCase();
-  const tasks = scanTasks(root, archive ? "archived" : "active");
+  const matches = (fields: TaskFrontmatter) => keyword === undefined || fields.id.toLowerCase().includes(keyword) || fields.title.toLowerCase().includes(keyword);
+  const lineOf = (fields: TaskFrontmatter, status: string) => `${fields.priority}  ${fields.id}  ${status}  ${fields.title}`;
+  const footer = (count: number, hasBrokenTasks = false) => [
+    ...(limit !== undefined && count > limit ? [`仅显示前 ${limit} 条，共 ${count} 条`] : []),
+    ...(count === 0 && grep !== undefined ? ["没有匹配的任务"] : []),
+    ...(count === 0 && grep === undefined && !hasBrokenTasks ? ["没有任务"] : []),
+  ];
+  if (archive) {
+    const fields = archivedTaskHeaders(root).filter(matches).sort((a, b) =>
+      Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id));
+    return [...fields.slice(0, limit).map((task) => lineOf(task, task.status === "active" ? `active(${task.stage})` : task.status)), ...footer(fields.length)];
+  }
+  const tasks = scanTasks(root, "active");
   const broken: string[] = [];
   const rows = tasks.flatMap((task) => {
     if (task.document === null || task.record === null) {
@@ -47,25 +61,19 @@ function taskListLines(root: string, archive: boolean, grep?: string, limit?: nu
       return [];
     }
     const frontmatter = task.document.frontmatter;
-    if (keyword !== undefined && !frontmatter.id.toLowerCase().includes(keyword) && !frontmatter.title.toLowerCase().includes(keyword)) return [];
+    if (!matches(frontmatter)) return [];
     const status = shownStatus(task.document, task.record);
-    const line = `${frontmatter.priority}  ${frontmatter.id}  ${status.text}  ${frontmatter.title}` +
+    const line = lineOf(frontmatter, status.text) +
       (status.stale ? "（确认后改过需求）" : "");
     return [{ frontmatter, record: task.record, stale: status.stale, line }];
   });
-  const footer = [
-    ...(limit !== undefined && rows.length > limit ? [`仅显示前 ${limit} 条，共 ${rows.length} 条`] : []),
-    ...(rows.length === 0 && grep !== undefined ? ["没有匹配的任务"] : []),
-    ...(rows.length === 0 && grep === undefined && broken.length === 0 ? ["没有任务"] : []),
-    ...broken,
-  ];
-  if (archive) {
-    rows.sort((a, b) => Date.parse(b.frontmatter.createdAt) - Date.parse(a.frontmatter.createdAt) ||
-      a.frontmatter.id.localeCompare(b.frontmatter.id));
-    return [...rows.slice(0, limit).map((row) => row.line), ...footer];
-  }
   rows.sort((a, b) => a.frontmatter.priority.localeCompare(b.frontmatter.priority) ||
-    a.frontmatter.createdAt.localeCompare(b.frontmatter.createdAt));
+    Date.parse(a.frontmatter.createdAt) - Date.parse(b.frontmatter.createdAt));
+  const registrations = rows.flatMap((row) => row.record.runs.filter((run) => run.endedAt === null).map((run) => ({
+    id: run.id, worker: readProcessRegistration(join(root, RUNS_DIR, run.id, "worker.json")),
+  })));
+  const identities = processIdentities(registrations.flatMap(({ worker }) => worker === null ? [] : [worker.pid]));
+  const liveRuns = new Set(registrations.filter(({ worker }) => registeredPid(worker, identities) !== null).map((run) => run.id));
 
   const unmerged = new Set(gitSync(["for-each-ref", "--no-merged=HEAD", "--format=%(refname:lstrip=2)", "refs/heads/knit/"], root)
     .stdout.split("\n").filter(Boolean));
@@ -88,22 +96,24 @@ function taskListLines(root: string, archive: boolean, grep?: string, limit?: nu
     lines.push("  ".repeat(depth) + [row.line,
       ...(parent !== null && !ids.has(parent) ? [`父:${parent}`] : []),
       ...(blocked.length ? [`阻塞:${blocked.join(", ")}`] : []),
-      ...runLabels(root, row, workflow),
+      ...runLabels(root, row, workflow, liveRuns),
     ].join("  "));
     children.get(row.frontmatter.id)?.forEach((child) => visit(child, depth + 1));
   }
   children.get(null)?.forEach((row) => visit(row, 0));
   // 手写 parent 形成环时，这组任务也要可见。
   rows.forEach((row) => visit(row, 0));
-  lines.push(...footer);
+  lines.push(...footer(rows.length, broken.length > 0));
   const activeBranches = new Set(tasks.map((task) => taskBranch(task.dir)));
   const leftover = [...unmerged].filter((branch) => !activeBranches.has(branch));
   if (leftover.length) lines.push("", "尚未合并进 HEAD 的任务分支，可在当前检出运行：",
-    ...leftover.map((branch) => `  git merge ${shellQuote(branch)}`));
+    ...leftover.map((branch) => `  git merge --no-edit ${shellQuote(branch)}`));
+  lines.push(...broken.slice(0, 5));
+  if (broken.length > 5) lines.push(`另有 ${broken.length - 5} 个损坏目录未列出`);
   return lines;
 }
 
-function runLabels(root: string, row: TaskRow, workflow: WorkflowDefinition | null): string[] {
+function runLabels(root: string, row: TaskRow, workflow: WorkflowDefinition | null, liveRuns: ReadonlySet<string>): string[] {
   const runs = row.record.runs.filter((run) => run.endedAt === null);
   if (!runs.length) {
     const status = row.frontmatter.status;
@@ -113,7 +123,7 @@ function runLabels(root: string, row: TaskRow, workflow: WorkflowDefinition | nu
   return runs.map((run) => {
     const member = runs.length > 1 ? `${run.executor ?? run.id}:` : "";
     if (startingWorker(root, row.frontmatter.id, run)) return `${member}正在启动`;
-    if (liveWorker(root, run.id) === null) return `${member}进程已退出`;
+    if (!liveRuns.has(run.id)) return `${member}进程已退出`;
     const minutes = Math.floor((Date.now() - Date.parse(run.startedAt)) / 60000);
     return `${member}运行中 ${minutes >= 1 ? `${minutes}m` : "<1m"}`;
   });
@@ -170,7 +180,7 @@ export function registerTaskCommands(program: Command): void {
     .option("--grep <关键词>", "按 ID 或标题筛选任务，忽略大小写")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { archive: boolean; dir: string; limit?: string; grep?: string }) => {
-      if (options.limit !== undefined && (!/^\d+$/.test(options.limit) || Number(options.limit) === 0)) {
+      if (options.limit !== undefined && (!/^[1-9]\d*$/.test(options.limit) || !Number.isSafeInteger(Number(options.limit)))) {
         return fail(["--limit 需要正整数"]);
       }
       const root = knitRoot(options.dir);
@@ -190,9 +200,7 @@ export function registerTaskCommands(program: Command): void {
       const status = shownStatus(loaded.document, loaded.record);
       const scenarios = scenarioStateOf(loaded.document.requirement);
       const clarify = clarifyStateOf(loaded.document.requirement);
-      const changed = [
-        ...new Set([...loaded.record.changedPaths, ...loaded.record.runs.flatMap((run) => run.changedPaths)]),
-      ].sort();
+      const changed = recordedPaths(loaded.record);
       const worktree = taskWorktree(loaded.root, loaded.stored.dir);
       const commit = taskCommit(loaded);
       const lines = [
@@ -213,7 +221,7 @@ export function registerTaskCommands(program: Command): void {
         ...(loaded.record.runs.length ? [`执行历史（${loaded.record.runs.length} 次）:`, ...loaded.record.runs.map((run) => {
           const result = run.endedAt === null ? "进行中" : run.failure !== null ? `失败: ${run.failure}`
             : run.verdict !== null ? `结论: ${run.verdict}` : "正常结束";
-          return `  ${run.id}  ${run.stage}${run.batchId && run.executor ? `/${run.executor}` : ""}  Agent: ${run.agent ?? "pi"}  ${result.replace(/\s*[\r\n]+\s*/g, " ")}`;
+          return `  ${run.id}  ${run.stage}${run.batchId && run.executor ? `/${run.executor}` : ""}  Agent: ${run.agent ?? DEFAULT_AGENT}  ${result.replace(/\s*[\r\n]+\s*/g, " ")}`;
         })] : []),
         ...(changed.length > 0 ? [`改动文件（${changed.length}）:`, ...changed.map((path) => `  ${path}`)] : []),
       ];

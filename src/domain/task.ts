@@ -25,22 +25,24 @@ export type TaskDocumentParse =
   | { readonly document: null; readonly problems: readonly string[] };
 
 const taskFrontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/;
-const rawIdLine = /^id:[ \t]*(\S+)[ \t]*$/m;
+const rawIdLine = /^id:[ \t]*([\w-]+)[ \t]*$/m;
 
-export function unparsedTaskId(markdown: string): string | null {
-  return rawIdLine.exec(taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1] ?? "")?.[1] ?? null;
+function headerId(header: string): string | null {
+  const plain = rawIdLine.exec(header)?.[1] ?? null;
+  // 常规文档直接读 ID。显式键或别名键可能改变顶层 id 的值。
+  if (plain !== null && !/^(?![A-Za-z][\w-]*:(?:[ \t]|$))[^ \t#\r\n]/m.test(header)) return plain;
+  const { value } = readHeaderYaml(header);
+  return typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : plain;
 }
 
-/** 先筛掉 ID 不同的常规任务；手写 YAML 可能用引号、显式键或别名。 */
-export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>): boolean {
+export function unparsedTaskId(markdown: string): string | null {
   const header = taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1];
-  if (header === undefined) return false;
-  const rawId = rawIdLine.exec(header)?.[1];
-  if (rawId !== undefined && ids.has(rawId)) return true;
-  // 首行是普通 ID，且后面没有复杂的顶层键时，别的键不会改变它。
-  if (/^id: [a-z0-9-]+\n/.test(header) && !/^(?![A-Za-z][\w-]*:(?:[ \t]|$))[^ \t#\r\n]/m.test(header)) return false;
-  const parsedId = parseTaskFrontmatter(header).frontmatter?.id;
-  return parsedId !== undefined && ids.has(parsedId);
+  return header === undefined ? null : headerId(header);
+}
+
+export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>): boolean {
+  const id = unparsedTaskId(markdown);
+  return id !== null && ids.has(id);
 }
 
 export function parseTaskDocument(markdown: string): TaskDocumentParse {
@@ -94,13 +96,27 @@ export function currentStatus(document: TaskDocument, record: TaskRecord): TaskS
   return record.confirmedDigest === requirementDigest(document) ? status : "draft";
 }
 
+export function taskHeaderFields(markdown: string): TaskFrontmatter | null {
+  const header = taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1];
+  return header === undefined ? null : parseTaskFrontmatter(header).frontmatter;
+}
+
+function readHeaderYaml(header: string): { value: unknown; problems: string[] } {
+  const yaml = parseDocument(header);
+  if (yaml.errors.length) return { value: null, problems: yaml.errors.map((error) => `开头字段不是合法的 YAML：${error.message}`) };
+  try {
+    return { value: yaml.toJS({ maxAliasCount: 100 }), problems: [] };
+  } catch (error) {
+    return { value: null, problems: [`开头字段不是合法的 YAML：${error instanceof Error ? error.message : String(error)}`] };
+  }
+}
+
 function parseTaskFrontmatter(header: string): {
   frontmatter: TaskFrontmatter | null;
   problems: readonly string[];
 } {
-  const yaml = parseDocument(header);
-  if (yaml.errors.length > 0) return { frontmatter: null, problems: yaml.errors.map((error) => `开头字段不是合法的 YAML：${error.message}`) };
-  const frontmatter: unknown = yaml.toJS();
+  const { value: frontmatter, problems } = readHeaderYaml(header);
+  if (problems.length) return { frontmatter: null, problems };
   if (!checkSchema(TaskFrontmatterSchema, frontmatter)) return { frontmatter: null, problems: schemaProblems(TaskFrontmatterSchema, frontmatter) };
   if (frontmatter.status === "active" && frontmatter.stage === null) {
     return { frontmatter: null, problems: ["字段 stage 的值不对：status 是 active 时要写所在环节的 id"] };
