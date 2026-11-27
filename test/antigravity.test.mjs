@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { createServer } from "node:net";
+import childProcess, { execFile, execFileSync, spawnSync } from "node:child_process";
+import { createConnection, createServer } from "node:net";
+import { text } from "node:stream/consumers";
 import { once } from "node:events";
 import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -11,7 +12,8 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { AntigravityExecutionAdapter, cleanAgyRuntime } from "../dist/adapters/antigravity/execution.js";
-import { WORKSPACE_CONTROL, agyPreflight } from "../dist/adapters/antigravity/isolation.js";
+import { AgyBroker } from "../dist/adapters/antigravity/broker.js";
+import { WORKSPACE_CONTROL, agyPreflight, commandSandboxProfile } from "../dist/adapters/antigravity/isolation.js";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
@@ -201,6 +203,105 @@ test("显式 agent、模型和 effort 配置报告各自的行号", () => {
 
 // 先启动独立仓库的长用例。依赖进程环境或替换 fs 方法的用例在这一组结束后串行执行。
 test("独立仓库中的 Antigravity 执行", { concurrency: Math.min(10, availableParallelism()) }, independentRuns);
+
+test("后台 stop 等待 agy 退出时的整批尾行追加到日志", isolated, async (t) => {
+  const root = agyTempDir();
+  const dir = join(root, "runs/current");
+  const log = join(dir, "session/agy.jsonl");
+  mkdirSync(dirname(log), { recursive: true });
+  writeFileSync(log, '{"previous":true}\n');
+  writeFileSync(join(dir, "system.md"), "fixture");
+  const agy = join(root, "agy");
+  const result = JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "KNIT_AGY_SUBMIT\n完成" } });
+  const tail = Array.from({ length: 4096 }, (_, index) => JSON.stringify({ event: "step_update", index }));
+  writeFileSync(join(root, "tail.jsonl"), tail.join("\n"));
+  writeFileSync(agy, `#!${process.execPath}\nimport { readFileSync } from 'node:fs';
+process.once('SIGTERM', () => process.stdout.end(readFileSync('tail.jsonl'), () => process.exit(0)));
+process.stdin.once('data', () => console.log(${JSON.stringify(result)}));\n`, { mode: 0o755 });
+  const previous = process.env.KNIT_AGY_BIN;
+  process.env.KNIT_AGY_BIN = agy;
+  const session = new AntigravityExecutionAdapter().createSession({ root, cwd: root, dir, capabilities: ["read"], model: null, thinking: null });
+  if (previous === undefined) delete process.env.KNIT_AGY_BIN;
+  else process.env.KNIT_AGY_BIN = previous;
+  t.after(async () => { await session.stop(); rmSync(root, { recursive: true, force: true }); });
+  assert.equal(await session.start(), null);
+  assert.equal((await session.prompt("交接")).report, "完成");
+  await session.stop();
+  assert.equal(readFileSync(log, "utf8"), ['{"previous":true}', result, ...tail, ""].join("\n"));
+});
+
+test("Broker 的固定规则复用期间仍按当前真实目标保护链接", (t) => {
+  const cwd = agyTempDir();
+  t.after(() => rmSync(cwd, { recursive: true }));
+  const plugin = join(cwd, ".agents/plugins/knit");
+  mkdirSync(dirname(plugin), { recursive: true });
+  const profile = commandSandboxProfile({ cwd, dir: join(cwd, "run"), paths: [], command: { socket: "sock", temporary: "tmp" }, network: false, write: true });
+  const initial = profile();
+  for (const name of ["first", "second"]) {
+    const target = join(cwd, name);
+    mkdirSync(target);
+    symlinkSync(target, plugin);
+    const current = profile();
+    assert.ok(current.startsWith(initial));
+    assert.ok(current.includes(`(deny file-read-data (subpath ${JSON.stringify(target)}))`));
+    assert.ok(current.includes(`(deny file-write* (subpath ${JSON.stringify(target)}))`));
+    rmSync(plugin);
+    assert.equal(profile(), initial);
+  }
+});
+
+test("Broker 回收未结束时仍能答复钩子，命令等待回收且可提前断开", { ...isolated, timeout: 5000 }, async (t) => {
+  const root = realpathSync.native(mkdtempSync("/tmp/knit-broker-"));
+  const path = join(root, "sock");
+  const broker = new AgyBroker({ root, cwd: root, dir: join(root, "run"), capabilities: ["read", "write", "exec"] }, path, async () => ({ ok: true }));
+  await broker.start();
+  t.after(() => { broker.stop(); rmSync(root, { recursive: true, force: true }); });
+  const hook = async (event, payload) => {
+    const client = createConnection(path);
+    client.end(JSON.stringify({ kind: "hook", key: broker.hookEnv.KNIT_AGY_HOOK_KEY, event, payload }));
+    return JSON.parse(await text(client));
+  };
+  const execute = childProcess.execFile;
+  for (const mode of ["success", "error", "disconnect"]) {
+    const started = Promise.withResolvers();
+    // 让跟踪器在管道上等待测试放行，长 scope 走真实的回收失败路径。
+    const tracker = t.mock.method(childProcess, "execFile", (file, args, options, callback) => {
+      const scope = mode === "error" ? "x".repeat(128) : args[1];
+      const child = execute("/bin/sh", ["-c", 'read release && exec "$0" "$1" "$2"', file, args[0], scope], options, callback);
+      started.resolve(child);
+      return child;
+    });
+    syncBuiltinESMExports();
+    try {
+      const command = mode === "disconnect"
+        ? "(while [ ! -f release-output ]; do sleep 0.01; done; echo out; echo err >&2; touch output-done) & exit 7" : "exit 7";
+      const reply = await hook("PreToolUse", { toolCall: { name: "run_command", args: { CommandLine: command } } });
+      const accepted = once(broker.server, "connection");
+      const client = createConnection(path);
+      const [socket] = await accepted;
+      const messages = text(client);
+      client.write(JSON.stringify({ kind: "command", key: /^KNIT_AGY_REQUEST=(\S+)/.exec(reply.overwrite.CommandLine)[1] }) + "\n");
+      const child = await started.promise;
+      assert.deepEqual(await hook("SessionStart", {}), { ok: true });
+      assert.equal(client.readableEnded, false);
+      if (mode === "disconnect") {
+        socket.destroy();
+        t.mock.method(socket, "write", () => assert.fail("对已销毁的 socket 转发了输出"));
+        t.mock.method(socket, "end", () => assert.fail("对已销毁的 socket 发送了退出结果"));
+        writeFileSync(join(root, "release-output"), "");
+        await until(() => existsSync(join(root, "output-done")));
+      }
+      const closed = once(child, "close");
+      child.stdin.end("release\n");
+      await closed;
+      assert.deepEqual((await messages).trim().split("\n").filter(Boolean).map(JSON.parse),
+        mode === "disconnect" ? [] : mode === "error" ? [{ error: "Antigravity 命令进程回收失败：2" }] : [{ code: 7 }]);
+    } finally {
+      tracker.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
+});
 
 test("后台同一 stream 会话只补报一次，省略 agy 参数，run wait 通知原 Pi", isolated, async (t) => {
   const f = agyFixture(t, t, { tools: "all" });

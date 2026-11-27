@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import fs, { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PiConnectionClosedError, PiRpcConnection, signalProcessGroup } from "../dist/adapters/pi/connection.js";
-import { checkNativeSessionFile } from "../dist/adapters/pi/native-file.js";
+import { checkNativeSessionFile, inspectNativeSessionFile, piResumeSystemPrompt, verifiedPiResumeId } from "../dist/adapters/pi/native-file.js";
 import { PiAgentRuntime, buildPiArgs, interactivePiCommand, isolatedEnv } from "../dist/adapters/pi/runtime.js";
 
 const PI = process.env.PI_EXECUTABLE ?? "pi";
@@ -45,6 +46,48 @@ test("checkNativeSessionFile 识别合法文件与损坏文件", async (t) => {
   const empty = path.join(root, "empty.jsonl");
   writeFileSync(empty, "");
   assert.equal((await checkNativeSessionFile(empty, "sid-9")).problem, "empty");
+});
+
+test("Pi 恢复入口共用一次原生文件读取，等长改写立即使检查失效", async (t) => {
+  const { root, sessionDir } = makeWorkspace(t, "resume-cache");
+  const file = path.join(sessionDir, "native.jsonl");
+  const system = path.join(root, "system.md");
+  const rows = [
+    { type: "session", version: 3, id: "sid-1", cwd: root },
+    { type: "message", message: { role: "system", sections: { addendum: "<addendum>\noriginal\n</addendum>" } } },
+    { type: "message", message: { role: "user", content: "交接" } },
+    { type: "message", message: { role: "assistant", content: [{ type: "text", text: "回复" }] } },
+  ];
+  const content = rows.map((row) => JSON.stringify(row)).join("\n") + "\n";
+  writeFileSync(file, content);
+  writeFileSync(system, "original");
+  const read = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  t.after(() => { read.mock.restore(); syncBuiltinESMExports(); });
+  const reads = () => read.mock.calls.filter((call) => call.arguments[0] === file).length;
+
+  const wrong = inspectNativeSessionFile(file, "other");
+  assert.equal(wrong.problem, "id_mismatch");
+  assert.equal(wrong.entryCount, 0);
+  wrong.identity.id = "changed-by-caller";
+  const valid = await checkNativeSessionFile(file, "sid-1");
+  assert.equal(valid.hasConversation, true);
+  assert.equal(valid.entryCount, rows.length);
+  valid.systemPrompt = "changed-by-caller";
+  assert.equal(piResumeSystemPrompt(file, system), system);
+  assert.equal(inspectNativeSessionFile(file).systemPrompt, "original");
+  assert.equal(verifiedPiResumeId(file, "sid-1"), file);
+  assert.equal(verifiedPiResumeId(file, "other"), null);
+  assert.equal(reads(), 1);
+
+  writeFileSync(file, content.replace("sid-1", "sid-2"));
+  assert.equal(verifiedPiResumeId(file, "sid-1"), null);
+  assert.equal(inspectNativeSessionFile(file).identity.id, "sid-2");
+  assert.equal(reads(), 2);
+  fs.appendFileSync(file, "broken\n");
+  assert.equal(inspectNativeSessionFile(file, "sid-2").problem, "invalid_entry");
+  assert.equal(inspectNativeSessionFile(file, "sid-1").problem, "id_mismatch");
+  assert.equal(reads(), 3);
 });
 
 test("isolatedEnv 移除主会话变量并设置离线标志", () => {

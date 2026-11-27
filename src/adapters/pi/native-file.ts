@@ -30,6 +30,8 @@ export interface NativeFileCheck {
     | "unreadable";
 }
 
+const inspections = new Map<string, { fingerprint: string; result: NativeFileCheck }>();
+
 function firstSessionLine(first: string): NativeSessionIdentity | null {
   try {
     const header = JSON.parse(first) as Record<string, unknown>;
@@ -57,13 +59,30 @@ export function inspectNativeSessionFile(
 ): NativeFileCheck {
   let info;
   try {
-    info = statSync(filePath);
+    info = statSync(filePath, { bigint: true });
   } catch {
     return { exists: false, identity: null, entryCount: 0, problem: null };
   }
   if (!info.isFile()) {
     return { exists: true, identity: null, entryCount: 0, problem: "not_a_file" };
   }
+  const fingerprint = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  const cached = inspections.get(filePath);
+  const unchanged = cached?.fingerprint === fingerprint;
+  const result = unchanged ? cached.result : readNativeSessionFile(filePath);
+  if (!unchanged && result.problem !== "unreadable") {
+    inspections.delete(filePath);
+    if (inspections.size === 8) inspections.delete(inspections.keys().next().value!);
+    inspections.set(filePath, { fingerprint, result });
+  }
+  const identity = result.identity && { ...result.identity };
+  if (identity && expectedNativeId !== undefined && identity.id !== expectedNativeId) {
+    return { exists: true, identity, entryCount: 0, problem: "id_mismatch" };
+  }
+  return { ...result, identity };
+}
+
+function readNativeSessionFile(filePath: string): NativeFileCheck {
   let content: string;
   try {
     content = readFileSync(filePath, "utf-8");
@@ -74,9 +93,6 @@ export function inspectNativeSessionFile(
   const identity = firstSessionLine(lines[0]!);
   if (identity === null) {
     return { exists: true, identity: null, entryCount: 0, problem: "empty" };
-  }
-  if (expectedNativeId !== undefined && identity.id !== expectedNativeId) {
-    return { exists: true, identity, entryCount: 0, problem: "id_mismatch" };
   }
   const history: { user?: true; assistant?: true; systemPrompt?: string } = {};
   try {

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,6 +11,7 @@ import { findExecutable, gitSync } from "../../infrastructure/process.js";
 export const SANDBOX = "/usr/bin/sandbox-exec";
 export const COMMAND_TEMP_PREFIX = "knit-agy-exec-";
 export const COMMAND_CLIENT = "run-command";
+const COMMAND_STOP_TIMEOUT = 5000;
 const COMMAND_TRACKER = fileURLToPath(new URL("./command-processes", import.meta.url));
 const CUSTOMIZATION_DIR = ".agents";
 const COMPAT_CUSTOMIZATION_DIRS = [".agent", "_agents", "_agent"];
@@ -235,8 +236,20 @@ export function commandScopeRule(scope: string): string {
 }
 
 export function stopCommandProcesses(scope: string): string | null {
-  const result = spawnSync(COMMAND_TRACKER, ["stop", scope], { encoding: "utf8", timeout: 5000 });
+  const result = spawnSync(COMMAND_TRACKER, ["stop", scope], { encoding: "utf8", timeout: COMMAND_STOP_TIMEOUT });
   return result.status === 0 ? null : `Antigravity 命令进程回收失败：${result.error?.message ?? (result.stderr?.trim() || result.signal || result.status)}`;
+}
+
+export function stopCommandProcessesAsync(scope: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(COMMAND_TRACKER, ["stop", scope], { encoding: "utf8", timeout: COMMAND_STOP_TIMEOUT }, (error, _stdout, stderr) => {
+      if (!error) return resolve(null);
+      // execFile 超时时只报告 killed，沿用同步回收已有的超时诊断。
+      const reason = typeof error.code === "string" ? error.message : error.killed ? `spawnSync ${COMMAND_TRACKER} ETIMEDOUT`
+        : stderr.trim() || error.signal || error.code;
+      resolve(`Antigravity 命令进程回收失败：${reason}`);
+    });
+  });
 }
 
 export function handoffReadPaths(root: string): string[] {
@@ -248,18 +261,39 @@ export function inside(root: string, path: string): boolean {
   return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
-export function sandboxProfile(input: {
+const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`;
+const protectedPath = (path: string) => existsSync(path) ? [subpath(path), subpath(realpathSync.native(path))] : [subpath(path)];
+
+type SandboxInput = {
   cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string; external: boolean }; command?: { socket: string; temporary: string }; network: boolean; write: boolean;
-}): string {
-  const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`;
+};
+
+export function commandSandboxProfile(input: SandboxInput & { cli?: never; command: { socket: string; temporary: string } }): () => string {
+  const paths = new Set<string>();
+  const base = sandboxProfile(input, (path) => {
+    paths.add(path);
+    return [subpath(path)];
+  });
+  const plugin = join(input.cwd, KNIT_PLUGIN);
+  return () => {
+    // 真实目标可能在两条命令之间变化；固定规则可复用，链接目标按当前路径保护。
+    const linked = Array.from(paths).flatMap((path) => {
+      const target = existsSync(path) ? realpathSync.native(path) : path;
+      if (target === path) return [];
+      return [`(deny file-write* ${subpath(target)})`, ...(path === plugin ? [`(deny file-read-data ${subpath(target)})`] : [])];
+    });
+    return linked.length ? [base, ...linked].join("\n") : base;
+  };
+}
+
+export function sandboxProfile(input: SandboxInput, pathRules = protectedPath): string {
   const literal = (path: string) => `(literal ${JSON.stringify(path)})`;
   const state = input.cli === undefined ? [] : [
     ...["annotations", "bin", "brain", "builtin", "cache", "conversations", "crashes", "implicit", "log", "mcp", "persistent_terminals", "presence", "skills"].map((path) => subpath(join(input.cli!.home, ".gemini/antigravity-cli", path))),
     ...["cli.log", "conversation_summaries.db", "conversation_summaries.db-shm", "conversation_summaries.db-wal", "history.jsonl", "installation_id", "jetbox_summaries_proto.pb", "jetski_state.pbtxt"].map((path) => literal(join(input.cli!.home, ".gemini/antigravity-cli", path))),
     subpath(input.cli.temporary), '(literal "/dev/ptmx")', '(regex #"^/dev/ttys[0-9]+$")',
   ];
-  const protectedPath = (path: string) => existsSync(path) ? [subpath(path), subpath(realpathSync.native(path))] : [subpath(path)];
-  const knitPlugin = protectedPath(join(input.cwd, KNIT_PLUGIN)).join(" ");
+  const knitPlugin = pathRules(join(input.cwd, KNIT_PLUGIN)).join(" ");
   const controls = [...WORKSPACE_CONTROL, ...input.paths].map((path) => resolve(input.cwd, path)).filter((path) => inside(input.cwd, path));
   const externalInputs = input.cli === undefined ? [] : [
     ...WORKSPACE_EXTERNAL.map((path) => join(input.cwd, path)),
@@ -270,7 +304,7 @@ export function sandboxProfile(input: {
     "(version 1)", "(allow default)", "(deny file-write*)",
     `(allow file-write* (literal "/dev/null") ${state.join(" ")} ${input.write ? subpath(input.cwd) : ""})`,
     ...(input.command ? [`(allow file-write* ${subpath(input.command.temporary)})`] : []),
-    `(deny file-write* ${knitPlugin} ${[...controls, ...readable].flatMap(protectedPath).join(" ")})`,
+    `(deny file-write* ${knitPlugin} ${[...controls, ...readable].flatMap(pathRules).join(" ")})`,
     `(deny file-read-data ${knitPlugin})`,
     "(deny file-link)",
     ...(input.cli === undefined ? [
@@ -278,7 +312,7 @@ export function sandboxProfile(input: {
       ...(input.command === undefined ? [] : [`(deny network-outbound (remote unix-socket ${literal(input.command.socket)}))`]),
     ] : [
       `(deny file-write* ${literal(join(input.cli.temporary, COMMAND_CLIENT))})`,
-      `(deny file-read-data ${externalInputs.filter((path) => !readable.has(path)).flatMap(protectedPath).join(" ")})`,
+      `(deny file-read-data ${externalInputs.filter((path) => !readable.has(path)).flatMap(pathRules).join(" ")})`,
     ]),
     ...(input.network ? [] : ["(deny network*)"]),
   ].join("\n");

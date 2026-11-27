@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { once } from "node:events";
+import { constants, copyFileSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
+import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-execute.js";
@@ -105,6 +105,8 @@ class AgySession implements AgentSession {
   private conversationId: string | null = null;
   private resumeTimer?: NodeJS.Timeout;
   private streamFile: string | null = null;
+  private stream?: ReturnType<typeof createWriteStream>;
+  private childClosed?: Promise<void>;
   private requestedSubmit = false;
   private stdoutLines?: Interface;
   private stderr = "";
@@ -178,13 +180,18 @@ class AgySession implements AgentSession {
     this.stopReply?.resolve({});
     this.broker?.stop();
     const child = this.child;
-    if (child !== null && child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, "close").catch(() => {});
-      const force = setTimeout(() => child.kill("SIGKILL"), 2000);
-      child.kill("SIGTERM");
-      await exited.finally(() => clearTimeout(force));
-    }
+    const force = child && child.exitCode === null && child.signalCode === null
+      ? setTimeout(() => child.kill("SIGKILL"), 2000) : undefined;
+    if (force) child!.kill("SIGTERM");
+    await this.childClosed;
+    clearTimeout(force);
     this.stdoutLines?.close();
+    if (this.stream) {
+      this.stream.end();
+      await finished(this.stream).catch((error: Error) => {
+        atomicWrite({ path: join(this.original.dir, CLEANUP_ERROR), data: Buffer.from(`Antigravity 后台日志写入失败：${error.message}`) });
+      });
+    }
     try {
       removeAgyRuntime(this.original.cwd, this.original.dir);
     } catch (error) {
@@ -238,16 +245,30 @@ class AgySession implements AgentSession {
       ...(this.pane ? ["--prompt-interactive", first] : ["--disable-slash-commands", "--input-format", "stream-json", "--output-format", "stream-json"]),
     ], { cwd: this.input.cwd, env: { ...process.env, ...this.broker!.hookEnv, TMPDIR: this.temp!, AGY_CLI_DISABLE_AUTO_UPDATE: "true" }, stdio: this.pane ? "inherit" : "pipe" });
     this.child = child;
+    this.childClosed = new Promise((resolve) => child.once("close", () => resolve()));
     child.on("error", (error) => this.startupError(`Antigravity 启动失败：${error.message}`));
     child.on("close", (code, signal) => this.startupError(
       this.pane && (code === 0 || signal === "SIGHUP" || signal === "SIGTERM") ? "执行者的窗格关掉了，没有交报告" :
         `Antigravity 会话退出（${signal ?? code}）${this.stderr.trim() ? `：${this.stderr.trim()}` : ""}`));
     if (!this.pane) {
       this.streamFile = join(dir, "agy.jsonl");
+      const stream = createWriteStream(this.streamFile, { flags: "a" });
+      this.stream = stream;
       child.stdin!.on("error", (error) => this.startupError(`Antigravity 输入已关闭：${error.message}`));
       child.stderr!.setEncoding("utf8").on("data", (data: string) => { this.stderr = (this.stderr + data).slice(-8192); });
-      this.stdoutLines = createInterface({ input: child.stdout! });
-      this.stdoutLines.on("line", (line) => this.background(line));
+      const stdout = child.stdout!;
+      this.stdoutLines = createInterface({ input: stdout });
+      stream.on("error", (error) => {
+        this.startupError(`Antigravity 后台日志写入失败：${error.message}`);
+        stdout.resume();
+      });
+      this.stdoutLines.on("line", (line: string) => {
+        if (!stream.destroyed && !stream.write(`${line}\n`) && !stdout.isPaused()) {
+          stdout.pause();
+          stream.once("drain", () => stdout.resume());
+        }
+        this.background(line);
+      });
     }
   }
 
@@ -271,7 +292,6 @@ class AgySession implements AgentSession {
   }
 
   private background(line: string): void {
-    appendFileSync(this.streamFile!, `${line}\n`);
     const event = object(line);
     if (!this.observeConversation(event?.conversation_id ?? object(event?.result)?.conversation_id)) return;
     const step = object(event?.step_update);

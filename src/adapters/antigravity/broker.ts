@@ -8,7 +8,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
 import { executorEnv, shellQuote } from "../../infrastructure/process.js";
-import { COMMAND_CLIENT, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, sandboxProfile, stopCommandProcesses, WORKSPACE_CONTROL } from "./isolation.js";
+import { COMMAND_CLIENT, commandSandboxProfile, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, stopCommandProcessesAsync, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
 
 const entry = fileURLToPath(new URL("./client.js", import.meta.url));
@@ -25,13 +25,17 @@ export class AgyBroker {
   private readonly pending = new Map<string, { command: string; cwd: string }>();
   private readonly commands = new Set<ChildProcess>();
   private readonly connections = new Set<Socket>();
+  private readonly profile: () => string;
   private readonly server = createServer({ allowHalfOpen: true }, (socket) => this.accept(socket));
 
   constructor(
     private readonly launch: AgentLaunch,
     private readonly socketPath: string,
     private readonly handle: (event: string, payload: AgyObject) => Promise<AgyObject>,
-  ) {}
+  ) {
+    this.profile = commandSandboxProfile({ cwd: launch.cwd, dir: launch.dir, paths: launch.protectedPaths ?? [],
+      command: { socket: socketPath, temporary: this.commandTemp }, network: permits(launch.capabilities, "network"), write: permits(launch.capabilities, "write") });
+  }
 
   private get commandTemp(): string {
     return join(dirname(this.socketPath), "tmp");
@@ -80,13 +84,15 @@ exec ${client} "$KNIT_AGY_REQUEST"
         return;
       }
       if (request?.kind !== "hook" || request.key !== this.hooksKey || typeof request.event !== "string") {
-        socket.end(JSON.stringify({ error: "没有有效的 Knit 执行授权" }));
+        if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify({ error: "没有有效的 Knit 执行授权" }));
         return;
       }
       const payload = object(request.payload) ?? {};
       const reply = this.handle(request.event, payload).then((result) => request.event === "PreToolUse" ? this.gate(payload) : result);
-      void reply.then((result) => socket.end(JSON.stringify(result)), (error: unknown) => {
-        socket.end(JSON.stringify({ error: String(error) }));
+      void reply.then((result) => {
+        if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify(result));
+      }, (error: unknown) => {
+        if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify({ error: String(error) }));
       });
     });
   }
@@ -167,36 +173,47 @@ exec ${client} "$KNIT_AGY_REQUEST"
   private runCommand(socket: Socket, key: string): void {
     const request = this.pending.get(key);
     if (request === undefined) {
-      socket.end(JSON.stringify({ error: "命令未获授权或已执行" }));
+      if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify({ error: "命令未获授权或已执行" }));
       return;
     }
     this.pending.delete(key);
-    const profile = sandboxProfile({ cwd: this.launch.cwd, dir: this.launch.dir, paths: this.launch.protectedPaths ?? [],
-      command: { socket: this.socketPath, temporary: this.commandTemp }, network: permits(this.launch.capabilities, "network"), write: permits(this.launch.capabilities, "write") });
     const scope = commandScope(dirname(this.socketPath));
     const command = `${scope}.${key}`;
     // macOS Bash 3.2 ignores TMPDIR for here-docs. System ksh supports them in a read-only cwd.
     const env = executorEnv();
     delete env.KNIT_AGY_SOCKET;
     delete env.KNIT_AGY_HOOK_KEY;
-    const child = spawn(SANDBOX, ["-p", `${profile}\n${commandScopeRule(scope)}\n${commandScopeRule(command)}`, "/bin/ksh", "-c", request.command], {
+    const child = spawn(SANDBOX, ["-p", `${this.profile()}\n${commandScopeRule(scope)}\n${commandScopeRule(command)}`, "/bin/ksh", "-c", request.command], {
       cwd: request.cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
       env: { ...env, PWD: request.cwd, TMPDIR: this.commandTemp },
     });
     this.commands.add(child);
-    child.stdout.on("data", (data: Buffer) => socket.write(`${JSON.stringify({ stdout: data.toString("base64") })}\n`));
-    child.stderr.on("data", (data: Buffer) => socket.write(`${JSON.stringify({ stderr: data.toString("base64") })}\n`));
+    const forward = (channel: "stdout" | "stderr", data: Buffer) => {
+      if (!socket.destroyed && !socket.writableEnded) socket.write(`${JSON.stringify({ [channel]: data.toString("base64") })}\n`);
+    };
+    child.stdout.on("data", (data: Buffer) => forward("stdout", data));
+    child.stderr.on("data", (data: Buffer) => forward("stderr", data));
     // manage_task kill closes the forwarding client. Reap descendants by scope on exit.
     socket.once("end", () => child.kill("SIGKILL"));
     socket.once("close", () => child.kill("SIGKILL"));
-    child.on("exit", () => {
-      const error = stopCommandProcesses(command);
-      if (error !== null) socket.end(`${JSON.stringify({ error })}\n`);
+    let cleanup: Promise<string | null> | undefined;
+    child.once("exit", () => {
+      cleanup = stopCommandProcessesAsync(command).then((error) => {
+        // 回收失败时后代仍可能持有管道，放开管道让 close 能回报错误。
+        if (error !== null) {
+          child.stdout.destroy();
+          child.stderr.destroy();
+        }
+        return error;
+      });
     });
-    child.on("error", (error) => socket.end(`${JSON.stringify({ error: error.message })}\n`));
-    child.on("close", (code) => {
+    child.once("error", (error) => {
+      if (!socket.destroyed && !socket.writableEnded) socket.end(`${JSON.stringify({ error: error.message })}\n`);
+    });
+    child.once("close", async (code) => {
       this.commands.delete(child);
-      if (!socket.writableEnded) socket.end(`${JSON.stringify({ code: code ?? 1 })}\n`);
+      const error = await cleanup;
+      if (!socket.destroyed && !socket.writableEnded) socket.end(`${JSON.stringify(error ? { error } : { code: code ?? 1 })}\n`);
     });
   }
 }

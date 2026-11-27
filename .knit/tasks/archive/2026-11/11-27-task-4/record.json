@@ -1,0 +1,27 @@
+{
+  "confirmedDigest": "9e9bf0b036062115db5efadc44cee70cea6d23499328468cf889fa7f6ef682e5",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-41b65216685a",
+      "stage": "implement",
+      "agent": "pi",
+      "startedAt": "2026-11-27T09:33:41.515Z",
+      "endedAt": "2026-11-27T09:41:05.286Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "9e9bf0b036062115db5efadc44cee70cea6d23499328468cf889fa7f6ef682e5",
+      "changedPaths": [
+        "src/adapters/antigravity/broker.ts",
+        "src/adapters/antigravity/execution.ts",
+        "src/adapters/antigravity/isolation.ts",
+        "src/adapters/pi/native-file.ts",
+        "test/antigravity.test.mjs",
+        "test/pi-runtime.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-41b65216685a/session/2026-11-27T09-33-42-108Z_becdb67a-2659-499b-ac5a-f325ca195cd6.jsonl",
+      "resumeId": "/Users/me/IdeaProjects/knit/.knit/.runtime/runs/r-41b65216685a/session/2026-11-27T09-33-42-108Z_becdb67a-2659-499b-ac5a-f325ca195cd6.jsonl"
+    }
+  ],
+  "authorization": "授权"
+}
