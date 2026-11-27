@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
+import { RUNS_DIR, TASK_ID_PATTERN, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
 import { completedBatches, dispatchLimit, nextStep, resumableRun, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/report.js";
@@ -69,13 +69,28 @@ function refuse(...problems: string[]): PrepareRunResult {
 
 export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedRun) => void): PrepareRunResult {
   const { root, taskId } = input;
-  const stored = findTask(root, taskId, { includeWorktrees: false });
-  if (stored === null) return refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
-  const { document, record } = stored;
-  if (document === null || record === null) return refuse(...stored.problems);
+  const missing = () => refuse(`没有任务 ${taskId}；用 knit task list 查看现有任务`);
+  const initial = findTask(root, taskId, { includeWorktrees: false });
+  if (initial === null) return missing();
+  // 损坏的任务可以按原始 id 查到，只有合法任务 id 才能用于锁文件名。
+  if (!new RegExp(TASK_ID_PATTERN).test(taskId)) return refuse(...initial.problems);
   if (gitSync(["rev-parse", "--is-inside-work-tree"], root).code !== 0) {
     return refuse("这个目录不在 Git 仓库里，不能派发执行者");
   }
+  return withTaskRunLock(root, taskId, 0, () => {
+    const stored = findTask(root, taskId, { includeWorktrees: false });
+    if (stored === null) return missing();
+    const { document, record } = stored;
+    if (document === null || record === null) return refuse(...stored.problems);
+    const prepared = prepareStage(input, { root, stored, document, record });
+    if (prepared.run && startWorker) prepared.runs.forEach(startWorker);
+    return prepared;
+  }, () => refuse(`任务 ${taskId} 正在准备或结算执行，请稍后重试`));
+}
+
+function prepareStage(input: PrepareRunInput, task: LoadedTask): PrepareRunResult {
+  const { root, document, record } = task;
+  const taskId = input.taskId;
   const status = currentStatus(document, record);
   if (status === "draft") return refuse(`需求还没有确认，或确认之后改过；先运行 knit task ready ${taskId}`);
   if (status !== "ready" && status !== "active") return refuse(`任务已经结束（${status}），不能再派发`);
@@ -108,13 +123,7 @@ export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedR
   if (gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code !== 0) {
     return refuse("这个 Git 仓库还没有提交；先提交一次，再派发执行者");
   }
-  const prepare = () => {
-    const prepared = prepareExecutors(input, { root, stored, document, record }, stage, targets);
-    if (prepared.run && startWorker) prepared.runs.forEach(startWorker);
-    return prepared;
-  };
-  if (!input.workflow.stages.some((item) => item.executors.length > 1)) return prepare();
-  return withTaskRunLock(root, taskId, 0, prepare, () => refuse(`任务 ${taskId} 正在准备或结算执行，请稍后重试`));
+  return prepareExecutors(input, task, stage, targets);
 }
 
 function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: WorkflowStage, targets: readonly ReturnType<typeof resolveExecutor>[]): PrepareRunResult {

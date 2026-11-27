@@ -241,10 +241,11 @@ test("结束之后显示结果和下一步", (t) => {
 /** 命令行里带着这次执行 id 的进程：后台进程和它启动的假 Pi。 */
 const processesOf = (runId) => spawnSync("pgrep", ["-f", runId], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
 
-test("批次刚入账时的 wait 和 cancel 会等 worker 登记进程身份", async (t) => {
+for (const count of [1, 2]) test(`${count} 个执行器刚入账时的 status、wait 和 cancel 会等 worker 登记进程身份`, async (t) => {
   const root = runProject(t);
   const task = readyTask(root);
-  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n";
+  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n" +
+    (count === 2 ? "    executors: [{id: a}, {id: b}]\n" : "");
   writeFileSync(join(root, ".knit/workflow.yaml"), source);
   const input = { root, taskId: task.id, workflow: parseWorkflow(source).workflow, config: loadConfig(root).config, model: null };
   const pending = {};
@@ -261,9 +262,11 @@ test("批次刚入账时的 wait 和 cancel 会等 worker 登记进程身份", a
     assert.equal(await Promise.race([pending.wait.then(() => true), sleep(20, false)]), false);
     const cancelled = await pending.cancel;
     assert.deepEqual(cancelled.problems, []);
-    assert.deepEqual(cancelled.runs.map((run) => run.workerMissing), [false, false]);
+    assert.equal(cancelled.runs.length, count);
+    assert.ok(cancelled.runs.every((run) => run.workerMissing === false));
     const { runs } = JSON.parse(readFileSync(join(root, task.dir, "record.json"), "utf8"));
-    assert.deepEqual(runs.map((run) => run.failure), ["已取消", "已取消"]);
+    assert.equal(runs.length, count);
+    assert.ok(runs.every((run) => run.failure === "已取消" && !Object.hasOwn(run, "resumeBlocked")));
   } finally {
     await pending.cancel;
     if (lastRun(root, task).endedAt === null) await cancelRun({ ...input, agents });

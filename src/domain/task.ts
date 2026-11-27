@@ -148,6 +148,7 @@ export function renderTaskRecord(record: TaskRecord): string {
       endedAt: run.endedAt,
       verdict: run.verdict,
       failure: run.failure,
+      resumeBlocked: run.resumeBlocked,
       requirementDigest: run.requirementDigest,
       changedPaths: run.changedPaths,
       sessionFile: run.sessionFile,

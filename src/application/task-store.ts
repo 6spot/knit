@@ -3,7 +3,7 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { sha256Bytes } from "../contracts/primitives.js";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
@@ -16,7 +16,7 @@ import {
   unparsedTaskId,
   type TaskDocument,
 } from "../domain/task.js";
-import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
+import { atomicWrite, InfrastructureError, readWithVersion } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { projectWorktreeRoot, taskWorktree } from "./worktree.js";
 
@@ -265,33 +265,46 @@ function gitCommonDirectory(root: string): string | null {
 
 /**
  * 把改过的两个文件写回。读入之后有文件被别人改过时不写，返回是哪个文件。
- * 先写 record.json 再写 task.md：中间断掉时状态和确认摘要对不上，任务按 draft 算，重新确认一次即可。
+ * 先写 record.json 再写 task.md。后者遇到版本冲突时，用刚写入的版本撤回前者。
  */
 export function saveTask(root: string, stored: StoredTask, document: TaskDocument | null, record: TaskRecord): string[] {
   if (root !== stored.storeRoot) return [`任务已在 Worktree 归档，只能读取：${join(stored.storeRoot, stored.dir)}`];
   const taskFile = join(root, stored.dir, TASK_FILE);
   const recordFile = join(root, stored.dir, RECORD_FILE);
+  const taskSha = readWithVersion(taskFile)?.sha256;
+  const previousRecord = readWithVersion(recordFile);
   const changed = [
-    ...(readWithVersion(taskFile)?.sha256 === stored.versions.task ? [] : [TASK_FILE]),
-    ...((readWithVersion(recordFile)?.sha256 ?? null) === stored.versions.record ? [] : [RECORD_FILE]),
+    ...(taskSha === stored.versions.task ? [] : [TASK_FILE]),
+    ...((previousRecord?.sha256 ?? null) === stored.versions.record ? [] : [RECORD_FILE]),
   ];
-  if (changed.length > 0) return changed.map((file) => `${stored.dir}/${file} 在读入之后被改过，没有写入；重新运行一次`);
-  // 记录没有改动时不写：还没有内容要记的任务不会多出一个空的 record.json。
-  if (record !== stored.record) {
-    atomicWrite({
-      path: recordFile,
-      data: Buffer.from(renderTaskRecord(record)),
-      expectedSha256: stored.versions.record,
-      mode: 0o644,
-    });
+  const conflict = (file: string) => `${stored.dir}/${file} 在读入之后被改过，没有写入；重新运行一次`;
+  if (changed.length > 0) return changed.map(conflict);
+  // 未改动的记录跳过写入，也无需在文档冲突时回滚。
+  const writtenRecord = record === stored.record ? undefined
+    : writeTaskFile(recordFile, Buffer.from(renderTaskRecord(record)), stored.versions.record);
+  if (writtenRecord === null) return [conflict(RECORD_FILE)];
+  if (document === null || writeTaskFile(taskFile, Buffer.from(renderTaskDocument(document)), stored.versions.task)) return [];
+
+  const conflicts = [conflict(TASK_FILE)];
+  if (writtenRecord === undefined) return conflicts;
+  if (previousRecord !== null) {
+    if (!writeTaskFile(recordFile, previousRecord.data, writtenRecord.sha256)) conflicts.push(conflict(RECORD_FILE));
+    return conflicts;
   }
-  if (document !== null) atomicWrite({
-    path: taskFile,
-    data: Buffer.from(renderTaskDocument(document)),
-    expectedSha256: stored.versions.task,
-    mode: 0o644,
-  });
-  return [];
+  const currentRecord = readWithVersion(recordFile);
+  if (currentRecord === null) return conflicts;
+  if (currentRecord.sha256 !== writtenRecord.sha256) return [...conflicts, conflict(RECORD_FILE)];
+  unlinkSync(recordFile);
+  return conflicts;
+}
+
+function writeTaskFile(path: string, data: Buffer, expectedSha256: string | null) {
+  try {
+    return atomicWrite({ path, data, expectedSha256, mode: 0o644 });
+  } catch (error) {
+    if (error instanceof InfrastructureError && error.code === "version_conflict") return null;
+    throw error;
+  }
 }
 
 /** 这个任务现在归档的话会在哪个目录：当月的归档目录加原目录名。 */

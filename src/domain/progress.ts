@@ -29,12 +29,13 @@ export function countedRuns(record: TaskRecord): TaskRun[] {
 export function resumableRun(record: TaskRecord, target: { stage: string; executor?: string; agent: AgentName }): TaskRun | undefined {
   const prior = record.runs.findLast((run) => run.endedAt !== null && run.requirementDigest === record.confirmedDigest &&
     run.stage === target.stage && run.executor === target.executor && (run.agent ?? DEFAULT_AGENT) === target.agent &&
-    (run.resumeId || preventsResume(run.failure)));
-  return prior?.resumeId && !preventsResume(prior.failure) ? prior : undefined;
+    (run.resumeId || preventsResume(run)));
+  return prior?.resumeId && !preventsResume(prior) ? prior : undefined;
 }
 
-function preventsResume(failure: string | null): boolean {
-  return failure !== null && /(?:^|；)(?:执行者提交了改动|执行者改了受保护的文件|执行清理失败)(?:：|$)/.test(failure);
+function preventsResume(run: TaskRun): boolean {
+  if (run.resumeBlocked !== undefined) return run.resumeBlocked;
+  return run.failure !== null && /(?:^|；)(?:执行者提交了改动|执行者改了受保护的文件|执行清理失败)(?:：|$)/.test(run.failure);
 }
 
 export function batchOf(record: TaskRecord, member: TaskRun | undefined): TaskRun[] {

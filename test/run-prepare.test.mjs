@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { deliverTask } from "../dist/application/delivery.js";
@@ -35,6 +36,57 @@ function endLastRun(dir, task, fields) {
   Object.assign(record.runs.at(-1), { endedAt: "2026-11-15T02:00:00.000Z", ...fields });
   writeFileSync(join(dir, task.dir, "record.json"), `${JSON.stringify(record, null, 2)}\n`);
 }
+
+test("损坏的任务 ID 仍报告字段错误，取锁前拒绝派发", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const file = join(root, task.dir, "task.md");
+  const invalidId = "invalid-id";
+  writeFileSync(file, readFileSync(file, "utf8").replace(`id: ${task.id}`, `id: ${invalidId}`));
+  const result = prepare(root, invalidId);
+  assert.equal(result.run, null);
+  assert.match(result.problems.join("\n"), /task\.md：.*id/);
+  assert.equal(existsSync(join(root, ".knit/.runtime", `${invalidId}.lock`)), false);
+});
+
+test("单执行器在锁内重读记录，并在 worker 登记前拒绝并发派发", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const input = { root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null };
+  const recordPath = join(root, task.dir, "record.json");
+  const starts = [];
+  const read = fs.readFileSync;
+  // 第一次查询取得旧字节后，让另一次派发完整入账，再把旧字节交还给第一次查询。
+  const reads = t.mock.method(fs, "readFileSync", (path, ...args) => {
+    const bytes = read(path, ...args);
+    if (path === recordPath) {
+      reads.mock.restore();
+      syncBuiltinESMExports();
+      const winner = prepareRun(input, (run) => {
+        starts.push(run.id);
+        const before = filesOf(root, task);
+        assert.deepEqual(prepareRun(input, assert.fail), {
+          run: null, problems: [`任务 ${task.id} 正在准备或结算执行，请稍后重试`],
+        });
+        assert.deepEqual(filesOf(root, task), before);
+      });
+      assert.deepEqual(winner.problems, []);
+    }
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = prepareRun(input, assert.fail);
+    assert.equal(result.run, null);
+    assert.match(result.problems.join("\n"), /还没有结束/);
+    assert.equal(starts.length, 1);
+    assert.deepEqual(recordOf(root, task).runs.map((run) => run.id), starts);
+    assert.deepEqual(runDirs(root), starts);
+  } finally {
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
 
 test("能派发时存好交接内容并登记", (t) => {
   const dir = runProject(t);
@@ -102,6 +154,7 @@ test("失败续聊准备沿用规范、需求和 fresh 的回退条件，违规�
   const failure = "执行者出错：HTTP 429";
   assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: first.id, workflow,
     verdict: null, failure, resumeId, sessionFile: resumeId }), []);
+  assert.equal(Object.hasOwn(recordOf(root, task).runs.at(-1), "resumeBlocked"), false);
   const paths = ["task.md", "record.json"].map((file) => join(root, task.dir, file));
   const baseline = paths.map((path) => readFileSync(path));
   const standards = readFileSync(digest);
@@ -169,6 +222,7 @@ test("不能派发时说明原因，什么都不写", (t) => {
     [prepare(dir, "k-000000000000"), "没有任务 k-000000000000；用 knit task list 查看现有任务"],
   ];
   for (const [result, problem] of refused) assert.deepEqual(result, { run: null, problems: [problem] });
+  assert.equal(existsSync(join(dir, ".knit/.runtime/k-000000000000.lock")), false);
   assert.deepEqual(runDirs(dir), []);
   assert.equal(existsSync(join(process.env.KNIT_HOME, "worktrees")), false);
   assert.deepEqual([first, dependent, second].map((task) => filesOf(dir, task)), before);

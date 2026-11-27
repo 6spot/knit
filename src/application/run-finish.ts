@@ -73,7 +73,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
   const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
   const verdict = failure === null && (run.batchId === undefined || (declared && Object.hasOwn(declared, "verdict"))) ? input.verdict : null;
   const persist = () => {
-    const latest = run.batchId === undefined ? stored : findTask(root, taskId);
+    const latest = findTask(root, taskId);
     if (!latest?.document || !latest.record?.runs.some((item) => item.id === runId && item.endedAt === null)) {
       return [`执行 ${runId} 不在任务 ${taskId} 的记录里，或者已经结束`];
     }
@@ -81,7 +81,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     if (after !== null && verdict === "pass") {
       atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after, null, 2)}\n`) });
     }
-    return saveTask(root, latest, latest.document, {
+    return saveTask(root, latest, null, {
       ...latest.record,
       runs: latest.record.runs.map((item) =>
         item.id === runId
@@ -90,6 +90,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
             endedAt: new Date().toISOString(),
             verdict,
             failure,
+            ...(violation !== null || cleanupFailure !== null ? { resumeBlocked: true } : {}),
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
             resumeId: input.resumeId ?? null,
@@ -99,7 +100,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
       ),
     });
   };
-  const conflicts = run.batchId === undefined ? persist() : withTaskRunLock(root, taskId, 5000, persist,
+  const conflicts = withTaskRunLock(root, taskId, 5000, persist,
     () => [`任务 ${taskId} 正在写入执行记录，请稍后重试`]);
   // 任务文件在读入之后被别人改过时重新读一遍再做。
   return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1, cleanupFailure);

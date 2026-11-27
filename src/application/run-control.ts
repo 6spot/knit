@@ -169,9 +169,9 @@ export interface WorkerProcess {
   readonly start: string | null;
 }
 
-/** 批次已登记、worker.json 还没发布时，持锁的派发进程仍在启动成员。 */
+/** 执行已登记、worker.json 还没发布时，持锁的派发进程仍在启动执行者。 */
 export function startingWorker(root: string, taskId: string, run: TaskRun): boolean {
-  return run.batchId !== undefined && run.endedAt === null && !existsSync(join(root, RUNS_DIR, run.id, "worker.json")) &&
+  return run.endedAt === null && !existsSync(join(root, RUNS_DIR, run.id, "worker.json")) &&
     taskRunLockHeld(root, taskId);
 }
 

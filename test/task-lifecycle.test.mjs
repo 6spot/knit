@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { RUNS_DIR } from "../dist/contracts/task.js";
 import { procStartTicks } from "../dist/infrastructure/process.js";
 import { loadConfig } from "../dist/application/project-config.js";
+import { startRun, taskRunLockHeld, waitRun } from "../dist/application/run-control.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { cancelTask, closeTask, readyTask } from "../dist/application/task-lifecycle.js";
@@ -233,6 +234,118 @@ test("确认后改了需求要重新确认；没改时不写文件", (t) => {
   assert.match(conflicts[0], /task\.md 在读入之后被改过/);
   assert.equal(readFileSync(task.file, "utf8"), edited);
   assert.equal(readFileSync(task.record, "utf8"), recordBefore);
+});
+
+// 两个文件的预检都读到原内容后插入一次写入，版本比较和原子写入仍由真实实现执行。
+function afterVersionCheck(t, task, change, action) {
+  const read = fs.readFileSync;
+  const reads = t.mock.method(fs, "readFileSync", (path, ...args) => {
+    const bytes = read(path, ...args);
+    if (path === task.record && reads.mock.calls.at(-1)?.arguments[0] === task.file) {
+      reads.mock.restore();
+      syncBuiltinESMExports();
+      change();
+    }
+    return bytes;
+  });
+  syncBuiltinESMExports();
+  try {
+    return action();
+  } finally {
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
+}
+
+test("saveTask 返回原子写入时发现的版本冲突并保留并发修改", (t) => {
+  const root = project(t);
+  const task = closeFixture(root);
+  for (const path of [task.record, task.file]) {
+    const stored = findTask(root, task.id);
+    const edited = `${readFileSync(path, "utf8")}\n`;
+    const conflicts = afterVersionCheck(t, task, () => writeFileSync(path, edited),
+      () => saveTask(root, stored, stored.document, { ...stored.record }));
+    assert.deepEqual(conflicts, [`${task.dir}/${basename(path)} 在读入之后被改过，没有写入；重新运行一次`]);
+    assert.equal(readFileSync(path, "utf8"), edited);
+  }
+});
+
+// 在 record.json 的原子重命名成功后插入一次并发编辑，随后恢复真实文件操作。
+function afterRecordWrite(t, task, change) {
+  const rename = fs.renameSync;
+  const hook = t.mock.method(fs, "renameSync", (source, target) => {
+    rename(source, target);
+    if (target !== task.record) return;
+    hook.mock.restore();
+    syncBuiltinESMExports();
+    change();
+  });
+  syncBuiltinESMExports();
+  t.after(() => { hook.mock.restore(); syncBuiltinESMExports(); });
+}
+
+test("派发登记后 task.md 冲突会撤回记录，直接重派只启动一次 worker", async (t) => {
+  const root = runProject(t);
+  const task = closeFixture(root);
+  fs.appendFileSync(task.record, "\n");
+  const [markdown, originalRecord] = files(task);
+  const workerCommand = t.mock.fn((run) => [process.execPath, "-e", "process.stdout.write(process.argv[1])", run.id]);
+  const start = () => startRun({ root, taskId: task.id, workflow: workflowOf(root), config: loadConfig(root).config, model: null, workerCommand });
+  afterRecordWrite(t, task, () => {
+    assert.equal(record(task).runs[0].endedAt, null);
+    fs.appendFileSync(task.file, "\n");
+  });
+
+  assert.deepEqual(start(), { run: null, problems: [`${task.dir}/task.md 在读入之后被改过，没有写入；重新运行一次`] });
+  assert.equal(workerCommand.mock.callCount(), 0);
+  assert.deepEqual(files(task), [`${markdown}\n`, originalRecord]);
+  assert.deepEqual(readdirSync(join(root, RUNS_DIR)), []);
+
+  const retry = start();
+  assert.deepEqual(retry.problems, []);
+  assert.equal(workerCommand.mock.callCount(), 1);
+  assert.deepEqual(record(task).runs.map((run) => run.id), [retry.run.id]);
+  assert.deepEqual(readdirSync(join(root, RUNS_DIR)), [retry.run.id]);
+  const waited = await waitRun(root, task.id, undefined, Date.now() + 5000, { pollMs: 10 });
+  assert.deepEqual(waited.problems, []);
+  assert.equal(waited.timedOut, undefined);
+  assert.equal(readFileSync(join(root, retry.run.dir, "worker.log"), "utf8"), retry.run.id);
+});
+
+test("task.md 冲突只撤回本次创建或更新的 record.json，保留第三方版本", (t) => {
+  const root = project(t);
+  for (const [ready, replaced] of [[false, false], [false, true], [true, true]]) {
+    const task = closeFixture(root, { ready });
+    const stored = findTask(root, task.id);
+    const thirdParty = renderTaskRecord({ ...stored.record, changedPaths: ["third-party.txt"] });
+    afterRecordWrite(t, task, () => {
+      fs.appendFileSync(task.file, "\n");
+      if (replaced) writeFileSync(task.record, thirdParty);
+    });
+    const conflicts = saveTask(root, stored, stored.document, { ...stored.record, changedPaths: ["this-write.txt"] });
+    assert.match(conflicts[0], /task\.md 在读入之后被改过/);
+    assert.equal(existsSync(task.record), replaced);
+    if (replaced) assert.equal(readFileSync(task.record, "utf8"), thirdParty);
+  }
+});
+
+test("单执行器结算遇到原子写入版本冲突时重读并保留清理失败的续聊阻断标记", (t) => {
+  const root = runProject(t);
+  const task = closeFixture(root);
+  const run = prepare(root, task);
+  const cleanRun = t.mock.fn(() => { throw new Error("无法删除临时文件"); });
+  const result = afterVersionCheck(t, task, () => {
+    assert.equal(taskRunLockHeld(root, task.id), true);
+    writeFileSync(task.record, renderTaskRecord({ ...record(task), changedPaths: ["concurrent.txt"] }));
+  }, () => finishRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root),
+    agents: { ...agents, pi: { ...agents.pi, cleanRun } }, failure: null, verdict: null, sessionFile: null }));
+  assert.deepEqual(result, []);
+  const latest = record(task);
+  assert.deepEqual(latest.changedPaths, ["concurrent.txt"]);
+  assert.equal(cleanRun.mock.callCount(), 1);
+  assert.ok(latest.runs[0].endedAt);
+  assert.equal(latest.runs[0].failure, "执行清理失败：无法删除临时文件");
+  assert.equal(latest.runs[0].resumeBlocked, true);
 });
 
 const REQUIREMENT =

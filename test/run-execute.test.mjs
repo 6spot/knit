@@ -537,6 +537,7 @@ test("提交了改动或改了受保护的文件时记为失败", (t) => {
   assert.deepEqual(finish(dir, task, committed, { verdict: "pass" }), []);
   const first = lastRun(dir, task);
   assert.equal(first.verdict, null);
+  assert.equal(first.resumeBlocked, true);
   assert.match(first.failure, /^执行者提交了改动：HEAD 从 [0-9a-f]{7} 变成 [0-9a-f]{7}$/);
   assert.deepEqual(first.changedPaths, ["src/a.ts"]);
 
@@ -546,6 +547,7 @@ test("提交了改动或改了受保护的文件时记为失败", (t) => {
   assert.deepEqual(finish(dir, task, guarded, { verdict: "pass" }), []);
   const second = lastRun(dir, task);
   assert.equal(second.verdict, null);
+  assert.equal(second.resumeBlocked, true);
   assert.equal(second.failure, "执行者改了受保护的文件：.knit/standards/development.md");
   assert.deepEqual(second.changedPaths, [".knit/standards/development.md", "src/b.ts"]);
 });

@@ -219,6 +219,17 @@ test("续聊按需求、环节、执行器和 Agent 匹配，不依赖成功计�
   }
 });
 
+test("续聊阻断标记优先于失败文案，缺少恢复标识也会阻断更早的会话", () => {
+  const target = { stage: "implement", agent: "pi" };
+  const prior = runOf("implement", { resumeId: "same" });
+  for (const resumeId of [null, prior.resumeId]) {
+    const blocked = { ...prior, id: "r-blocked", resumeId, resumeBlocked: true, failure: "结算文案已更新" };
+    assert.equal(resumableRun(recordOf(prior, blocked), target), undefined);
+  }
+  const allowed = { ...prior, resumeBlocked: false, failure: "执行清理失败：历史文案" };
+  assert.equal(resumableRun(recordOf(allowed), target), allowed);
+});
+
 test("连续失败的审查续聊不消耗返工次数，也不提前通过", () => {
   const workflow = workflowOf(["  - id: implement", ...REVIEW, "    maxVisits: 0"]);
   const implement = runOf("implement");

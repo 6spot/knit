@@ -2,7 +2,7 @@
  * 任务的两个文件：`task.md` 的开头字段和 `record.json` 的结构。
  * 解析和写回在 domain/task.ts。
  */
-import { arr, nullable, obj, oneOf, opt, str, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, nullable, obj, oneOf, opt, str, type Static } from "@earendil-works/pi-schema";
 import { AgentNameSchema, WORKFLOW_STAGE_ID_PATTERN } from "./workflow.js";
 
 export const RUNS_DIR = ".knit/.runtime/runs";
@@ -39,6 +39,7 @@ export const TaskRunSchema = obj({
   verdict: nullable(str({ minLength: 1 })),
   /** 失败的原因；正在跑和正常结束时是 null。 */
   failure: nullable(str({ minLength: 1 })),
+  resumeBlocked: opt(bool()),
   requirementDigest: str({ minLength: 1 }),
   changedPaths: arr(str({ minLength: 1 })),
   sessionFile: nullable(str({ minLength: 1 })),
