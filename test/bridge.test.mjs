@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { buildSessionContext, contextLines } from "../dist/application/session-context.js";
 import { createTask } from "../dist/application/task-store.js";
@@ -89,6 +92,10 @@ test("任务工具转交创建、列表、确认、完成和路径补录", async
     [frontmatter.title, frontmatter.verification, frontmatter.priority],
     ["- 以横线开头", "independent", "P1"],
   );
+
+  const invalidDeps = await bridge.tool("knit_task", { action: "new", title: "验证依赖", dependsOn: ["-first", "-second"] });
+  assert.equal(invalidDeps.isError, true);
+  for (const id of ["-first", "-second"]) assert.ok(text(invalidDeps).includes(`--depends-on 指定的任务不存在：${id}`));
 
   const listed = await bridge.tool("knit_task", { action: "list" });
   assert.equal(listed.isError, undefined);
@@ -207,7 +214,40 @@ test("Pi Bash 钩子仅为需要核对的命令启动 CLI", async (t) => {
   for (const command of checked) {
     assert.equal(await bridge.fire("tool_call", { toolName: "bash", input: { command } }), undefined, command);
   }
-  assert.equal(readFileSync(calls, "utf8"), "hook pi tool-call\n".repeat(denied.length + checked.length));
+  const dynamicDir = { toolName: "bash", input: { command: "knit deliver id --dir $ROOT --authorization '授权交付'" } };
+  assert.equal(await bridge.fire("tool_call", dynamicDir), undefined);
+  assert.match(dynamicDir.input.command, /--dir "\$ROOT"/);
+  assert.equal(readFileSync(calls, "utf8"), "hook pi tool-call\n".repeat(denied.length + checked.length + 1));
+  for (const response of ["{", '{"quotes":false}', "{}"]) {
+    writeFileSync(join(bin, "knit"), `#!/bin/sh\nprintf '%s' '${response}'\n`);
+    assert.equal((await bridge.fire("tool_call", { toolName: "bash", input: { command: denied[0] } })).block, true);
+  }
+});
+
+test("Pi 取消失败或只取消一个成员时继续等待整批通知", async (t) => {
+  const { bridge } = await bridged(t);
+  const bin = emptyDir(t);
+  const release = join(bin, "finished");
+  writeFileSync(join(bin, "knit"), `#!/bin/sh
+case "$2" in
+  cancel) [ "$4" = '--run=first' ] ;;
+  wait) while [ ! -f '${release}' ]; do sleep 0.02; done; echo 'first 已取消，second 已完成' ;;
+esac\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  const run = (params) => bridge.tool("knit_run", { taskId: "fixture", ...params });
+  try {
+    assert.equal((await run({ action: "start" })).isError, undefined);
+    assert.equal((await run({ action: "cancel" })).isError, true);
+    assert.equal((await run({ action: "cancel", runId: "first" })).isError, undefined);
+    assert.deepEqual(bridge.messages, []);
+    writeFileSync(release, "");
+    for (let i = 0; i < 200 && !bridge.messages.length; i++) await sleep(10);
+    assert.equal(bridge.messages.length, 1);
+    assert.equal(bridge.messages[0].message.customType, "knit.run-ended");
+    assert.match(bridge.messages[0].message.content, /first 已取消，second 已完成/);
+  } finally {
+    await bridge.fire("session_shutdown");
+  }
 });
 
 test("选中和取消选中", async (t) => {
@@ -427,6 +467,21 @@ test("带提交文案预览", async (t) => {
   assert.deepEqual([git(dir, "status", "--porcelain"), readFileSync(join(dir, task.dir, "task.md"), "utf8")], before);
   assert.match(before[1], /^status: done$/m);
   assert.deepEqual(readdirSync(tmp), []);
+});
+
+test("文案写入失败时清理已创建的临时目录", async (t) => {
+  const { bridge } = await bridged(t);
+  const tmp = emptyTmpdir(t);
+  const failure = new Error("文案写入失败");
+  const fault = t.mock.method(fsPromises, "writeFile", async () => { throw failure; });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(bridge.tool("knit_deliver", { taskId: "fixture", preview: true, message: "文案" }), failure);
+    assert.deepEqual(readdirSync(tmp), []);
+  } finally {
+    fault.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
 
 test("不带提交文案预览", async (t) => {

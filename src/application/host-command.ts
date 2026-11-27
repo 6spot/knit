@@ -1,17 +1,31 @@
 import { basename } from "node:path";
-import type { CallExpr, Word, WordPart } from "sh-syntax";
+import type { CallExpr, Node, Word, WordPart } from "sh-syntax";
 import { shellQuote } from "../infrastructure/process.js";
 
-const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>，把 --preview 放在动态任务 ID 之前。文案可以用单引号按原样传入，或用 --message-file <文件> 读取";
+const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>。文案可以用单引号按原样传入，或用 --message-file <文件> 读取";
 
 type HostCommand =
   | { kind: "session"; offset: number }
   | { kind: "start" | "validateEnv"; offset: number; explicit: boolean };
 
+const escapes: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
+
+function ansiLiteral(text: string): string | null {
+  const chars = [...text.matchAll(/[^\\]+|\\(x[\da-fA-F]{1,2}|u[\da-fA-F]{1,4}|U[\da-fA-F]{1,8}|[0-7]{1,3}|[\s\S]?)/g)].map(([raw, escape]: string[]) => {
+    if (escape === undefined) return raw;
+    if (escapes[escape] !== undefined) return escapes[escape];
+    const unicode = /^[uU]/.test(escape);
+    const value = /^[xuU]/.test(escape) ? parseInt(escape.slice(1), 16) : parseInt(escape, 8);
+    // 非 ASCII 字节的含义由 shell 的 locale 决定，NUL 也不能进入 argv。
+    return value > 0 && value <= (unicode ? 0x10ffff : 127) ? String.fromCodePoint(value) : null;
+  });
+  return chars.includes(null) ? null : chars.join("");
+}
+
 /** 只读取静态参数。命令替换由语法树单独遍历，变量和通配符不作为原话。 */
 function literal(parts: WordPart[], quoted = false): string | null {
   const values = parts.map((part): string | null => {
-    if (part.type === "SglQuoted" && !part.dollar) return part.value;
+    if (part.type === "SglQuoted") return part.dollar ? ansiLiteral(part.value) : part.value;
     if (part.type === "DblQuoted" && !part.dollar) return literal(part.parts, true);
     if (part.type !== "Lit") return null;
     if (!quoted && /[*?\[{}~]/.test(part.value)) return null;
@@ -20,22 +34,53 @@ function literal(parts: WordPart[], quoted = false): string | null {
   return values.includes(null) ? null : values.join("");
 }
 
-function executableIndex(args: (string | null)[], start = 0): number {
-  const wrapper = basename(args[start] ?? "");
-  if (!["env", "command", "exec"].includes(wrapper)) return start;
-  for (let index = start + 1; index < args.length; index++) {
-    const arg = args[index];
-    if (wrapper === "command" && /^-[pvV]*[vV][pvV]*$/.test(arg ?? "")) return -1;
-    if (["-u", "--unset", "-C", "--chdir"].includes(arg ?? "")) { index++; continue; }
-    if (arg === null || arg === undefined || arg.startsWith("-") || /^[A-Za-z_]\w*=/.test(arg)) continue;
-    return executableIndex(args, index);
+type Argument = { value: string | null; raw: string; word: Word; virtual?: boolean };
+const wrapperOptions: Record<string, string[]> = {
+  env: ["-u", "--unset", "-C", "--chdir", "-P", "-a", "--argv0"], command: [], exec: ["-a"], nohup: [],
+  nice: ["-n", "--adjustment"], timeout: ["-s", "--signal", "-k", "--kill-after"], caffeinate: ["-t", "-w"],
+};
+const bundledWrapperOption: Partial<Record<string, RegExp>> = {
+  env: /^-[iv0]+[uCPa]$/, exec: /^-[cl]+a$/, timeout: /^-[fpv]+[sk]$/, caffeinate: /^-[dimsu]+[tw]$/,
+};
+
+function executableIndex(args: Argument[], start = 0): { args: Argument[]; index: number } | null {
+  const wrapper = basename(args[start]?.value ?? "");
+  if (!Object.hasOwn(wrapperOptions, wrapper)) return { args, index: start };
+  for (let i = start + 1; i < args.length; i++) {
+    const arg = args[i]!.value;
+    if (wrapper === "command" && /^-[pvV]*[vV][pvV]*$/.test(arg ?? "")) break;
+    const splitOption = wrapper === "env" && arg?.match(/^(?:-[iv0]*S|--split-string(?:=|$))/)?.[0];
+    if (splitOption && arg !== null) {
+      const body = arg === splitOption && !arg.endsWith("=") ? args[++i]?.value : arg.slice(splitOption.length);
+      const split = body === undefined || body === null ? null : splitEnvArguments(body, args[start]!.word);
+      if (split === null) return null;
+      return executableIndex([...args.slice(0, start + 1), ...split, ...args.slice(i + 1)], start);
+    }
+    if (wrapperOptions[wrapper]!.includes(arg ?? "") || bundledWrapperOption[wrapper]?.test(arg ?? "")) { i++; continue; }
+    if (arg === "--") {
+      if (wrapper === "env") {
+        while (/^[A-Za-z_]\w*=/.test(args[i + 1]?.value ?? args[i + 1]?.raw ?? "")) i++;
+      }
+      return executableIndex(args, i + (wrapper === "timeout" ? 2 : 1));
+    }
+    if (arg?.startsWith("-") || (wrapper === "env" && /^[A-Za-z_]\w*=/.test(arg ?? args[i]!.raw))) continue;
+    return executableIndex(args, i + (wrapper === "timeout" ? 1 : 0));
   }
-  return -1;
+  return { args, index: -1 };
+}
+
+// env 自己拆词。只展开普通字符与成对引号；其余 env 专有语法保守处理。
+function splitEnvArguments(body: string, word: Word): Argument[] | null {
+  const tokens = body.match(/[ \t]+|(?:[\p{L}\p{N}_./:=,@%+\-]|'[^'\\\n]*'|"[^"$\\\n]*")+/gu) ?? [];
+  if (tokens.join("") !== body) return null;
+  return tokens.filter((raw) => !/^[ \t]/.test(raw)).map((raw) => ({
+    raw, value: raw.replace(/'([^']*)'|"([^"]*)"/g, (_, a: string | undefined, b: string) => a ?? b), word, virtual: true,
+  }));
 }
 
 // shell 遇到脚本路径后，剩余选项都交给该脚本。
-function shellScriptArgument(args: (string | null)[], i: number, commandString = false): number | null {
-  const arg = args[i];
+function shellScriptArgument(args: Argument[], i: number, commandString = false): number | null {
+  const arg = args[i]?.value;
   if (arg === undefined) return -1;
   if (arg === null) return null;
   if (arg === "--" || arg === "-") return commandString ? i + 1 : -1;
@@ -44,37 +89,45 @@ function shellScriptArgument(args: (string | null)[], i: number, commandString =
   return shellScriptArgument(args, i + (hasValue ? 2 : 1), commandString || /^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg));
 }
 
+type Edit = { start: number; end: number; text: string };
 type Script = { kind: "script"; text: string; words: Word[] };
-type CommandCheck = HostCommand | { kind: "delivery"; quote: string } | Script;
+type CommandCheck = HostCommand | { kind: "delivery"; quote: string | null; edits?: Edit[] } | Script | ReturnType<typeof indirect>;
 
-function inspectCall(call: CallExpr, source: string, index: (byte: number) => number): CommandCheck | null {
-  const args = call.args.map((word) => literal(word.parts));
-  const executable = executableIndex(args);
-  const name = basename(args[executable] ?? "");
+function indirect(context: string, mentionsKnit = context.includes("knit")) {
+  return { kind: "indirect" as const, delivery: mentionsKnit && context.includes("deliver"), start: mentionsKnit && /run[\s\S]*start/.test(context) };
+}
+
+function inspectCall(call: CallExpr, source: string, context: string, index: (byte: number) => number): CommandCheck | null {
+  const resolved = executableIndex(call.args.map((word) => ({ word, raw: source.slice(index(word.start), index(word.end)), value: literal(word.parts) })));
+  if (resolved === null) return { kind: "indirect", delivery: true, start: true };
+  const args = resolved.args;
+  const executable = args[resolved.index];
+  if (!executable) return null;
+  if (executable.value === null) return indirect(context, source.replace(/['"]/g, "").includes("knit"));
+  const name = basename(executable.value);
+  const words = args.slice(resolved.index + 1);
+  if (name === "source" || name === ".") return indirect(context);
   if (name === "eval" || ["sh", "bash", "zsh", "dash", "ksh"].includes(name)) {
-    const start = name === "eval" ? executable + 1 : shellScriptArgument(args, executable + 1);
-    if (start === -1) return null;
-    if (start !== null) {
-      const end = name === "eval" ? args.length : start + 1;
-      const body = args.slice(start, end);
-      if (!body.includes(null)) return { kind: "script", text: body.join(" "), words: call.args.slice(start, end) };
-    }
-    const raw = source.slice(index(call.start), index(call.end));
-    if (/knit[\s\S]*deliver/.test(raw)) return { kind: "delivery", quote: "" };
-    return /knit[\s\S]*run[\s\S]*start/.test(raw) ? { kind: "start", offset: index(call.start), explicit: true } : null;
+    const start = name === "eval" ? Number(words[0]?.value === "--") : shellScriptArgument(words, 0);
+    if (start === -1 || start === null) return indirect(context);
+    const body = name === "eval" ? words.slice(start) : words.slice(start, start + 1);
+    if (body.some((arg) => arg.value === null)) return indirect(context);
+    return { kind: "script", text: body.map((arg) => arg.value).join(" "), words: body.some((arg) => arg.virtual) ? [] : body.map((arg) => arg.word) };
   }
   if (name !== "knit") return null;
-
-  const words = call.args.slice(executable + 1).map((word, i) => ({
-    raw: source.slice(index(word.start), index(word.end)), value: args[executable + 1 + i] ?? null,
-  }));
-  const { operands, flags, preview, uncertain } = knitArguments(words);
+  const values = words.map((arg) => arg.value);
+  if (["--help", "-h"].includes(values.at(-1) ?? "") && (values.length === 2 && values[0] === "deliver" ||
+      values.length === 3 && values[0] === "run" && values[1] === "start")) return null;
+  // 唯一的任务参数只占一个 argv。若它成为选项，则 CLI 缺少任务 ID。
+  if (values.length === 3 && values[0] === "deliver" && values[1] === null && quotedScalar.test(words[1]!.raw) && values[2] === "--preview") return null;
+  const { operands, flags, preview, uncertain, directories } = knitArguments(words);
   if (operands[0] === null) return { kind: "delivery", quote: "" };
   if (operands[0] === "deliver") {
-    if (preview) return null;
-    return { kind: "delivery", quote: uncertain ? "" : flags.get("--authorization")?.trim() ?? "" };
+    return { kind: "delivery", quote: preview ? null : uncertain ? "" : flags.get("--authorization")?.trim() ?? "", edits: directories.map((arg) => ({
+      start: index(arg.word.start), end: index(arg.word.end), text: `"${arg.raw}"`,
+    })) };
   }
-  const offset = index(call.args[executable]!.start);
+  const offset = index(executable.word.start);
   const select = operands[0] === "context" && (flags.has("--use") || flags.has("--unuse"));
   const newTask = operands[0] === "task" && operands[1] === "new";
   if (select || newTask) return { kind: "session", offset };
@@ -82,17 +135,17 @@ function inspectCall(call: CallExpr, source: string, index: (byte: number) => nu
   const validateEnv = operands[0] === "workflow" && operands[1] === "validate" && flags.has("--env");
   if (!start && !validateEnv) return null;
   const explicit = call.assigns.some((assign) => assign.name?.value === "KNIT_SESSION_AGENT") ||
-    call.args.slice(0, executable).some((word, i) => args[i]?.startsWith("KNIT_SESSION_AGENT=") ||
-      source.slice(index(word.start), index(word.end)).startsWith("KNIT_SESSION_AGENT="));
+    args.slice(0, resolved.index).some((arg) => (arg.value ?? arg.raw).startsWith("KNIT_SESSION_AGENT="));
   return { kind: start ? "start" : "validateEnv", offset, explicit };
 }
 
-function knitArguments(words: { raw: string; value: string | null }[]) {
+const quotedScalar = /^"(?:[^"$`\\]|\\[\s\S]|\$(?:[a-zA-Z_]\w*|\{[a-zA-Z_]\w*(?::-[\w ./-]*)?\}))*"$/;
+
+function knitArguments(words: Argument[]) {
   const flags = new Map<string, string | null>();
   const operands: (string | null)[] = [];
+  const directories: Argument[] = [];
   const state = { uncertain: false, preview: false };
-  // 带引号的标量路径可以含目录后缀，仍只占一个选项值。
-  const scalar = /^"(?:[^"$`\\]|\\[\s\S]|\$(?:[a-zA-Z_]\w*|\{[a-zA-Z_]\w*\}))*"$/;
   for (let i = 0; i < words.length; i++) {
     const input = words[i]!;
     const word = input.value;
@@ -102,12 +155,15 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
     }
     const flag = word?.split("=", 1)[0] ?? /^"?(--[\w-]+)=/.exec(input.raw)?.[1];
     if (flag && ["--dir", "--authorization", "--message", "--message-file", "--use"].includes(flag)) {
-      const arg = word === flag ? words[++i] : {
+      const arg = word === flag ? words[++i] : { ...input,
         raw: input.raw.startsWith(`${flag}=`) ? input.raw.slice(flag.length + 1) : input.raw,
         value: word?.slice(flag.length + 1) ?? null,
       };
-      if (arg?.value === null && !scalar.test(arg.raw)) {
-        state.uncertain = true;
+      if (arg?.value === null && !quotedScalar.test(arg.raw)) {
+        // 裸目录变量可能展开成多个 argv。按单一路径传给 CLI 才能独立核对授权。
+        const bareDirectory = flag === "--dir" && /^\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})$/.test(arg.raw);
+        if (bareDirectory) directories.push(word === flag ? arg : input);
+        state.uncertain ||= !bareDirectory;
         if (flag === "--message") state.preview = false;
       }
       flags.set(flag, arg?.value ?? null);
@@ -118,52 +174,53 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
       operands.push(word);
       continue;
     }
-    // 在动态任务 ID 之前识别的预览开关仍然有效。
     if (word === "--preview" && !state.uncertain) state.preview = true;
     flags.set(word, null);
   }
-  return { flags, operands, ...state };
+  return { flags, operands, directories, ...state };
 }
 
-// 与 Pi 模板中的判定保持一致。反斜杠和展开交给语法树；引号拼接后也不能出现待检查名称。
+// 与 Pi 模板同步。仅展开、转义和 Knit 名称（含引号拼接）可能引入受检查的调用。
 export function canSkipHostCommand(command: string): boolean {
-  if (/[$`\\]/.test(command)) return false;
-  const unquoted = command.replace(/['"]/g, "");
-  if (/knit|(?<![\w.-])(?:eval|sh|bash|zsh|dash|ksh|source|base64)(?![\w.-])/i.test(unquoted)) return false;
-  if (!/(?:^|[\s;&|(){}!<>])\.(?=$|[\s;&|()<>])/.test(unquoted)) return true;
-
-  const dotCommand = (text: string) =>
-    /(?:^|[;\r\n&|(){}!])[ \t]*\.(?=$|[\s;&|()<>])/.test(text) ||
-    // Shell 仅按空格、制表符和换行分词，赋值和文件名可以包含其他空白字符。
-    /(?:(?:^|[ \t\n])[^ \t\n=<>]*[=<>][^ \t\n]*|[<>][ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text) ||
-    /(?:^|[\s;&|(){}!])(?:(?:if|then|elif|else|while|until|do|time|coproc|builtin|command|exec|nohup|noglob|nocorrect)(?:[ \t]+-[^\s;&|(){}!]*)*|-|repeat[ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text);
-  if (dotCommand(unquoted)) return false;
-  // 带引号的赋值、重定向目标或标志即使含空白也只占一个词。
-  return command === unquoted || !dotCommand(command.replace(/'([^']*)'|"([^"]*)"/g,
-    (_, single: string | undefined, double: string) => (single ?? double).replace(/\s/g, "_")));
+  return !/knit|[$`\\]/i.test(command.replace(/['"]/g, ""));
 }
 
 async function inspectHost(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
   if (canSkipHostCommand(command)) return { command, quotes: [], hasStart: false };
   const quotes: string[] = [];
   const starts: boolean[] = [];
-  const { parse, createSourceIndex, walk } = await import("sh-syntax");
+  const { parse, createSourceIndex, walk, BinCmdOperator } = await import("sh-syntax");
   async function inspect(source: string): Promise<string> {
     const tree = await parse(source).catch(() => null);
     if (tree === null) {
-      if (/knit[\s\S]*deliver/.test(source)) quotes.push("");
-      if (/knit[\s\S]*run[\s\S]*start/.test(source)) starts.push(true);
+      const check = indirect(source.replace(/['"]/g, ""));
+      if (check.delivery) quotes.push("");
+      if (check.start) starts.push(true);
       return source;
     }
     const nested: Script[] = [];
-    const edits: { start: number; end: number; text: string }[] = [];
+    const edits: Edit[] = [];
     const index = createSourceIndex(source);
-    walk(tree, (node) => {
+    const pipelines = new WeakMap<Node, Node>();
+    walk(tree, (node, parent) => {
+      const enclosing = parent ? pipelines.get(parent) : undefined;
+      if (node.type === "BinaryCmd" && (node.op === BinCmdOperator.Pipe || node.op === BinCmdOperator.PipeAll)) pipelines.set(node, enclosing ?? node);
+      if (node.type === "Stmt" && enclosing) pipelines.set(node, enclosing);
       if (node.type !== "CallExpr") return;
-      const call = inspectCall(node, source, index);
+      const scope = enclosing ?? parent ?? node;
+      const call = inspectCall(node, source, source.slice(index(scope.start), index(scope.end)).replace(/['"]/g, ""), index);
       if (call === null) return;
       if (call.kind === "script") { nested.push(call); return; }
-      if (call.kind === "delivery") { quotes.push(call.quote); return; }
+      if (call.kind === "indirect") {
+        if (call.delivery) quotes.push("");
+        if (call.start) starts.push(true);
+        return;
+      }
+      if (call.kind === "delivery") {
+        if (call.quote !== null) quotes.push(call.quote);
+        if (call.edits) edits.push(...call.edits);
+        return;
+      }
       if (call.kind === "start") starts.push(true);
       if (call.kind !== "session" && call.explicit) return;
       const env = environment[call.kind];
@@ -172,7 +229,7 @@ async function inspectHost(command: string, environment: Partial<Record<HostComm
     for (const script of nested) {
       const updated = await inspect(script.text);
       if (updated === script.text) continue;
-      // eval 将各参数用空格拼成脚本。只替换参数本身，保留交错的重定向。
+      if (!script.words.length) { quotes.push(""); continue; }
       script.words.forEach((word, i) => edits.push({
         start: index(word.start), end: index(word.end), text: i === 0 ? shellQuote(updated) : "",
       }));

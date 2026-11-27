@@ -105,26 +105,13 @@ const SELECTION = "knit.selection";
 
 // 与 src/application/host-command.ts 中的判定保持一致；模板须能独立运行。
 export function canSkipHostCommand(command: string): boolean {
-  if (/[$`\\]/.test(command)) return false;
-  const unquoted = command.replace(/['"]/g, "");
-  if (/knit|(?<![\w.-])(?:eval|sh|bash|zsh|dash|ksh|source|base64)(?![\w.-])/i.test(unquoted)) return false;
-  if (!/(?:^|[\s;&|(){}!<>])\.(?=$|[\s;&|()<>])/.test(unquoted)) return true;
-
-  const dotCommand = (text: string) =>
-    /(?:^|[;\r\n&|(){}!])[ \t]*\.(?=$|[\s;&|()<>])/.test(text) ||
-    // Shell 仅按空格、制表符和换行分词，赋值和文件名可以包含其他空白字符。
-    /(?:(?:^|[ \t\n])[^ \t\n=<>]*[=<>][^ \t\n]*|[<>][ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text) ||
-    /(?:^|[\s;&|(){}!])(?:(?:if|then|elif|else|while|until|do|time|coproc|builtin|command|exec|nohup|noglob|nocorrect)(?:[ \t]+-[^\s;&|(){}!]*)*|-|repeat[ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text);
-  if (dotCommand(unquoted)) return false;
-  // 带引号的赋值、重定向目标或标志即使含空白也只占一个词。
-  return command === unquoted || !dotCommand(command.replace(/'([^']*)'|"([^"]*)"/g,
-    (_, single: string | undefined, double: string) => (single ?? double).replace(/\s/g, "_")));
+  return !/knit|[$`\\]/i.test(command.replace(/['"]/g, ""));
 }
 
 export default function knitBridge(pi: Pi): void {
   if (process.env.KNIT_PI_EXECUTOR === "1") return;
   // 正在等执行结束的 knit run wait，按任务 id 记。派发成功时才启动：这个函数可能在没有会话的调用里运行。
-  const waiting = new Map<string, ChildProcess>();
+  const waiting = new Map<string, BatchWait>();
 
   pi.registerTool<TaskParams>({
     name: "knit_task",
@@ -234,7 +221,9 @@ export default function knitBridge(pi: Pi): void {
       checked = await check(messages);
     }
     if (checked.code !== 0) return { block: true, reason: checked.stderr.trimEnd() };
-    const { quotes = [], command }: { quotes?: string[]; command?: string } = JSON.parse(checked.stdout);
+    const response = parseHookResult(checked.stdout);
+    if (!response) return { block: true, reason: "Knit 命令检查返回了无效结果。" };
+    const { quotes = [], command } = response;
     if (quotes.some((quote) => !quote || !userMessageSaying(ctx, quote))) {
       return { block: true, reason: "无法核对交付授权。请用 --authorization 引用当前会话中用户的整条消息或完整一行。只需预览时请用 knit deliver --preview <id>。" };
     }
@@ -245,6 +234,18 @@ export default function knitBridge(pi: Pi): void {
   pi.on("session_shutdown", async () => {
     [...waiting.keys()].forEach((taskId) => stopWaiting(waiting, taskId));
   });
+}
+
+function parseHookResult(stdout: string): { quotes?: string[]; command?: string } | undefined {
+  try {
+    const result = JSON.parse(stdout);
+    if (!result || (result.command === undefined && result.quotes === undefined)) return;
+    if (result.command !== undefined && typeof result.command !== "string") return;
+    if (result.quotes !== undefined && !(Array.isArray(result.quotes) && result.quotes.every((q: unknown) => typeof q === "string"))) return;
+    return result;
+  } catch {
+    return;
+  }
 }
 
 async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResult> {
@@ -264,7 +265,7 @@ async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResul
         ...single("--verification", params.verification),
         ...single("--priority", params.priority),
         ...single("--parent", params.parent),
-        ...several("--depends-on", params.dependsOn),
+        ...(params.dependsOn ?? []).map((id) => `--depends-on=${id}`),
       ], { ...process.env, KNIT_HOST: "pi", KNIT_HOST_SESSION: ctx.sessionManager.getSessionId() }),
     );
   }
@@ -289,12 +290,14 @@ async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResul
   );
 }
 
-/** cancel 最多要等十秒左右，等它做完。 */
-async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams, ctx: Context): Promise<ToolResult> {
+interface BatchWait {
+  child: ChildProcess;
+  cancel?: Promise<CommandResult>;
+}
+
+async function run(pi: Pi, waiting: Map<string, BatchWait>, params: RunParams, ctx: Context): Promise<ToolResult> {
   if (!params.taskId) return failure(`knit_run 的 ${params.action} 要有 taskId`);
-  // 主会话自己取消的，不需要再收一条通知。
-  if (params.action === "cancel") stopWaiting(waiting, params.taskId);
-  const result = await runKnit(
+  const pending = runKnit(
     [
       "run", params.action, params.taskId,
       ...(params.action === "cancel" && params.runId !== undefined ? [`--run=${params.runId}`] : []),
@@ -310,19 +313,25 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
       ? { ...process.env, KNIT_SESSION_AGENT: "pi", PI_PROVIDER: ctx.model?.provider, PI_MODEL: ctx.model?.id, PI_REASONING_LEVEL: ctx.thinkingLevel }
       : process.env,
   );
+  const batch = params.action === "cancel" && params.runId === undefined ? waiting.get(params.taskId) : undefined;
+  if (batch) batch.cancel = pending;
+  const result = await pending;
+  if (batch && result.code === 0 && waiting.get(params.taskId) === batch) stopWaiting(waiting, params.taskId);
   if (params.action === "start" && result.code === 0) notifyWhenEnded(pi, waiting, params.taskId);
   return toResult(result);
 }
 
 /** run wait 等到整批成员入账，stdout 包含各自的报告路径和结果。每次派发只启动一个等待进程。 */
-function notifyWhenEnded(pi: Pi, waiting: Map<string, ChildProcess>, taskId: string): void {
+function notifyWhenEnded(pi: Pi, waiting: Map<string, BatchWait>, taskId: string): void {
   // 上一次执行刚结束、它的等待还没退出时：换成等这一次的。
   stopWaiting(waiting, taskId);
   const wait = startKnit(["run", "wait", taskId]);
-  waiting.set(taskId, wait.child);
-  void wait.result.then((ended) => {
-    // 被 stopWaiting 去掉的不发消息。
-    if (waiting.get(taskId) !== wait.child) return;
+  const batch: BatchWait = { child: wait.child };
+  waiting.set(taskId, batch);
+  void wait.result.then(async (ended) => {
+    // 等待与整批取消可能同时结束，先让取消结果决定是否通知。
+    if (batch.cancel) await batch.cancel;
+    if (waiting.get(taskId) !== batch) return;
     waiting.delete(taskId);
     pi.sendMessage(
       {
@@ -339,10 +348,10 @@ function notifyWhenEnded(pi: Pi, waiting: Map<string, ChildProcess>, taskId: str
 }
 
 /** 先从表里去掉再杀：它退出时已经不在表里，不会发消息。 */
-function stopWaiting(waiting: Map<string, ChildProcess>, taskId: string): void {
-  const child = waiting.get(taskId);
+function stopWaiting(waiting: Map<string, BatchWait>, taskId: string): void {
+  const batch = waiting.get(taskId);
   waiting.delete(taskId);
-  child?.kill();
+  batch?.child.kill();
 }
 
 /** 预览什么都不改，不需要授权；真的交付要在这个会话里找到用户的原话。 */
@@ -384,11 +393,13 @@ async function withMessageFile(args: string[], message: string | undefined): Pro
   if (!message?.trim()) return toResult(await runKnit(args));
   // 提交文案的文件不能放在项目里：放在项目里它自己就成了工作区的一处改动。
   const dir = await mkdtemp(join(tmpdir(), "knit-message-"));
-  await writeFile(join(dir, "message.txt"), message);
-  // runKnit 不抛错，所以不管命令成败都会走到删除。
-  const result = await runKnit([...args, `--message-file=${join(dir, "message.txt")}`]);
-  await rm(dir, { recursive: true, force: true });
-  return toResult(result);
+  try {
+    const path = join(dir, "message.txt");
+    await writeFile(path, message);
+    return toResult(await runKnit([...args, `--message-file=${path}`]));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /** 选中的任务只决定每轮显示哪个任务；写在会话记录里，会话重开之后还在。不带 `taskId` 是取消选中。 */
@@ -414,11 +425,6 @@ function selectedTask(ctx: Context): string | null {
 /** 写成 `--选项=值` 的一个参数：值以 `-` 开头时不会被当成别的选项。没有给就不出现。 */
 function single(option: string, value: string | undefined): string[] {
   return value ? [`${option}=${value}`] : [];
-}
-
-/** 空数组和没有给一样。 */
-function several(option: string, values: string[] | undefined): string[] {
-  return values?.length ? [option, ...values] : [];
 }
 
 /** 运行 PATH 上的 knit，不设超时。启动不了时不抛错，当作退出码 1。 */
