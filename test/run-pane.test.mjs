@@ -296,6 +296,7 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
       status.stdout,
       `任务: 加问候语（${task.id}）\n状态: active(implement)\n${worktreeLine(dir, task)}` +
         `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.id} 记为失败\nAgent: pi\n` +
+        `日志: ${RUNS_DIR}/${run.id}/worker.log\n` +
         `窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉\n`,
     );
 

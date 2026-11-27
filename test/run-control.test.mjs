@@ -208,6 +208,7 @@ test("结束之后显示结果和下一步", (t) => {
   const implement = prepare(dir, task);
   write(worktreeOf(dir, task), "src/a.ts", "export const a = 1;\n");
   write(worktreeOf(dir, task), "src/b.ts", "export const b = 2;\n");
+  write(dir, `${implement.dir}/worker.log`, "正常结束\n");
   write(dir, `${implement.dir}/report.md`, "做完了。\n");
   finish(dir, task, implement);
   assert.equal(
@@ -231,10 +232,12 @@ test("结束之后显示结果和下一步", (t) => {
   const other = readyTask(dir);
   const failed = prepare(dir, other);
   finish(dir, other, failed, { failure: "执行者中途退出" });
+  assert.doesNotMatch(status(dir, other.id), /^日志:/m);
+  write(dir, `${failed.dir}/worker.log`, "执行者中途退出\n");
   assert.equal(
     status(dir, other.id),
     `任务: 加问候语（${other.id}）\n状态: active(implement)\n${worktreeLine(dir, other)}上一次: 实现（${failed.id}）\n失败: 执行者中途退出\n` +
-      `改动文件: 0 个\nAgent: pi\n下一步: 派发实现环节（knit run start ${other.id}）\n`,
+      `日志: ${failed.dir}/worker.log\n改动文件: 0 个\nAgent: pi\n下一步: 派发实现环节（knit run start ${other.id}）\n`,
   );
 });
 
@@ -258,6 +261,7 @@ for (const count of [1, 2]) test(`${count} 个执行器刚入账时的 status、
   assert.deepEqual(prepared.problems, []);
   try {
     assert.equal(pending.status.code, 0, pending.status.stderr);
+    assert.doesNotMatch(pending.status.stdout, /^(报告|日志):/m);
     prepared.runs.forEach((run) => assert.ok(pending.status.stdout.includes(`正在启动: check（${run.id}）`)));
     assert.equal(await Promise.race([pending.wait.then(() => true), sleep(20, false)]), false);
     const cancelled = await pending.cancel;
@@ -290,6 +294,7 @@ test("两次轮询之间派发下一环节，原等待返回所等批次的全�
   const finish = (run) => assert.deepEqual(finishRun({ ...input, agents, runId: run.id, verdict: null, failure: null, sessionFile: null }), []);
   const batch = prepare();
   const waiting = waitRun(root, task.id);
+  batch.forEach((run) => write(root, `${run.dir}/report.md`, "检查完成"));
   batch.forEach(finish);
   const [next] = prepare();
   try {
@@ -335,6 +340,7 @@ test("只读检出仅有批次记录时可以查看和等待，运行目录按�
     for (const command of [["run", "status"], ["context"], ["run", "wait"]]) {
       const result = knit(root, ...command, task.id);
       assert.equal(result.code, 0, result.stderr);
+      assert.doesNotMatch(result.stdout, /^(报告|日志):/m);
       prepared.runs.forEach((run) => assert.ok(result.stdout.includes(`执行 ${run.id} 的进程已经不在了`)));
       assert.equal(existsSync(runtime), false);
     }
@@ -351,9 +357,11 @@ test("后台进程不在了也返回", (t) => {
   assert.deepEqual(prepared.problems, []);
   assert.equal(lastRun(dir, task).endedAt, null);
 
+  write(dir, `${prepared.run.dir}/worker.log`, "后台退出");
   const waited = spawnSync(process.execPath, [CLI, "run", "wait", task.id, "--dir", dir], { encoding: "utf8", timeout: 5000 });
   assert.equal(waited.status, 0, waited.stderr);
   assert.equal(waited.stdout, status(dir, task.id));
+  assert.ok(waited.stdout.split("\n").includes(`日志: ${prepared.run.dir}/worker.log`));
   assert.match(waited.stdout, new RegExp(`knit run cancel ${task.id}`));
 });
 

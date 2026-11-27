@@ -447,6 +447,8 @@ describe("独立仓库中的归档查询与交付", { concurrency: 3 }, () => {
       const result = await knit(root, ...args, task.id);
       assert.equal(result.code, 0, result.stderr);
       assert.match(result.stdout, /^状态: delivered$/m);
+      assert.ok(result.stdout.includes(`Worktree: ${worktree.path}（${worktree.branch}）`));
+      if (args[0] !== "task") assert.match(result.stdout, /^下一步: 任务已结束，可取消选中（knit context --unuse）$/m);
       if (args[0] !== "run") {
         assert.ok(result.stdout.includes(`目录: ${join(worktree.path, archive)}\n`), result.stdout);
         assert.ok(result.stdout.includes(`提交: ${commit}\n`), result.stdout);

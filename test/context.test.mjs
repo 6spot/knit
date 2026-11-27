@@ -119,6 +119,7 @@ test("没有规范和已经结束的任务", (t) => {
   assert.equal(standardsPart(dir, confirmed.id, confirmed.dir), "规范（implement 环节）: 没有\n");
 
   const ended = contextLines(buildSessionContext(dir, cancelled.id)).join("\n");
+  assert.match(ended, /^下一步: 任务已结束，可取消选中（knit context --unuse）$/m);
   assert.match(ended.split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
   assert.equal(ended.split("任务:")[0], `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}`);
 });

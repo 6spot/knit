@@ -109,6 +109,10 @@ test("命令拒绝时原样转交", async (t) => {
   const status = await bridge.tool("knit_run", { action: "status", taskId: "" });
   assert.equal(status.isError, true);
   assert.equal(text(status), "knit_run 的 status 要有 taskId");
+  assert.equal(bridge.definitions.find((tool) => tool.name === "knit_run").parameters.properties.runId.type, "string");
+  const cancelled = await bridge.tool("knit_run", { action: "cancel", taskId: id, runId: "r-missing" });
+  assert.equal(cancelled.isError, true);
+  assert.equal(text(cancelled), `任务 ${id} 没有正在跑的执行 r-missing`);
 });
 
 const pgrep = (pattern) => spawnSync("pgrep", ["-f", pattern], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);

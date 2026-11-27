@@ -22,7 +22,9 @@ export function buildTaskStatus(root: string, dir: string | null, workflow: Work
   const members = batchOf(record, member).map((run) => {
     const runDir = join(root, RUNS_DIR, run.id);
     const path = `${RUNS_DIR}/${run.id}/report.md`;
-    return { run, path, sessionNotice: readSessionNotice(runDir), sessionFile: run.endedAt === null ? readSessionFile(runDir) : run.sessionFile,
+    const workerLog = `${RUNS_DIR}/${run.id}/worker.log`;
+    return { run, path, workerLog: existsSync(join(root, workerLog)) ? workerLog : null,
+      sessionNotice: readSessionNotice(runDir), sessionFile: run.endedAt === null ? readSessionFile(runDir) : run.sessionFile,
       report: run.endedAt !== null && existsSync(join(root, path)) ? path : null,
       starting: startingWorker(root, document.frontmatter.id, run),
       pane: run.endedAt === null && livePane(root, run.id) !== null,
@@ -71,6 +73,7 @@ function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][
     return [
       `上一次: ${task.stageName}（${run.id}）`,
       run.failure !== null ? `失败: ${run.failure}` : run.verdict !== null ? `结论: ${run.verdict}` : "结果: 正常结束",
+      ...(run.failure !== null && member.workerLog !== null ? [`日志: ${member.workerLog}`] : []),
       ...(member.report === null || run.batchId ? [] : [`报告: ${member.report}`]),
       ...(member.sessionNotice && run.sessionFile ? [`会话记录: ${run.sessionFile}`] : []),
       `改动文件: ${run.changedPaths.length} 个`,
@@ -82,6 +85,7 @@ function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][
     ? [
         `执行 ${run.id} 的进程已经不在了，没有正常结束；运行 knit run cancel ${task.frontmatter.id} 记为失败`,
         agent,
+        ...(member.workerLog === null ? [] : [`日志: ${member.workerLog}`]),
         ...(member.pane
           ? [`窗格: Rex 里标着 knit ${run.id} 的浮动窗格还开着，执行者还在里面；knit run cancel 会把它一起停掉`]
           : []),
@@ -101,6 +105,7 @@ function nextLine(task: SessionTaskStatus, dispatchMode?: DispatchMode): string[
   const status = task.status;
   if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
   if (status === "done") return [`下一步: 用户授权后交付（knit deliver ${id}）`];
+  if (status === "delivered" || status === "cancelled") return ["下一步: 任务已结束，可取消选中（knit context --unuse）"];
   const step = task.next;
   if (step === null || step.kind === "running") return [];
   if (step.kind === "arbitrate") return [`下一步: ${arbitrationNotice(id, step).join("\n")}`];
@@ -125,7 +130,8 @@ export function statusLines(task: SessionTaskStatus, dispatchMode?: DispatchMode
     `状态: ${task.status === "active" ? `active(${task.frontmatter.stage})` : task.status}`,
     ...(task.worktree === null ? [] : [`Worktree: ${task.worktree.path}（${task.worktree.branch}）`]),
     ...(task.members.length ? task.members.flatMap((member) => [
-      ...(member.run.batchId ? [`执行器: ${member.run.executor ?? member.run.id}`, `报告: ${member.path}`] : []),
+      ...(member.run.batchId ? [`执行器: ${member.run.executor ?? member.run.id}`] : []),
+      ...(member.run.batchId && member.report !== null ? [`报告: ${member.report}`] : []),
       ...runLines(task, member),
       ...(member.sessionNotice ? [member.sessionNotice] : []),
     ]) : ["还没有派发过"]),

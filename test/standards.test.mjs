@@ -103,7 +103,12 @@ stages:
       blocked: review
 `;
 
-const builtin = ["delivery.md  交付规范  deliver", "discussion.md  讨论规范  discuss", "task-splitting.md  任务拆分规范  discuss", "task-writing.md  任务编写规范  discuss"].map((row) => `knit:standards/${row}\n`).join("");
+const builtin = ["delivery.md  交付规范  deliver", "discussion.md  讨论规范  discuss", "task-splitting.md  任务拆分规范  discuss", "task-writing.md  任务编写规范  discuss"].map((row) => {
+  const name = row.split(" ")[0];
+  const source = readFileSync(new URL(`../assets/standards/${name}`, import.meta.url), "utf8");
+  const bytes = Buffer.byteLength(parseStandard(name, source).body);
+  return `knit:standards/${row}  ${bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`}\n`;
+}).join("");
 
 /** 建一个带流程的临时项目，`standards` 是文件名到内容的对照。 */
 function projectWith(t, standards) {
@@ -116,12 +121,18 @@ function projectWith(t, standards) {
 
 test("standards list：列出规范和各自适用的环节", (t) => {
   const dir = projectWith(t, {
+    "edge.md": "字".repeat(341),
+    "kilobyte.md": "字".repeat(341) + "a",
+    "rounded.md": "字".repeat(500),
     "development.md": "---\ntitle: 开发规范\nstages: [implement, review]\n---\n\n正文\n",
     "delivery.md": "---\ntitle: 交付规范\nstages: [deliver]\n---\n\n正文\n",
   });
   assert.deepEqual(knit(dir, "standards", "list"), {
     code: 0,
-    stdout: builtin + ".knit/standards/development.md  开发规范  implement, review\n" +
+    stdout: builtin + ".knit/standards/development.md  开发规范  implement, review  6 B\n" +
+      ".knit/standards/edge.md  edge  没有声明适用的环节，不会注入  1023 B\n" +
+      ".knit/standards/kilobyte.md  kilobyte  没有声明适用的环节，不会注入  1.0 KB\n" +
+      ".knit/standards/rounded.md  rounded  没有声明适用的环节，不会注入  1.5 KB\n" +
       ".knit/standards/delivery.md  旧版副本，已停用；请把项目定制迁入另名的项目规范\n",
     stderr: "",
   });
@@ -139,9 +150,9 @@ test("standards list：标出不会注入的规范", (t) => {
   assert.equal(listed.stderr, "");
   const [known, invalidYaml] = listed.stdout.split(".knit/standards/yaml.md  yaml  ");
   assert.equal(known, builtin +
-    ".knit/standards/plain.md  plain  没有声明适用的环节，不会注入\n" +
+    ".knit/standards/plain.md  plain  没有声明适用的环节，不会注入  22 B\n" +
     ".knit/standards/scalar.md  写成了一个词  开头声明有问题，不会注入：" +
-    "字段 stages 的值不对：要写环节 id 的列表，例如 [implement, review]\n");
+    "字段 stages 的值不对：要写环节 id 的列表，例如 [implement, review]  59 B\n");
   assert.match(invalidYaml, /^开头声明有问题，不会注入：开头声明不是合法的 YAML：/);
 });
 
@@ -149,7 +160,7 @@ test("standards list：标出流程里没有的环节", (t) => {
   const dir = projectWith(t, { "mixed.md": "---\ntitle: 混着写\nstages: [implement, check, discuss]\n---\n\n正文\n" });
   assert.deepEqual(knit(dir, "standards", "list"), {
     code: 0,
-    stdout: builtin + ".knit/standards/mixed.md  混着写  implement, check, discuss（流程里没有的环节：check）\n",
+    stdout: builtin + ".knit/standards/mixed.md  混着写  implement, check, discuss（流程里没有的环节：check）  6 B\n",
     stderr: "",
   });
 

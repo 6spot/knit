@@ -68,7 +68,7 @@ test("Pi 执行者加载桥接时跳过全部工具和钩子，保留原有系�
   assert.deepEqual(await sectionsAfterTurn(bridge, { other: "其他扩展" }), { other: "其他扩展" });
 });
 
-test("四个动作转交命令", async (t) => {
+test("任务工具转交创建、列表、确认、完成和路径补录", async (t) => {
   const dir = emptyDir(t);
   const bridge = await loadBridge(t, dir);
 
@@ -132,12 +132,36 @@ test("四个动作转交命令", async (t) => {
   ]);
 });
 
+test("按标题筛选并限制列表、查看详情、按原因取消并检索归档", async (t) => {
+  const { dir, bridge } = await bridged(t);
+  const params = bridge.definitions.find((tool) => tool.name === "knit_task").parameters.properties;
+  for (const action of ["show", "cancel"]) assert.ok(params.action.enum.includes(action));
+  assert.equal(params.grep.type, "string");
+  assert.equal(params.limit.type, "integer");
+  const tasks = ["-Alpha one", "-ALPHA two"].map((title) => createTask(dir, {
+    title, slug: "alpha", verification: "self", priority: "P2", parent: null, dependsOn: [],
+  }).created);
+  const call = (args) => bridge.tool("knit_task", args);
+  const list = await call({ action: "list", grep: "-alpha", limit: 1 });
+  assert.deepEqual(text(list).split("\n"), [`P2  ${tasks[0].id}  draft  -Alpha one`, "仅显示前 1 条，共 2 条"]);
+  const shown = await call({ action: "show", taskId: tasks[0].id });
+  assert.match(text(shown), /^标题: -Alpha one$/m);
+  assert.deepEqual(bridge.entries, []);
+  const cancelled = await call({ action: "cancel", taskId: tasks[0].id, reason: "-需求已变更" });
+  assert.equal(cancelled.isError, undefined, text(cancelled));
+  assert.equal(text(await call({ action: "list", archive: true, grep: "-aLpHa" })), `P2  ${tasks[0].id}  cancelled  -Alpha one`);
+});
+
 test("参数不全和命令运行不了", async (t) => {
   const dir = emptyDir(t);
   const bridge = await loadBridge(t, dir);
   const { id } = readyTask(dir, { verification: "self" });
   const before = snapshot(dir);
 
+  for (const action of ["show", "cancel"]) assert.deepEqual(await bridge.tool("knit_task", { action }), failed(`knit_task 的 ${action} 要有 taskId`));
+  for (const reason of [undefined, "", "  "]) {
+    assert.deepEqual(await bridge.tool("knit_task", { action: "cancel", taskId: id, reason }), failed("knit_task 的 cancel 要有 reason"));
+  }
   assert.deepEqual(await bridge.tool("knit_task", { action: "ready" }), failed("knit_task 的 ready 要有 taskId"));
   assert.deepEqual(await bridge.tool("knit_task", { action: "new", title: "" }), failed("knit_task 的 new 要有 title"));
   assert.deepEqual(await bridge.tool("knit_task", { action: "close", taskId: id }), failed("knit_task 的 close 要有 result 或 paths"));

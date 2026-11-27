@@ -1,0 +1,34 @@
+{
+  "confirmedDigest": "0b1120ca74151d04e80bd3fcbca4b87cd70779861afafb6feb67ad73b5df381d",
+  "changedPaths": [],
+  "runs": [
+    {
+      "id": "r-334140f3cff3",
+      "stage": "implement",
+      "agent": "pi",
+      "startedAt": "2026-11-27T11:34:33.979Z",
+      "endedAt": "2026-11-27T11:39:37.092Z",
+      "verdict": null,
+      "failure": null,
+      "requirementDigest": "0b1120ca74151d04e80bd3fcbca4b87cd70779861afafb6feb67ad73b5df381d",
+      "changedPaths": [
+        "assets/templates/pi/extensions/knit.ts",
+        "docs/design/DESIGN.md",
+        "src/application/session-context.ts",
+        "src/cli/project.ts",
+        "src/cli/task.ts",
+        "test/bridge-run.test.mjs",
+        "test/bridge.test.mjs",
+        "test/context.test.mjs",
+        "test/deliver-worktree.test.mjs",
+        "test/run-control.test.mjs",
+        "test/run-pane.test.mjs",
+        "test/standards.test.mjs",
+        "test/task-lifecycle.test.mjs"
+      ],
+      "sessionFile": ".knit/.runtime/runs/r-334140f3cff3/session/2026-11-27T11-34-34-400Z_dc439baf-cb6a-49b8-931b-f8277b2c525f.jsonl",
+      "resumeId": "/Users/me/IdeaProjects/knit/.knit/.runtime/runs/r-334140f3cff3/session/2026-11-27T11-34-34-400Z_dc439baf-cb6a-49b8-931b-f8277b2c525f.jsonl"
+    }
+  ],
+  "authorization": "授权"
+}

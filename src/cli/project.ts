@@ -95,13 +95,17 @@ function knownStages(dir: string): string[] | null {
 export function registerStandardsCommands(program: Command): void {
   const standards = program.command("standards").description("查看内置规范和项目规范，维护项目避坑清单");
   standards.command("list")
-    .description("列出规范来源、适用环节和旧版副本")
+    .description("列出规范来源、适用环节、正文大小和旧版副本")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string }) => {
       const known = knownStages(options.dir);
       if (!known) return;
       const root = projectRoot(options.dir);
-      const lines = loadStandards(root).map((standard) => `${standard.path}  ${standard.title}  ${stagesColumn(standard, known)}`);
+      const lines = loadStandards(root).map((standard) => {
+        const bytes = Buffer.byteLength(standard.body, "utf8");
+        const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+        return `${standard.path}  ${standard.title}  ${stagesColumn(standard, known)}  ${size}`;
+      });
       lines.push(...legacyStandardCopies(root).map((path) => `${path}  旧版副本，已停用；请把项目定制迁入另名的项目规范`));
       process.stdout.write(`${lines.join("\n")}\n`);
     });

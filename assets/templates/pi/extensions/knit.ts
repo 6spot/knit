@@ -64,7 +64,7 @@ interface CommandResult {
 }
 
 interface TaskParams {
-  action: "new" | "use" | "ready" | "close" | "list";
+  action: "new" | "use" | "ready" | "close" | "show" | "cancel" | "list";
   taskId?: string;
   title?: string;
   slug?: string;
@@ -76,6 +76,8 @@ interface TaskParams {
   paths?: string[];
   reason?: string;
   archive?: boolean;
+  limit?: number;
+  grep?: string;
 }
 
 interface RunParams {
@@ -86,6 +88,7 @@ interface RunParams {
   instruction?: string;
   stage?: string;
   fresh?: boolean;
+  runId?: string;
 }
 
 interface DeliverParams {
@@ -127,11 +130,11 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_task",
     label: "Knit task",
     description:
-      "管理 Knit 任务。new 建一份草稿（要有 title），返回任务标题、编号、task.md 的路径、draft 状态和当前会话是否选中了它；new 不改变当前的任务选择，创建失败时返回原因，选择不变。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），对 done 任务仅传 paths 可补录改动文件，list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      "管理 Knit 任务。new 建一份草稿（要有 title），返回任务标题、编号、task.md 的路径、draft 状态和当前会话是否选中了它；new 不改变当前的任务选择，创建失败时返回原因，选择不变。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），对 done 任务仅传 paths 可补录改动文件，show 按 taskId 查看任务详情，cancel 按 taskId 取消并归档任务（要有非空 reason），list 列出任务，可用 archive 查看归档、grep 匹配 ID 或标题、limit 限制条数。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["new", "use", "ready", "close", "list"] },
+        action: { type: "string", enum: ["new", "use", "ready", "close", "show", "cancel", "list"] },
         taskId: { type: "string" },
         title: { type: "string" },
         slug: { type: "string" },
@@ -143,6 +146,8 @@ export default function knitBridge(pi: Pi): void {
         paths: { type: "array", items: { type: "string" } },
         reason: { type: "string" },
         archive: { type: "boolean" },
+        limit: { type: "integer", minimum: 1 },
+        grep: { type: "string" },
       },
       required: ["action"],
     },
@@ -153,12 +158,13 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_run",
     label: "Knit run",
     description:
-      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息。并行审查全部结束后，按通知里的报告和结论裁决，用 instruction 把修改清单交给下一次 start，可用 stage 指定裁决目标环节；fresh 为 true 时强制新会话；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败。",
+      "派发和查看执行者。start 派发任务的下一个环节，立即返回，执行者在后台做，结束时你会收到一条消息。并行审查全部结束后，按通知里的报告和结论裁决，用 instruction 把修改清单交给下一次 start，可用 stage 指定裁决目标环节；fresh 为 true 时强制新会话；status 看上一次或正在跑的执行和下一步；cancel 停掉正在跑的执行并记为失败，可用 runId 指定单个执行。",
     parameters: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["start", "status", "cancel"] },
         taskId: { type: "string" },
+        runId: { type: "string", description: "cancel 时指定要停止的执行" },
         model: { type: "string" },
         instruction: { type: "string", description: "start 时交给执行者的裁决或修改清单" },
         stage: { type: "string", description: "并行审查裁决时指定 start 的目标环节" },
@@ -243,7 +249,10 @@ export default function knitBridge(pi: Pi): void {
 
 async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResult> {
   const missing = (name: string) => failure(`knit_task 的 ${params.action} 要有 ${name}`);
-  if (params.action === "list") return toResult(await runKnit(["task", "list", ...(params.archive ? ["--archive"] : [])]));
+  if (params.action === "list") return toResult(await runKnit(["task", "list", ...(params.archive ? ["--archive"] : []),
+    ...(params.limit === undefined ? [] : [`--limit=${params.limit}`]),
+    ...(params.grep === undefined ? [] : [`--grep=${params.grep}`]),
+  ]));
   if (params.action === "new") {
     if (!params.title) return missing("title");
     return toResult(
@@ -261,7 +270,11 @@ async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResul
   }
   if (params.action === "use") return use(pi, params.taskId);
   if (!params.taskId) return missing("taskId");
-  if (params.action === "ready") return toResult(await runKnit(["task", "ready", params.taskId]));
+  if (params.action === "show" || params.action === "ready") return toResult(await runKnit(["task", params.action, params.taskId]));
+  if (params.action === "cancel") {
+    if (!params.reason?.trim()) return missing("reason");
+    return toResult(await runKnit(["task", "cancel", params.taskId, `--reason=${params.reason}`]));
+  }
   if (params.result === undefined && !params.paths?.length) return missing("result 或 paths");
   return toResult(
     await runKnit([
@@ -284,6 +297,7 @@ async function run(pi: Pi, waiting: Map<string, ChildProcess>, params: RunParams
   const result = await runKnit(
     [
       "run", params.action, params.taskId,
+      ...(params.action === "cancel" && params.runId !== undefined ? [`--run=${params.runId}`] : []),
       ...(params.action === "start" ? [
         ...single("--model", params.model),
         ...single("--thinking", params.thinking),

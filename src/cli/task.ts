@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { Option, type Command } from "commander";
 import { readWorkflow } from "../application/project-config.js";
 import { liveWorker, startingWorker } from "../application/run-control.js";
 import { createTask, findArchivedTasks, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
-import { taskBranch } from "../application/worktree.js";
+import { taskBranch, taskWorktree } from "../application/worktree.js";
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
 import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
@@ -35,7 +37,8 @@ interface TaskRow {
   line: string;
 }
 
-function taskListLines(root: string, archive: boolean): string[] {
+function taskListLines(root: string, archive: boolean, grep?: string, limit?: number): string[] {
+  const keyword = grep?.toLowerCase();
   const tasks = scanTasks(root, archive ? "archived" : "active");
   const broken: string[] = [];
   const rows = tasks.flatMap((task) => {
@@ -44,13 +47,25 @@ function taskListLines(root: string, archive: boolean): string[] {
       return [];
     }
     const frontmatter = task.document.frontmatter;
+    if (keyword !== undefined && !frontmatter.id.toLowerCase().includes(keyword) && !frontmatter.title.toLowerCase().includes(keyword)) return [];
     const status = shownStatus(task.document, task.record);
     const line = `${frontmatter.priority}  ${frontmatter.id}  ${status.text}  ${frontmatter.title}` +
       (status.stale ? "（确认后改过需求）" : "");
     return [{ frontmatter, record: task.record, stale: status.stale, line }];
-  }).sort((a, b) => a.frontmatter.priority.localeCompare(b.frontmatter.priority) ||
+  });
+  const footer = [
+    ...(limit !== undefined && rows.length > limit ? [`仅显示前 ${limit} 条，共 ${rows.length} 条`] : []),
+    ...(rows.length === 0 && grep !== undefined ? ["没有匹配的任务"] : []),
+    ...(rows.length === 0 && grep === undefined && broken.length === 0 ? ["没有任务"] : []),
+    ...broken,
+  ];
+  if (archive) {
+    rows.sort((a, b) => Date.parse(b.frontmatter.createdAt) - Date.parse(a.frontmatter.createdAt) ||
+      a.frontmatter.id.localeCompare(b.frontmatter.id));
+    return [...rows.slice(0, limit).map((row) => row.line), ...footer];
+  }
+  rows.sort((a, b) => a.frontmatter.priority.localeCompare(b.frontmatter.priority) ||
     a.frontmatter.createdAt.localeCompare(b.frontmatter.createdAt));
-  if (archive) return [...rows.map((row) => row.line), ...broken];
 
   const unmerged = new Set(gitSync(["for-each-ref", "--no-merged=HEAD", "--format=%(refname:lstrip=2)", "refs/heads/knit/"], root)
     .stdout.split("\n").filter(Boolean));
@@ -66,7 +81,7 @@ function taskListLines(root: string, archive: boolean): string[] {
   const lines: string[] = [];
   const visited = new Set<TaskRow>();
   function visit(row: TaskRow, depth: number): void {
-    if (visited.has(row)) return;
+    if (visited.has(row) || (limit !== undefined && lines.length >= limit)) return;
     visited.add(row);
     const parent = row.frontmatter.parent;
     const blocked = row.frontmatter.dependsOn.filter((id) => !satisfied.has(id));
@@ -80,8 +95,7 @@ function taskListLines(root: string, archive: boolean): string[] {
   children.get(null)?.forEach((row) => visit(row, 0));
   // 手写 parent 形成环时，这组任务也要可见。
   rows.forEach((row) => visit(row, 0));
-  lines.push(...broken);
-  if (!lines.length) lines.push("没有任务");
+  lines.push(...footer);
   const activeBranches = new Set(tasks.map((task) => taskBranch(task.dir)));
   const leftover = [...unmerged].filter((branch) => !activeBranches.has(branch));
   if (leftover.length) lines.push("", "尚未合并进 HEAD 的任务分支，可在当前检出运行：",
@@ -152,12 +166,17 @@ export function registerTaskCommands(program: Command): void {
     .command("list")
     .description("列出任务")
     .option("--archive", "改列已归档的任务", false)
+    .option("--limit <数量>", "最多显示的匹配任务数（正整数）")
+    .option("--grep <关键词>", "按 ID 或标题筛选任务，忽略大小写")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((options: { archive: boolean; dir: string }) => {
+    .action((options: { archive: boolean; dir: string; limit?: string; grep?: string }) => {
+      if (options.limit !== undefined && (!/^\d+$/.test(options.limit) || Number(options.limit) === 0)) {
+        return fail(["--limit 需要正整数"]);
+      }
       const root = knitRoot(options.dir);
       if (root === null) return;
-      const lines = taskListLines(root, options.archive);
-      process.stdout.write(`${lines.length ? lines.join("\n") : "没有任务"}\n`);
+      const lines = taskListLines(root, options.archive, options.grep, options.limit === undefined ? undefined : Number(options.limit));
+      process.stdout.write(`${lines.join("\n")}\n`);
     });
 
   task
@@ -174,6 +193,7 @@ export function registerTaskCommands(program: Command): void {
       const changed = [
         ...new Set([...loaded.record.changedPaths, ...loaded.record.runs.flatMap((run) => run.changedPaths)]),
       ].sort();
+      const worktree = taskWorktree(loaded.root, loaded.stored.dir);
       const commit = taskCommit(loaded);
       const lines = [
         `标题: ${frontmatter.title}`,
@@ -184,10 +204,17 @@ export function registerTaskCommands(program: Command): void {
         `父任务: ${frontmatter.parent ?? "无"}`,
         `依赖: ${frontmatter.dependsOn.join(", ") || "无"}`,
         `目录: ${shownTaskDirectory(loaded)}`,
+        ...(existsSync(join(worktree.path, ".git")) ? [`Worktree: ${worktree.path}（${worktree.branch}）`] : []),
         ...(commit === null ? [] : [`提交: ${commit}`]),
         `完成条件: ${scenarios.scenarios.length} 个场景` +
           (scenarios.issues.length > 0 ? `，${scenarios.issues.length} 处写法问题` : ""),
         `待澄清: ${clarify.blocking} 项 blocking，${clarify.assumed} 项 assumed`,
+        ...clarify.blockingItems.map((item) => `  - ${item}`),
+        ...(loaded.record.runs.length ? [`执行历史（${loaded.record.runs.length} 次）:`, ...loaded.record.runs.map((run) => {
+          const result = run.endedAt === null ? "进行中" : run.failure !== null ? `失败: ${run.failure}`
+            : run.verdict !== null ? `结论: ${run.verdict}` : "正常结束";
+          return `  ${run.id}  ${run.stage}${run.batchId && run.executor ? `/${run.executor}` : ""}  Agent: ${run.agent ?? "pi"}  ${result.replace(/\s*[\r\n]+\s*/g, " ")}`;
+        })] : []),
         ...(changed.length > 0 ? [`改动文件（${changed.length}）:`, ...changed.map((path) => `  ${path}`)] : []),
       ];
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));

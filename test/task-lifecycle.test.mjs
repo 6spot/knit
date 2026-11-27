@@ -638,6 +638,11 @@ const withFrontmatter = (fields) => (document) => ({ ...document, frontmatter: {
 test("task list：按优先级和创建时间排，写坏的排在最后", (t) => {
   const dir = project(t);
   assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: "没有任务\n", stderr: "" });
+  for (const value of ["0", "-2", "2.5", "3x", ""]) {
+    const invalid = knit(dir, "task", "list", `--limit=${value}`);
+    assert.notEqual(invalid.code, 0);
+    assert.match(invalid.stderr, /--limit.*正整数/);
+  }
 
   const second = draft(dir, { title: "乙", slug: "b" });
   const first = draft(dir, { title: "甲", slug: "a", priority: "P0" });
@@ -657,7 +662,7 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
   const important = ".knit/tasks/archive/2026-09/important";
   const archivedBroken = ".knit/tasks/archive/2026-09/broken";
   for (const [archiveDir, id, priority, createdAt] of [
-    [newest, "k-aaaaaaaaaaaa", "P2", "2030-01-02T00:00:00Z"],
+    [newest, "k-aaaaaaaaaaaa", "P2", "2030-01-04T00:00:00.000Z"],
     [important, "k-bbbbbbbbbbbb", "P1", "2030-01-04T00:00:00Z"],
     [archivedBroken, "k-cccccccccccc", "PX", "2030-01-01T00:00:00Z"],
   ]) {
@@ -690,10 +695,14 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
   assert.deepEqual(scanTasks(dir, "archived"), all.filter((task) => task.archived));
   const listedArchive = knit(dir, "task", "list", "--archive");
   assert.equal(listedArchive.code, 0, listedArchive.stderr);
-  const [importantLine, olderLine, newestLine, brokenLine, ...rest] = listedArchive.stdout.trimEnd().split("\n");
-  assert.deepEqual([importantLine, olderLine, newestLine], [
-    "P1  k-bbbbbbbbbbbb  delivered  旧的", `P2  ${archived.id}  delivered  旧的`, "P2  k-aaaaaaaaaaaa  delivered  旧的",
+  const [newestLine, tiedLine, olderLine, brokenLine, ...rest] = listedArchive.stdout.trimEnd().split("\n");
+  assert.deepEqual([newestLine, tiedLine, olderLine], [
+    "P2  k-aaaaaaaaaaaa  delivered  旧的", "P1  k-bbbbbbbbbbbb  delivered  旧的", `P2  ${archived.id}  delivered  旧的`,
   ]);
+  const list = (...args) => knit(dir, "task", "list", "--archive", ...args).stdout.trimEnd().split("\n");
+  assert.deepEqual(list("--grep=旧", "--limit=2"), [newestLine, tiedLine, "仅显示前 2 条，共 3 条", brokenLine]);
+  assert.deepEqual(list("--grep=K-AAAA", "--limit=1"), [newestLine, brokenLine]);
+  assert.deepEqual(list("--grep=missing"), ["没有匹配的任务", brokenLine]);
   assert.ok(brokenLine.startsWith(`${archivedBroken}：task.md：字段 priority 的值不对：`), brokenLine);
   assert.deepEqual(rest, []);
 });
@@ -726,7 +735,13 @@ test("task list：子任务逐层排序，只标出未满足的依赖和未合�
   before[3] += `, ${old.id}`;
   const listed = knit(dir, "task", "list");
   assert.equal(listed.code, 0, listed.stderr);
-  assert.deepEqual(listed.stdout.trimEnd().split("\n"), [...before, "", "尚未合并进 HEAD 的任务分支，可在当前检出运行：", `  git merge '${branch}'`]);
+  const hints = ["", "尚未合并进 HEAD 的任务分支，可在当前检出运行：", `  git merge '${branch}'`];
+  const filtered = (...args) => knit(dir, "task", "list", ...args).stdout.trimEnd().split("\n");
+  assert.deepEqual(filtered("--grep=子任务", "--limit=1"), [`P0  ${child.id}  draft  高优先级子任务  父:${parent.id}`, "仅显示前 1 条，共 2 条", ...hints]);
+  assert.deepEqual(filtered(`--grep=${grandchild.id.toUpperCase()}`), [before[3].trimStart().replace("  阻塞:", `  父:${child.id}  阻塞:`), ...hints]);
+  assert.deepEqual(filtered("--grep=missing"), ["没有匹配的任务", ...hints]);
+  assert.deepEqual(filtered("--limit=3"), [...before.slice(0, 3), "仅显示前 3 条，共 5 条", ...hints]);
+  assert.deepEqual(listed.stdout.trimEnd().split("\n"), [...before, ...hints]);
   git(dir, "merge", "--ff-only", branch);
   assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${lines.join("\n")}\n`, stderr: "" });
 });
@@ -856,6 +871,7 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
     "## 待澄清",
     "",
     "- [blocking] 上限是多少",
+    "- [blocking] 谁确认结果",
     "",
     "## 相关资料",
   ].join("\n");
@@ -867,6 +883,9 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
       ...EMPTY_RECORD,
       changedPaths: ["next/src/b.ts", "next/src/a.ts"],
       runs: [
+        runOf("r-normal", "implement", null),
+        { ...runOf("r-failed", "review", null), failure: "进程退出\n退出码 1" },
+        { ...runOf("r-verdict", "review", "pass"), agent: "antigravity", batchId: "b-1", executor: "reader" },
         {
           id: "r-1",
           stage: "implement",
@@ -894,7 +913,14 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
       `依赖: ${parent.id}`,
       `目录: ${task.dir}`,
       "完成条件: 2 个场景",
-      "待澄清: 1 项 blocking，0 项 assumed",
+      "待澄清: 2 项 blocking，0 项 assumed",
+      "  - 上限是多少",
+      "  - 谁确认结果",
+      "执行历史（4 次）:",
+      "  r-normal  implement  Agent: pi  正常结束",
+      "  r-failed  review  Agent: pi  失败: 进程退出 退出码 1",
+      "  r-verdict  review/reader  Agent: antigravity  结论: pass",
+      "  r-1  implement  Agent: pi  进行中",
       "改动文件（2）:",
       "  next/src/a.ts",
       "  next/src/b.ts",
@@ -906,7 +932,9 @@ test("task show：标题、状态、场景数、待澄清数和改动文件", (t
   // 没有内容的项写“无”；没有改动文件时不打印这一项；写法问题跟在场景数后面。
   assert.equal(readyTask(dir, parent.id).kind, "ready");
   rewrite(dir, parent, (document) => ({ ...document, requirement: "## 完成条件\n### Requirement: 空的" }));
+  mkdirSync(worktreeOf(dir, parent), { recursive: true });
   const bare = knit(dir, "task", "show", parent.id).stdout;
+  assert.doesNotMatch(bare, /Worktree:|执行历史/);
   assert.match(bare, /^状态: draft（确认后改过需求，需要重新 task ready）$/m);
   assert.match(bare, /^父任务: 无\n依赖: 无\n/m);
   assert.match(bare, /^完成条件: 0 个场景，1 处写法问题\n待澄清: 0 项 blocking，0 项 assumed\n$/m);

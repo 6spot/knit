@@ -181,7 +181,7 @@ createdAt: 2026-11-14T13:36:56Z
 
 - 规范文件会原样进入智能体的上下文，所以只写智能体做事时要用到的内容。来源、日期、编号、制定经过不写进文件，写在提交说明里。开头声明了 `title`，正文不再加一行重复的标题。
 - 环节名用 `workflow.yaml` 里的 id，另有两个固定的：`discuss`（主会话讨论需求）和 `deliver`（主会话收尾）。
-- 普通项目规范按 `stages` 自动选取。任务可以在「相关资料」里用资源标识或项目路径追加整份规范。`knit standards list` 标出缺失声明和流程里没有的环节。
+- 普通项目规范按 `stages` 自动选取。任务可以在「相关资料」里用资源标识或项目路径追加整份规范。`knit standards list` 标出缺失声明和流程里没有的环节，并在每条规范末尾显示正文的 UTF-8 大小。小于 1024 字节时以 B 计，从 1024 字节起以 KB 计，保留一位小数。
 - 项目避坑清单固定为 `.knit/standards/pitfalls.md`。二级标题 `## 通用` 适用于所有环节，`## discuss`、`## implement, review` 等标题用环节 id 指定适用范围。三级标题是条目名称。`knit standards pitfalls <环节>`、主会话上下文和执行者交接都只选通用区及包含该环节的非空分区，保持文件中的顺序。任务点名清单或其中某节时也按当前环节选取。
 - 记录经验前查看适用分区，已有同一经验时沿用原标题。`knit standards record --section <分区> --title <标题> --body <正文>` 补充已有条目或创建新条目，首次记录会建立文件。
 - 同一条规则只写一处：项目通用说明留在 `AGENTS.md`，需要按环节给的规范写在 `.knit/standards/`。
@@ -514,7 +514,8 @@ knit init [--pi] [--agy] [--workbuddy] [--qoder] [--force]
 knit task new | ready | close | cancel | list | show
 knit task close <id> --result <总结> [--paths <path...>] [--reason <说明>]   完成 ready 或 active 任务
 knit task close <id> --paths <path...>        给 done 任务补录改动文件，保留状态和结果
-knit task list [--archive]                查看活跃任务；--archive 平铺列出已归档任务
+knit task list [--archive] [--grep <关键词>] [--limit <数量>]
+knit task show <id>                       查看任务详情和执行历史
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]
 knit run status | wait | cancel 都按任务 id
@@ -536,9 +537,15 @@ knit workflow validate [--env]
 
 `knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。初始化结束时，若没有配齐任何主会话桥接，输出会列出各客户端的安装命令，提示安装后运行 `knit workflow validate --env`。本次创建了初始化任务时，引导和第 10 节的桌面钩子告警都在 `初始化任务:` 行之前。
 
-`knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档或缺失时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
+`knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档、缺失或未命中筛选时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
+
+`--archive` 平铺归档任务，按 `createdAt` 从新到旧排列，同一时间按 ID 升序排列。两个列表都支持 `--grep`，忽略大小写匹配 ID 或标题中的关键词。无匹配时显示 `没有匹配的任务`，省略筛选且列表为空时显示 `没有任务`。`--limit` 接受正整数，参数无效时命令报错退出。匹配数超过上限时，按展示顺序取前 N 条并提示 `仅显示前 N 条，共 M 条`，损坏目录和未合并分支的提示仍列在后面。
+
+`knit task show <id>` 在任务 Worktree 含有 `.git` 时显示路径和任务分支。待澄清计数下逐行列出解析到的 blocking 摘要（最多三项，每项最多 120 字符）。有执行记录时，每次执行占一行，列出 ID、环节、并行成员的执行器、Agent 和结果（进行中、失败原因、结论或正常结束）。
 
 执行期间，任务行显示 `正在启动`、`运行中 3m`（不足一分钟为 `运行中 <1m`）或 `进程已退出`。并行批次需要主会话裁决时显示 `待裁决`。流程文件缺失或无效时仍可查看层级、依赖和进程状态。在 Git 仓库中，列表末尾列出不属于活跃任务且尚未合并进 `HEAD` 的本地 `knit/*` 分支及合并命令。
+
+`knit run status`、`knit run wait` 和 `knit context <任务>` 共用任务状态。并行成员结束且 `report.md` 存在时显示报告路径。执行已记为失败，或启动阶段已过、进程退出而执行尚未结算时，若执行目录中有 `worker.log`，状态中会显示日志的项目相对路径。已交付和已取消任务提示可运行 `knit context --unuse` 取消选中。
 
 `knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，只报告错误，必要时附未发送的普通讨论规范；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
@@ -554,14 +561,14 @@ Pi 桥接有 3 个工具：
 
 | 工具 | 动作 |
 | --- | --- |
-| `knit_task` | new、use、ready、close、list |
-| `knit_run` | start（派发任务下一个环节，可选 `model`、`thinking`、`instruction`、`stage` 和 `fresh`。并行审查裁决时，`instruction` 给出修改清单，`stage` 对应 CLI 的 `--stage`，指定裁决目标环节）、status、cancel |
+| `knit_task` | new、use、ready、close、show（传 `taskId` 查看详情）、cancel（传 `taskId` 与非空 `reason` 取消并归档）、list（可选 `archive`、`grep` 和 `limit`） |
+| `knit_run` | start（派发任务下一个环节，可选 `model`、`thinking`、`instruction`、`stage` 和 `fresh`。并行审查裁决时，`instruction` 给出修改清单，`stage` 对应 CLI 的 `--stage`，指定裁决目标环节）、status、cancel（可选 `runId`，对应 `--run=<执行 ID>`） |
 | `knit_deliver` | 预览、交付 |
 
 - 工具的声明不随流程配置变化。
 - 桥接只做转交：每个动作对应一条 `knit` 命令，工具的结果就是命令的输出。桥接运行的是 `PATH` 上的 `knit`，不记录安装位置。
 - 工具的每个动作都要写明任务 id，不从“当前任务”里取。Pi 的 `use` 把选中的任务写在 Pi 会话记录里，只决定每轮注入显示哪个任务。用 `new` 建的任务不自动选中，选中哪个只由 `use` 决定：一次建一批任务时，选中的不会被新建的换掉。
-- 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>`，将返回的状态作为一条 `knit.run-ended` 消息发给发起派发的会话，使用 `deliverAs: "followUp"` 和 `triggerTurn: true`。空闲时触发新一轮，正在执行时由 Pi 排到当前执行结束后投递。并行审查只为整次派发启动一次等待，全部成员入账后，消息列出每位执行器的报告路径和结论或失败原因。若剩余 worker 都已意外退出，`wait` 返回异常状态和 `run cancel` 提示，主会话据此结算。主会话通过工具主动取消时，取消结果随工具返回，桥接停止这次等待，不再另发结束通知。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
+- 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>`，将返回的状态作为一条 `knit.run-ended` 消息发给发起派发的会话，使用 `deliverAs: "followUp"` 和 `triggerTurn: true`。空闲时触发新一轮，正在执行时由 Pi 排到当前执行结束后投递。并行审查只为整次派发启动一次等待，全部成员入账后，消息列出每位执行器的结论或失败原因，并附上已有的报告路径。若剩余 worker 都已意外退出，`wait` 返回异常状态和 `run cancel` 提示，主会话据此结算。主会话通过工具主动取消时，取消结果随工具返回，桥接停止这次等待，不再另发结束通知。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
 - `task.md` 正文、`plan.md`、`design.md`、项目规范和 `workflow.yaml` 都是普通文本，主会话用普通的读写工具直接改；格式在 `task ready`、`standards list` 和 `workflow validate` 时校验。
 - 用户可以全程在会话里讨论。什么时候问用户要不要建任务、建了之后怎么确认和开始实施，只写在内置讨论规范里；工具说明和注入的结尾提示不重复这些规则。`knit_task` 的说明只写每个动作做什么、要什么参数、返回什么：`new` 建一份草稿，返回标题、编号、`task.md` 路径、`draft` 状态及当前会话是否选中，不改变当前任务选择，失败时返回原因。主会话随后用普通读写工具把已讨论清楚的需求写入 `task.md`。Knit 不解析用户消息来自动建任务。
 - 每次成功调用 `task new` 都创建一份独立的草稿，包括同一轮中分别创建的多份草稿。Pi、Antigravity、WorkBuddy 和 Qoder 的建草稿入口向 CLI 传入宿主与会话标识，CLI 逐份返回标题、编号、`task.md` 链接、`draft` 状态及选择情况。
