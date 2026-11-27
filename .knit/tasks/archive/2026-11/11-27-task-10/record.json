@@ -1,0 +1,9 @@
+{
+  "confirmedDigest": "94c8c3ce3c3185b3d91920e60e83fe6aa3d6642886643b53a4d13448ef94be74",
+  "changedPaths": [
+    ".agents/plugins/knit/rules/AGENTS.md",
+    ".pi/extensions/knit.ts"
+  ],
+  "runs": [],
+  "authorization": "授权"
+}
