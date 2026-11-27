@@ -71,7 +71,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
       : null;
   const failure = [input.failure, violation, cleanupFailure].filter(Boolean).join("；") || null;
   const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
-  const verdict = failure === null && (run.batchId === undefined || (declared && Object.hasOwn(declared, "verdict"))) ? input.verdict : null;
+  const verdict = failure === null && input.verdict && declared && Object.hasOwn(declared, "verdict") ? input.verdict : null;
   const persist = () => {
     const latest = findTask(root, taskId);
     if (!latest?.document || !latest.record?.runs.some((item) => item.id === runId && item.endedAt === null)) {

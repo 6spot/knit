@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readReport } from "../dist/domain/report.js";
+import { readReport, reportOutcome } from "../dist/domain/report.js";
 
 const FENCE = "`".repeat(3);
 const block = (value) => [`${FENCE}json`, typeof value === "string" ? value : JSON.stringify(value, null, 2), FENCE].join("\n");
@@ -68,4 +68,14 @@ test("读不出时说明原因", () => {
       "报告的字段 selfVerified 应当是 true 或 false",
     ],
   });
+});
+
+test("额外字段保留在报告中，只有声明的 verdict 可作为结论", () => {
+  const declared = { summary: "string" };
+  const fields = { summary: "已核对", verdict: "pass", note: "详见附件" };
+  const report = block(fields);
+  assert.deepEqual(readReport(declared, report), { fields, problems: [] });
+  assert.deepEqual(reportOutcome(declared, report), { outcome: { verdict: null, failure: null }, problems: [] });
+  assert.deepEqual(reportOutcome({ ...declared, verdict: ["pass"] }, report), { outcome: { verdict: "pass", failure: null }, problems: [] });
+  assert.deepEqual(reportOutcome({ verdict: "string" }, block({ verdict: "" })), { outcome: { verdict: null, failure: null }, problems: [] });
 });

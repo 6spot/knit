@@ -8,6 +8,7 @@ import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { lastPassedReview, stageEntries } from "../dist/domain/progress.js";
+import { parseTaskRecord } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { commitAll, git } from "./helpers/git.mjs";
 import { agents, readyTask, runProject, worktreeOf } from "./helpers/run.mjs";
@@ -137,6 +138,29 @@ test("做完之后存下报告，记下结论和改动文件", async (t) => {
   assert.equal(args[args.indexOf("--session-dir") + 1], join(dir, run.dir, "session"));
   assert.deepEqual(prompts, [{ message: readFileSync(join(dir, run.dir, "message.md"), "utf8") }]);
 });
+
+for (const verdict of ["pass", ""]) {
+  test(`单执行器报告中未声明的 verdict ${JSON.stringify(verdict)} 不产生审查结论`, async (t) => {
+    const dir = runProject(t);
+    const task = readyTask(dir);
+    writeFileSync(join(dir, ".knit/workflow.yaml"), "version: 1\nmodel: fake/model\nstages:\n  - id: collect\n    report: {summary: string}\n");
+    const run = prepare(dir, task);
+    const report = `资料收集完毕。\n\n\`\`\`json\n${JSON.stringify({ summary: "已收集", note: "见附件", verdict })}\n\`\`\``;
+    const pi = fakePi(t);
+    pi.script({ texts: [report] });
+
+    assert.deepEqual(await execute(dir, task, run), []);
+    assert.equal(pi.messages().length, 1);
+    assert.equal(readFileSync(join(dir, run.dir, "report.md"), "utf8"), report);
+    const parsed = parseTaskRecord(fileOf(dir, task, "record.json"));
+    assert.deepEqual(parsed.problems, []);
+    const ended = parsed.record.runs.at(-1);
+    assert.ok(ended.endedAt);
+    assert.equal(ended.failure, null);
+    assert.equal(ended.verdict, null);
+    assert.equal(lastPassedReview(parsed.record), undefined);
+  });
+}
 
 test("启动不了或中途退出时记为失败", async (t) => {
   const dir = runProject(t);
@@ -497,6 +521,17 @@ function put(dir, path, text) {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
   writeFileSync(join(dir, path), text);
 }
+
+test("直接结算收到空字符串时，审查记录仍可读回", (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir);
+  const run = reviewRun(dir, task);
+  assert.deepEqual(finish(dir, task, run, { verdict: "" }), []);
+  const parsed = parseTaskRecord(fileOf(dir, task, "record.json"));
+  assert.deepEqual(parsed.problems, []);
+  assert.equal(parsed.record.runs.at(-1).verdict, null);
+  assert.equal(lastPassedReview(parsed.record), undefined);
+});
 
 test("正常结束时记下结论和改动文件", (t) => {
   const dir = runProject(t);

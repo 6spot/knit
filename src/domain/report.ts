@@ -72,8 +72,8 @@ export function reportOutcome(
   if (text.trim() === "") return { outcome: { verdict: null, failure: "执行者没有给出报告" }, problems: [] };
   const read = readReport(declared, text);
   if (read.fields === null) return { outcome: null, problems: read.problems };
-  const verdict = typeof read.fields.verdict === "string" ? read.fields.verdict : null;
-  return { outcome: { verdict, failure: null }, problems: [] };
+  const verdict = Object.hasOwn(declared, "verdict") ? read.fields.verdict : null;
+  return { outcome: { verdict: typeof verdict === "string" && verdict !== "" ? verdict : null, failure: null }, problems: [] };
 }
 
 /** 模型请求出错、Pi 自己重试之后仍然失败时的结果；`reason` 是模型服务给的原因。 */
