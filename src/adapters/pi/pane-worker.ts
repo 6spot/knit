@@ -64,7 +64,7 @@ export default function paneWorker(pi: Pi): void {
     const result: AgentResult = last?.stopReason === "error"
       ? { report: null, failure: modelFailure(last.errorMessage).failure! }
       : {
-        report: (last === undefined || typeof last.content === "string" ? [] : last.content)
+        report: typeof last?.content === "string" ? last.content.trim() : (last?.content ?? [])
           .flatMap((block) => block.type === "text" && block.text !== undefined ? [block.text] : [])
           .join("").trim(),
         failure: null,

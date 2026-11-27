@@ -83,18 +83,53 @@ test("连接层把非 JSON 与非对象帧归入 invalidFrames，不作响应或
   const { root } = makeWorkspace(t, "frames");
   const script = [
     "process.stdout.write('{\"type\":\"response\",\"id\":\"a1\",\"success\":true}\\n')",
+    "for (let i = 0; i < 210; i++) console.log('bad-' + i)",
     "process.stdout.write('not-json-at-all\\n')",
     "process.stdout.write('[1,2,3]\\n')",
   ].join(";");
   const connection = new PiRpcConnection(process.execPath, ["-e", script], { cwd: root, env: {} });
   try {
     await connection.waitExit(5_000);
-    assert.ok(connection.invalidFrames.includes("not-json-at-all"));
-    assert.ok(connection.invalidFrames.includes("[1,2,3]"));
+    assert.deepEqual(connection.invalidFrames, [
+      ...Array.from({ length: 198 }, (_, index) => `bad-${index + 12}`), "not-json-at-all", "[1,2,3]",
+    ]);
     assert.equal(connection.events.length, 0);
   } finally {
     connection.killProcessGroup("SIGKILL");
   }
+});
+
+test("同一 Pi 连接多次截断后按本轮结算、读取模型错误，超时和退出各自结束等待", { timeout: 10_000 }, async (t) => {
+  const { root, sessionDir } = makeWorkspace(t, "event-limit");
+  const executable = path.join(root, "pi.mjs");
+  writeFileSync(executable, `#!${process.execPath}
+import { createInterface } from "node:readline";
+const send = (event) => console.log(JSON.stringify(event));
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const { type, id, message } = JSON.parse(line);
+  send({ type: "response", id, success: true, data: { sessionId: "s", model: { provider: "p", id: "m" } } });
+  if (type !== "prompt") return;
+  if (message === "退出") process.exit(7);
+  if (message.endsWith("错误")) {
+    send({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: message } });
+  }
+  for (let i = 0; i < 8; i++) send({ type: "turn_end" });
+  send({ type: "agent_end" });
+  if (message !== "等待") send({ type: "agent_settled", aborted: message === "旧错误" });
+});
+`, { mode: 0o755 });
+  const runtime = new PiAgentRuntime({ executablePath: executable, cwd: root, sessionDir, provider: "p", modelId: "m", eventLimit: 4 });
+  t.after(() => runtime.dispose());
+  assert.equal((await runtime.start()).ok, true);
+  assert.deepEqual(await runtime.prompt("旧错误", 1000), { settled: true, aborted: true, exit: null });
+  assert.equal(runtime.events().length, 4);
+  assert.equal(runtime.lastModelError(), "旧错误");
+  assert.deepEqual(await runtime.prompt("等待", 25), { settled: false, aborted: false, exit: null });
+  assert.deepEqual(await runtime.prompt("成功", 1000), { settled: true, aborted: false, exit: null });
+  assert.equal(runtime.lastModelError(), null);
+  assert.equal((await runtime.prompt("本轮错误", 1000)).settled, true);
+  assert.equal(runtime.lastModelError(), "本轮错误");
+  assert.deepEqual(await runtime.prompt("退出"), { settled: false, aborted: false, exit: { code: 7, signal: null } });
 });
 
 test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout: 30_000 }, async (t) => {

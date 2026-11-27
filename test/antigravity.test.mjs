@@ -446,7 +446,7 @@ async function independentRuns(suite) {
   for (const { stage, responses, failure } of [
     { stage: "implement", responses: [unmarked, "KNIT_AGY_SUBMIT\n完成实现"] },
     { stage: "implement", responses: [waiting, waiting], failure: true },
-    { stage: "review", responses: [waiting, "KNIT_AGY_SUBMIT\n缺少结论", `KNIT_AGY_SUBMIT\n${unmarked}`] },
+    { stage: "review", responses: [waiting, "KNIT_AGY_SUBMIT\n缺少结论", unmarked, `KNIT_AGY_SUBMIT\n${unmarked}`] },
     { stage: "review", responses: [unmarked, ""], failure: true },
   ]) {
     check(`后台 ${stage} 漏标或等待后在原会话追问，${failure ? "再次未提交时退出" : "提交后校验报告"}`, isolated, async (t) => {
@@ -456,7 +456,10 @@ async function independentRuns(suite) {
       const messages = rows.filter((row) => row.type === "USER_INPUT");
       assert.deepEqual(messages.length, responses.length);
       assert.match(messages[1].content, /后台.*第一行.*KNIT_AGY_SUBMIT.*完整报告/);
-      if (messages.length === 3) assert.match(messages[2].content, /不要重新做一遍/);
+      if (stage === "review" && !failure) {
+        assert.match(messages[2].content, /不要重新做一遍/);
+        assert.equal(messages[3].content, messages[1].content);
+      }
       assert.ok(!alive(rows[0].pid));
       const report = join(runDir(f.root, run), "report.md");
       if (failure) {

@@ -577,14 +577,14 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
     assert.deepEqual(rex.panes(), []);
   });
 
-  check("窗格里的报告读不出来时补报一次", async (t) => {
+  check("窗格里的纯字符串报告去除首尾空白，读不出来时补报一次", async (t) => {
     const dir = runProject(suite);
     const task = readyTask(dir);
     const rex = inRex(t, dir);
     rex.script({});
     await finished(dir, task, (await start(rex, dir, task)).id);
     const pass = '审查通过。\n\n```json\n{ "verdict": "pass" }\n```';
-    rex.script({ texts: ["忘了写结论。", pass] });
+    rex.script({ stringContent: true, texts: ["忘了写结论。", ` \n${pass}\n `] });
 
     const review = await start(rex, dir, task);
     const ended = await finished(dir, task, review.id);

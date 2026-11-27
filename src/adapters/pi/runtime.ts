@@ -55,6 +55,7 @@ export interface PiRuntimeOptions {
   sessionFile?: string;
   /** 恢复前可选预检结果；调用方也可自行调用 checkNativeSessionFile。 */
   env?: Record<string, string>;
+  eventLimit?: number;
   /** 为真时启动的是交互界面：不带 `--mode rpc`，也不带 `--no-themes`（界面要用户设置的主题）。 */
   interactive?: boolean;
 }
@@ -177,7 +178,6 @@ export class PiAgentRuntime {
   /** dispose 冻结的最终 stderr 快照；连接释放后仍可读（启动诊断用）。 */
   private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
   private settledSeen = false;
-  private lastSettledAborted = false;
   /** 下一次 prompt 只观察它启动后的 agent_settled；之前的轮次不得冒充本次终态。 */
   private settledCursor = 0;
   private started = false;
@@ -215,6 +215,7 @@ export class PiAgentRuntime {
     const switches = capabilitySwitches(this.options.capabilities);
     const connection = new PiRpcConnection(this.options.executablePath, buildPiArgs(this.options), {
       cwd: this.options.cwd,
+      eventLimit: this.options.eventLimit,
       env: this.options.env ? { ...this.options.env, ...PI_EXECUTOR_ENV } : isolatedEnv(undefined, { offline: switches.offline }),
     });
     this.connection = connection;
@@ -292,8 +293,7 @@ export class PiAgentRuntime {
   async prompt(message: string, timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
     this.settledSeen = false;
-    this.lastSettledAborted = false;
-    this.settledCursor = connection.events.length;
+    this.settledCursor = connection.eventCount;
     void connection.call("prompt", { message }, timeoutMs ?? 600_000).catch(() => {
       // prompt 响应失败或超时不代表模型已停止；终态以 agent_settled / exit 为准。
     });
@@ -303,25 +303,9 @@ export class PiAgentRuntime {
   /** 等待稳定终态；agent_settled 才算，agent_end 不算。timeoutMs 为 null 时无截止。 */
   async waitSettled(timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
-    const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
-    for (;;) {
-      const index = connection.events.findIndex(
-        (event, position) => position >= this.settledCursor && event.type === "agent_settled",
-      );
-      if (index >= 0) {
-        const event = connection.events[index] as { aborted?: unknown };
-        this.lastSettledAborted = event.aborted === true;
-        this.settledSeen = true;
-        return { settled: true, aborted: this.lastSettledAborted, exit: connection.exit };
-      }
-      if (connection.exit !== null) {
-        return { settled: false, aborted: false, exit: connection.exit };
-      }
-      if (deadline !== null && Date.now() > deadline) {
-        return { settled: false, aborted: false, exit: null };
-      }
-      await sleep(50);
-    }
+    const aborted = await connection.waitForSettled(this.settledCursor, timeoutMs);
+    if (aborted !== null) this.settledSeen = true;
+    return { settled: aborted !== null, aborted: aborted === true, exit: connection.exit };
   }
 
   get hasSettled(): boolean {
@@ -341,15 +325,7 @@ export class PiAgentRuntime {
    * 出错的消息没有文字，get_last_assistant_text 分不出它和“什么都没说”。
    */
   lastModelError(): string | null {
-    const last = this.requireConnection().events.findLast(
-      (event, position) =>
-        position >= this.settledCursor &&
-        event.type === "message_end" &&
-        (event.message as { role?: unknown } | undefined)?.role === "assistant",
-    );
-    const message = last?.message as { stopReason?: unknown; errorMessage?: unknown } | undefined;
-    if (message?.stopReason !== "error") return null;
-    return typeof message.errorMessage === "string" ? message.errorMessage : "";
+    return this.requireConnection().lastModelError(this.settledCursor);
   }
 
   async getLastAssistantText(): Promise<string> {
@@ -412,10 +388,6 @@ async function safeCall(connection: PiRpcConnection, kind: string): Promise<PiRp
 
 function stringify(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value ?? "");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export type { NativeFileCheck };

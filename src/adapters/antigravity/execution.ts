@@ -3,7 +3,7 @@ import { appendFileSync, constants, copyFileSync, existsSync, lstatSync, mkdirSy
 import { once } from "node:events";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { createInterface, type Interface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import { runPaneSession, SESSION_FILE_LOCATOR } from "../../application/run-execute.js";
@@ -106,6 +106,7 @@ class AgySession implements AgentSession {
   private resumeTimer?: NodeJS.Timeout;
   private streamFile: string | null = null;
   private requestedSubmit = false;
+  private stdoutLines?: Interface;
   private stderr = "";
   private turn = Promise.withResolvers<AgentResult>();
   private stopReply: ReturnType<typeof Promise.withResolvers<AgyObject>> | null = null;
@@ -149,6 +150,7 @@ class AgySession implements AgentSession {
   }
 
   prompt(message: string): Promise<AgentResult> {
+    this.requestedSubmit = false;
     this.turn = Promise.withResolvers<AgentResult>();
     if (this.child === null) {
       const first = [
@@ -182,6 +184,7 @@ class AgySession implements AgentSession {
       child.kill("SIGTERM");
       await exited.finally(() => clearTimeout(force));
     }
+    this.stdoutLines?.close();
     try {
       removeAgyRuntime(this.original.cwd, this.original.dir);
     } catch (error) {
@@ -243,7 +246,8 @@ class AgySession implements AgentSession {
       this.streamFile = join(dir, "agy.jsonl");
       child.stdin!.on("error", (error) => this.startupError(`Antigravity 输入已关闭：${error.message}`));
       child.stderr!.setEncoding("utf8").on("data", (data: string) => { this.stderr = (this.stderr + data).slice(-8192); });
-      createInterface({ input: child.stdout! }).on("line", (line) => this.background(line));
+      this.stdoutLines = createInterface({ input: child.stdout! });
+      this.stdoutLines.on("line", (line) => this.background(line));
     }
   }
 

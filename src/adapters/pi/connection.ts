@@ -39,6 +39,7 @@ interface Pending {
 }
 
 const STDERR_TAIL_LIMIT = 8 * 1024;
+const INVALID_FRAME_LIMIT = 200;
 
 /** 单个 pi --mode rpc 进程的协议连接；负责分帧、请求关联与 EOF 语义。 */
 export class PiRpcConnection {
@@ -55,6 +56,11 @@ export class PiRpcConnection {
   /** 收敛后的最终 stderr 快照；显式冻结后即使流未结束也保持不变。 */
   private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
   private readonly stderrWaiters: Array<() => void> = [];
+  private readonly eventLimit: number;
+  private sequence = 0;
+  private lastSettled: { sequence: number; aborted: boolean } | null = null;
+  private readonly settledWaiters = new Set<(aborted: boolean | null) => void>();
+  private assistantEnd: { sequence: number; modelError: string | null } | null = null;
   /** 收到的协议事件（非 response 记录）；由调用方消费。 */
   readonly events: PiRpcRecord[] = [];
   /** 无法按 JSON 对象核实的帧（畸形或截断尾部）；不当作响应或事件。 */
@@ -63,8 +69,9 @@ export class PiRpcConnection {
   constructor(
     executablePath: string,
     args: string[],
-    options: { cwd: string; env: Record<string, string> },
+    options: { cwd: string; env: Record<string, string>; eventLimit?: number },
   ) {
+    this.eventLimit = options.eventLimit ?? 100_000;
     this.child = spawn(executablePath, args, {
       cwd: options.cwd,
       env: options.env,
@@ -76,6 +83,7 @@ export class PiRpcConnection {
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal: signal ?? null };
       this.handleEof();
+      this.settledWaiters.forEach((waiter) => waiter(null));
       const waiters = this.exitWaiters.splice(0);
       for (const waiter of waiters) waiter(this.exitInfo);
     });
@@ -165,7 +173,7 @@ export class PiRpcConnection {
         }
       }
       const tail = this.decoder.end();
-      if (tail !== null) this.invalidFrames.push(tail);
+      if (tail !== null) this.retainInvalidFrame(tail);
     } catch {
       // 读流失败按 EOF 处理；真实退出状态以 exit 事件为准。
     }
@@ -178,17 +186,20 @@ export class PiRpcConnection {
     this.handleEof();
   }
 
+  private retainInvalidFrame(frame: string): void {
+    if (this.invalidFrames.length === INVALID_FRAME_LIMIT) this.invalidFrames.shift();
+    this.invalidFrames.push(frame);
+  }
+
   private dispatch(frame: string): void {
     let record: unknown;
     try {
       record = JSON.parse(frame);
     } catch {
-      this.invalidFrames.push(frame);
-      return;
+      return this.retainInvalidFrame(frame);
     }
     if (typeof record !== "object" || record === null || !("type" in record)) {
-      this.invalidFrames.push(frame);
-      return;
+      return this.retainInvalidFrame(frame);
     }
     const typed = record as PiRpcRecord;
     if (isResponse(typed)) {
@@ -200,11 +211,44 @@ export class PiRpcConnection {
       }
       return;
     }
+    this.sequence++;
     this.events.push(typed);
-    if (this.events.length > 100_000) {
-      // 事件仅作观察缓冲，超限丢弃最旧，避免长回合内存膨胀。
-      this.events.splice(0, this.events.length - 100_000);
+    if (this.events.length > this.eventLimit) this.events.shift();
+    if (typed.type === "agent_settled") {
+      const aborted = typed.aborted === true;
+      this.lastSettled = { sequence: this.sequence, aborted };
+      this.settledWaiters.forEach((waiter) => waiter(aborted));
     }
+    if (typed.type === "message_end") {
+      const message = typed.message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown } | undefined;
+      if (message?.role === "assistant") {
+        const errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : "";
+        this.assistantEnd = { sequence: this.sequence, modelError: message.stopReason === "error" ? errorMessage : null };
+      }
+    }
+  }
+
+  get eventCount(): number {
+    return this.sequence;
+  }
+
+  lastModelError(after: number): string | null {
+    return this.assistantEnd && this.assistantEnd.sequence > after ? this.assistantEnd.modelError : null;
+  }
+
+  /** 返回 agent_settled 的 aborted 标志；超时或进程退出时返回 null。 */
+  waitForSettled(after: number, timeoutMs: number | null): Promise<boolean | null> {
+    if (this.lastSettled && this.lastSettled.sequence > after) return Promise.resolve(this.lastSettled.aborted);
+    if (this.exitInfo !== null) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const finish = (aborted: boolean | null) => {
+        clearTimeout(timer);
+        this.settledWaiters.delete(finish);
+        resolve(aborted);
+      };
+      const timer = timeoutMs === null ? undefined : setTimeout(() => finish(null), timeoutMs);
+      this.settledWaiters.add(finish);
+    });
   }
 
   private handleEof(): void {

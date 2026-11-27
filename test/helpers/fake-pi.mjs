@@ -48,7 +48,11 @@ const retryMessages = (script.retryErrors ?? []).map((errorMessage) => ({
 }));
 let prompts = 0;
 let lastText = "";
-const successfulMessage = () => ({ role: "assistant", content: [{ type: "text", text: lastText }], stopReason: "stop" });
+const successfulMessage = () => ({
+  role: "assistant",
+  content: script.stringContent ? lastText : [{ type: "text", text: lastText }],
+  stopReason: "stop",
+});
 
 log({ args });
 if (script.stubborn) {
