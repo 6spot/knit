@@ -2,7 +2,8 @@
 
 在项目目录用 `run_command` 调用 `PATH` 上的 `knit`。
 
-- 用 `knit task list` 查看任务，用 `knit task show <id>` 读取需求和状态。用 `knit task new --title <标题>` 创建草稿，确认需求后用 `knit task ready <id>` 登记。
+- 用 `knit task list` 查看任务，用 `knit task show <id>` 查看任务元信息和状态，打开任务目录中的 `task.md` 阅读需求正文。用 `knit task new --title <标题>` 创建草稿，确认需求后用 `knit task ready <id>` 登记。
 - 用 `knit context --use <id>` 为当前会话选中任务，用 `knit context --unuse` 清除选择。后续轮次的钩子会注入适用规范和任务状态。
 - `knit run start <id>` 派发成功后，立即用单独的后台 `run_command` 运行 `knit run wait <id>`，将 `WaitMsBeforeAsync` 设为 `500`。每批等待一次，命令结束时由 Antigravity 唤醒会话，读取整批执行结果。用 `knit run status <id>` 查询进度，用 `knit run cancel <id>` 取消执行。
-- 在 Git 仓库里，用 `knit deliver <id> --preview --message "提交文案"` 预览。取得用户授权后，用 `knit deliver <id> --authorization "用户授权原话" --message "提交文案"` 交付。两条命令都可以用 `--message-file <文件>` 代替 `--message "提交文案"`。非 Git 项目可以省略文案。
+- 完成任务后用 `knit task close <id> --result "完成情况"` 登记结果。用户决定取消任务时，用 `knit task cancel <id> --reason "取消原因"` 取消并归档。
+- 在 Git 仓库里，用 `knit deliver --preview <id> --message "提交文案"` 预览。取得用户授权后，用 `knit deliver <id> --authorization "用户授权原话" --message "提交文案"` 交付。两条命令都可以用 `--message-file <文件>` 代替 `--message "提交文案"`。非 Git 项目可以省略文案。

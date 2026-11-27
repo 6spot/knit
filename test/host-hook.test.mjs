@@ -3,14 +3,15 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { agyHostHook } from "../dist/adapters/antigravity/host-hook.js";
 import { qoderHostHook } from "../dist/adapters/qoder/host-hook.js";
 import { workbuddyHostHook } from "../dist/adapters/workbuddy/host-hook.js";
 import { deliverTask } from "../dist/application/delivery.js";
-import { canSkipHostCommand, inspectHostCommand } from "../dist/application/host-command.js";
+import { canSkipHostCommand, checkHostCommand, inspectHostCommand } from "../dist/application/host-command.js";
 import { selectHostTask } from "../dist/application/host-hook.js";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig, readWorkflow } from "../dist/application/project-config.js";
@@ -116,7 +117,7 @@ test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析�
   for (const command of ["ls -la", "git status", "git diff --stat", "npm test", "node --test test/a.test.mjs",
     'cat "README.md"', "grep 'hello' src/", "rg 'foo' src/", "find .", "find . -name '*.ts'", "rg foo .", "git add .",
     "git diff -- .", "ls .", "cat scripts/build.sh", "rg sh-syntax src/", "npm test -- --dash", "rg --path=. foo",
-    "cat foo.bash", "rg source-map", "rg myshell", "rg 'foo bar' ."]) {
+    "cat foo.bash", "rg source-map", "rg myshell", "rg 'foo bar' .", "source setup", ". setup", "env bash", "base64 file", "eval 'echo hello'", "sh -c 'echo hello'"]) {
     assert.equal(canSkipHostCommand(command), true, command);
     assert.equal(bridgeTemplate.canSkipHostCommand(command), true, command);
     assert.deepEqual(await inspectHostCommand(command, environment), { command, quotes: [] });
@@ -124,15 +125,7 @@ test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析�
   assert.deepEqual(imports, []);
   for (const command of ["knit deliver id", 'k"nit" deliver id', "k'n'it deliver id", String.raw`k\nit deliver id`,
     "knit deliver --preview id", "knit context --use id", "knit task new --title example", "knit run start id",
-    "$CMD deliver", "$(printf knit) deliver", "echo `date`", "KNIT --version", "eval 'echo hello'", "e'val' 'echo hello'",
-    "sh -c 'echo hello'", "/bin/bash -c 'echo hello'", 'b"ash" -c true', "zsh --version", "dash -c true", "ksh -c true",
-    "source setup", "base64 file", "./sh -c true", "env bash", "echo myKNITfile", "eval 'knit deliver id'",
-    ". setup", "\t. setup", '"" . setup', "'.' setup", "(. setup)", "{ . setup; }", "! . setup", "if true; then . setup; fi",
-    "true && . setup", "FOO=1 . setup", 'FOO="two words" . setup', "FOO=!x . setup", "</dev/null . setup",
-    "LABEL=two\u00a0words . setup", "< two\u00a0words . setup", "repeat 2 . setup",
-    "2> log . setup", '>out< "input file" . setup', "command -p . setup", "time -p -- . setup",
-    ...[";", "\r", "\n", "&", "|", "(", ")", "{", "}", "!"].map((control) => `true${control}\t. setup`),
-    ...["if", "then", "elif", "else", "while", "until", "do", "time", "coproc", "builtin", "command", "exec", "nohup", "noglob", "nocorrect", "-"].map((prefix) => `${prefix} . setup`)]) {
+    "$CMD deliver", "$(printf knit) deliver", "echo `date`", "KNIT --version", "echo myKNITfile", "eval 'knit deliver id'"]) {
     assert.equal(canSkipHostCommand(command), false, command);
     assert.equal(bridgeTemplate.canSkipHostCommand(command), false, command);
   }
@@ -150,6 +143,35 @@ test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析�
   }
   const start = "knit run start id";
   assert.deepEqual(await inspectHostCommand(start, environment), { command: `env ${environment.start} ${start}`, quotes: [] });
+});
+
+test("静态命令样本经包装、间接输入和动态名称时仍触发对应门禁", async () => {
+  for (const operation of ["deliver", "run start"]) {
+    const body = `knit ${operation} fixture`;
+    const samples = ["env -P /bin", "env -iP /bin", "env -iu FOO", "env -a name", "env --argv0=name", "exec -a name", "exec -ca name",
+      "nohup", "nice", "nice -n 3", "timeout -k 1 5", "timeout -vs TERM 5", "caffeinate -t 1", "caffeinate -dt 1"].map((prefix) => `${prefix} ${body}`);
+    samples.push(`eval -- '${body}'`, `env -S "${body}"`, `env --split-string='knit' ${operation} fixture`,
+      `sh <<< '${body}'`, `bash <<EOF\n${body}\nEOF`, `printf '%s' '${body}' | dash`, `source '${body}'`, `. '${body}'`, `CMD=knit; $CMD ${operation} fixture`);
+    for (const command of samples) {
+      const result = await checkHostCommand(command, () => [], {}, { rejectStartReason: "原生派发" });
+      assert.match(result.reason ?? "", operation === "deliver" ? /无法核对交付授权/ : /^原生派发$/, command);
+    }
+  }
+});
+
+test("帮助和预览免核对，动态路径、多行文案保留独立的静态授权", async () => {
+  for (const command of ["knit deliver --help", "knit deliver -h", "knit run start --help", 'knit deliver "$ID" --preview']) {
+    const result = await checkHostCommand(command, () => assert.fail("只读调用读取了转录"), {}, { rejectStartReason: "原生派发" });
+    assert.equal(result.reason, null, command);
+  }
+  for (const option of ["--dir $ROOT", "--dir=$ROOT", '--message "${X:-y}"', String.raw`--message $'feat: a\n\nb'`]) {
+    const command = `knit deliver fixture ${option} --authorization '同意交付'`;
+    const checked = await checkHostCommand(command, () => ["同意交付"]);
+    assert.equal(checked.reason, null, command);
+    assert.equal(checked.command, command.replace("--dir $ROOT", '--dir "$ROOT"').replace("--dir=$ROOT", '"--dir=$ROOT"'));
+    assert.match((await checkHostCommand(command, () => ["先等等"])).reason, /无法核对/);
+  }
+  assert.deepEqual((await inspectHostCommand(String.raw`knit deliver fixture --authorization $'a\n\nb'`)).quotes, ["a\n\nb"]);
 });
 
 test("普通目录的上级是 Knit 用户目录时，继续查找实际工作区", async (t) => {
@@ -327,6 +349,10 @@ test("旧会话保留任务并迁移摘要，CLI 仍完整输出，任务损坏�
   const restored = await injected();
   assert.match(restored, /^状态: ready$/m);
   assert.deepEqual(standardPaths(restored), []);
+  writeFileSync(path, '{"taskId":');
+  assert.ok((await injected()).includes(unselected));
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).taskId, null);
+  assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
 });
 
 test("交付只接受本次调用的预览选项或转录中完整的用户原话", async (t) => {
@@ -392,8 +418,9 @@ test("环境预检使用 AGY 默认执行者，桌面钩子放行预检", async 
   const cwd = project(t);
   const payload = { cwd, conversationId: session };
   const validate = "knit workflow validate --env";
+  process.env.KNIT_SESSION_AGENT = "";
   assert.deepEqual(await preTool(payload, validate), { decision: "allow", overwrite: {
-    CommandLine: `env KNIT_SESSION_AGENT="\${KNIT_SESSION_AGENT-antigravity}" ${validate}`,
+    CommandLine: `env KNIT_SESSION_AGENT="\${KNIT_SESSION_AGENT:-antigravity}" ${validate}`,
   } });
   for (const command of [`KNIT_SESSION_AGENT=pi ${validate}`, `env KNIT_SESSION_AGENT=pi ${validate}`, "knit workflow validate", "knit workflow validate --dir '--env'"]) {
     assert.deepEqual(await preTool(payload, command), { decision: "allow" });
@@ -547,17 +574,32 @@ test("Bash 交付只接受转录中完整的用户原话，预览放行、外部
   assert.equal(await buddyPreTool(cwd, deliver, "Other"), null);
 });
 
+test("两套桌面钩子从 ~/ JSONL 的损坏行之间提取真实输入", async (t) => {
+  const cwd = project(t);
+  const path = join(cwd, "mixed.jsonl");
+  for (const [hook, row] of [[workbuddyHostHook, { type: "message", role: "user", content: "同意交付" }],
+    [qoderHostHook, { type: "user", message: { role: "user", content: "同意交付" } }]]) {
+    writeFileSync(path, ["invalid", JSON.stringify(row), '{"content":'].join("\n"));
+    const payload = { cwd, transcript_path: `~/${relative(homedir(), path)}`, tool_name: "Bash" };
+    const check = (quote) => hook("pre-tool-use", { ...payload, tool_input: { command: `knit deliver fixture --authorization '${quote}'` } });
+    assert.equal(await check("同意交付"), null);
+    assert.equal((await check("invalid")).hookSpecificOutput.permissionDecision, "deny");
+  }
+});
+
 test("桌面 user_query 内的多行原话可核对，附件来源和提醒只作为宿主信息", async (t) => {
   const cwd = project(t);
   const body = "请使用这次审查结果\n同意交付桌面桥接";
   const row = { id: "msg-desktop", type: "message", role: "user", providerData: { skipRun: false }, content: [
-    { type: "input_text", text: `<system-reminder data-role="hook">提醒内容</system-reminder>\n<user_query><query_source>来自微信聊天记录</query_source>\n${body}</user_query>` },
+    { type: "input_text", text: `<SYSTEM-REMINDER data-role="hook"><system-reminder>内层</system-reminder>提醒内容</SYSTEM-REMINDER>\n附件前缀\n<user_query><query_source>来自微信聊天记录</query_source>\n${body}</user_query>\n附件尾注` },
     { type: "input_text", text: "<image_local_path>\n/tmp/picture.png\n</image_local_path>" },
   ] };
-  writeFileSync(join(cwd, `${buddySession}.jsonl`), `${JSON.stringify(row)}\n`);
+  writeFileSync(join(cwd, `${buddySession}.jsonl`), [row, { ...row, content: "<user_query>\n残缺输入" },
+    { ...row, content: ["<user_query>", "块间附件", "</user_query>"].map((text) => ({ type: "input_text", text })) },
+    { ...row, content: "<SYSTEM-REMINDER>\n宿主附加行\n</SYSTEM-REMINDER>" }].map((entry) => JSON.stringify(entry)).join("\n"));
   const check = (quote) => buddyPreTool(cwd, `knit deliver k-test --authorization '${quote}'`);
   for (const quote of [body, "同意交付桌面桥接"]) assert.equal(await check(quote), null);
-  for (const quote of ["交付桌面桥接", "提醒内容", "<query_source>来自微信聊天记录</query_source>", "/tmp/picture.png"]) {
+  for (const quote of ["交付桌面桥接", "提醒内容", "<query_source>来自微信聊天记录</query_source>", "/tmp/picture.png", "附件前缀", "附件尾注", "残缺输入", "块间附件", "宿主附加行"]) {
     assert.equal((await check(quote)).permissionDecision, "deny");
   }
 });

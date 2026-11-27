@@ -8,8 +8,6 @@ import { withFileLock } from "../infrastructure/process.js";
 import { buildSessionContext, contextBlocks, type DispatchMode } from "./session-context.js";
 import { readTask } from "./task-store.js";
 
-export { checkHostCommand } from "./host-command.js";
-
 export interface HostSession {
   host: string;
   sessionId: string;
@@ -50,7 +48,13 @@ function saveState(path: string, state: SessionState) {
 
 function readState(path: string): SessionState {
   const file = readWithVersion(path);
-  return file === null ? { taskId: null } : JSON.parse(file.data.toString());
+  if (file === null) return { taskId: null };
+  try {
+    const state = JSON.parse(file.data.toString());
+    return state?.taskId === null || typeof state?.taskId === "string" ? state : { taskId: null };
+  } catch {
+    return { taskId: null };
+  }
 }
 
 export function selectHostTask(root: string, session: HostSession, taskId: string | null):

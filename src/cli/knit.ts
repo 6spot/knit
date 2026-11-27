@@ -58,8 +58,8 @@ async function runHook(host: (typeof HOST_SPECS)[number], event: string) {
   }
   const { checkHostCommand, inspectHostCommand } = await import("../application/host-command.js");
   if (call.quotesOnly === true) {
-    const { quotes } = await inspectHostCommand(call.input.command);
-    process.stdout.write(JSON.stringify({ quotes }));
+    const { quotes, command } = await inspectHostCommand(call.input.command);
+    process.stdout.write(JSON.stringify(command === call.input.command ? { quotes } : { quotes, command }));
     return;
   }
   const checked = await checkHostCommand(call.input.command, () => call.messages
