@@ -498,6 +498,7 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 ```
 knit init [--pi] [--agy] [--workbuddy] [--force]
 knit task new | ready | close | cancel | list | show
+knit task list [--archive]                查看活跃任务；--archive 平铺列出已归档任务
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]
 knit run status | wait | cancel 都按任务 id
@@ -515,6 +516,10 @@ knit workflow show | validate
 
 `knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy` 可以任意组合。
 
+`knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档或缺失时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
+
+执行期间，任务行显示 `正在启动`、`运行中 3m`（不足一分钟为 `运行中 <1m`）或 `进程已退出`。并行批次需要主会话裁决时显示 `待裁决`。流程文件缺失或无效时仍可查看层级、依赖和进程状态。在 Git 仓库中，列表末尾列出不属于活跃任务且尚未合并进 `HEAD` 的本地 `knit/*` 分支及合并命令。
+
 `knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity 和 WorkBuddy 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，只报告错误，必要时附未发送的普通讨论规范；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
 WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
@@ -528,7 +533,7 @@ Pi 桥接有 3 个工具：
 | 工具 | 动作 |
 | --- | --- |
 | `knit_task` | new、use、ready、close、list |
-| `knit_run` | start（派发任务下一个环节，可选 `model`、`thinking`、`instruction` 和 `fresh` 参数）、status、cancel |
+| `knit_run` | start（派发任务下一个环节，可选 `model`、`thinking`、`instruction`、`stage` 和 `fresh`。并行审查裁决时，`instruction` 给出修改清单，`stage` 对应 CLI 的 `--stage`，指定裁决目标环节）、status、cancel |
 | `knit_deliver` | 预览、交付 |
 
 - 工具的声明不随流程配置变化。

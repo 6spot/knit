@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { test } from "node:test";
+import { RUNS_DIR } from "../dist/contracts/task.js";
+import { procStartTicks } from "../dist/infrastructure/process.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
@@ -469,6 +471,69 @@ test("task list：按优先级和创建时间排，写坏的排在最后", (t) =
   ]);
   assert.ok(brokenLine.startsWith(`${archivedBroken}：task.md：字段 priority 的值不对：`), brokenLine);
   assert.deepEqual(rest, []);
+});
+
+test("task list：子任务逐层排序，只标出未满足的依赖和未合并的非活跃分支", (t) => {
+  const dir = gitProject(t);
+  const old = draft(dir, { slug: "delivered" });
+  const dropped = draft(dir, { slug: "cancelled" });
+  const parent = draft(dir, { title: "父任务" });
+  const later = draft(dir, { title: "低优先级子任务", parent: parent.id });
+  const child = draft(dir, { title: "高优先级子任务", parent: parent.id, priority: "P0" });
+  const grandchild = draft(dir, { title: "孙任务", parent: child.id, dependsOn: [later.id, dropped.id, old.id] });
+  const orphan = draft(dir, { title: "父任务已归档", parent: old.id, priority: "P1" });
+  assert.equal(cancel(dir, dropped).kind, "cancelled");
+  rewrite(dir, old, withFrontmatter({ status: "delivered" }));
+  renameSync(join(dir, old.dir), join(dir, ".knit/tasks/archive", MONTH, basename(old.dir)));
+
+  const branch = `knit/${basename(old.dir)}`;
+  const tip = git(dir, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "交付");
+  for (const name of [branch, `knit/${basename(child.dir)}`, "other"]) git(dir, "branch", name, tip);
+  git(dir, "branch", "knit/already-merged", "HEAD");
+  const lines = [
+    `P1  ${orphan.id}  draft  父任务已归档  父:${old.id}`,
+    `P2  ${parent.id}  draft  父任务`,
+    `  P0  ${child.id}  draft  高优先级子任务`,
+    `    P2  ${grandchild.id}  draft  孙任务  阻塞:${later.id}, ${dropped.id}`,
+    `  P2  ${later.id}  draft  低优先级子任务`,
+  ];
+  const before = [...lines];
+  before[3] += `, ${old.id}`;
+  const listed = knit(dir, "task", "list");
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.deepEqual(listed.stdout.trimEnd().split("\n"), [...before, "", "尚未合并进 HEAD 的任务分支，可在当前检出运行：", `  git merge '${branch}'`]);
+  git(dir, "merge", "--ff-only", branch);
+  assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${lines.join("\n")}\n`, stderr: "" });
+});
+
+test("task list：逐个识别批次成员进程，流程损坏或缺失时仍能查看运行态", (t) => {
+  const dir = runProject(t);
+  const running = draft(dir, { title: "执行中" });
+  const waiting = draft(dir, { title: "等待汇总" });
+  const members = ["first", "second"].map((executor) => ({ ...runOf(`r-${executor}`, "review", "pass"),
+    agent: "pi", batchId: "b-review", executor, resumeId: null }));
+  for (const task of [running, waiting]) {
+    rewrite(dir, task, withFrontmatter({ status: "active", stage: "review", verification: "independent" }), (doc) => ({
+      ...EMPTY_RECORD, confirmedDigest: requirementDigest(doc), runs: members.map((member) => ({
+        ...member, id: `${member.id}-${task.id}`, requirementDigest: requirementDigest(doc),
+        ...(task === running ? { startedAt: new Date(Date.now() - 180000).toISOString(), endedAt: null, verdict: null }
+          : { verdict: member.executor === "first" ? "pass" : "changes_requested" }),
+      })),
+    }));
+  }
+  for (const member of record(running).runs) {
+    const runDir = join(dir, RUNS_DIR, member.id);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "worker.json"), JSON.stringify({ pid: process.pid,
+      start: member.executor === "first" ? procStartTicks(process.pid) : "another-process" }));
+  }
+  const expected = `P2  ${running.id}  active(review)  执行中  first:运行中 3m  second:进程已退出\nP2  ${waiting.id}  active(review)  等待汇总`;
+  assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${expected}  待裁决\n`, stderr: "" });
+  const workflow = join(dir, ".knit/workflow.yaml");
+  writeFileSync(workflow, "stages: [");
+  assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${expected}\n`, stderr: "" });
+  rmSync(workflow);
+  assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${expected}\n`, stderr: "" });
 });
 
 test("按 ID 查找跳过无关归档的记录与 YAML，同时保留损坏任务和手写 ID 的查找语义", (t) => {

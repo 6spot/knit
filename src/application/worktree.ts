@@ -18,11 +18,15 @@ export function projectWorktreeRoot(root: string): string {
   );
 }
 
+export function taskBranch(taskDir: string): string {
+  return `knit/${basename(taskDir)}`;
+}
+
 /** 位置和分支由主检出的真实路径、任务目录名计算，不存绑定关系。 */
 export function taskWorktree(root: string, taskDir: string): TaskWorktree {
   return {
     path: join(projectWorktreeRoot(root), basename(taskDir)),
-    branch: `knit/${basename(taskDir)}`,
+    branch: taskBranch(taskDir),
   };
 }
 

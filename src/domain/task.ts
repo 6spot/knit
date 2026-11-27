@@ -32,14 +32,15 @@ export function unparsedTaskId(markdown: string): string | null {
 }
 
 /** 先筛掉 ID 不同的常规任务；手写 YAML 可能用引号、显式键或别名。 */
-export function taskDocumentMayHaveId(markdown: string, id: string): boolean {
+export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>): boolean {
   const header = taskFrontmatter.exec(markdown)?.[1];
   if (header === undefined) return false;
   const rawId = rawIdLine.exec(header)?.[1];
-  if (rawId === id) return true;
+  if (rawId !== undefined && ids.has(rawId)) return true;
   // 首行是普通 ID，且后面没有复杂的顶层键时，别的键不会改变它。
   if (/^id: [a-z0-9-]+\n/.test(header) && !/^(?![A-Za-z][\w-]*:(?:[ \t]|$))[^ \t#\r\n]/m.test(header)) return false;
-  return parseTaskFrontmatter(header).frontmatter?.id === id;
+  const parsedId = parseTaskFrontmatter(header).frontmatter?.id;
+  return parsedId !== undefined && ids.has(parsedId);
 }
 
 export function parseTaskDocument(markdown: string): TaskDocumentParse {
