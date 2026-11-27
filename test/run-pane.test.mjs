@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { inspectNativeSessionFile } from "../dist/adapters/pi/native-file.js";
+import { RexPaneHost } from "../dist/adapters/rex/pane.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { waitRun } from "../dist/application/run-control.js";
 import { executeRun, runInPane } from "../dist/application/run-execute.js";
@@ -82,8 +83,8 @@ function status(root, task) {
 }
 
 /** 派发并返回这次执行。 */
-async function start(rex, dir, task) {
-  const started = await rex.knit("run", "start", task.id);
+async function start(rex, dir, task, ...args) {
+  const started = await rex.knit("run", "start", task.id, ...args);
   assert.equal(started.code, 0, started.stderr);
   return lastRun(dir, task);
 }
@@ -271,6 +272,103 @@ test("同一宿主打开两个窗格时各自等待、读取结果并关闭", as
   firstPane.resolve();
   assert.equal((await first).sessionFile, join(root, "first/session.jsonl"));
   assert.deepEqual(closed, [secondPane, firstPane]);
+});
+
+test("关窗后 rex wait 无响应时中止等待并记录超时，不丢失回执也不阻断回退", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-pane-timeout-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.now() });
+  const calls = [];
+  const host = {
+    open: () => 1,
+    waitClosed(pane, signal) {
+      signal.addEventListener("abort", () => calls.push("abort"));
+      queueMicrotask(() => t.mock.timers.tick(20_001));
+      return new Promise(() => {});
+    },
+    close() { calls.push("close"); queueMicrotask(() => t.mock.timers.tick(2_001)); },
+  };
+  const fallback = await runInPane({ host, runId: "timeout", launch: { dir, cwd: dir }, agent: { paneCommand: () => ["fixture"] } });
+  assert.deepEqual(calls.splice(0), ["close", "abort"]);
+  assert.equal(fallback, null);
+
+  writeFileSync(join(dir, "pane.json"), JSON.stringify({ pid: 2147483647, start: null }));
+  const noOutcome = await runInPane({ host, runId: "timeout", launch: { dir, cwd: dir }, agent: { paneCommand: () => ["fixture"] } });
+  assert.deepEqual(calls.splice(0), ["close", "abort"]);
+  assert.equal(noOutcome.failure, "执行者的窗格关掉了，没有交报告");
+
+  writeFileSync(join(dir, "outcome.json"), JSON.stringify({ verdict: "pass", failure: null, sessionFile: null, resumeId: null }));
+  const completed = await runInPane({ host, runId: "timeout", launch: { dir, cwd: dir }, agent: { paneCommand: () => ["fixture"] } });
+  assert.deepEqual(calls.splice(0), ["close", "abort"]);
+  assert.deepEqual({ verdict: completed.verdict, failure: completed.failure }, { verdict: "pass", failure: null });
+
+  assert.match(readFileSync(join(dir, "worker.log"), "utf8"), /rex wait 超时\n\s+at /);
+});
+
+test("RexPaneHost.waitClosed 收到中止信号时立即终止 rex wait 进程", { timeout: 5_000 }, async (t) => {
+  const bin = mkdtempSync(join(tmpdir(), "knit-rex-abort-"));
+  const savedPath = process.env.PATH;
+  t.after(() => {
+    process.env.PATH = savedPath;
+    rmSync(bin, { recursive: true, force: true });
+  });
+  const pidFile = join(bin, "wait.pid");
+  writeFileSync(join(bin, "rex"), `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setInterval(() => {}, 10_000);
+`, { mode: 0o755 });
+  process.env.PATH = `${bin}${delimiter}${savedPath}`;
+  const host = new RexPaneHost("session:test", "block:main");
+  const controller = new AbortController();
+  const waiting = host.waitClosed({ layerId: "layer:1", blockId: "block:1" }, controller.signal);
+  await waitUntil(() => existsSync(pidFile), "假 rex wait 启动");
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  controller.abort();
+  await waiting;
+  await waitUntil(() => {
+    try { process.kill(pid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
+  }, `rex wait 进程 ${pid} 退出`);
+});
+
+test("Pi 执行文件缺失时 CLI 在建立 Worktree 前拒绝派发", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const rex = inRex(t, root, { KNIT_PI_BIN: join(root, "missing-pi") });
+  const result = await rex.knit("run", "start", task.id);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr + result.stdout, /找不到 Pi 可执行文件.*missing-pi/);
+  assert.equal(existsSync(worktreeOf(root, task)), false);
+  assert.equal(lastRun(root, task), undefined);
+});
+
+test("CLI 后台读取助手消息被拒后记录失败并回收本次进程", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const rex = inRex(t, root, { REX_BLOCK: "" });
+  rex.script({ rejectText: true });
+  const ended = await finished(root, task, (await start(rex, root, task)).id);
+  assert.match(ended.failure, /get_last_assistant_text 被拒绝: assistant text unavailable/);
+  const dir = join(root, RUNS_DIR, ended.id);
+  assert.match(readFileSync(join(dir, "worker.log"), "utf8"), /assistant text unavailable\n\s+at PiAgentRuntime/);
+  assert.equal(existsSync(join(dir, "report.md")), false);
+  assert.equal(rex.piLog().filter(entry => entry.message).length, 1);
+});
+
+test("Pi 续聊窗格本轮只有用户消息时不提交历史报告，模型缺失只启动一次", async (t) => {
+  const { root, task } = resumeHistory(t);
+  const rex = inRex(t, root);
+  for (const failStart of [false, true]) {
+    const cursor = rex.piLog().length;
+    rex.script({ nativeSession: true, noAssistant: true, failStart });
+    const ended = await finished(root, task, (await start(rex, root, task, "--instruction", "继续核对报告")).id);
+    const log = rex.piLog().slice(cursor);
+    assert.equal(log.filter(entry => entry.args).length, 1);
+    assert.ok(log[0].args.includes("--session"));
+    assert.match(ended.failure, failStart ? /没有模型/ : /没有给出报告/);
+    assert.equal(log.filter(entry => entry.message).length, failStart ? 0 : 2);
+    if (!failStart) assert.equal(readFileSync(join(root, RUNS_DIR, ended.id, "report.md"), "utf8"), "");
+  }
 });
 
 // 每个子测试有自己的仓库、假 Rex 和 Pi 脚本，组结束后一起释放临时 KNIT_HOME。

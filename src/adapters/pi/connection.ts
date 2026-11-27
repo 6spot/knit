@@ -22,8 +22,8 @@ export interface PiProcessExit {
 }
 
 export class PiConnectionClosedError extends Error {
-  constructor(message: string, readonly exit: PiProcessExit | null) {
-    super(message);
+  constructor(message: string, readonly exit: PiProcessExit | null, cause?: Error) {
+    super(cause ? `${message}：${cause.message}` : message, { cause });
     this.name = "PiConnectionClosedError";
   }
 }
@@ -47,6 +47,7 @@ export class PiRpcConnection {
   private readonly decoder = new LfFrameDecoder();
   private readonly pending = new Map<string, Pending>();
   private eofSeen = false;
+  private connectionError?: Error;
   private exitInfo: PiProcessExit | null = null;
   private readonly exitWaiters: Array<(exit: PiProcessExit) => void> = [];
   private stderrTail = "";
@@ -71,7 +72,7 @@ export class PiRpcConnection {
     args: string[],
     options: { cwd: string; env: Record<string, string>; eventLimit?: number },
   ) {
-    this.eventLimit = options.eventLimit ?? 100_000;
+    this.eventLimit = options.eventLimit ?? 0;
     this.child = spawn(executablePath, args, {
       cwd: options.cwd,
       env: options.env,
@@ -79,11 +80,14 @@ export class PiRpcConnection {
       // POSIX 下使子进程成为独立进程组，允许组信号；不跨越本连接管理的进程。
       detached: true,
     });
-    this.child.on("error", () => this.handleEof());
+    this.child.on("error", (error) => {
+      this.connectionError = error;
+      this.handleEof(error);
+    });
+    this.child.stdin?.on("error", (error) => this.handleEof(error));
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal: signal ?? null };
       this.handleEof();
-      this.settledWaiters.forEach((waiter) => waiter(null));
       const waiters = this.exitWaiters.splice(0);
       for (const waiter of waiters) waiter(this.exitInfo);
     });
@@ -117,7 +121,7 @@ export class PiRpcConnection {
   /** 最近 stderr 内容（尾部截断保留）；诊断用途，不作权威回执。收敛后与冻结快照一致。 */
   get diagnostics(): string {
     const { tail, truncated } = this.stderrDiagnostics;
-    return truncated ? `…(截断)${tail}` : tail;
+    return [this.connectionError?.message, truncated ? `…(截断)${tail}` : tail].filter(Boolean).join("\n");
   }
 
   /** stderr 尾部与真实截断标志；结构化诊断用，不作权威回执。收敛后返回冻结快照。 */
@@ -177,12 +181,9 @@ export class PiRpcConnection {
     } catch {
       // 读流失败按 EOF 处理；真实退出状态以 exit 事件为准。
     }
-    // stdout 结束可能先于 exit 事件；等待短暂窗口让真实退出码／信号先落地。
-    if (this.exitInfo === null) {
-      for (let i = 0; i < 200 && this.exitInfo === null; i++) {
-        await sleep(10);
-      }
-    }
+    // stdout 结束可能先于 exit 或 spawn error 事件；等待短暂窗口让真实原因先落地。
+    if (!this.eofSeen && this.pid === null) await new Promise((resolve) => setImmediate(resolve));
+    if (!this.eofSeen && this.pid !== null) await this.waitExit(2_000);
     this.handleEof();
   }
 
@@ -212,8 +213,10 @@ export class PiRpcConnection {
       return;
     }
     this.sequence++;
-    this.events.push(typed);
-    if (this.events.length > this.eventLimit) this.events.shift();
+    if (this.eventLimit > 0) {
+      this.events.push(typed);
+      if (this.events.length > this.eventLimit) this.events.shift();
+    }
     if (typed.type === "agent_settled") {
       const aborted = typed.aborted === true;
       this.lastSettled = { sequence: this.sequence, aborted };
@@ -237,27 +240,32 @@ export class PiRpcConnection {
   }
 
   /** 返回 agent_settled 的 aborted 标志；超时或进程退出时返回 null。 */
-  waitForSettled(after: number, timeoutMs: number | null): Promise<boolean | null> {
+  waitForSettled(after: number, timeoutMs: number | null, signal?: AbortSignal): Promise<boolean | null> {
     if (this.lastSettled && this.lastSettled.sequence > after) return Promise.resolve(this.lastSettled.aborted);
-    if (this.exitInfo !== null) return Promise.resolve(null);
+    if (this.eofSeen || this.exitInfo !== null || signal?.aborted) return Promise.resolve(null);
     return new Promise((resolve) => {
       const finish = (aborted: boolean | null) => {
         clearTimeout(timer);
         this.settledWaiters.delete(finish);
+        signal?.removeEventListener("abort", cancel);
         resolve(aborted);
       };
       const timer = timeoutMs === null ? undefined : setTimeout(() => finish(null), timeoutMs);
+      const cancel = () => finish(null);
+      signal?.addEventListener("abort", cancel, { once: true });
       this.settledWaiters.add(finish);
     });
   }
 
-  private handleEof(): void {
+  private handleEof(error?: Error): void {
+    this.connectionError ??= error;
     if (this.eofSeen) return;
     this.eofSeen = true;
+    this.settledWaiters.forEach((waiter) => waiter(null));
     const exit = this.exitInfo;
     for (const [id, waiter] of this.pending) {
       clearTimeout(waiter.timer);
-      waiter.reject(new PiConnectionClosedError(`Pi RPC 连接在等待响应 ${id} 时结束`, exit));
+      waiter.reject(new PiConnectionClosedError(`Pi RPC 连接在等待响应 ${id} 时结束`, exit, this.connectionError));
     }
     this.pending.clear();
   }
@@ -265,10 +273,10 @@ export class PiRpcConnection {
   /** 进程已退出（或流已结束）后不再接受新请求。 */
   private ensureSendable(): void {
     if (this.eofSeen || this.exitInfo !== null) {
-      throw new PiConnectionClosedError("Pi RPC 连接已结束，无法发送请求", this.exitInfo);
+      throw new PiConnectionClosedError("Pi RPC 连接已结束，无法发送请求", this.exitInfo, this.connectionError);
     }
     if (!this.child.stdin || this.child.stdin.destroyed) {
-      throw new PiConnectionClosedError("Pi RPC stdin 不可用", this.exitInfo);
+      throw new PiConnectionClosedError("Pi RPC stdin 不可用", this.exitInfo, this.connectionError);
     }
   }
 
@@ -282,9 +290,8 @@ export class PiRpcConnection {
 
   /** 发送控制请求并等待同 ID 响应；超时不自动终止进程，由调用方决定。 */
   call(kind: string, data: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<PiRpcResponse> {
-    this.ensureSendable();
-    const id = this.send(kind, data);
     return new Promise<PiRpcResponse>((resolve, reject) => {
+      const id = this.send(kind, data);
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Pi RPC 请求超时: ${kind} (${timeoutMs}ms)`));
@@ -358,10 +365,6 @@ export function signalProcessGroup(
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * 传输协议帧切分：增量 UTF-8 解码，只按 LF 切帧。
  * 不用会误切 U+2028/U+2029 的通用 splitlines，也不将每个字节块独立解码。
@@ -375,13 +378,12 @@ class LfFrameDecoder {
   push(chunk: Uint8Array): string[] {
     this.buffer += this.decoder.decode(chunk, { stream: true });
     const frames: string[] = [];
-    let lf = this.buffer.indexOf("\n");
-    while (lf !== -1) {
-      const line = this.buffer.slice(0, lf);
-      if (line !== "") frames.push(line);
-      this.buffer = this.buffer.slice(lf + 1);
-      lf = this.buffer.indexOf("\n");
+    let cursor = 0;
+    for (let lf = this.buffer.indexOf("\n"); lf !== -1; lf = this.buffer.indexOf("\n", cursor)) {
+      if (lf > cursor) frames.push(this.buffer.slice(cursor, lf));
+      cursor = lf + 1;
     }
+    this.buffer = this.buffer.slice(cursor);
     return frames;
   }
 

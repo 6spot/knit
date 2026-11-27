@@ -1,3 +1,4 @@
+import { findExecutable } from "../infrastructure/process.js";
 import { checkSchema } from "../contracts/primitives.js";
 import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
 import type { AgentRegistry } from "../contracts/agent.js";
@@ -16,7 +17,8 @@ export function piCommand() {
 
 export const builtinAgents: AgentRegistry = {
   pi: {
-    createAdapter: () => new PiExecutionAdapter(piCommand()),
+    checkDispatch: () => findExecutable(piCommand()) ? null : `找不到 Pi 可执行文件：${piCommand()}`,
+    createAdapter: () => new PiExecutionAdapter(findExecutable(piCommand()) ?? piCommand()),
     sessionDefaults: piSessionDefaults,
   },
   antigravity: {

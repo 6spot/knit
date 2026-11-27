@@ -41,7 +41,7 @@ test("checkNativeSessionFile 识别合法文件与损坏文件", async (t) => {
   const bad = path.join(root, "bad.jsonl");
   writeFileSync(bad, "not json at all\n");
   const badCheck = await checkNativeSessionFile(bad, "sid-9");
-  assert.equal(badCheck.problem, "empty");
+  assert.equal(badCheck.problem, "no_session_header");
 
   const empty = path.join(root, "empty.jsonl");
   writeFileSync(empty, "");
@@ -173,6 +173,84 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   assert.equal((await runtime.prompt("本轮错误", 1000)).settled, true);
   assert.equal(runtime.lastModelError(), "本轮错误");
   assert.deepEqual(await runtime.prompt("退出"), { settled: false, aborted: false, exit: { code: 7, signal: null } });
+});
+
+test("Pi 拒绝 prompt、stdout 先结束和启动超时均给出原因，队列清理失败跳过 abort", { timeout: 10_000 }, async (t) => {
+  const { root, sessionDir } = makeWorkspace(t, "rpc-errors");
+  const executable = path.join(root, "rpc.mjs");
+  writeFileSync(executable, `#!${process.execPath}
+import { appendFileSync, closeSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', line => {
+  const { id, type, message } = JSON.parse(line);
+  appendFileSync('calls', type + '\\n');
+  const send = data => console.log(JSON.stringify({ type: 'response', id, success: true, ...data }));
+  if (type === 'get_state' && process.env.STALL) { console.error('state stalled'); return; }
+  if (type === 'clear_queue') return;
+  if (type === 'prompt' && message === 'reject') return process.stdout.write([
+    { type: 'response', id, success: false, error: 'busy now' }, { type: 'agent_settled' }
+  ].map(record => JSON.stringify(record)).join('\\n') + '\\n');
+  if (type === 'prompt' && message === 'eof') { console.error('stdout closed'); closeSync(1); return; }
+  if (type === 'prompt') {
+    process.stdout.write('{"type":"turn_end"}\\n'.repeat(12000));
+    setTimeout(() => console.log('{"type":"agent_settled"}'), 20);
+    return;
+  }
+  send({ data: { sessionId: 's', model: { provider: 'p', id: 'm' } } });
+});
+`, { mode: 0o755 });
+  const options = { executablePath: executable, cwd: root, sessionDir, provider: "p", modelId: "m" };
+  const runtime = new PiAgentRuntime(options);
+  t.after(() => runtime.dispose());
+  assert.ok((await runtime.start()).ok);
+  await assert.rejects(runtime.prompt("reject"), /prompt 被拒绝: busy now/);
+  const connection = runtime.connectionForTests;
+  const call = connection.call.bind(connection);
+  const shortAck = t.mock.method(connection, "call", (kind, data, timeout) => call(kind, data, kind === "prompt" ? 5 : timeout));
+  assert.ok((await runtime.prompt("events without acknowledgement")).settled);
+  shortAck.mock.restore();
+  assert.equal(connection.eventCount, 12002);
+  assert.deepEqual(runtime.events(), []);
+  const closed = await runtime.prompt("eof");
+  assert.equal(closed.settled, false);
+  assert.equal(closed.exit, null);
+  assert.match(closed.diagnostics, /stdout closed/);
+  assert.equal(await runtime.connectionForTests.waitForSettled(12002, null), null);
+  await runtime.dispose();
+  const stalled = new PiAgentRuntime({ ...options, env: { STALL: '1' } });
+  t.after(() => stalled.dispose());
+  await assert.rejects(stalled.start(750), /get_state.*state stalled/);
+  await stalled.dispose();
+  const calls = fs.readFileSync(path.join(root, "calls"), "utf8").trimEnd().split("\n");
+  assert.ok(calls.includes("clear_queue"));
+  assert.ok(!calls.includes("abort"));
+});
+
+test("stdin 对端关闭后写入与不存在的程序都返回连接诊断", { timeout: 5000 }, async (t) => {
+  const { root, sessionDir } = makeWorkspace(t, "broken-pipe");
+  const options = { cwd: root, env: {} };
+  const absent = path.join(root, "absent");
+  const missing = new PiRpcConnection(absent, [], options);
+  await assert.rejects(missing.call("get_state"), error => error instanceof PiConnectionClosedError && error.cause.code === "ENOENT");
+  assert.match(missing.diagnostics, /ENOENT/);
+  const missingRuntime = new PiAgentRuntime({ executablePath: absent, cwd: root, sessionDir, provider: "p", modelId: "m" });
+  const startCheck = await missingRuntime.start(2_000);
+  await missingRuntime.dispose();
+  assert.equal(startCheck.ok, false);
+  assert.equal(startCheck.failure, "spawn_failed");
+  assert.equal(startCheck.detail.match(/ENOENT/g)?.length, 1);
+  assert.equal(startCheck.detail.endsWith("；"), false);
+  const child = new PiRpcConnection(process.execPath, ["-e", `
+    require('node:fs').closeSync(0);
+    console.log(JSON.stringify({ type: 'agent_settled' }));
+    setInterval(() => {}, 10000);
+  `], options);
+  t.after(async () => { child.killProcessGroup("SIGKILL"); await child.waitExit(); });
+  assert.equal(await child.waitForSettled(0, 2000), false);
+  const waiting = child.waitForSettled(1, null);
+  await assert.rejects(child.call("prompt", { message: "x".repeat(1024 * 1024) }), error => error instanceof PiConnectionClosedError && /EPIPE|ECONNRESET/.test(error.message));
+  assert.equal(await waiting, null);
+  assert.match(child.diagnostics, /EPIPE|ECONNRESET/);
 });
 
 test("连接层有界等待 stderr 收敛，流结束后冻结尾部", { timeout: 30_000 }, async (t) => {

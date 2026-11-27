@@ -3,7 +3,7 @@ import { verifiedPiResumeId } from "./native-file.js";
 import type { AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
 import type { ReportFieldType } from "../../contracts/workflow.js";
 import { modelFailure } from "../../domain/report.js";
-import { runPaneSession } from "../../application/run-execute.js";
+import { logWorkerError, runPaneSession } from "../../application/run-execute.js";
 
 interface Message {
   readonly role: string;
@@ -33,7 +33,7 @@ export default function paneWorker(pi: Pi): void {
   const declared = JSON.parse(process.env.KNIT_PANE_REPORT!) as Record<string, ReportFieldType>;
   const resume = process.env.KNIT_PANE_RESUME ? JSON.parse(process.env.KNIT_PANE_RESUME) as AgentLaunch["resume"] : undefined;
   const model = process.env.KNIT_PANE_MODEL!;
-  const pending: { resolve?: (result: AgentResult) => void } = {};
+  const pending: { resolve?: (result: AgentResult) => void; cursor: number } = { cursor: 0 };
 
   pi.on("session_start", (event, ctx) => {
     if (event.reason !== "startup") return;
@@ -41,21 +41,26 @@ export default function paneWorker(pi: Pi): void {
       get sessionFile() { return ctx.sessionManager.getSessionFile() ?? null; },
       get resumeId() { return verifiedPiResumeId(ctx.sessionManager.getSessionFile() ?? null, ctx.sessionManager.getSessionId()); },
       start: async () => {
-        if (resume && resume.resumeId !== verifiedPiResumeId(ctx.sessionManager.getSessionFile() ?? null, ctx.sessionManager.getSessionId())) return "Pi 窗格未打开指定的原生会话";
+        if (resume && resume.resumeId !== verifiedPiResumeId(ctx.sessionManager.getSessionFile() ?? null, ctx.sessionManager.getSessionId())) return { resumeFailure: "Pi 窗格未打开指定的原生会话" };
         return ctx.modelRegistry.find(model.slice(0, model.indexOf("/")), model.slice(model.indexOf("/") + 1)) ? null : `Pi 里没有模型 ${model}`;
       },
       prompt: (message) => new Promise<AgentResult>((resolve) => {
+        pending.cursor = ctx.sessionManager.getBranch().length;
         pending.resolve = resolve;
         pi.sendUserMessage(message);
       }),
       stop: async () => ctx.shutdown(),
     });
     // 不等待执行结束：Pi 要先退出 session_start / agent_settled 事件派发才能开始下一轮。
-    void runPaneSession({ dir, declared, resume, createSession, hostClient: ctx });
+    void runPaneSession({ dir, declared, resume, createSession, hostClient: ctx }).catch((error: unknown) => {
+      logWorkerError(dir, error);
+      ctx.shutdown();
+    });
   });
 
   pi.on("agent_settled", (event, ctx) => {
-    const last = ctx.sessionManager.getBranch()
+    if (!pending.resolve) return;
+    const last = ctx.sessionManager.getBranch().slice(pending.cursor)
       .findLast((entry) => entry.type === "message" && entry.message?.role === "assistant")?.message;
     if (event.aborted || last?.stopReason === "aborted") {
       ctx.ui.notify("Knit：执行者被中止了。接着输入就继续做；要结束这次执行，关掉窗格或者运行 knit run cancel。", "info");

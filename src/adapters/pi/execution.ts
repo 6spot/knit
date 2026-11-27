@@ -1,5 +1,5 @@
 /** Knit 执行接口的 Pi CLI 实现；原生协议、启动参数和权限映射不出适配器。 */
-import { readFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentAdapter, AgentLaunch, AgentResult, AgentSession } from "../../contracts/agent.js";
@@ -36,7 +36,7 @@ export class PiExecutionAdapter implements AgentAdapter {
     const systemFile = join(input.dir, "system.md");
     return new PiExecutionSession(new PiAgentRuntime({
       ...this.options(input),
-      appendSystemPrompt: input.resume ? piResumeSystemPrompt(input.resume.resumeId, systemFile) : readFileSync(systemFile, "utf8"),
+      appendSystemPrompt: input.resume ? piResumeSystemPrompt(input.resume.resumeId, systemFile) : systemFile,
     }), input.resume?.resumeId);
   }
 
@@ -76,15 +76,18 @@ class PiExecutionSession implements AgentSession {
 
   get sessionFile() { return this.runtime.sessionFile; }
 
-  async start(): Promise<string | null> {
+  async start() {
     const started = await this.runtime.start();
-    if (!started.ok) return started.detail;
-    return this.requestedFile && this.resumeId !== this.requestedFile ? "Pi 启动时未打开指定的原生会话" : null;
+    if (!started.ok) {
+      const recoverable = started.failure === "connection_closed" || started.failure === "session_identity_mismatch" || started.failure === "no_session_state";
+      return this.requestedFile && recoverable ? { resumeFailure: started.detail } : started.detail;
+    }
+    return this.requestedFile && this.resumeId !== this.requestedFile ? { resumeFailure: "Pi 启动时未打开指定的原生会话" } : null;
   }
 
   async prompt(message: string): Promise<AgentResult> {
     const settled = await this.runtime.prompt(message);
-    if (!settled.settled) return { report: null, failure: "执行者中途退出" };
+    if (!settled.settled) return { report: null, failure: settled.diagnostics ? `执行者中途退出：${settled.diagnostics}` : "执行者中途退出" };
     if (settled.aborted) return { report: null, failure: "执行者被中止" };
     const error = this.runtime.lastModelError();
     if (error !== null) return { report: null, failure: modelFailure(error).failure! };

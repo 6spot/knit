@@ -5,14 +5,12 @@
  */
 import { executorEnv, MAIN_SESSION_KEYS } from "../../infrastructure/process.js";
 import { randomUUID } from "node:crypto";
-import { checkNativeSessionFile, type NativeFileCheck } from "./native-file.js";
 import type { ToolCapability } from "../../contracts/workflow.js";
 import {
   PiConnectionClosedError,
   PiRpcConnection,
   type PiProcessExit,
   type PiRpcRecord,
-  type PiRpcResponse,
 } from "./connection.js";
 
 export const PI_ADAPTER_VERSION = 1;
@@ -21,12 +19,6 @@ const PI_EXECUTOR_ENV = { KNIT_PI_EXECUTOR: "1" };
 
 /** dispose 等待 stderr 流收敛的上限；超时保留已有尾部，不阻塞收尾。 */
 const STDERR_SETTLE_TIMEOUT_MS = 1_000;
-
-/** 启动后必须核对实际模型；仅字符串匹配 get_state 不算可用。 */
-export interface ModelRequirement {
-  provider: string;
-  modelId: string;
-}
 
 export interface PiRuntimeOptions {
   executablePath: string;
@@ -64,6 +56,7 @@ export interface RuntimeStartCheck {
   ok: boolean;
   failure:
     | null
+    | "spawn_failed"
     | "connection_closed"
     | "set_model_rejected"
     | "model_mismatch"
@@ -78,6 +71,7 @@ export interface SettledObservation {
   settled: boolean;
   aborted: boolean;
   exit: PiProcessExit | null;
+  diagnostics?: string;
 }
 
 /** 能力 → Pi 启动开关（设计 §7）：external 放开扩展／MCP／技能，network 放开离线限制。 */
@@ -177,7 +171,6 @@ export class PiAgentRuntime {
   private connection: PiRpcConnection | null = null;
   /** dispose 冻结的最终 stderr 快照；连接释放后仍可读（启动诊断用）。 */
   private stderrSnapshot: { tail: string; truncated: boolean } | null = null;
-  private settledSeen = false;
   /** 下一次 prompt 只观察它启动后的 agent_settled；之前的轮次不得冒充本次终态。 */
   private settledCursor = 0;
   private started = false;
@@ -195,11 +188,6 @@ export class PiAgentRuntime {
   /** 本次进程 stderr 尾部与截断标志；启动失败诊断用，不作权威回执。 */
   get stderrDiagnostics(): { tail: string; truncated: boolean } {
     return this.connection?.stderrDiagnostics ?? this.stderrSnapshot ?? { tail: "", truncated: false };
-  }
-
-  /** 已启动 Pi 进程的 PID；用于崩溃后核实并清理本次自有进程。 */
-  get processId(): number | null {
-    return this.connection?.pid ?? null;
   }
 
   private requireConnection(): PiRpcConnection {
@@ -240,18 +228,15 @@ export class PiAgentRuntime {
       }
       this.nativeSessionId = sessionId;
       this.sessionFile = sessionFile;
-      const model = (data.model ?? {}) as Record<string, unknown>;
-      const actualProvider = typeof model.provider === "string" ? model.provider : null;
-      const actualModelId = typeof model.id === "string" ? model.id : null;
-      // 启动可接受未登记模型描述符：必须经 set_model 受校验核对，不能只比较字符串。
-      const setModel = await connection.call(
-        "set_model",
-        { provider: this.options.provider, modelId: this.options.modelId },
-        checkTimeoutMs,
-      );
+      const setModel = await connection.call("set_model", { provider: this.options.provider, modelId: this.options.modelId }, checkTimeoutMs);
       if (!setModel.success) {
         return this.failStart("set_model_rejected", `set_model 被拒绝: ${stringify(setModel.error)}`);
       }
+      const effective = await connection.call("get_state", {}, checkTimeoutMs);
+      if (!effective.success) return this.failStart("no_session_state", `get_state 被拒绝: ${stringify(effective.error)}`);
+      const model = (effective.data as { model?: { provider?: unknown; id?: unknown } } | undefined)?.model;
+      const actualProvider = model?.provider;
+      const actualModelId = model?.id;
       if (actualProvider !== this.options.provider || actualModelId !== this.options.modelId) {
         return this.failStart(
           "model_mismatch",
@@ -267,8 +252,16 @@ export class PiAgentRuntime {
       };
     } catch (error) {
       if (error instanceof PiConnectionClosedError) {
-        return this.failStart("connection_closed", `${error.message}；stderr: ${connection.diagnostics.trim()}`);
+        if (connection.exit !== null) await connection.waitStderrClose(STDERR_SETTLE_TIMEOUT_MS);
+        const { tail, truncated } = connection.stderrDiagnostics;
+        const stderr = truncated ? `…(截断)${tail}` : tail;
+        const extra = (error.cause ? stderr : connection.diagnostics).trim();
+        return this.failStart(
+          connection.pid === null ? "spawn_failed" : "connection_closed",
+          extra ? `${error.message}；${extra}` : error.message,
+        );
       }
+      if (connection.diagnostics) throw new Error(`${String(error)}；${connection.diagnostics.trim()}`, { cause: error });
       throw error;
     }
   }
@@ -281,10 +274,6 @@ export class PiAgentRuntime {
     return this.requireConnection().events;
   }
 
-  invalidFrames(): readonly string[] {
-    return this.requireConnection().invalidFrames;
-  }
-
   /**
    * 提交 prompt；返回的 promise 在 agent_settled 或连接结束时解决，不接受单个响应作终态。
    * timeoutMs 仅控制单个 RPC 响应／观察等待，不是阶段总时限：传 null 表示无截止，
@@ -292,32 +281,20 @@ export class PiAgentRuntime {
    */
   async prompt(message: string, timeoutMs: number | null = null): Promise<SettledObservation> {
     const connection = this.requireConnection();
-    this.settledSeen = false;
     this.settledCursor = connection.eventCount;
-    void connection.call("prompt", { message }, timeoutMs ?? 600_000).catch(() => {
-      // prompt 响应失败或超时不代表模型已停止；终态以 agent_settled / exit 为准。
-    });
-    return this.waitSettled(timeoutMs);
-  }
-
-  /** 等待稳定终态；agent_settled 才算，agent_end 不算。timeoutMs 为 null 时无截止。 */
-  async waitSettled(timeoutMs: number | null = null): Promise<SettledObservation> {
-    const connection = this.requireConnection();
-    const aborted = await connection.waitForSettled(this.settledCursor, timeoutMs);
-    if (aborted !== null) this.settledSeen = true;
-    return { settled: aborted !== null, aborted: aborted === true, exit: connection.exit };
-  }
-
-  get hasSettled(): boolean {
-    return this.settledSeen;
-  }
-
-  /** 队列清理与中止；返回各控制请求的真实响应结果。 */
-  async abort(): Promise<{ queueCleared: boolean; aborted: boolean }> {
-    const connection = this.requireConnection();
-    const clear = await safeCall(connection, "clear_queue");
-    const stop = await safeCall(connection, "abort");
-    return { queueCleared: clear?.success === true, aborted: stop?.success === true };
+    const controller = new AbortController();
+    const settled = connection.waitForSettled(this.settledCursor, timeoutMs, controller.signal);
+    try {
+      const response = connection.call("prompt", { message }, timeoutMs ?? 600_000);
+      const first = await Promise.race([response, settled]).catch(() => settled);
+      if (first && typeof first === "object" && !first.success) throw new Error(`prompt 被拒绝: ${stringify(first.error)}`);
+      const aborted = await settled;
+      if (aborted === null && connection.exit !== null) await connection.waitStderrClose(STDERR_SETTLE_TIMEOUT_MS);
+      return { settled: aborted !== null, aborted: aborted === true, exit: connection.exit,
+        ...(aborted === null && connection.diagnostics ? { diagnostics: connection.diagnostics } : {}) };
+    } finally {
+      controller.abort();
+    }
   }
 
   /**
@@ -330,23 +307,9 @@ export class PiAgentRuntime {
 
   async getLastAssistantText(): Promise<string> {
     const response = await this.requireConnection().call("get_last_assistant_text");
+    if (!response.success) throw new Error(`get_last_assistant_text 被拒绝: ${stringify(response.error)}`);
     const data = (response.data ?? {}) as { text?: unknown };
     return typeof data.text === "string" ? data.text : "";
-  }
-
-  /** 只读历史；不向会话追加内容。 */
-  async getMessages(): Promise<unknown[]> {
-    const response = await this.requireConnection().call("get_messages");
-    if (!response.success) return [];
-    const data = (response.data ?? {}) as { messages?: unknown };
-    return Array.isArray(data.messages) ? data.messages : [];
-  }
-
-  /** 累计会话统计；增量用量由调用方按 run 前后差值计算。 */
-  async getStats(): Promise<Record<string, unknown> | null> {
-    const response = await this.requireConnection().call("get_session_stats");
-    if (!response.success) return null;
-    return (response.data ?? null) as Record<string, unknown> | null;
   }
 
   async dispose(graceMs = 5_000): Promise<PiProcessExit | null> {
@@ -354,9 +317,9 @@ export class PiAgentRuntime {
     if (connection === null) return null;
     this.connection = null;
     try {
-      if (connection.exit === null) {
-        await safeCall(connection, "clear_queue");
-        await safeCall(connection, "abort");
+      if (connection.pid !== null && connection.exit === null) {
+        const clear = await connection.call("clear_queue", {}, 500).catch(() => null);
+        if (clear?.success) await connection.call("abort", {}, 500).catch(() => null);
         connection.endStdin();
         const exited = await connection.waitExit(graceMs);
         if (exited === null) {
@@ -378,17 +341,6 @@ export class PiAgentRuntime {
   }
 }
 
-async function safeCall(connection: PiRpcConnection, kind: string): Promise<PiRpcResponse | null> {
-  try {
-    return await connection.call(kind, {}, 10_000);
-  } catch {
-    return null;
-  }
-}
-
 function stringify(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value ?? "");
 }
-
-export type { NativeFileCheck };
-export { checkNativeSessionFile };

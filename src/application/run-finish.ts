@@ -10,7 +10,7 @@ import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js"
 import { atomicWrite } from "../infrastructure/fs.js";
 import { withTaskRunLock } from "./run-control.js";
 import { RUNS_DIR } from "./run-prepare.js";
-import { readSessionFile } from "./run-execute.js";
+import { logWorkerError, readSessionFile } from "./run-execute.js";
 import { findTask, saveTask } from "./task-store.js";
 import { changesBetween, fingerprint, protectedChanges, takeSnapshot, type WorkspaceSnapshot } from "./workspace.js";
 import { taskWorktree } from "./worktree.js";
@@ -69,7 +69,15 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     : guarded.length > 0
       ? `执行者改了受保护的文件：${guarded.join("、")}`
       : null;
-  const failure = [input.failure, violation, cleanupFailure].filter(Boolean).join("；") || null;
+  const session = (() => {
+    try {
+      return { file: input.sessionFile ?? readSessionFile(dir), error: null };
+    } catch (error) {
+      logWorkerError(dir, error);
+      return { file: null, error: `读取会话路径失败：${String(error)}` };
+    }
+  })();
+  const failure = [input.failure, violation, cleanupFailure, session.error].filter(Boolean).join("；") || null;
   const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
   const verdict = failure === null && input.verdict && declared && Object.hasOwn(declared, "verdict") ? input.verdict : null;
   const persist = () => {
@@ -94,7 +102,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
             resumeId: input.resumeId ?? null,
-            sessionFile: recordedSessionPath(root, input.sessionFile ?? readSessionFile(dir)),
+            sessionFile: recordedSessionPath(root, session.file),
           }
           : item,
       ),

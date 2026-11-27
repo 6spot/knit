@@ -21,8 +21,8 @@ export type AgentResult =
 export interface AgentSession {
   readonly sessionFile: string | null;
   readonly resumeId: string | null;
-  /** null 表示启动成功，否则给出客户端的失败原因。 */
-  start(): Promise<string | null>;
+  /** 恢复启动失败可显式请求以完整交接重开，普通启动错误直接结算。 */
+  start(): Promise<string | { readonly resumeFailure: string } | null>;
   /** 在原会话发送消息，等客户端真正结束这一轮后返回。 */
   prompt(message: string): Promise<AgentResult>;
   stop(): Promise<void>;
@@ -58,7 +58,7 @@ export interface PaneHost<Pane> {
   /** 在指定工作目录启动命令，开窗失败时抛出。 */
   open(options: PaneOptions): Pane;
   /** 窗格关闭或其中的命令退出时结束等待。 */
-  waitClosed(pane: Pane): Promise<void>;
+  waitClosed(pane: Pane, signal?: AbortSignal): Promise<void>;
   /** 关闭窗格并结束其中的命令。窗格已经关闭时直接返回。 */
   close(pane: Pane): void;
 }

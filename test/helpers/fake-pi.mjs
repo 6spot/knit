@@ -46,6 +46,7 @@ const retryMessages = (script.retryErrors ?? []).map((errorMessage) => ({
   stopReason: "error",
   errorMessage,
 }));
+let activeModel = requestedFile && script.previousModel ? script.previousModel : arg("--model");
 let prompts = 0;
 let lastText = "";
 const successfulMessage = () => ({
@@ -73,7 +74,7 @@ async function work(message) {
   while (script.waitFor && !existsSync(script.waitFor)) await new Promise((resolve) => setTimeout(resolve, 20));
   lastText = texts[Math.min(prompts, texts.length - 1)];
   if (script.nativeSession) {
-    const messages = [{ role: "user", content: [{ type: "text", text: message }] }, successfulMessage()];
+    const messages = [{ role: "user", content: [{ type: "text", text: message }] }, ...(script.noAssistant ? [] : [successfulMessage()])];
     appendFileSync(sessionFile, messages.map((entry) => JSON.stringify({ type: "message", message: entry }) + "\n").join(""));
   }
   prompts += 1;
@@ -121,7 +122,7 @@ if (!args.includes("--mode")) {
   };
   process.on("SIGHUP", shutdownOnSignal);
   if (!script.stubborn) process.on("SIGTERM", shutdownOnSignal);
-  const branch = [];
+  const branch = requestedFile ? readFileSync(requestedFile, "utf8").trimEnd().split("\n").map((line) => JSON.parse(line)) : [];
   let pending = null;
   const ctx = {
     sessionManager: { getBranch: () => branch, getSessionFile: () => sessionFile, getSessionId: () => sessionId },
@@ -152,7 +153,7 @@ if (!args.includes("--mode")) {
     }
     branch.push(...retryMessages.map((message) => ({ type: "message", message })));
     await work(message);
-    branch.push({
+    if (!script.noAssistant) branch.push({
       type: "message",
       message: script.modelError !== undefined ? failedMessage : successfulMessage(),
     });
@@ -165,11 +166,16 @@ if (!args.includes("--mode")) {
 
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
-  const { id, type, message } = JSON.parse(line);
+  const { id, type, message, modelId } = JSON.parse(line);
   if (type === "get_state") {
-    respond(id, { sessionId, sessionFile: script.nativeSession ? sessionFile : null, model: { provider: arg("--provider"), id: arg("--model") } });
+    respond(id, { sessionId, sessionFile: script.nativeSession ? sessionFile : null, model: { provider: arg("--provider"), id: activeModel } });
   } else if (type === "set_model" && script.failStart) {
     send({ type: "response", id, success: false, error: "Model not found" });
+  } else if (type === "set_model") {
+    activeModel = modelId;
+    respond(id);
+  } else if (type === "get_last_assistant_text" && script.rejectText) {
+    send({ type: "response", id, success: false, error: "assistant text unavailable" });
   } else if (type === "get_last_assistant_text") {
     respond(id, { text: lastText });
   } else if (type === "prompt") {

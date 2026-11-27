@@ -41,9 +41,9 @@ export class RexPaneHost implements PaneHost<RexPane> {
     return pane;
   }
 
-  waitClosed(pane: RexPane): Promise<void> {
+  waitClosed(pane: RexPane, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
-      const wait = spawn("rex", ["--autostart=false", "wait", pane.blockId, "-s", this.session], { stdio: "ignore" });
+      const wait = spawn("rex", ["--autostart=false", "wait", pane.blockId, "-s", this.session], { stdio: "ignore", signal, killSignal: "SIGKILL" });
       wait.on("error", () => resolve());
       wait.on("close", () => resolve());
     });
@@ -61,7 +61,7 @@ export class RexPaneHost implements PaneHost<RexPane> {
     const result = spawnSync(
       "rex",
       ["--autostart=false", "api", "call", method, JSON.stringify({ ...params, session_id: this.session })],
-      { encoding: "utf8" },
+      { encoding: "utf8", timeout: 5_000, killSignal: "SIGKILL" },
     );
     if (result.status !== 0) throw new Error(`${method}：${result.error?.message ?? result.stderr.trim()}`);
     return JSON.parse(result.stdout) as Record<string, unknown>;

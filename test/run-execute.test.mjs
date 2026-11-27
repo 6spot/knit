@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
@@ -120,6 +121,7 @@ test("做完之后存下报告，记下结论和改动文件", async (t) => {
   const pi = fakePi(t);
   const run = reviewRun(dir, task);
   const report = '审查通过。\n\n```json\n{ "verdict": "pass" }\n```';
+  writeFileSync(join(dir, run.dir, "system.md"), "x".repeat(160 * 1024));
   pi.script({ writes: [{ path: "src/a.ts", content: "export const a = 1;\n" }], texts: [report] });
 
   assert.deepEqual(await execute(dir, task, run), []);
@@ -132,7 +134,7 @@ test("做完之后存下报告，记下结论和改动文件", async (t) => {
     { id: run.id, verdict: "pass", failure: null, changedPaths: ["src/a.ts"], sessionFile: null },
   );
   const [{ args }, ...prompts] = pi.log();
-  assert.equal(args[args.indexOf("--append-system-prompt") + 1], readFileSync(join(dir, run.dir, "system.md"), "utf8"));
+  assert.equal(args[args.indexOf("--append-system-prompt") + 1], join(dir, run.dir, "system.md"));
   assert.equal(args[args.indexOf("--tools") + 1], "read,grep,find,ls,write,edit,bash");
   assert.deepEqual(args.slice(args.indexOf("--provider"), args.indexOf("--provider") + 4), ["--provider", "fake", "--model", "model"]);
   assert.equal(args[args.indexOf("--session-dir") + 1], join(dir, run.dir, "session"));
@@ -340,7 +342,7 @@ test("审查 API 失败、报告失败后重派恢复原生会话，最后才计
   assert.equal(failed.failure, "执行者出错：HTTP 429");
   assert.ok(failed.resumeId && existsSync(failed.resumeId));
   const { run: second, problems } = prepareRun({ root: dir, taskId: task.id, workflow: workflowOf(dir), config: loadConfig(dir).config,
-    model: null, instruction: "核对剩余测试" });
+    model: "fake/replacement", instruction: "核对剩余测试" });
   assert.deepEqual(problems, []);
   const resumeMessage = (run) => readFileSync(join(dir, run.dir, "resume-message.md"), "utf8");
   assert.equal(readFileSync(join(dir, second.dir, "resume-id.txt"), "utf8"), failed.resumeId);
@@ -348,9 +350,10 @@ test("审查 API 失败、报告失败后重派恢复原生会话，最后才计
   assert.match(resumeMessage(second), /<main-instruction>\n核对剩余测试/);
   assert.match(resumeMessage(second), /<worktree-changes base="HEAD">\n未跟踪文件：\npartial.txt/);
   assert.equal(readFileSync(join(second.worktree.path, "partial.txt"), "utf8"), "partial work\n");
-  pi.script({ nativeSession: true, texts: ["报告没有 JSON"] });
+  pi.script({ nativeSession: true, previousModel: "model", texts: ["报告没有 JSON"] });
   assert.deepEqual(await execute(dir, task, second), []);
   assert.equal(valueOf(pi.args(), "--session"), failed.resumeId);
+  assert.equal(valueOf(pi.args(), "--model"), "replacement");
   assert.equal(pi.messages()[1], resumeMessage(second));
   assert.equal(lastRun(dir, task).resumeId, failed.resumeId);
   assert.match(lastRun(dir, task).failure, /^报告读不出来/);
@@ -452,6 +455,110 @@ test("被中止时记为失败，不要求补报", async (t) => {
     { id: run.id, verdict: null, failure: "执行者被中止" },
   );
   assert.equal(pi.messages().length, 1);
+});
+
+test("执行入口在提示、交接读取和窗格回执异常后清理并登记结束", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  for (const fault of ["prompt", "message.md", "outcome.json", "session-file.txt", "pane-closed+session-file", "createSession", "stop", "prompt+stop"]) {
+    const run = prepare(root, task);
+    const dir = join(root, run.dir);
+    const calls = [];
+    if (fault === "message.md") rmSync(join(dir, fault));
+    if (fault === "session-file.txt" || fault === "pane-closed+session-file") mkdirSync(join(dir, "session-file.txt"));
+    const registry = { ...agents, pi: { ...agents.pi, cleanRun: () => calls.push("clean"), createAdapter: () => ({
+      paneCommand: () => ["fixture"],
+      createSession() {
+        if (fault === "createSession") throw new Error(fault);
+        return { sessionFile: null, resumeId: null, start: async () => null,
+          prompt: async () => {
+            if (fault === "prompt" || fault === "prompt+stop") throw new Error("prompt failure");
+            return { report: "完成", failure: null };
+          },
+          stop: async () => { calls.push("stop"); if (fault === "stop" || fault === "prompt+stop") throw new Error("stop failure"); },
+        };
+      },
+    }) } };
+    const paneHost = fault === "outcome.json" || fault === "pane-closed+session-file" ? {
+      open() {
+        writeFileSync(join(dir, "pane.json"), JSON.stringify({ pid: 2147483647, start: null }));
+        if (fault === "outcome.json") writeFileSync(join(dir, fault), "{");
+        return 1;
+      }, waitClosed: async () => {}, close: () => calls.push("close"),
+    } : null;
+    assert.deepEqual(await executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agents: registry, paneHost }), []);
+    assert.deepEqual(calls, [...(paneHost ? ["close"] : fault === "createSession" ? [] : ["stop"]), "clean"]);
+    const ended = lastRun(root, task);
+    assert.ok(ended.endedAt && ended.failure, fault);
+    assert.equal(ended.verdict, null);
+    assert.match(readFileSync(join(dir, "worker.log"), "utf8"), /Error:.*\n\s+at /);
+    if (fault === "pane-closed+session-file") {
+      assert.match(ended.failure, /^执行者的窗格关掉了，没有交报告；读取会话路径失败：/);
+    }
+    if (fault === "prompt+stop") {
+      assert.match(ended.failure, /prompt failure.*stop failure/);
+    }
+  }
+});
+
+test("续聊启动失败只对恢复故障重开，重开前清理上次回执", async (t) => {
+  const root = runProject(t);
+  for (const recover of [true, false]) {
+    const task = readyTask(root);
+    const run = prepare(root, task);
+    const dir = join(root, run.dir);
+    writeFileSync(join(dir, "resume-id.txt"), "previous");
+    const marker = join(dir, "agy-cleanup-error");
+    const attempts = [];
+    const registry = { ...agents, pi: { ...agents.pi,
+      cleanRun() { if (existsSync(marker)) throw new Error("上一会话的清理错误"); },
+      createAdapter: () => ({ checkResume: () => null, createSession(launch) {
+        attempts.push(Boolean(launch.resume));
+        return { sessionFile: null, resumeId: null,
+          start: async () => launch.resume ? recover ? { resumeFailure: "原生对话不匹配" } : "Worktree 中已有 .agents/hooks.json" : null,
+          prompt: async () => ({ report: "新会话完成", failure: null }),
+          stop: async () => { if (launch.resume && recover) writeFileSync(marker, "旧错误"); },
+        };
+      } }),
+    } };
+    assert.deepEqual(await executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agents: registry }), []);
+    assert.deepEqual(attempts, recover ? [true, false] : [true]);
+    assert.ok(lastRun(root, task).endedAt);
+    assert.equal(lastRun(root, task).failure, recover ? null : "执行者启动失败：Worktree 中已有 .agents/hooks.json");
+  }
+  const probeRoot = mkdtempSync(join(tmpdir(), "knit-pi-deterministic-"));
+  t.after(() => rmSync(probeRoot, { recursive: true, force: true }));
+  const stderrExit = join(probeRoot, "model-missing.mjs");
+  const counterFile = join(probeRoot, "starts");
+  writeFileSync(stderrExit, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(counterFile)}, "1\\n");
+process.stderr.write("Error: Model not found: fake/model\\n");
+process.exit(1);
+`, { mode: 0o755 });
+  for (const [label, bin, pattern] of [
+    ["spawn-enoent", join(probeRoot, "missing-pi"), /ENOENT/],
+    ["stderr-model-not-found", stderrExit, /Model not found/],
+  ]) {
+    const task = readyTask(root);
+    const run = prepare(root, task);
+    const dir = join(root, run.dir);
+    const nativeFile = join(dir, "prev.jsonl");
+    writeFileSync(nativeFile, [
+      { type: "session", version: 3, id: "s1", cwd: run.worktree.path },
+      { type: "message", message: { role: "user", content: "hi" } },
+      { type: "message", message: { role: "assistant", content: "ok" } },
+    ].map((entry) => `${JSON.stringify(entry)}\n`).join(""));
+    writeFileSync(join(dir, "resume-id.txt"), nativeFile);
+    writeFileSync(join(dir, "resume-message.md"), "继续");
+    const adapter = new PiExecutionAdapter(bin);
+    const registry = { ...agents, pi: { ...agents.pi, createAdapter: () => adapter } };
+    assert.deepEqual(await executeRun({ root, taskId: task.id, runId: run.id, workflow: workflowOf(root), model: run.model, agents: registry }), []);
+    const ended = lastRun(root, task);
+    assert.match(ended.failure, pattern, label);
+    assert.doesNotMatch(readFileSync(join(dir, "worker.log"), "utf8"), /已自动回退新会话/, label);
+  }
+  assert.equal(readFileSync(counterFile, "utf8").trim().split("\n").length, 1);
 });
 
 const PASS = '改好了格式。\n\n```json\n{ "verdict": "pass" }\n```';

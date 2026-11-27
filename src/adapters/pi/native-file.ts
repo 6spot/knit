@@ -3,7 +3,7 @@
  * Pi 将原生记录保存为 JSONL，首行 {type:"session", id, cwd, ...}；
  * 恢复前先核对文件存在与身份，不能只信 CLI 对不存在路径返回成功。
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export interface NativeSessionIdentity {
@@ -92,7 +92,7 @@ function readNativeSessionFile(filePath: string): NativeFileCheck {
   const lines = content.trimEnd().split("\n");
   const identity = firstSessionLine(lines[0]!);
   if (identity === null) {
-    return { exists: true, identity: null, entryCount: 0, problem: "empty" };
+    return { exists: true, identity: null, entryCount: 0, problem: content.length === 0 ? "empty" : "no_session_header" };
   }
   const history: { user?: true; assistant?: true; systemPrompt?: string } = {};
   try {
@@ -132,50 +132,4 @@ export function verifiedPiResumeId(file: string | null, nativeId: string | null)
   if (!file || !nativeId) return null;
   const check = inspectNativeSessionFile(file, nativeId);
   return check.hasConversation ? file : null;
-}
-
-/** Pi 默认会话目录：`--<cwd 去掉首分隔符并替换分隔符>--`（与客户端一致）。 */
-export function piSessionDir(cwd: string, agentDir: string): string {
-  const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-  return join(agentDir, "sessions", safePath);
-}
-
-/**
- * 稳定记录路径查找：Pi 文件名为 `<timestamp>_<sessionId>.jsonl`。
- * 只读目录；未落盘返回 null，不预造文件名冒充已存在。
- */
-export function findNativeSessionFile(cwd: string, nativeSessionId: string, agentDir: string): string | null {
-  const dir = piSessionDir(cwd, agentDir);
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return null;
-  }
-  const suffix = `_${nativeSessionId}.jsonl`;
-  const match = names.filter((name) => name.endsWith(suffix)).sort().at(-1);
-  return match === undefined ? null : join(dir, match);
-}
-
-/** 在指定目录按 `<timestamp>_<id>.jsonl` 查找；只读，不预造文件名。 */
-export function findSessionFileInDir(dir: string, nativeSessionId: string): string | null {
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return null;
-  }
-  const suffix = `_${nativeSessionId}.jsonl`;
-  const match = names.filter((name) => name.endsWith(suffix)).sort().at(-1);
-  return match === undefined ? null : join(dir, match);
-}
-
-/** 阶段执行使用的稳定项目内目录。 */
-export function findStageSessionFile(cwd: string, nativeSessionId: string): string | null {
-  return findSessionFileInDir(join(cwd, ".knit", ".runtime", "pi-sessions"), nativeSessionId);
-}
-
-/** 主会话默认位置或阶段项目内位置的统一只读查找。 */
-export function findStoredSessionFile(cwd: string, nativeSessionId: string, agentDir: string): string | null {
-  return findNativeSessionFile(cwd, nativeSessionId, agentDir) ?? findStageSessionFile(cwd, nativeSessionId);
 }
