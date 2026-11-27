@@ -3,7 +3,7 @@ import fs, { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "no
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changesBetween, fingerprint, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
+import { changesBetween, fingerprint, matchesFingerprint, matchingFingerprints, protectedChanges, takeSnapshot } from "../dist/application/workspace.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { project } from "./helpers/cli.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
@@ -47,8 +47,10 @@ test("新增、修改、删除的文件都算改动", (t) => {
 
 test("干净普通文件免读内容，受保护路径始终保留字节指纹", (t) => {
   const dir = gitProject(t);
-  const ordinary = ["src/a.txt", "src/with\tspace\n.txt"];
-  const guarded = [".knit/config.json", ".knit/workflow.yaml", ".knit/standards/a.md", "roles/shared.md", "roles/chosen.md"];
+  const ordinary = ["src/a.txt", "src/with\tspace\n.txt", ".knit/tasks/archive/2026-10/old/task.md"];
+  const active = ".knit/tasks/11-27-active/task.md";
+  const archiveRole = ".knit/tasks/archive/2026-10/old/role.md";
+  const guarded = [".knit/config.json", ".knit/workflow.yaml", ".knit/standards/a.md", "roles/shared.md", "roles/chosen.md", active, archiveRole];
   for (const path of [...ordinary, ...guarded]) write(dir, path, "one\n");
   write(dir, ".gitattributes", "*.md text\n");
   write(dir, ".knit/.runtime/tracked", "runtime\n");
@@ -60,7 +62,7 @@ test("干净普通文件免读内容，受保护路径始终保留字节指纹",
     return original(path, ...args);
   });
   syncBuiltinESMExports();
-  const roles = ["./roles/shared.md", "roles/chosen.md"];
+  const roles = ["./roles/shared.md", "roles/chosen.md", archiveRole];
   const before = takeSnapshot(dir, roles);
   handle.mock.restore();
   syncBuiltinESMExports();
@@ -73,12 +75,13 @@ test("干净普通文件免读内容，受保护路径始终保留字节指纹",
     assert.ok(reads.includes(join(dir, path)), path);
   }
   assert.ok(!Object.hasOwn(before.files, ".knit/.runtime/tracked"));
-  for (const path of [".knit/standards/a.md", "roles/shared.md", "roles/chosen.md"]) {
+  const changed = [".knit/standards/a.md", "roles/shared.md", "roles/chosen.md", active, archiveRole];
+  for (const path of changed) {
     write(dir, path, "one\r\n");
     git(dir, "add", "--", path);
   }
   assert.equal(git(dir, "status", "--porcelain"), "");
-  assert.deepEqual(changesBetween(before, takeSnapshot(dir, roles)).changedPaths, [".knit/standards/a.md", "roles/chosen.md", "roles/shared.md"]);
+  assert.deepEqual(changesBetween(before, takeSnapshot(dir, roles)).changedPaths, changed.sort());
 });
 
 test("符号链接目标、类型变化及仅暂存状态变化", (t) => {
@@ -141,6 +144,51 @@ test("普通文本按 Git 干净语义跨指纹比较，脏状态之间仍按原
   write(dir, "a.txt", "one\r\n");
   git(dir, "reset", "-q", "HEAD", "--", "a.txt");
   assert.deepEqual(changesBetween(staged, takeSnapshot(dir)).changedPaths, []);
+});
+
+test("归档修改、删除与非普通索引条目按实际内容结算，也兼容旧字节快照", (t) => {
+  const dir = gitProject(t);
+  const path = ".knit/tasks/archive/2026-10/old/task.md";
+  write(dir, path, "one\n");
+  commitAll(dir, "archive");
+  const clean = takeSnapshot(dir);
+  const legacy = { head: clean.head, files: { [path]: fingerprint(dir, path) } };
+  assert.deepEqual(takeSnapshot(dir, [], legacy), legacy);
+  git(dir, "update-index", "--assume-unchanged", path);
+  write(dir, path, "two\n");
+  assert.equal(git(dir, "status", "--porcelain"), "");
+  assert.deepEqual(changesBetween(clean, takeSnapshot(dir)).changedPaths, [path]);
+  git(dir, "update-index", "--no-assume-unchanged", path);
+  for (const before of [clean, legacy]) {
+    assert.deepEqual(changesBetween(before, takeSnapshot(dir, [], before)).changedPaths, [path]);
+  }
+  rmSync(join(dir, path));
+  for (const before of [clean, legacy]) {
+    assert.deepEqual(changesBetween(before, takeSnapshot(dir, [], before)).changedPaths, [path]);
+  }
+});
+
+test("批量核对 Git、混合、旧字节、链接及新增删除指纹", (t) => {
+  const dir = gitProject(t);
+  for (const path of ["clean", "dirty", "legacy", "gone"]) write(dir, path, "base");
+  symlinkSync("clean", join(dir, "link"));
+  commitAll(dir, "files");
+  rmSync(join(dir, "gone"));
+  write(dir, "dirty", "reviewed");
+  write(dir, "added", "new");
+  const expected = takeSnapshot(dir).files;
+  expected.legacy = fingerprint(dir, "legacy");
+  const paths = [...Object.keys(expected), "later"];
+  write(dir, "later", "after review");
+  assert.deepEqual(matchingFingerprints(dir, paths, expected), new Set(Object.keys(expected)));
+  rmSync(join(dir, "clean"));
+  rmSync(join(dir, "link"));
+  symlinkSync("dirty", join(dir, "link"));
+  write(dir, "gone", "restored");
+  write(dir, "legacy", "changed");
+  const matching = matchingFingerprints(dir, paths, expected);
+  assert.deepEqual(matching, new Set(["dirty", "added"]));
+  paths.forEach((path) => assert.equal(matchesFingerprint(dir, path, expected[path]), matching.has(path)));
 });
 
 test("旧快照仍可按原始字节结算", (t) => {

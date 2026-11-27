@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { deliverTask, previewDelivery } from "../dist/application/delivery.js";
@@ -288,6 +290,10 @@ test("审查通过之后又改过的文件标出来", (t) => {
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src/a.ts"), "base\n");
   writeFileSync(join(dir, "src/staged.ts"), "base\n");
+  for (const name of ["doc", "docs", "docs2"]) {
+    mkdirSync(join(dir, name));
+    writeFileSync(join(dir, name, "file"), "base\n");
+  }
   const task = readyTask(dir);
   commitAll(dir, "task");
   const write = (path, text, cwd = worktreeOf(dir, task)) => {
@@ -326,9 +332,43 @@ test("审查通过之后又改过的文件标出来", (t) => {
   ]);
   write("src/a.ts", "1\n");
   assert.deepEqual(files().filter((file) => file.changedAfterReview).map((file) => file.path), ["src/c.ts", "src/d.ts"]);
+  for (const name of ["doc", "docs", "docs2"]) write(`${name}/file`, "changed\n");
+  assert.equal(closeTask(dir, task.id, { paths: ["doc/", "docs", "idle"] }).kind, "pathsRegistered");
+  const stored = findTask(dir, task.id);
+  const spawn = t.mock.method(childProcess, "spawnSync");
+  syncBuiltinESMExports();
+  try {
+    const { files, unchanged, others } = previewDelivery(dir, stored).commit;
+    assert.deepEqual(files.slice(0, 2), [
+      { path: "doc/file", reviewed: false, changedAfterReview: true },
+      { path: "docs/file", reviewed: false, changedAfterReview: true },
+    ]);
+    assert.deepEqual(files.slice(2).map((file) => file.path), ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/staged.ts"]);
+    assert.deepEqual(unchanged, ["idle"]);
+    assert.deepEqual(others, ["docs2/file"]);
+    const calls = spawn.mock.calls.map((call) => call.arguments[1]);
+    assert.equal(calls.filter((args) => args.includes("status")).length, 1);
+    assert.equal(calls.filter((args) => args.includes("--is-inside-work-tree")).length, 1);
+    assert.deepEqual(calls.filter((args) => args.includes("hash-object")), [["hash-object", "--", "doc/file", "docs/file", "src/staged.ts"]]);
+  } finally {
+    spawn.mock.restore();
+    syncBuiltinESMExports();
+  }
   rmSync(join(dir, ".knit/.runtime/runs", reviewId, "after.json"));
   assert.equal(files().some((file) => file.changedAfterReview), false);
   assert.deepEqual(files().filter((file) => file.reviewed).map((file) => file.path), ["src/c.ts", "src/staged.ts"]);
+});
+
+test("用带斜杠的目录登记子模块时，预览包含 Git 报告的子模块路径", (t) => {
+  const dir = gitProject(t);
+  const task = doneTask(dir, ["module/", "file/"]);
+  commitAll(dir, "task");
+  git(dir, "update-index", "--add", "--cacheinfo", `160000,${git(dir, "rev-parse", "HEAD")},module`);
+  writeFileSync(join(dir, "file"), "ordinary");
+  const preview = previewDelivery(dir, findTask(dir, task.id)).commit;
+  assert.deepEqual(preview.files.map((file) => file.path), ["module"]);
+  assert.deepEqual(preview.unchanged, ["file/", "module/"]);
+  assert.deepEqual(preview.others, ["file"]);
 });
 
 test("最后一次审查没有通过时不标", (t) => {

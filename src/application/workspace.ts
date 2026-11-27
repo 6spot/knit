@@ -63,7 +63,7 @@ export function takeSnapshot(root: string, protectedPaths: readonly string[] = [
     ...protectedPaths.map(projectRelative),
     ...Object.entries(before?.files ?? {}).filter(([, value]) => !value.startsWith("git ") && !value.includes("\0")).map(([path]) => path),
   ]);
-  const raw = (path: string) => path.startsWith(".knit/") || rawPaths.has(path);
+  const raw = (path: string) => rawPaths.has(path) || (path.startsWith(".knit/") && !path.startsWith(".knit/tasks/archive/"));
   const files: Record<string, string> = Object.create(null);
   const candidates = new Map<string, string>();
   const observed = (path: string, tracked: boolean) => {
@@ -128,12 +128,33 @@ function sameFingerprint(before: string | undefined, after: string | undefined):
   return beforeRaw === afterRaw;
 }
 
-/** 用审查快照里的格式比较当前单路径，也兼容旧的纯字节快照。 */
+/** 返回当前内容仍符合审查快照的路径。纯字节和混合指纹都按原始字节比对。 */
+export function matchingFingerprints(root: string, paths: readonly string[], expected: Readonly<Record<string, string | undefined>>): Set<string> {
+  const matching = new Set<string>();
+  const candidates: [string, string][] = [];
+  for (const path of paths) {
+    const value = expected[path];
+    if (typeof value !== "string") continue;
+    const raw = fingerprint(root, path);
+    if (value.startsWith("git ")) {
+      candidates.push([path, raw]);
+      continue;
+    }
+    if (sameFingerprint(value, raw)) matching.add(path);
+  }
+  const first = candidates[0];
+  if (first !== undefined) {
+    // 一份审查快照里的 Git 对象都来自同一仓库。
+    const oidLength = expected[first[0]]!.split(" ")[2]!.length;
+    for (const [path, git] of gitFingerprints(root, candidates, oidLength)) {
+      if (git === expected[path]) matching.add(path);
+    }
+  }
+  return matching;
+}
+
 export function matchesFingerprint(root: string, path: string, expected: string | undefined): boolean {
-  if (typeof expected !== "string") return false;
-  const raw = fingerprint(root, path);
-  if (!expected.startsWith("git ")) return sameFingerprint(expected, raw);
-  return expected === gitFingerprints(root, [[path, raw]], expected.split(" ")[2]!.length).get(path);
+  return matchingFingerprints(root, [path], { [path]: expected }).has(path);
 }
 
 export function changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot): WorkspaceChanges {

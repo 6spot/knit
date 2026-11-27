@@ -3,7 +3,7 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { sha256Bytes } from "../contracts/primitives.js";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
@@ -67,14 +67,26 @@ export function hasTasks(root: string): boolean {
   return false;
 }
 
-function readTaskBytes(root: string, dir: string): Buffer | null {
+function readTaskBytes(root: string, dir: string, ids?: ReadonlySet<string>): Buffer | null {
   const path = join(root, dir, TASK_FILE);
-  return existsSync(path) ? readFileSync(path) : null;
+  if (!existsSync(path)) return null;
+  if (ids === undefined) return readFileSync(path);
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(2048);
+    const prefix = buffer.subarray(0, readSync(fd, buffer));
+    const text = prefix.toString("utf8");
+    // 结束标记必须连换行一起读到，缓冲区末尾的 --- 可能只是一行的开头。
+    if (text.startsWith("---\n") && text.includes("\n---\n", 4) && !taskDocumentMayHaveId(text, ids)) return null;
+    return Buffer.concat([prefix, readFileSync(fd)]);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function* storedTasks(root: string, directories: ReturnType<typeof taskDirectories>, ids?: ReadonlySet<string>): Generator<StoredTask> {
   for (const entry of directories) {
-    const taskFile = readTaskBytes(root, entry.dir);
+    const taskFile = readTaskBytes(root, entry.dir, ids);
     if (taskFile === null) continue;
     const markdown = taskFile.toString("utf8");
     if (ids !== undefined && !taskDocumentMayHaveId(markdown, ids)) continue;
@@ -103,7 +115,7 @@ function* storedTasks(root: string, directories: ReturnType<typeof taskDirectori
 export function* findArchivedTasks(root: string, ids: Iterable<string>): Generator<StoredTask> {
   const remaining = new Set(ids);
   if (!remaining.size) return;
-  for (const task of storedTasks(root, archiveDirectories(root), remaining)) {
+  for (const task of storedTasks(root, archiveDirectories(root, true), remaining)) {
     if (task.document === null) continue;
     yield task;
     remaining.delete(task.document.frontmatter.id);
@@ -111,12 +123,20 @@ export function* findArchivedTasks(root: string, ids: Iterable<string>): Generat
   }
 }
 
-export function findTask(root: string, id: string, { includeWorktrees = true, requireDocument = false } = {}): StoredTask | null {
-  const ids = new Set([id]);
-  for (const task of storedTasks(root, taskDirectories(root, "all"), ids)) {
-    if (!requireDocument || task.document !== null) return task;
+export function findTask(root: string, id: string, options: { includeWorktrees?: boolean; requireDocument?: boolean } = {}): StoredTask | null {
+  return findTasks(root, [id], options).next().value ?? null;
+}
+
+function* findTasks(root: string, ids: Iterable<string>, { includeWorktrees = true, requireDocument = false } = {}): Generator<StoredTask, void> {
+  const remaining = new Set(ids);
+  if (!remaining.size) return;
+  for (const task of storedTasks(root, taskDirectories(root, "all", true), remaining)) {
+    if (requireDocument && task.document === null) continue;
+    yield task;
+    remaining.delete(task.id!);
+    if (!remaining.size) return;
   }
-  if (!includeWorktrees) return null;
+  if (!includeWorktrees) return;
   const worktrees = projectWorktreeRoot(root);
   for (const entry of directoryEntries(worktrees)) {
     const checkout = join(worktrees, entry.name);
@@ -125,11 +145,13 @@ export function findTask(root: string, id: string, { includeWorktrees = true, re
       if (linkedRepo === null || linkedRepo !== gitCommonDirectory(root)) continue;
     }
     // 其它任务的归档可能随建分支时的 HEAD 一起检出，只读该分支自己的交付。
-    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name), ids)) {
-      if (task.document?.frontmatter.status === "delivered") return task;
+    for (const task of storedTasks(checkout, archiveDirectories(checkout, true, entry.name), remaining)) {
+      if (task.document?.frontmatter.status !== "delivered") continue;
+      yield task;
+      remaining.delete(task.document.frontmatter.id);
+      if (!remaining.size) return;
     }
   }
-  return null;
 }
 
 export interface LoadedTask {
@@ -174,8 +196,8 @@ export function readTask(root: string, id: string): { kind: "loaded"; task: Load
 
 /** 建目录并写入 task.md；record.json 等第一次有内容要记时再建。 */
 export function createTask(root: string, input: NewTask): CreateTaskResult {
-  const references = new Set(input.parent === null ? input.dependsOn : [input.parent, ...input.dependsOn]);
-  const known = new Set([...references].filter((id) => findTask(root, id)?.document != null));
+  const references = input.parent === null ? input.dependsOn : [input.parent, ...input.dependsOn];
+  const known = new Set([...findTasks(root, references)].flatMap((task) => task.document?.frontmatter.id ?? []));
   const problems = [
     ...(input.parent === null || known.has(input.parent) ? [] : [`--parent 指定的任务不存在：${input.parent}`]),
     ...input.dependsOn.filter((id) => !known.has(id)).map((id) => `--depends-on 指定的任务不存在：${id}`),
@@ -286,17 +308,18 @@ export function archiveTask(root: string, stored: StoredTask, targetRoot = root)
   return dir;
 }
 
-export function* taskDirectories(root: string, scope: TaskScope) {
+export function* taskDirectories(root: string, scope: TaskScope, newestFirst = false) {
   if (scope !== "archived") {
     for (const name of directoryNames(join(root, TASKS_DIR))) {
       if (name !== "archive") yield { dir: `${TASKS_DIR}/${name}`, archived: false };
     }
   }
-  if (scope !== "active") yield* archiveDirectories(root);
+  if (scope !== "active") yield* archiveDirectories(root, newestFirst);
 }
 
-function* archiveDirectories(root: string, taskName?: string) {
-  for (const month of directoryNames(join(root, ARCHIVE_DIR))) {
+function* archiveDirectories(root: string, newestFirst: boolean, taskName?: string) {
+  const months = directoryNames(join(root, ARCHIVE_DIR));
+  for (const month of newestFirst ? months.reverse() : months) {
     const monthDir = `${ARCHIVE_DIR}/${month}`;
     const names = taskName === undefined ? directoryNames(join(root, monthDir)) : [taskName];
     for (const name of names) yield { dir: `${monthDir}/${name}`, archived: true };

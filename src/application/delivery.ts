@@ -3,7 +3,7 @@
  * Git 不是必须的，不在 Git 仓库里时只归档。
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
 import { lastPassedReview } from "../domain/progress.js";
 import { currentStatus } from "../domain/task.js";
@@ -13,7 +13,7 @@ import { loadConfig } from "./project-config.js";
 import { cleanArchivedRuns } from "./runtime-cleanup.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, findTask, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
-import { matchesFingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
+import { matchingFingerprints, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
 import { mergeAndCleanWorktree, taskWorktree, type TaskWorktree, type WorktreeIntegration } from "./worktree.js";
 
 export interface DeliveryPreview {
@@ -69,13 +69,13 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   const status = currentStatus(document, record);
   if (status === "delivered" || status === "cancelled") return { kind: "refused", problems: [`任务 ${id} 已经结束（${status}），不能交付`] };
   if (status !== "done") return { kind: "refused", problems: [`任务 ${id} 还没有完成（${status}）；完成之后再交付：knit task close ${id}`] };
-  const worktree = deliveryWorktree(root, stored.dir);
+  const checkout = deliveryCheckout(root, stored.dir);
+  const { git, worktree } = checkout;
   const config = loadConfig(root);
   if (config.config === null) return { kind: "refused", problems: config.problems };
   const mergeBranch = worktree !== null && config.config.worktree?.autoMerge === true
     ? gitSync(["branch", "--show-current"], root).stdout.trim() || "HEAD"
     : null;
-  const git = insideGit(root);
   const authorization = options.authorization?.trim() ?? "";
   if (!options.preview && authorization === "") {
     return { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"] };
@@ -83,7 +83,7 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (!options.preview && git && options.message === undefined && options.messageFile === undefined) {
     return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"] };
   }
-  const preview = options.preview ? previewDelivery(root, stored, mergeBranch !== null) : null;
+  const preview = options.preview ? previewDelivery(root, stored, mergeBranch !== null, checkout) : null;
   const file = git ? options.messageFile : undefined;
   if (file !== undefined && !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     return { kind: "refused", problems: [`读不到提交文案：${file}`] };
@@ -154,9 +154,13 @@ export function insideGit(root: string): boolean {
 
 /** 只用派发时的位置算法定位，不建 Worktree。 */
 export function deliveryWorktree(root: string, taskDir: string): TaskWorktree | null {
-  if (!insideGit(root)) return null;
+  return deliveryCheckout(root, taskDir).worktree;
+}
+
+function deliveryCheckout(root: string, taskDir: string) {
+  if (!insideGit(root)) return { git: false, worktree: null };
   const worktree = taskWorktree(root, taskDir);
-  return existsSync(join(worktree.path, ".git")) ? worktree : null;
+  return { git: true, worktree: existsSync(join(worktree.path, ".git")) ? worktree : null };
 }
 
 /** 被 Git 忽略的任务目录留在主检出归档，不随任务分支提交。 */
@@ -167,13 +171,25 @@ export function deliveryArchiveRoot(root: string, taskDir: string, worktree: Tas
 
 /** 这些路径里现在有改动的文件：含新增、删除和没有跟踪的，不含被 Git 忽略的；目录列出里面的文件。 */
 export function changedAmong(root: string, paths: readonly string[]): string[] {
+  return workspaceChanges(root, paths).files;
+}
+
+function workspaceChanges(root: string, paths: readonly string[]) {
+  const files: string[] = [];
+  const submodules = new Set<string>();
   // 不带路径时 Git 会列出整个工作区。
-  if (paths.length === 0) return [];
-  return gitSync(["--literal-pathspecs", "status", "--porcelain", "-z", "--no-renames", "-uall", "--", ...paths], root)
-    .stdout.split("\0")
-    .filter((entry) => entry !== "")
-    .map((entry) => entry.slice(3))
-    .sort();
+  if (!paths.length) return { files, submodules };
+  const status = gitSync(["--literal-pathspecs", "status", "--porcelain=v2", "-z", "--no-renames", "-uall", "--", ...paths], root);
+  for (const entry of status.stdout.split("\0")) {
+    if (entry.startsWith("? ")) files.push(entry.slice(2));
+    if (!entry.startsWith("1 ") && !entry.startsWith("u ")) continue;
+    // 普通条目和未合并条目的路径分别从第 9 和第 11 字段开始；路径本身可以含空格。
+    const fields = entry.split(" ");
+    const path = fields.slice(fields[0] === "1" ? 8 : 10).join(" ");
+    files.push(path);
+    if (fields[2]?.startsWith("S")) submodules.add(path);
+  }
+  return { files: files.sort(), submodules };
 }
 
 /** 任务记录的改动路径：主会话登记的和各次执行的合在一起。 */
@@ -182,7 +198,7 @@ export function recordedPaths(record: TaskRecord): string[] {
 }
 
 /** 交付会做什么；只读。 */
-export function previewDelivery(root: string, stored: StoredTask, autoMerge?: boolean): DeliveryPreview {
+export function previewDelivery(root: string, stored: StoredTask, autoMerge?: boolean, checkout = deliveryCheckout(root, stored.dir)): DeliveryPreview {
   const id = stored.document?.frontmatter.id;
   const openChildren = scanTasks(root, "active").flatMap((task) => {
     const frontmatter = task.document?.frontmatter;
@@ -192,14 +208,28 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
       : [{ id: frontmatter.id, title: frontmatter.title, status: frontmatter.status }];
   });
   const archiveDir = archiveDirOf(stored);
-  if (!insideGit(root)) return { archiveDir, archiveRoot: root, worktree: null, commit: null, openChildren };
-  const worktree = deliveryWorktree(root, stored.dir);
+  if (!checkout.git) return { archiveDir, archiveRoot: root, worktree: null, commit: null, openChildren };
+  const worktree = checkout.worktree;
   const workspace = worktree?.path ?? root;
 
   const runs = stored.record?.runs ?? [];
   const recorded = stored.record === null ? [] : recordedPaths(stored.record);
   const reviewed = new Set(runs.filter((run) => run.verdict !== null).flatMap((run) => run.changedPaths));
-  const files = changedAmong(workspace, recorded);
+  const { files: dirty, submodules } = workspaceChanges(workspace, ["."]);
+  const pathspecs = new Set(recorded.map((path) => posix.normalize(path)));
+  const dirtyPaths = new Set<string>();
+  const files = dirty.filter((path) => {
+    // 保留目录的两种登记写法，也让 Git 的根目录路径 . 和 ./ 匹配整个工作区。
+    const prefixes = [path];
+    for (const slash of path.matchAll(/\//g)) {
+      prefixes.push(path.slice(0, slash.index), path.slice(0, slash.index + 1));
+    }
+    const selected = pathspecs.has(".") || pathspecs.has("./") || prefixes.some((prefix) => pathspecs.has(prefix)) ||
+      (submodules.has(path) && pathspecs.has(`${path}/`));
+    if (selected) prefixes.forEach((prefix) => dirtyPaths.add(prefix));
+    return selected;
+  });
+  const included = new Set(files);
   // 和完成任务时一样：失败的执行、需求改之前的执行都不算数。
   const lastReview = stored.record === null ? undefined : lastPassedReview(stored.record);
   const passedFile = lastReview ? join(root, RUNS_DIR, lastReview.id, "after.json") : null;
@@ -208,6 +238,7 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
     passedFile !== null && existsSync(passedFile)
       ? (JSON.parse(readFileSync(passedFile, "utf8")) as WorkspaceSnapshot).files
       : null;
+  const matching = passed === null ? null : matchingFingerprints(workspace, files, passed);
   const taskDir = gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0;
   const outsideTask = (path: string) => !path.startsWith(`${stored.dir}/`) && !path.startsWith(RUNTIME_PREFIX);
   return {
@@ -218,13 +249,11 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
       files: files.map((path) => ({
         path,
         reviewed: reviewed.has(path),
-        changedAfterReview: passed !== null && !matchesFingerprint(workspace, path, passed[path]),
+        changedAfterReview: matching !== null && !matching.has(path),
       })),
       taskDir,
-      unchanged: recorded.filter(
-        (path) => !files.some((file) => file === path || file.startsWith(path.endsWith("/") ? path : `${path}/`)),
-      ),
-      others: changedAmong(workspace, ["."]).filter((path) => outsideTask(path) && !files.includes(path)),
+      unchanged: recorded.filter((path) => !dirtyPaths.has(path)),
+      others: dirty.filter((path) => outsideTask(path) && !included.has(path)),
       mergeRisks: worktree !== null && (autoMerge ?? loadConfig(root).config?.worktree?.autoMerge) ? {
         dirty: changedAmong(root, ["."]).filter(outsideTask),
         overlap: mergeOverlap(root, worktree, files, taskDir ? [stored.dir, archiveDir] : []),

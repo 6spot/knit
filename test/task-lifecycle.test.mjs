@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { basename, dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { RUNS_DIR } from "../dist/contracts/task.js";
@@ -10,12 +11,12 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { cancelTask, closeTask, readyTask } from "../dist/application/task-lifecycle.js";
 import { deliverTask } from "../dist/application/delivery.js";
-import { createTask, findTask, readTask, saveTask, scanTasks, taskCommit } from "../dist/application/task-store.js";
+import { createTask, findArchivedTasks, findTask, readTask, saveTask, scanTasks, taskCommit } from "../dist/application/task-store.js";
 import { currentStatus, parseTaskDocument, renderTaskDocument, renderTaskRecord, requirementDigest } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { git, gitProject } from "./helpers/git.mjs";
-import { agents, doneTask, runProject, writeArchiveHistory } from "./helpers/run.mjs";
+import { agents, doneTask, runProject, worktreeOf, writeArchiveHistory } from "./helpers/run.mjs";
 
 const now = new Date();
 const TODAY = [now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-");
@@ -62,6 +63,32 @@ test("创建一个任务：文件能解析，输出 id 和路径", (t) => {
       parent: document.frontmatter.id, dependsOn: [document.frontmatter.id, "k-0123456789ab"], priority: "P0", createdAt: null,
     },
   );
+});
+
+test("多引用只扫描一次，识别活跃、主检出归档和 Worktree 交付并保留报错顺序", (t) => {
+  const root = gitProject(t);
+  const active = draft(root);
+  const archived = draft(root, { slug: "archived" });
+  assert.equal(cancelTask(root, archived.id, { reason: "取消" }).kind, "cancelled");
+  const done = doneTask(root);
+  git(root, "worktree", "add", "--detach", worktreeOf(root, done), "HEAD");
+  const delivery = deliverTask(root, done.id, { authorization: "已同意", message: "完成" });
+  assert.equal(delivery.kind, "delivered");
+  assert.equal(delivery.archiveRoot, worktreeOf(root, done));
+  draft(root, { parent: active.id, dependsOn: [archived.id, done.id, active.id] });
+
+  const scans = t.mock.method(fs, "readdirSync");
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(createTask(root, { ...defaults, parent: "missing-parent",
+      dependsOn: [active.id, "missing-a", archived.id, done.id, "missing-b"] }), { created: null, problems: [
+      "--parent 指定的任务不存在：missing-parent", "--depends-on 指定的任务不存在：missing-a", "--depends-on 指定的任务不存在：missing-b",
+    ] });
+    assert.equal(scans.mock.calls.filter((call) => call.arguments[0] === join(root, ".knit/tasks")).length, 1);
+  } finally {
+    scans.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
 
 test("同名目录加序号，归档里的同名目录也算；名称里的其它字符换成 -", (t) => {
@@ -590,6 +617,40 @@ test("task list：逐个识别批次成员进程，流程损坏或缺失时仍�
   assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${expected}\n`, stderr: "" });
   rmSync(workflow);
   assert.deepEqual(knit(dir, "task", "list"), { code: 0, stdout: `${expected}\n`, stderr: "" });
+});
+
+test("按 ID 从最近月份查找，短头排除无关正文，超长头仍能命中", (t) => {
+  const root = project(t);
+  const active = draft(root);
+  const archive = join(root, ".knit/tasks/archive");
+  const target = "k-aaaaaaaaaaaa";
+  const other = "k-bbbbbbbbbbbb";
+  const markdown = readFileSync(active.file, "utf8");
+  for (const [dir, text] of [
+    ["2025-01/old", markdown.replace(active.id, target)],
+    ["2026-10/a", markdown.replace(active.id, other) + "正文".repeat(5000)],
+    ["2026-10/b", markdown.replace(`id: ${active.id}`, `---\n# ${"长".repeat(2048)}\nid: ${target}`)],
+  ]) {
+    mkdirSync(join(archive, dir), { recursive: true });
+    writeFileSync(join(archive, dir, "task.md"), text);
+  }
+  assert.deepEqual(scanTasks(root, "archived").map((task) => task.id), [target, other, target]);
+  mkdirSync(join(archive, "2025-01/first/task.md"), { recursive: true });
+  const unrelated = fs.statSync(join(archive, "2026-10/a/task.md")).ino;
+  const original = fs.readFileSync;
+  const reads = t.mock.method(fs, "readFileSync", (file, ...args) => {
+    assert.notEqual((typeof file === "number" ? fs.fstatSync(file) : fs.statSync(file)).ino, unrelated);
+    return original(file, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const recent = findTask(root, target);
+    assert.equal(recent.dir, ".knit/tasks/archive/2026-10/b");
+    assert.deepEqual([...findArchivedTasks(root, [target])], [recent]);
+  } finally {
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
 
 test("按 ID 查找跳过无关归档的记录与 YAML，同时保留损坏任务和手写 ID 的查找语义", (t) => {
