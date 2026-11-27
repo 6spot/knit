@@ -213,7 +213,7 @@ createdAt: 2026-11-14T13:36:56Z
 - `.knit/tasks/` 下的点名资料（本任务的，和别的任务的，例如主任务的设计）、`task.md` 的需求部分、`plan.md` 和各次报告从主检出读，块上的路径给主检出里的绝对路径，章节路径保留 `#标题`。超过字节上限时仍只给路径和说明，执行者可以按绝对路径读到当前资料，不会读到 Worktree 里的旧任务副本。
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 内置规范从安装包读取。角色文件、项目规范和避坑分区从主检出读取。系统提示先给角色，再给内置和项目规范，各来源内按路径排序。
-- Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。插件直接使用钩子和 CLI，无需 MCP 服务。
+- Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 和 `knit workflow validate --env` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。环境和命令中都未指定 `KNIT_SESSION_AGENT` 时，钩子为派发和环境预检补上 `KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT-antigravity}"`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - Qoder 仅在默认主 Agent（`agent:default`）加载项目级 `.qoder/settings.json`。`SessionStart` 和 `UserPromptSubmit` 返回对应的 `hookEventName` 和 `additionalContext`。优先取事件的 `cwd`，缺省时依次取 `QODER_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和进程工作目录。
 - 钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和宿主指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
@@ -526,9 +526,9 @@ knit workflow show
 knit workflow validate [--env]
 ```
 
-`knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
+`knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。预检也会逐一核对流程引用的角色文件，路径相对项目根目录解析。缺失或非普通文件的路径会一并列出，提示补齐角色文件，默认角色文件可用 `knit init` 补齐。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
 
-`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。
+`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。初始化结束时，若没有配齐任何主会话桥接，输出会列出各客户端的安装命令，提示安装后运行 `knit workflow validate --env`。本次创建了初始化任务时，引导和第 10 节的桌面钩子告警都在 `初始化任务:` 行之前。
 
 `knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档或缺失时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
 
@@ -570,7 +570,7 @@ Pi 桥接有 3 个工具：
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。测试夹具优先通过应用层入口和只读模板仓库复制构造，减少重复启动 CLI 与 `git init` 子进程。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
 6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、项目规范和任务保留原样。旧版内置规范副本按第 4 节提示迁移。
-7. WorkBuddy 和 Qoder 各自在 `.workbuddy/` 和 `.qoder/` 下安装桥接。目录中的 `knit-hook.sh` 存在，或 `settings.json` 的三个项目钩子之一包含引用本宿主脚本的命令时，`--force` 才自动识别该宿主。普通安装保留已有的自定义设置，可从模板手工合入三个钩子。显式指定 `--force --workbuddy` 或 `--force --qoder` 会备份有差异的文件并恢复对应模板。Antigravity 执行者可以读取这两个目录中的文件，两个目录都受写保护。
+7. WorkBuddy 和 Qoder 各自在 `.workbuddy/` 和 `.qoder/` 下安装桥接。目录中的 `knit-hook.sh` 存在，或 `settings.json` 的三个项目钩子之一包含引用本宿主脚本的命令时，`--force` 才自动识别该宿主。普通安装保留已有的自定义设置。显式选择桌面宿主且保留的 `settings.json` 在三个事件中都没有引用本宿主启动脚本的命令钩子时，输出会指出文件路径，提示从模板手工合入 `SessionStart`、`UserPromptSubmit`、`PreToolUse` 钩子，或使用该宿主的强制安装命令。显式指定 `--force --workbuddy` 或 `--force --qoder` 会备份有差异的文件并恢复对应模板。Antigravity 执行者可以读取这两个目录中的文件，两个目录都受写保护。
 
 ## 11. 不做与延后
 

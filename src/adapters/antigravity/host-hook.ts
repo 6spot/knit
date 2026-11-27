@@ -35,9 +35,11 @@ export async function agyHostHook(event: string, input: unknown) {
   const tool = object(payload?.toolCall);
   const command = object(tool?.args)?.CommandLine;
   if (tool?.name !== "run_command" || typeof command !== "string") return { decision: "allow" };
+  const defaultAgent = process.env.KNIT_SESSION_AGENT === undefined ? 'KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT-antigravity}"' : undefined;
   const checked = await checkHostCommand(command, () => userMessages(payload?.transcriptPath, cwd), {
     session: typeof sessionId === "string" && sessionId ? `KNIT_HOST=agy KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
-    start: process.env.KNIT_SESSION_AGENT === undefined ? 'KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT-antigravity}"' : undefined,
+    start: defaultAgent,
+    validateEnv: defaultAgent,
   });
   if (checked.reason) return { decision: "deny", reason: checked.reason };
   return checked.command === command ? { decision: "allow" } : { decision: "allow", overwrite: { CommandLine: checked.command } };

@@ -16,6 +16,7 @@ import { knit, project } from "./helpers/cli.mjs";
 import { gitProject } from "./helpers/git.mjs";
 import { writeArchiveHistory } from "./helpers/run.mjs";
 
+const hostGuide = "请按客户端运行 knit init --pi / knit init --workbuddy / knit init --qoder / knit init --agy 安装主会话桥接，再运行 knit workflow validate --env 检查派发环境。";
 const targets = CORE_TEMPLATES.map((item) => item.target);
 const draft = { title: "试一下", slug: "task", priority: "P2", verification: "self", parent: null, dependsOn: [] };
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
@@ -54,6 +55,7 @@ test("在空目录里初始化", (t) => {
     result.stdout,
     `${[
       ...listed("已生成:", targets),
+      hostGuide,
       `初始化任务: 完善项目的开发规范（${frontmatter.id}，${taskFile}）`,
     ].join("\n")}\n`,
   );
@@ -84,6 +86,7 @@ for (const flags of [["--agy"], ["--pi", "--agy"]]) {
     const dir = emptyDir(t);
     const result = knit(dir, "init", ...flags);
     assert.equal(result.code, 0, result.stderr);
+    assert.ok(!result.stdout.includes(hostGuide));
     const pi = flags.includes("--pi");
     assert.deepEqual(readdirSync(dir).sort(), pi ? [".agents", ".knit", ".pi"] : [".agents", ".knit"]);
     if (pi) assert.equal(readFileSync(join(dir, ".pi/extensions/knit.ts"), "utf8"), template("pi/extensions/knit.ts"));
@@ -103,6 +106,28 @@ for (const flags of [["--agy"], ["--pi", "--agy"]]) {
     } });
   });
 }
+
+test("桌面端保留已有设置，显式补装时提示接入钩子", (t) => {
+  for (const host of ["workbuddy", "qoder"]) {
+    const dir = emptyDir(t);
+    mkdirSync(join(dir, `.${host}`));
+    const target = `.${host}/settings.json`;
+    const own = Buffer.from('{ "permissions": {} }\r\n');
+    writeFileSync(join(dir, target), own);
+    const result = knit(dir, "init", `--${host}`);
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(readFileSync(join(dir, target)), own);
+    const lines = result.stdout.trimEnd().split("\n");
+    assert.ok(lines.includes(`警告：${target} 保留了已有配置，尚未接入 Knit 钩子。请手工合入 SessionStart、UserPromptSubmit、PreToolUse 钩子，或运行 knit init --force --${host} 备份后恢复模板。`));
+    assert.ok(lines.includes(hostGuide));
+    assert.match(lines.at(-1), /^初始化任务: 完善项目的开发规范/);
+    assert.doesNotMatch(knit(dir, "init").stdout, /警告/);
+    writeFileSync(join(dir, target), template(target.slice(1)));
+    const again = knit(dir, "init", `--${host}`);
+    assert.equal(again.code, 0, again.stderr);
+    assert.doesNotMatch(again.stdout, /警告|workflow validate --env/);
+  }
+});
 
 test("WorkBuddy 可单独或组合安装，强制恢复仅处理启用的桥接", (t) => {
   for (const flags of [["--workbuddy"], ["--pi", "--agy", "--workbuddy"]]) {
@@ -204,6 +229,7 @@ test("已有的文件不动，缺的补上", (t) => {
     `${[
       ...listed("已生成:", [".knit/agents/review.md"]),
       ...listed("已有，没有动:", targets.filter((target) => target !== ".knit/agents/review.md")),
+      hostGuide,
     ].join("\n")}\n`,
   );
   assert.equal(readFileSync(join(dir, ".knit", "workflow.yaml"), "utf8"), `${template("workflow.yaml")}# 项目自己加的\n`);
@@ -241,7 +267,7 @@ test("项目里已经有任务时不建初始化任务，归档的也算", (t) =
     mkdirSync(path);
   }
   again();
-  assert.deepEqual(knit(dir, "init"), { code: 0, stdout: `${listed("已有，没有动:", targets).join("\n")}\n`, stderr: "" });
+  assert.deepEqual(knit(dir, "init"), { code: 0, stdout: `${[...listed("已有，没有动:", targets), hostGuide].join("\n")}\n`, stderr: "" });
   assert.deepEqual(taskFiles(dir), []);
 });
 
@@ -295,6 +321,7 @@ test("改过的先备份再恢复", (t) => {
       ...listed("已恢复成模板:", changed),
       `备份: .knit/.runtime/backups/${backups[0]}/`,
       ...listed("已有，没有动:", targets.filter((target) => target !== ".knit/agents/review.md" && !changed.includes(target))),
+      hostGuide,
     ].join("\n")}\n`,
   );
 

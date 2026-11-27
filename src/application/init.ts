@@ -73,6 +73,20 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
   };
 }
 
+export function initGuidance(root: string, hosts: HostOptions, force: boolean, kept: readonly string[]): string[] {
+  const hasBridge = HOST_SPECS.some((host) => host.templates.every((template) =>
+    installedBridge(root, `.${template}`, "sharedSettings" in host ? host.sharedSettings : undefined)));
+  const warnings = HOST_SPECS.flatMap((host) => {
+    if (force || !hosts[host.id] || !("sharedSettings" in host)) return [];
+    const settings = host.sharedSettings;
+    if (!kept.includes(settings.target) || installedBridge(root, settings.target, settings)) return [];
+    return [`警告：${settings.target} 保留了已有配置，尚未接入 Knit 钩子。请手工合入 ${settings.events.join("、")} 钩子，或运行 knit init --force --${host.id} 备份后恢复模板。`];
+  });
+  if (hasBridge) return warnings;
+  const commands = HOST_SPECS.map((host) => `knit init --${host.id}`).join(" / ");
+  return [...warnings, `请按客户端运行 ${commands} 安装主会话桥接，再运行 knit workflow validate --env 检查派发环境。`];
+}
+
 function installedBridge(root: string, target: string, shared?: SharedSettings): boolean {
   const path = join(root, target);
   if (!existsSync(path)) return false;

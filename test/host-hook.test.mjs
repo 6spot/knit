@@ -330,6 +330,27 @@ test("run start 透传 AGY 默认执行者并保留显式选择", async (t) => {
   assert.deepEqual(await preTool(payload, "knit run start id"), { decision: "allow" });
 });
 
+test("环境预检使用 AGY 默认执行者，桌面钩子放行预检", async (t) => {
+  isolateEnvironment(t);
+  delete process.env.KNIT_SESSION_AGENT;
+  const cwd = project(t);
+  const payload = { cwd, conversationId: session };
+  const validate = "knit workflow validate --env";
+  assert.deepEqual(await preTool(payload, validate), { decision: "allow", overwrite: {
+    CommandLine: `env KNIT_SESSION_AGENT="\${KNIT_SESSION_AGENT-antigravity}" ${validate}`,
+  } });
+  for (const command of [`KNIT_SESSION_AGENT=pi ${validate}`, `env KNIT_SESSION_AGENT=pi ${validate}`, "knit workflow validate", "knit workflow validate --dir '--env'"]) {
+    assert.deepEqual(await preTool(payload, command), { decision: "allow" });
+  }
+  process.env.KNIT_SESSION_AGENT = "pi";
+  assert.deepEqual(await preTool(payload, validate), { decision: "allow" });
+  for (const command of [validate, `KNIT_SESSION_AGENT=pi ${validate}`]) {
+    assert.equal(await buddyPreTool(cwd, command), null);
+    assert.equal(await qoderHostHook("pre-tool-use", { cwd, session_id: session, tool_name: "Bash", tool_input: { command } }), null);
+  }
+  assert.equal((await preTool(payload, `${validate} && knit deliver id`)).decision, "deny");
+});
+
 const events = { SessionStart: "session-start", UserPromptSubmit: "user-prompt-submit", PreToolUse: "pre-tool-use" };
 const buddySession = "b35aac84-ed2d-4029-a78c-188510e77bcc";
 async function buddyHook(payload) {

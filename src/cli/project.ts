@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Option, type Command } from "commander";
 import { builtinAgents, piCommand, sessionAgentName } from "../adapters/agents.js";
 import { hostProjectRoot, selectHostTask } from "../application/host-hook.js";
-import { initProject } from "../application/init.js";
+import { initGuidance, initProject } from "../application/init.js";
 import { buildSessionContext, contextLines } from "../application/session-context.js";
 import { CONFIG_PATH, legacyStandardCopies, loadConfig, loadStandards, readWorkflow, savePitfall } from "../application/project-config.js";
 import { taskWorktree } from "../application/worktree.js";
@@ -12,7 +12,7 @@ import { HOST_SPECS, type HostOptions } from "../contracts/host.js";
 import { AGENT_SPECS, DEFAULT_AGENT, TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
-import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
+import { WORKFLOW_ANCHOR_NAMES, workflowPrompts, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { findExecutable, gitSync } from "../infrastructure/process.js";
 import { fail, knitRoot, loadWorkflow, projectRoot, taskLabel } from "./shared.js";
 
@@ -33,6 +33,7 @@ export function registerInitCommand(program: Command): void {
         ...(result.backupDir === null ? [] : [`备份: ${result.backupDir}/`]),
         ...section("已有，没有动:", result.kept),
         ...section("旧版通用规范副本（保留原文，已停用；请把项目定制迁入另名的项目规范）:", legacyStandardCopies(root)),
+        ...initGuidance(root, options, options.force ?? false, result.kept),
         ...(result.task === null
           ? []
           : [`初始化任务: ${result.task.title}（${result.task.id}，${result.task.file}）`]),
@@ -193,6 +194,10 @@ function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
   };
   check(`Node ${process.version}`, () => Number.parseInt(process.versions.node, 10) >= 24 ? null : "需要 Node ≥ 24", "请升级 Node 后重试");
   check(CONFIG_PATH, () => loadConfig(root).problems.join("\n") || null, `请修正 ${CONFIG_PATH} 后重试`);
+  check("角色文件", () => {
+    const invalid = workflowPrompts(workflow).filter((path) => !statSync(join(root, path), { throwIfNoEntry: false })?.isFile());
+    return invalid.length ? `缺失或非普通文件：${invalid.join("、")}` : null;
+  }, "请补齐角色文件，默认角色文件可运行 knit init 补齐");
   check("Git 仓库与 HEAD", () => {
     const repo = gitSync(["rev-parse", "--is-inside-work-tree"], root);
     if (repo.code === -1) return `无法运行 Git（${repo.stderr.trim()}）`;

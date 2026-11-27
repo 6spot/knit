@@ -6,7 +6,7 @@ const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同�
 
 type HostCommand =
   | { kind: "session"; offset: number }
-  | { kind: "start"; offset: number; explicit: boolean };
+  | { kind: "start" | "validateEnv"; offset: number; explicit: boolean };
 
 /** 只读取静态参数。命令替换由语法树单独遍历，变量和通配符不作为原话。 */
 function literal(parts: WordPart[], quoted = false): string | null {
@@ -78,11 +78,13 @@ function inspectCall(call: CallExpr, source: string, index: (byte: number) => nu
   const select = operands[0] === "context" && (flags.has("--use") || flags.has("--unuse"));
   const newTask = operands[0] === "task" && operands[1] === "new";
   if (select || newTask) return { kind: "session", offset };
-  if (operands[0] !== "run" || operands[1] !== "start") return null;
+  const start = operands[0] === "run" && operands[1] === "start";
+  const validateEnv = operands[0] === "workflow" && operands[1] === "validate" && flags.has("--env");
+  if (!start && !validateEnv) return null;
   const explicit = call.assigns.some((assign) => assign.name?.value === "KNIT_SESSION_AGENT") ||
     call.args.slice(0, executable).some((word, i) => args[i]?.startsWith("KNIT_SESSION_AGENT=") ||
       source.slice(index(word.start), index(word.end)).startsWith("KNIT_SESSION_AGENT="));
-  return { kind: "start", offset, explicit };
+  return { kind: start ? "start" : "validateEnv", offset, explicit };
 }
 
 function knitArguments(words: { raw: string; value: string | null }[]) {
@@ -150,10 +152,8 @@ async function inspectHost(command: string, environment: Partial<Record<HostComm
       if (call === null) return;
       if (call.kind === "script") { nested.push(call); return; }
       if (call.kind === "delivery") { quotes.push(call.quote); return; }
-      if (call.kind === "start") {
-        starts.push(true);
-        if (call.explicit) return;
-      }
+      if (call.kind === "start") starts.push(true);
+      if (call.kind !== "session" && call.explicit) return;
       const env = environment[call.kind];
       if (env) edits.push({ start: call.offset, end: call.offset, text: `env ${env} ` });
     });

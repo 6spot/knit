@@ -78,6 +78,9 @@ test("validate 从 Git 子目录读取流程，--env 汇总相同工具组合，
   writeFileSync(join(dir, ".knit/git"), '#!/bin/sh\n/usr/bin/touch "$0.called"\n', { mode: 0o755 });
   writeFileSync(join(bin, "pi"), '#!/bin/sh\n/usr/bin/touch "$0.called"\n', { mode: 0o755 });
   writeFileSync(join(dir, ".knit/workflow.yaml"), SAMPLE_WORKFLOW_YAML.replace("tools: [read, write, exec]", "tools: [exec, write, read]"));
+  mkdirSync(join(dir, ".knit/agents"));
+  writeFileSync(join(dir, ".knit/agents/implement.md"), "实现");
+  writeFileSync(join(dir, ".knit/agents/review.md"), "审查");
   writeFileSync(join(dir, ".knit/config.json"), "{}");
   const snapshot = () => readdirSync(dir, { recursive: true, withFileTypes: true }).map((entry) => {
     const path = join(entry.parentPath, entry.name);
@@ -88,18 +91,24 @@ test("validate 从 Git 子目录读取流程，--env 汇总相同工具组合，
   assert.equal(plain.status, 0, plain.stderr);
   assert.equal(plain.stdout, "配置有效\n流程: 讨论 → 实现 → 审查 → 收尾\n");
   assert.equal(plain.stderr, "");
-  const result = run("validate", bin, ["--env"], {
-    KNIT_SESSION_AGENT: "pi", KNIT_PI_BIN: "pi", PATH: `${bin}:${process.env.PATH}`,
-  });
+  const env = { KNIT_SESSION_AGENT: "pi", KNIT_PI_BIN: "pi", PATH: `${bin}:${process.env.PATH}` };
+  const result = run("validate", bin, ["--env"], env);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /通过  Node v\d+/);
   assert.match(result.stdout, /通过  \.knit\/config\.json/);
   assert.match(result.stdout, /通过  Git 仓库与 HEAD/);
+  assert.match(result.stdout, /^通过  角色文件$/m);
   assert.match(result.stdout, /通过  Pi 客户端/);
   assert.equal(result.stdout.match(/通过  pi tools=\[read, write, exec\] 模型/g)?.length, 1);
   assert.match(result.stdout, /派发环境就绪\n$/);
   assert.doesNotMatch(result.stdout, /antigravity/);
   assert.deepEqual(snapshot(), before);
+  rmSync(join(dir, ".knit/agents/review.md"));
+  const missing = run("validate", bin, ["--env"], env);
+  assert.equal(missing.status, 1, missing.stdout);
+  assert.match(missing.stdout, /^失败  角色文件.*\.knit\/agents\/review\.md.*补齐角色文件.*knit init/m);
+  assert.equal(missing.stdout.match(/^失败 /gm)?.length, 1);
+  assert.match(missing.stdout, /派发环境未就绪\n$/);
   assert.deepEqual(readdirSync(process.env.KNIT_HOME), []);
 });
 
@@ -121,7 +130,8 @@ stages:
 `;
 
 test("--env 一次报告配置、空仓库、两个并行客户端和缺模型的执行器", (t) => {
-  const dir = project(t, parallelWorkflow.replace("        model: provider/reviewer\n", ""));
+  const dir = project(t, parallelWorkflow.replace("        model: provider/reviewer\n", "") + "        prompt: roles/agy.md\n");
+  mkdirSync(join(dir, "roles/agy.md"), { recursive: true });
   git(dir, "init", "-q");
   writeFileSync(join(dir, ".knit/config.json"), "{");
   const result = run("validate", dir, ["--env"], {
@@ -129,6 +139,7 @@ test("--env 一次报告配置、空仓库、两个并行客户端和缺模型�
   });
   assert.equal(result.status, 1);
   assert.match(result.stdout, /失败  \.knit\/config\.json.*不是合法的 JSON.*修正/);
+  assert.match(result.stdout, /失败  角色文件.*\.knit\/agents\/review\.md、roles\/agy\.md/);
   assert.match(result.stdout, /失败  Git .*先提交一次再派发/);
   assert.match(result.stdout, /失败  Pi 客户端.*请安装 Pi/);
   assert.match(result.stdout, /失败  pi .*review\/pi-review 未配置模型.*workflow.yaml 写 model 或传 --model/);
