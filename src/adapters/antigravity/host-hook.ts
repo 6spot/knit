@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { checkHostCommand, hostContext } from "../../application/host-hook.js";
+import { checkHostCommand } from "../../application/host-command.js";
 import { shellQuote } from "../../infrastructure/process.js";
 import { object } from "./protocol.js";
 
@@ -28,6 +28,7 @@ export async function agyHostHook(event: string, input: unknown) {
   if (event === "SessionStart" || event === "PreInvocation") {
     if (typeof sessionId !== "string" || !sessionId) return {};
     const workspaces = Array.isArray(payload?.workspacePaths) ? payload.workspacePaths.filter((path): path is string => typeof path === "string" && !!path) : [];
+    const { hostContext } = await import("../../application/host-hook.js");
     const text = hostContext(cwd ? [cwd, ...workspaces] : workspaces, { host: "agy", sessionId });
     return text === null ? {} : { injectSteps: [{ systemMessage: { systemMessage: text } }] };
   }

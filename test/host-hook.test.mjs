@@ -56,6 +56,54 @@ test("命令型宿主的编译模块导出登记的钩子函数", async () => {
   }
 });
 
+test("直接 hook 子进程按命令加载模块，保留各宿主的放行和拒绝协议", () => {
+  const trace = `import { registerHooks } from 'node:module';
+    registerHooks({ load(url, context, nextLoad) {
+      if (url.startsWith('file:')) console.error(url);
+      return nextLoad(url, context);
+    } });`;
+  const desktop = (command) => ({ session_id: session, tool_name: "Bash", tool_input: { command } });
+  const hosts = [
+    ["agy", "PreToolUse", (command) => ({ conversationId: session, toolCall: { name: "run_command", args: { CommandLine: command } } }), '{"decision":"allow"}\n'],
+    ["workbuddy", "pre-tool-use", desktop, ""],
+    ["qoder", "pre-tool-use", desktop, ""],
+    ["pi", "tool-call", (command) => ({ name: "bash", input: { command }, messages: [] }), '{"command":"find ."}'],
+  ];
+  for (const [host, event, payload, allowed] of hosts) {
+    for (const command of host === "pi" ? ["find ."] : ["find .", "knit deliver id"]) {
+      const result = spawnSync(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(trace)}`, cli, "hook", host, event],
+        { input: JSON.stringify(payload(command)), encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /\/application\/host-command\.js/m);
+      assert.doesNotMatch(result.stderr, /\/node_modules\/(?:commander|yaml)\/|\/application\/(?:host-hook|session-context|task-store)\.js|\/cli\/(?:deliver|project|run|task|shared)\.js/);
+      if (command === "find .") {
+        assert.doesNotMatch(result.stderr, /\/node_modules\/sh-syntax\//);
+        assert.equal(result.stdout, allowed, host);
+        continue;
+      }
+      assert.match(result.stderr, /\/node_modules\/sh-syntax\//);
+      const decision = JSON.parse(result.stdout);
+      assert.equal(decision.decision ?? decision.hookSpecificOutput.permissionDecision, "deny", host);
+    }
+  }
+});
+
+test("hook 的帮助、未知事件及无效参数沿用既有输出与退出码", () => {
+  const help = "Usage: knit hook [options] [command]\n\nOptions:\n  -h, --help      display help for command\n\nCommands:\n  agy <event>\n  help [command]  display help for command\n";
+  const agyHelp = "Usage: knit hook agy [options] <event>\n\nOptions:\n  -h, --help  display help for command\n";
+  for (const [args, status, stdout, stderr] of [
+    [["--help"], 0, help, ""], [["agy", "--help"], 0, agyHelp, ""],
+    [["pi", "unknown"], 1, "", "未知的 Pi 工具事件\n"],
+    [["unknown", "event"], 1, "", "error: unknown command 'unknown'\n"],
+    [["agy"], 1, "", "error: missing required argument 'event'\n"],
+    [["agy", "--x"], 1, "", "error: unknown option '--x'\n"],
+    [["agy", "PreToolUse", "more"], 1, "", "error: too many arguments for 'agy'. Expected 1 argument but got 2: PreToolUse, more.\n"],
+  ]) {
+    const result = spawnSync(process.execPath, [cli, "hook", ...args], { input: "", encoding: "utf8" });
+    assert.deepEqual([result.status, result.stdout, result.stderr], [status, stdout, stderr], args.join(" "));
+  }
+});
+
 test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析及改写", async (t) => {
   const bridgeTemplate = await import("../assets/templates/pi/extensions/knit.ts");
   const imports = [];
@@ -66,7 +114,9 @@ test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析�
   t.after(() => hook.deregister());
   const environment = { session: "KNIT_HOST=agy", start: "KNIT_SESSION_AGENT=antigravity" };
   for (const command of ["ls -la", "git status", "git diff --stat", "npm test", "node --test test/a.test.mjs",
-    'cat "README.md"', "grep 'hello' src/", "rg 'foo' src/"]) {
+    'cat "README.md"', "grep 'hello' src/", "rg 'foo' src/", "find .", "find . -name '*.ts'", "rg foo .", "git add .",
+    "git diff -- .", "ls .", "cat scripts/build.sh", "rg sh-syntax src/", "npm test -- --dash", "rg --path=. foo",
+    "cat foo.bash", "rg source-map", "rg myshell", "rg 'foo bar' ."]) {
     assert.equal(canSkipHostCommand(command), true, command);
     assert.equal(bridgeTemplate.canSkipHostCommand(command), true, command);
     assert.deepEqual(await inspectHostCommand(command, environment), { command, quotes: [] });
@@ -76,7 +126,13 @@ test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析�
     "knit deliver --preview id", "knit context --use id", "knit task new --title example", "knit run start id",
     "$CMD deliver", "$(printf knit) deliver", "echo `date`", "KNIT --version", "eval 'echo hello'", "e'val' 'echo hello'",
     "sh -c 'echo hello'", "/bin/bash -c 'echo hello'", 'b"ash" -c true', "zsh --version", "dash -c true", "ksh -c true",
-    "source setup", ". setup", "base64 file"]) {
+    "source setup", "base64 file", "./sh -c true", "env bash", "echo myKNITfile", "eval 'knit deliver id'",
+    ". setup", "\t. setup", '"" . setup', "'.' setup", "(. setup)", "{ . setup; }", "! . setup", "if true; then . setup; fi",
+    "true && . setup", "FOO=1 . setup", 'FOO="two words" . setup', "FOO=!x . setup", "</dev/null . setup",
+    "LABEL=two\u00a0words . setup", "< two\u00a0words . setup", "repeat 2 . setup",
+    "2> log . setup", '>out< "input file" . setup', "command -p . setup", "time -p -- . setup",
+    ...[";", "\r", "\n", "&", "|", "(", ")", "{", "}", "!"].map((control) => `true${control}\t. setup`),
+    ...["if", "then", "elif", "else", "while", "until", "do", "time", "coproc", "builtin", "command", "exec", "nohup", "noglob", "nocorrect", "-"].map((prefix) => `${prefix} . setup`)]) {
     assert.equal(canSkipHostCommand(command), false, command);
     assert.equal(bridgeTemplate.canSkipHostCommand(command), false, command);
   }

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkHostCommand, hostContext } from "../../application/host-hook.js";
+import { checkHostCommand } from "../../application/host-command.js";
 import { shellQuote } from "../../infrastructure/process.js";
 
 const guidance = [
@@ -48,6 +48,7 @@ export async function workbuddyHostHook(event: string, input: unknown) {
   const sessionId = payload?.session_id;
   if (event === "session-start" || event === "user-prompt-submit") {
     if (typeof sessionId !== "string" || !sessionId) return null;
+    const { hostContext } = await import("../../application/host-hook.js");
     const text = hostContext([cwd], { host: "workbuddy", sessionId }, guidance);
     return text === null ? null : { hookSpecificOutput: {
       hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: text,

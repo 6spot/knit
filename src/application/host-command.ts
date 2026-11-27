@@ -127,8 +127,20 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
 
 // 与 Pi 模板中的判定保持一致。反斜杠和展开交给语法树；引号拼接后也不能出现待检查名称。
 export function canSkipHostCommand(command: string): boolean {
-  return !/[$`\\]/.test(command) &&
-    !/knit|\b(eval|sh|bash|zsh|dash|ksh|source|base64)\b|(?:^|[\s/;&|()<>])\.(?=$|[\s;&|()<>])/i.test(command.replace(/['"]/g, ""));
+  if (/[$`\\]/.test(command)) return false;
+  const unquoted = command.replace(/['"]/g, "");
+  if (/knit|(?<![\w.-])(?:eval|sh|bash|zsh|dash|ksh|source|base64)(?![\w.-])/i.test(unquoted)) return false;
+  if (!/(?:^|[\s;&|(){}!<>])\.(?=$|[\s;&|()<>])/.test(unquoted)) return true;
+
+  const dotCommand = (text: string) =>
+    /(?:^|[;\r\n&|(){}!])[ \t]*\.(?=$|[\s;&|()<>])/.test(text) ||
+    // Shell 仅按空格、制表符和换行分词，赋值和文件名可以包含其他空白字符。
+    /(?:(?:^|[ \t\n])[^ \t\n=<>]*[=<>][^ \t\n]*|[<>][ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text) ||
+    /(?:^|[\s;&|(){}!])(?:(?:if|then|elif|else|while|until|do|time|coproc|builtin|command|exec|nohup|noglob|nocorrect)(?:[ \t]+-[^\s;&|(){}!]*)*|-|repeat[ \t]+[^ \t\n]+)[ \t]+\.(?=$|[\s;&|()<>])/.test(text);
+  if (dotCommand(unquoted)) return false;
+  // 带引号的赋值、重定向目标或标志即使含空白也只占一个词。
+  return command === unquoted || !dotCommand(command.replace(/'([^']*)'|"([^"]*)"/g,
+    (_, single: string | undefined, double: string) => (single ?? double).replace(/\s/g, "_")));
 }
 
 async function inspectHost(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
