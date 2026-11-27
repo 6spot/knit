@@ -382,17 +382,22 @@ test("独立窗格中的派发、续聊与补报", { concurrency: 6 }, async (su
     const dir = runProject(suite);
     const task = readyTask(dir);
     const rex = inRex(t, dir);
-    rex.script({ startDelay: 1500, writes: [{ path: "src/a.ts", content: "export const a = 1;\n" }] });
+    const startOn = join(rex.outside, "start");
+    rex.script({ startOn, writes: [{ path: "src/a.ts", content: "export const a = 1;\n" }] });
 
     const run = await start(rex, dir, task);
+    t.after(() => spawnSync("pkill", ["-9", "-f", run.id]));
+    const paneFile = join(dir, RUNS_DIR, run.id, "pane.json");
     await waitUntil(() => rex.panes().length === 1, "窗格开出来");
     const cancelled = await rex.knit("run", "cancel", task.id);
 
     assert.equal(cancelled.code, 0, cancelled.stderr);
     assert.equal(cancelled.stdout, `已取消 加问候语（${task.id}）的执行 ${run.id}\n改动文件: 0 个\n`);
-    assert.ok(!existsSync(join(dir, RUNS_DIR, run.id, "pane.json")));
+    assert.ok(!existsSync(paneFile));
     // 窗格里的 Pi 这时才起来：后台进程已经不在了，它不发消息就退出。
+    writeFileSync(startOn, "");
     await waitUntil(() => processesOf(run.id).length === 0, "窗格里的 Pi 退出");
+    assert.ok(existsSync(paneFile), "晚启动的窗格客户端已登记");
     assert.deepEqual(rex.piLog().filter((line) => line.message !== undefined), []);
     assert.ok(!existsSync(join(dir, "src/a.ts")));
     assert.ok(!existsSync(join(worktreeOf(dir, task), "src/a.ts")));
