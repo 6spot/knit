@@ -4,7 +4,7 @@ Knit 管一个项目的开发周期。它记录任务的需求、可验证的完
 
 ## 现在的情况
 
-2026-11 重写为小核心。主会话已接入 Pi、Antigravity CLI 和 WorkBuddy Desktop，工作流可派发 Pi 或 Antigravity CLI。项目尚未发布到 NPM（`private: true`），目前没有 LICENSE。[平台验证记录](https://github.com/6spot/knit/blob/main/docs/README.md#验证记录)
+2026-11 重写为小核心。主会话已接入 Pi、Antigravity CLI、WorkBuddy Desktop 和 Qoder 桌面端，工作流可派发 Pi 或 Antigravity CLI。项目尚未发布到 NPM（`private: true`），目前没有 LICENSE。[平台验证记录](https://github.com/6spot/knit/blob/main/docs/README.md#验证记录)
 
 ## 安装
 
@@ -39,10 +39,12 @@ npm install /path/to/knit-0.1.0.tgz
 
 ## 开始用
 
-1. 在项目里运行 `knit init` 生成核心文件。首次启用主会话桥接时，按客户端运行 `knit init --pi`、`knit init --agy` 或 `knit init --workbuddy`。选项可以组合。
+1. 在项目里运行 `knit init` 生成核心文件。首次启用主会话桥接时，按客户端运行 `knit init --pi`、`knit init --agy`、`knit init --workbuddy` 或 `knit init --qoder`。选项可以组合。
 2. 在 `.knit/workflow.yaml` 的环节用 `agent` 指定执行者。Pi 的 `model` 写成 `provider/模型`，`thinking` 可取 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。派发时分别取命令行覆盖、环节或执行器、流程顶层、主会话中首个有值的设置。Antigravity 使用自己的模型 ID，模型及思考等级取命令行覆盖或环节、执行器配置，缺省时由 `agy` 决定。
 3. 运行 `knit workflow validate` 校验流程文件，有问题时逐条给出行号。首次接入、换机器或升级客户端后，可运行 `knit workflow validate --env` 一次查看 Node、项目配置、Git 初始提交和流程所用执行者的派发条件。
-4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity 和 WorkBuddy 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。什么时候建任务、怎么确认需求和开始实施，按内置讨论规范处理。新建的任务是草稿，不改变当前选择。
+4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity、WorkBuddy 和 Qoder 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。什么时候建任务、怎么确认需求和开始实施，按内置讨论规范处理。新建的任务是草稿，不改变当前选择。
+
+在 Qoder 桌面端打开项目后，选择默认主 Agent（`agent:default`）。只有它会加载项目的 `.qoder/settings.json`。在聊天窗口用 Qoder 自身工具与原生子 Agent 完成实现和检查，通过 Bash 选择任务、预览交付并核对用户授权原话。钩子会拒绝 `knit run start`。需要外部执行者时，在普通终端、Pi 或 Antigravity 中运行该命令。[宿主协议与验证范围](docs/AGENT-INTEGRATION.md)
 
 讨论、任务编写、任务拆分和交付四份规范由当前 Knit 安装包提供，升级即可生效。`knit standards list` 列出 `knit:standards/` 标识的内置规范，以及 `.knit/standards/` 下的项目规范。旧版 `init` 生成的同名文件会保留并标为停用，可将其中的团队约定迁入另名的项目规范。
 

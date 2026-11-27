@@ -12,6 +12,7 @@ import { createTask, scanTasks } from "../dist/application/task-store.js";
 import { parseTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
+import { gitProject } from "./helpers/git.mjs";
 import { writeArchiveHistory } from "./helpers/run.mjs";
 
 const targets = CORE_TEMPLATES.map((item) => item.target);
@@ -124,6 +125,57 @@ test("WorkBuddy 可单独或组合安装，强制恢复仅处理启用的桥接"
   rmSync(launcher);
   initProject(dir, true);
   assert.equal(readFileSync(launcher, "utf8"), template("workbuddy/knit-hook.sh"));
+});
+
+test("Qoder 在 Git 项目中单独或组合安装，重复安装保留项目文件", (t) => {
+  for (const flags of [["--qoder"], ["--pi", "--agy", "--workbuddy", "--qoder"]]) {
+    const root = gitProject(t);
+    const installed = knit(root, "init", ...flags);
+    assert.equal(installed.code, 0, installed.stderr);
+    for (const name of ["qoder/settings.json", "qoder/knit-hook.sh"]) {
+      assert.equal(readFileSync(join(root, `.${name}`), "utf8"), template(name));
+      writeFileSync(join(root, `.${name}`), "project copy");
+    }
+    if (flags.length > 1) {
+      for (const path of [".pi/extensions/knit.ts", ".agents/plugins/knit/hooks.json", ".workbuddy/knit-hook.sh"]) assert.ok(existsSync(join(root, path)));
+    }
+    assert.equal(knit(root, "init", "--qoder").code, 0);
+    for (const name of ["settings.json", "knit-hook.sh"]) assert.equal(readFileSync(join(root, ".qoder", name), "utf8"), "project copy");
+    const restored = initProject(root, true);
+    for (const name of ["qoder/settings.json", "qoder/knit-hook.sh"]) {
+      assert.equal(readFileSync(join(root, restored.backupDir, `.${name}`), "utf8"), "project copy");
+      assert.equal(readFileSync(join(root, `.${name}`), "utf8"), template(name));
+    }
+  }
+});
+
+test("Qoder 的 force 只识别本宿主三个事件的启动命令，并备份自定义设置", (t) => {
+  const root = gitProject(t);
+  mkdirSync(join(root, ".qoder"));
+  const settings = join(root, ".qoder/settings.json");
+  const launcher = join(root, ".qoder/knit-hook.sh");
+  const group = (command) => [{ hooks: [{ type: "command", command }] }];
+  const own = JSON.stringify({ permissions: { deny: ["Read(./.qoder/knit-hook.sh)"] }, hooks: {
+    Stop: group("sh .qoder/knit-hook.sh"), SessionStart: group("sh .workbuddy/knit-hook.sh"),
+  } });
+  writeFileSync(settings, own);
+  assert.equal(knit(root, "init", "--force").code, 0);
+  assert.equal(readFileSync(settings, "utf8"), own);
+  assert.equal(existsSync(launcher), false);
+  const explicit = knit(root, "init", "--force", "--qoder");
+  assert.equal(explicit.code, 0, explicit.stderr);
+  const backup = /^备份: (.+)\/$/m.exec(explicit.stdout)[1];
+  assert.equal(readFileSync(join(root, backup, ".qoder/settings.json"), "utf8"), own);
+  assert.equal(readFileSync(settings, "utf8"), template("qoder/settings.json"));
+  for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse"]) {
+    rmSync(launcher);
+    const custom = JSON.stringify({ hooks: { [event]: group('sh "./.qoder/knit-hook.sh"') } });
+    writeFileSync(settings, custom);
+    const restored = initProject(root, true);
+    assert.equal(readFileSync(join(root, restored.backupDir, ".qoder/settings.json"), "utf8"), custom);
+    assert.equal(readFileSync(settings, "utf8"), template("qoder/settings.json"));
+    assert.equal(readFileSync(launcher, "utf8"), template("qoder/knit-hook.sh"));
+  }
 });
 
 test("已有的文件不动，缺的补上", (t) => {

@@ -21,10 +21,11 @@ export function registerInitCommand(program: Command): void {
     .description("生成项目流程、角色文件和配置；通用规范随安装包加载")
     .option("--pi", "安装 Pi 项目桥接")
     .option("--agy", "安装 Antigravity 项目插件")
+    .option("--qoder", "安装 Qoder 桌面端主会话钩子")
     .option("--workbuddy", "安装 WorkBuddy 桌面端主会话钩子")
     .option("--force", "备份并恢复流程、角色文件以及本次指定或已有的宿主桥接")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((options: { dir: string; force?: boolean; pi?: boolean; agy?: boolean; workbuddy?: boolean }) => {
+    .action((options: { dir: string; force?: boolean; pi?: boolean; agy?: boolean; workbuddy?: boolean; qoder?: boolean }) => {
       const root = projectRoot(options.dir);
       const result = initProject(root, options.force, options);
       const lines = [

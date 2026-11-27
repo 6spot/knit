@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { agyHostHook } from "../dist/adapters/antigravity/host-hook.js";
+import { qoderHostHook } from "../dist/adapters/qoder/host-hook.js";
 import { workbuddyHostHook } from "../dist/adapters/workbuddy/host-hook.js";
 import { deliverTask } from "../dist/application/delivery.js";
 import { canSkipHostCommand, inspectHostCommand } from "../dist/application/host-command.js";
@@ -426,18 +427,88 @@ test("桌面 user_query 内的多行原话可核对，附件来源和提醒只�
   }
 });
 
-test("已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版本的 CLI", async (t) => {
+test("Qoder 保留 Bash 工具参数，按会话选择任务并提示原生派发方式", async (t) => {
+  isolateEnvironment(t);
+  const cwd = project(t);
+  const plain = process.env.KNIT_HOME;
+  const { task } = initProject(cwd);
+  const payload = { session_id: "session's id", cwd, tool_name: "Bash" };
+  const preTool = (tool_input, tool_name = "Bash") => qoderHostHook("pre-tool-use", { ...payload, tool_name, tool_input });
+  process.env.QODER_PROJECT_DIR = plain;
+  process.env.CLAUDE_PROJECT_DIR = cwd;
+  assert.equal(await qoderHostHook("session-start", { ...payload, cwd: "" }), null);
+  delete process.env.QODER_PROJECT_DIR;
+  const first = (await qoderHostHook("session-start", { ...payload, cwd: "" })).hookSpecificOutput;
+  assert.equal(first.hookEventName, "SessionStart");
+  assert.deepEqual(standardPaths(first.additionalContext), discussionPaths);
+  assert.ok(first.additionalContext.includes(unselected));
+  assert.match(first.additionalContext, /Qoder 自身工具与原生子 Agent/);
+  assert.equal(await qoderHostHook("user-prompt-submit", payload), null);
+  const fields = { description: "选择草稿", timeout: 3000, run_in_background: false };
+  symlinkSync(cli, join(plain, "knit"));
+  for (const command of [`knit context --use ${task.id}`, "knit context --unuse", "knit task new --title 示例"]) {
+    const output = (await preTool({ command, ...fields })).hookSpecificOutput;
+    assert.deepEqual(output, { hookEventName: "PreToolUse", updatedInput: {
+      ...fields, command: `env KNIT_HOST=qoder KNIT_HOST_SESSION='session'\\''s id' ${command}`,
+    } });
+    if (command.startsWith("knit task new")) continue;
+    const ran = spawnSync("/bin/sh", ["-c", output.updatedInput.command], { cwd, env: { ...process.env, PATH: `${plain}:${process.env.PATH}` }, encoding: "utf8" });
+    assert.equal(ran.status, 0, ran.stderr);
+    const prompt = (await qoderHostHook("user-prompt-submit", payload)).hookSpecificOutput;
+    assert.equal(prompt.hookEventName, "UserPromptSubmit");
+    assert.deepEqual(standardPaths(prompt.additionalContext), []);
+    assert.ok(prompt.additionalContext.includes(command.includes("--use") ? task.id : unselected));
+  }
+  const denied = (await preTool({ command: "true && knit run start k-test" })).hookSpecificOutput;
+  assert.equal(denied.hookEventName, "PreToolUse");
+  assert.equal(denied.permissionDecision, "deny");
+  assert.match(denied.permissionDecisionReason, /Qoder 自身工具与原生子 Agent 完成实现和检查.*普通终端、Pi 或 Antigravity/);
+  assert.equal(await preTool({ command: "knit run start id" }, "Other"), null);
+  assert.equal(await preTool({ command: 1 }), null);
+});
+
+test("Qoder JSONL 授权只采用真实输入的整条或完整一行，排除宿主元数据与残缺标签", async (t) => {
+  const cwd = project(t);
+  const user = (content) => ({ type: "user", origin: { kind: "human" }, humanInput: { mode: "prompt" }, isMeta: false,
+    message: { role: "user", content } });
+  const text = (body) => ({ type: "text", text: body });
+  const meta = [{ isMeta: true }, { isCompactSummary: true }, { isVisibleInTranscriptOnly: true }, { toolUseResult: null },
+    { origin: { kind: "agent" } }, { humanInput: { mode: "tool" } }, { type: "assistant" }];
+  const body = "审查结束\n同意交付这个任务";
+  const rows = [user(body), user([text("允许归档"), text('<system-reminder from="hook">\n系统提醒\n</system-reminder>'),
+    text("<hook_context>\n钩子提示\n<loaded_context>\n加载内容\n</loaded_context>\n嵌套结尾\n</hook_context>")]),
+    { type: "user", message: { content: "省略可选字段" } }, { ...user(""), message: { role: "assistant", content: "助手" } },
+    user([text("工具伴随文本"), { type: "tool_result", content: "工具结果" }]),
+    user("<loaded_context>\n残缺提醒"), user("<hook_context\n残缺开始"), user("孤立结束\n</system-reminder>"),
+    user("<hook_context><hook_context>内层</hook_context>\n外层未闭合"),
+    ...meta.map((flags, index) => ({ ...user(`合成${index}`), ...flags }))];
+  const payload = { cwd, session_id: session, transcript_path: `${session}.jsonl`, tool_name: "Bash" };
+  const invoke = (command) => qoderHostHook("pre-tool-use", { ...payload, tool_input: { command } });
+  const check = (quote) => invoke(`knit deliver id --authorization '${quote}'`);
+  assert.equal(await invoke("knit deliver id --preview"), null);
+  assert.equal((await check(body)).hookSpecificOutput.permissionDecision, "deny");
+  writeFileSync(join(cwd, payload.transcript_path), rows.map((row) => JSON.stringify(row)).join("\n"));
+  for (const quote of [body, "同意交付这个任务", "允许归档", "省略可选字段"]) assert.equal(await check(quote), null, quote);
+  for (const quote of ["伪造", "同意交付", "助手", "系统提醒", "钩子提示", "加载内容", "嵌套结尾", "工具伴随文本", "工具结果",
+    "残缺提醒", "残缺开始", "孤立结束", "外层未闭合", ...meta.map((_, index) => `合成${index}`)]) {
+    const output = (await check(quote)).hookSpecificOutput;
+    assert.equal(output.permissionDecision, "deny", quote);
+    assert.match(output.permissionDecisionReason, /--authorization/);
+  }
+});
+
+for (const [host, projectDir] of [["workbuddy", "CODEBUDDY_PROJECT_DIR"], ["qoder", "QODER_PROJECT_DIR"]]) test(`${host} 已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版本的 CLI`, (t) => {
   const root = project(t);
-  initProject(root, false, { workbuddy: true });
+  initProject(root, false, { [host]: true });
   const home = process.env.KNIT_HOME;
   const shims = join(home, ".local/share/mise/shims");
   mkdirSync(shims, { recursive: true });
   symlinkSync(cli, join(shims, "knit"));
   writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_NODE_CALLS"\nexec "$KNIT_TEST_NODE" "$@"\n', { mode: 0o755 });
   const nodeCalls = join(home, "node-calls");
-  const hooks = JSON.parse(readFileSync(join(root, ".workbuddy/settings.json"))).hooks;
+  const hooks = JSON.parse(readFileSync(join(root, `.${host}/settings.json`))).hooks;
   assert.equal(hooks.PreToolUse[0].matcher, "^Bash$");
-  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEBUDDY_PROJECT_DIR: root,
+  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", [projectDir]: root,
     KNIT_TEST_NODE_CALLS: nodeCalls, KNIT_TEST_NODE: process.execPath };
   const invoke = (event, fields) => spawnSync("/bin/sh", ["-c", hooks[event][0].hooks[0].command], { cwd: home, env,
     input: JSON.stringify({ hook_event_name: event, session_id: buddySession, ...fields }), encoding: "utf8" });
@@ -453,9 +524,9 @@ test("已安装的项目钩子在 GUI 极简 PATH 下加载工作区与当前版
   assert.equal(readFileSync(nodeCalls, "utf8"), `-v\n${join(shims, "knit")}\n`.repeat(3));
 });
 
-test("WorkBuddy 的 Node 22 和缺少 knit 两种情况都由登录 shell 启动钩子", (t) => {
+test("桌面钩子遇到 Node 22 或缺少 knit 时由登录 shell 启动", (t) => {
   const root = project(t);
-  initProject(root, false, { workbuddy: true });
+  initProject(root, false, { workbuddy: true, qoder: true });
   const home = process.env.KNIT_HOME;
   const shims = join(home, ".local/share/mise/shims");
   const loginBin = join(home, "login-bin");
@@ -477,6 +548,11 @@ test("WorkBuddy 的 Node 22 和缺少 knit 两种情况都由登录 shell 启动
     { name: "Node 22", args: [hook, "pre-tool-use"], calls: "-v\nlogin\n" },
     { name: "缺少 knit", args: ["-c", 'command() { return 1; }; . "$0"', hook, "pre-tool-use"], calls: "login\n" },
   ];
+  const qoder = spawnSync("/bin/sh", [join(root, ".qoder/knit-hook.sh"), "session-start"], { cwd: root, env, encoding: "utf8",
+    input: JSON.stringify({ hook_event_name: "SessionStart", session_id: session, cwd: root }) });
+  assert.equal(qoder.status, 0, qoder.stderr);
+  assert.equal(JSON.parse(qoder.stdout).hookSpecificOutput.hookEventName, "SessionStart");
+  assert.equal(readFileSync(calls, "utf8"), "-v\nlogin\n");
   for (const scenario of scenarios) {
     writeFileSync(calls, "");
     const result = spawnSync("/bin/sh", scenario.args, { cwd: root, env, input, encoding: "utf8" });

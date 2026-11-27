@@ -10,7 +10,7 @@ Knit 管一个项目的开发周期，只做五件事：
 2. **规范**：保存项目的开发规范，按环节交给智能体。
 3. **交接**：派执行者做某个环节时，只给它这个环节需要的内容。
 4. **交付**：用户授权后，把任务归档；项目在 Git 仓库里时，再把这个任务的改动提交成一次提交。Git 不是必须的。
-5. 在 Pi、Antigravity 和 WorkBuddy 的**主会话**中提供项目上下文和 Knit 命令入口。
+5. 在 Pi、Antigravity、WorkBuddy 和 Qoder 的**主会话**中提供项目上下文和 Knit 命令入口。
 
 四条原则：
 
@@ -25,6 +25,7 @@ Knit 管一个项目的开发周期，只做五件事：
 项目根/
   AGENTS.md                 项目自己的文件，Knit 不写入
   .pi/extensions/knit.ts    knit init --pi 生成的 Pi 桥接
+  .qoder/                   knit init --qoder 生成的桌面主会话桥接
   .workbuddy/               knit init --workbuddy 生成的桌面主会话桥接
     settings.json           项目级钩子声明
     knit-hook.sh            为钩子准备 PATH 并启动安装版 knit
@@ -214,8 +215,10 @@ createdAt: 2026-11-14T13:36:56Z
 - 内置规范从安装包读取。角色文件、项目规范和避坑分区从主检出读取。系统提示先给角色，再给内置和项目规范，各来源内按路径排序。
 - Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
-- 两个钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和 WorkBuddy 指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
+- Qoder 仅在默认主 Agent（`agent:default`）加载项目级 `.qoder/settings.json`。`SessionStart` 和 `UserPromptSubmit` 返回对应的 `hookEventName` 和 `additionalContext`。优先取事件的 `cwd`，缺省时依次取 `QODER_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和进程工作目录。
+- 钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和宿主指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
 - WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use`、`--unuse` 与 `knit task new` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。`knit run start` 直接返回 `permissionDecision: deny` 并提示改用 WorkBuddy 原生工具与子 Agent（或在外部终端/Pi/Antigravity 中派发）。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
+- Qoder 的 `PreToolUse` 只订阅 `Bash`。选择、取消选择和建草稿的命令带上 `KNIT_HOST=qoder` 与 `KNIT_HOST_SESSION`。Qoder 用 `updatedInput` 整对象替换 `tool_input`，因此返回改写后的 `command` 及其余全部原始字段。预览直接放行。实际交付从 `transcript_path` 的 JSONL 中读取用户文本，排除摘要、元消息、工具结果与非用户来源，剥离 `<system-reminder>`、`<hook_context>` 和 `<loaded_context>`。标签残缺的消息不参与核对。授权原话须匹配整条或完整一行，匹配失败返回 `permissionDecision: deny`，放行时 stdout 为空。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
 放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
@@ -500,7 +503,7 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 命令行：
 
 ```
-knit init [--pi] [--agy] [--workbuddy] [--force]
+knit init [--pi] [--agy] [--workbuddy] [--qoder] [--force]
 knit task new | ready | close | cancel | list | show
 knit task list [--archive]                查看活跃任务；--archive 平铺列出已归档任务
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
@@ -510,6 +513,7 @@ knit context [任务]                      讨论规范；指定任务时追加�
 knit context --use <任务> | --unuse       选中或清除当前宿主会话的任务
 knit hook agy <事件>                     Antigravity 插件钩子的入口
 knit hook workbuddy <事件>               WorkBuddy 项目钩子的隐藏入口
+knit hook qoder <事件>                   Qoder 项目钩子的隐藏入口
 knit deliver <任务> --authorization <引用> [--message-file <文件>]
 knit deliver <任务> --preview [--message-file <文件>]
 knit standards list
@@ -521,17 +525,19 @@ knit workflow validate [--env]
 
 `knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
 
-`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy` 可以任意组合。
+`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。
 
 `knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档或缺失时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
 
 执行期间，任务行显示 `正在启动`、`运行中 3m`（不足一分钟为 `运行中 <1m`）或 `进程已退出`。并行批次需要主会话裁决时显示 `待裁决`。流程文件缺失或无效时仍可查看层级、依赖和进程状态。在 Git 仓库中，列表末尾列出不属于活跃任务且尚未合并进 `HEAD` 的本地 `knit/*` 分支及合并命令。
 
-`knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity 和 WorkBuddy 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，只报告错误，必要时附未发送的普通讨论规范；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
+`knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，只报告错误，必要时附未发送的普通讨论规范；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
-WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
+WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。WorkBuddy 与 Qoder 的钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
 
 WorkBuddy 作为桌面 GUI 主会话宿主，全程降级使用自身工具与原生子 Agent 完成实现和检查，仅通过 Bash 调用 `knit task`、`knit context --use <任务>`、`knit task close` 与 `knit deliver` 管理任务与交付。WorkBuddy 桌面沙箱会拦截后台派发的外部 CLI 执行者（实测 `pi` 报 `Brokered program policy check unavailable`），因此 `PreToolUse` 钩子直接拒绝 `knit run start` 并提示改用 WorkBuddy 原生工具与子 Agent，或在普通终端、Pi、Antigravity 中派发外部执行者。
+
+Qoder 桌面主会话使用自身工具与原生子 Agent 完成实现和检查，通过 Bash 调用 Knit 管理任务与交付。`PreToolUse` 拒绝 `knit run start`，需要外部执行者时提示用户在普通终端、Pi 或 Antigravity 中派发。
 
 Antigravity 主会话通过 `run_command` 调用 Knit CLI。`knit run start <任务>` 成功后，主会话立即用后台 `run_command` 运行 `knit run wait <任务>`，由后台命令完成通知唤醒会话并读取整批结果。
 
@@ -549,7 +555,7 @@ Pi 桥接有 3 个工具：
 - 执行结束的通知：`knit_run` 派发成功之后，桥接运行 `knit run wait <任务>`，将返回的状态作为一条 `knit.run-ended` 消息发给发起派发的会话，使用 `deliverAs: "followUp"` 和 `triggerTurn: true`。空闲时触发新一轮，正在执行时由 Pi 排到当前执行结束后投递。并行审查只为整次派发启动一次等待，全部成员入账后，消息列出每位执行器的报告路径和结论或失败原因。若剩余 worker 都已意外退出，`wait` 返回异常状态和 `run cancel` 提示，主会话据此结算。主会话通过工具主动取消时，取消结果随工具返回，桥接停止这次等待，不再另发结束通知。会话重新加载或重开之后不接着等，下一轮的注入里能看到结果。
 - `task.md` 正文、`plan.md`、`design.md`、项目规范和 `workflow.yaml` 都是普通文本，主会话用普通的读写工具直接改；格式在 `task ready`、`standards list` 和 `workflow validate` 时校验。
 - 用户可以全程在会话里讨论。什么时候问用户要不要建任务、建了之后怎么确认和开始实施，只写在内置讨论规范里；工具说明和注入的结尾提示不重复这些规则。`knit_task` 的说明只写每个动作做什么、要什么参数、返回什么：`new` 建一份草稿，返回标题、编号、`task.md` 路径、`draft` 状态及当前会话是否选中，不改变当前任务选择，失败时返回原因。主会话随后用普通读写工具把已讨论清楚的需求写入 `task.md`。Knit 不解析用户消息来自动建任务。
-- 每次成功调用 `task new` 都创建一份独立的草稿，包括同一轮中分别创建的多份草稿。Pi、Antigravity 和 WorkBuddy 的建草稿入口向 CLI 传入宿主与会话标识，CLI 逐份返回标题、编号、`task.md` 链接、`draft` 状态及选择情况。
+- 每次成功调用 `task new` 都创建一份独立的草稿，包括同一轮中分别创建的多份草稿。Pi、Antigravity、WorkBuddy 和 Qoder 的建草稿入口向 CLI 传入宿主与会话标识，CLI 逐份返回标题、编号、`task.md` 链接、`draft` 状态及选择情况。
 - 通过 Pi 的 `knit_run` 工具派发时，`start` 动作传递宿主与模型环境。通过 `knit_deliver` 或 `bash` 执行实际交付时，桥接在当前会话分支中核对用户原话。预览可直接执行。
 - 每轮注入：没有选中任务时读取 `knit context` 的全部讨论规范，结尾只提示没有选中任务和怎么查看、选中；选中任务时读取 `knit context <任务>`，先给讨论规范，再给任务标题、状态、下一步、目录和第 5 节说的补充规范。选中的任务读不出来时显示错误，仍通过不带任务的 `knit context` 提供讨论规范，不改变选择；讨论规范读取失败时也显示原因，不使用旧缓存。当前任务的选择写在 Pi 会话记录里。
 
@@ -557,11 +563,11 @@ Pi 桥接有 3 个工具：
 
 1. 管理本仓库的是安装版（`npm run pack:install` 装到全局），桥接调用安装版。工作区的 `dist` 可以随意重建。
 2. 升级安装版是显式的一步，在一个任务交付之后做。
-3. 核心文件和宿主桥接的模板在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用宿主时加上 `--pi`、`--agy` 或 `--workbuddy`。四份内置规范在 `assets/standards/`，安装版升级后，下次读取规范就使用新版本。
+3. 核心文件和宿主桥接的模板在 `assets/templates/`。执行者修改模板。升级安装版后，在主检出运行 `knit init --force` 更新副本，首次启用宿主时加上 `--pi`、`--agy`、`--workbuddy` 或 `--qoder`。四份内置规范在 `assets/standards/`，安装版升级后，下次读取规范就使用新版本。
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。测试夹具优先通过应用层入口和只读模板仓库复制构造，减少重复启动 CLI 与 `git init` 子进程。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
 6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、项目规范和任务保留原样。旧版内置规范副本按第 4 节提示迁移。
-7. WorkBuddy 以 `.workbuddy/knit-hook.sh` 或三个项目钩子中任一命令对该脚本的引用识别已启用的桥接。项目已有自定义 `.workbuddy/settings.json` 时，普通安装保留该文件，可从模板合入三个钩子。`--force --workbuddy` 备份后恢复整份模板。Antigravity 执行者可以读取项目的 `.workbuddy/`，该目录受写保护。
+7. WorkBuddy 和 Qoder 各自在 `.workbuddy/` 和 `.qoder/` 下安装桥接。目录中的 `knit-hook.sh` 存在，或 `settings.json` 的三个项目钩子之一包含引用本宿主脚本的命令时，`--force` 才自动识别该宿主。普通安装保留已有的自定义设置，可从模板手工合入三个钩子。显式指定 `--force --workbuddy` 或 `--force --qoder` 会备份有差异的文件并恢复对应模板。Antigravity 执行者可以读取这两个目录中的文件，两个目录都受写保护。
 
 ## 11. 不做与延后
 

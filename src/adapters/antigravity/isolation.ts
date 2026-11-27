@@ -30,7 +30,7 @@ const HOME_EXTERNAL = [
 const startupSource = (path: string) => !TEXT_SOURCES.has(basename(path));
 const WORKSPACE_STARTUP = WORKSPACE_EXTERNAL.filter(startupSource);
 const HOME_STARTUP = HOME_EXTERNAL.filter(startupSource);
-export const WORKSPACE_CONTROL = [".git", ".knit", ".pi", ".workbuddy", ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json"];
+export const WORKSPACE_CONTROL = [".git", ".knit", ".pi", ".workbuddy", ".qoder", ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json"];
 
 export function agyExecutable(): string | null {
   return findExecutable(process.env.KNIT_AGY_BIN ?? "agy");

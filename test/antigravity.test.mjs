@@ -865,17 +865,17 @@ async function independentRuns(suite) {
     assert.equal(lastRun(f.root, f.task), undefined);
   });
 
-  check("WorkBuddy 主会话桥接可与 AGY 执行者共存，项目钩子只读", isolated, async (t) => {
+  check("WorkBuddy 与 Qoder 主会话桥接可与 AGY 执行者共存，项目钩子只读", isolated, async (t) => {
     const f = fixture(t, { tools: "all" });
-    initProject(f.root, false, { workbuddy: true });
-    commitAll(f.root, "WorkBuddy bridge fixture");
-    const paths = [".workbuddy/settings.json", ".workbuddy/knit-hook.sh"];
+    initProject(f.root, false, { workbuddy: true, qoder: true });
+    commitAll(f.root, "desktop bridge fixture");
+    const paths = [".workbuddy/settings.json", ".workbuddy/knit-hook.sh", ".qoder/settings.json", ".qoder/knit-hook.sh"];
     await f.start({ configReads: paths, configWrites: paths });
     const run = await f.ended();
     assert.equal(run.verdict, "pass", run.failure);
     const [init] = readRows(f.transcripts()[0]);
-    assert.deepEqual(init.configReads, ["allowed", "allowed"]);
-    assert.deepEqual(init.configWrites, ["EPERM", "EPERM"]);
+    assert.deepEqual(init.configReads, paths.map(() => "allowed"));
+    assert.deepEqual(init.configWrites, paths.map(() => "EPERM"));
   });
 
   check("组合缺少隔离能力，派发前无 Worktree 或执行记录", isolated, async (t) => {

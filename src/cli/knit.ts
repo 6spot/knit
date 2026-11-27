@@ -56,4 +56,9 @@ hook.command("workbuddy <event>", { hidden: true }).action(async (event: string)
   const result = await workbuddyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
   if (result !== null) process.stdout.write(`${JSON.stringify(result)}\n`);
 });
+hook.command("qoder <event>", { hidden: true }).action(async (event: string) => {
+  const { qoderHostHook } = await import("../adapters/qoder/host-hook.js");
+  const result = await qoderHostHook(event, JSON.parse(readFileSync(0, "utf8")));
+  if (result !== null) process.stdout.write(`${JSON.stringify(result)}\n`);
+});
 await program.parseAsync();
