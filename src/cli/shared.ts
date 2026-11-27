@@ -1,4 +1,4 @@
-import { locateProject } from "../application/host-hook.js";
+import { locateProject } from "../application/project-root.js";
 import { readTask, type LoadedTask } from "../application/task-store.js";
 import { readWorkflow } from "../application/project-config.js";
 import type { WorktreeCleanup, WorktreeIntegration } from "../application/worktree.js";
@@ -50,8 +50,8 @@ export function shownStatus(document: TaskDocument, record: TaskRecord): { text:
 }
 
 /** 读取并校验项目的流程文件；文件不存在或有问题时把原因写到标准错误，返回 null。 */
-export function loadWorkflow(dir: string): WorkflowDefinition | null {
-  const loaded = readWorkflow(projectRoot(dir));
+export function loadWorkflow(root: string): WorkflowDefinition | null {
+  const loaded = readWorkflow(root);
   if (loaded.workflow === null) fail(loaded.problems);
   return loaded.workflow;
 }

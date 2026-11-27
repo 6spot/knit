@@ -1,8 +1,5 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
-import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { withFileLock } from "../infrastructure/process.js";
 import { buildSessionContext, contextBlocks, type DispatchMode } from "./session-context.js";
@@ -20,28 +17,6 @@ interface SessionState {
   taskId: string | null;
   // 旧会话的整段摘要不能拆分；没有分块摘要时按首次注入处理。
   digests?: Partial<Record<BlockName, string>>;
-}
-
-export function locateProject(dir: string) {
-  if (!existsSync(dir)) return { root: resolve(dir), initialized: false };
-  const start = realpathSync(dir);
-  for (let path = start; ; path = dirname(path)) {
-    const knitDir = join(path, ".knit");
-    if (statSync(knitDir, { throwIfNoEntry: false })?.isDirectory()) {
-      const store = resolve(path, process.env.KNIT_HOME || join(homedir(), ".knit"));
-      if (existsSync(join(knitDir, "worktrees")) && !existsSync(join(path, WORKFLOW_CONFIG_PATH)) &&
-          (path === homedir() || (existsSync(store) && realpathSync(store) === knitDir))) break;
-      return { root: path, initialized: true };
-    }
-    if (existsSync(join(path, ".git"))) return { root: path, initialized: false };
-    if (dirname(path) === path) break;
-  }
-  return { root: start, initialized: false };
-}
-
-export function hostProjectRoot(dir: string): string | null {
-  const project = locateProject(dir);
-  return project.initialized ? project.root : null;
 }
 
 function withSession<T>(root: string, session: HostSession, action: (path: string) => T): T {
@@ -79,9 +54,7 @@ export function selectHostTask(root: string, session: HostSession, taskId: strin
   return { kind: "selected", title: loaded?.task.document.frontmatter.title ?? null };
 }
 
-export function hostContext(dirs: readonly string[], session: HostSession, guidance?: string, dispatchMode?: DispatchMode): string | null {
-  const root = dirs.map(hostProjectRoot).find((path) => path !== null);
-  if (root === undefined) return null;
+export function hostContext(root: string, session: HostSession, guidance?: string, dispatchMode?: DispatchMode): string | null {
   return withSession(root, session, (path) => {
     const state = readState(path);
     const blocks = sessionBlocks(root, state.taskId, guidance, dispatchMode);

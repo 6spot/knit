@@ -551,7 +551,7 @@ CLI 和宿主钩子从当前目录往上查找最近的项目 `.knit/`，到 Git
 
 `knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，报告错误并附上尚未发送或有变化的讨论规范、避坑分区和宿主指引；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
-WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。WorkBuddy 与 Qoder 的钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
+WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。WorkBuddy 与 Qoder 的钩子脚本优先使用宿主已有的 `PATH`，再补入用户级工具、版本管理器和 Homebrew 目录。CLI 启动时检查 Node 版本；低于 24 时在读取钩子输入前交回启动脚本。找不到 `knit`、`node` 或版本过低时，脚本通过登录 shell 重试。`sh`、`bash`、`zsh`、`ksh` 可直接使用，其他 shell 或未设置 `SHELL` 时使用 `/bin/sh`。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
 
 WorkBuddy 作为桌面 GUI 主会话宿主，全程降级使用自身工具与原生子 Agent 完成实现和检查，仅通过 Bash 调用 `knit task`、`knit context --use <任务>`、`knit task close` 与 `knit deliver` 管理任务与交付。WorkBuddy 桌面沙箱会拦截后台派发的外部 CLI 执行者（实测 `pi` 报 `Brokered program policy check unavailable`），因此 `PreToolUse` 钩子直接拒绝 `knit run start` 并提示改用 WorkBuddy 原生工具与子 Agent，或在普通终端、Pi、Antigravity 中派发外部执行者。
 

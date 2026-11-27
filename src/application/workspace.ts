@@ -4,7 +4,7 @@
  * 审查通过时拍的那一份留在执行目录里（after.json），交付预览拿它看哪些文件之后又改过。
  */
 import { createHash } from "node:crypto";
-import { lstatSync } from "node:fs";
+import { lstatSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
@@ -91,7 +91,10 @@ export function takeSnapshot(root: string, protectedPaths: readonly string[] = [
   const candidates = new Map<string, string>();
   const observed = (path: string, tracked: boolean) => {
     const value = fingerprint(root, path);
-    if (tracked && !raw(path) && head !== null) candidates.set(path, value);
+    if (tracked && !raw(path) && head !== null) {
+      if (value.startsWith("file ")) candidates.set(path, gitFileMode(Number.parseInt(value.split(" ")[1]!, 8)));
+      if (value.startsWith("link ")) return `${value}\0${gitLinkFingerprint(value.slice(5, -2), head.length)}`;
+    }
     return value;
   };
   for (const entry of listed.stdout.split("\0").filter(Boolean)) {
@@ -114,35 +117,51 @@ export function takeSnapshot(root: string, protectedPaths: readonly string[] = [
     if (state === "??" && value === ABSENT_FINGERPRINT) continue;
     files[path] = value;
   }
-  if (head !== null) {
-    for (const [path, git] of gitFingerprints(root, [...candidates], head.length)) {
-      files[path] = `${files[path]}\0${git}`;
-    }
+  const git = gitFingerprints(root, [...candidates]);
+  for (const path of candidates.keys()) {
+    const value = git.get(path);
+    files[path] = value === undefined ? fingerprint(root, path) : `${files[path]}\0${value}`;
   }
   return { head, files: { ...files } };
 }
 
-/** 普通文件跨干净/脏状态比较时，使用 Git 的内容身份；两边都是脏文件时仍比较原始字节。 */
-function gitFingerprints(root: string, entries: readonly [string, string][], oidLength: number): Map<string, string> {
-  const links = entries.filter(([, raw]) => raw.startsWith("link ")).map(([path, raw]) => {
-    const target = Buffer.from(raw.slice(5, -2));
-    const oid = createHash(oidLength === 64 ? "sha256" : "sha1").update(`blob ${target.length}\0`).update(target).digest("hex");
-    return [path, `git 120000 ${oid}`] as const;
-  });
-  const regular = entries.filter(([, raw]) => raw.startsWith("file "));
-  // Git 随路径应用 clean 规则。分批传 argv，避免每个脏文件单独启动一个 Git 进程。
-  const batchSize = 32;
-  const files = Array.from({ length: Math.ceil(regular.length / batchSize) }, (_, index) => {
-    const batch = regular.slice(index * batchSize, (index + 1) * batchSize);
+function candidateStats(path: string) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false });
+  } catch {
+    // 与 fileFacts 一致，父目录变成普通文件或路径无法访问时也无法匹配。
+    return undefined;
+  }
+}
+
+function gitFileMode(mode: number) {
+  return (mode & 0o100) !== 0 ? "100755" : "100644";
+}
+
+function gitLinkFingerprint(link: string, oidLength: number) {
+  const target = Buffer.from(link);
+  const oid = createHash(oidLength === 64 ? "sha256" : "sha1").update(`blob ${target.length}\0`).update(target).digest("hex");
+  return `git 120000 ${oid}`;
+}
+
+/** Git 随路径应用 clean 规则。分批传 argv，避免每个文件单独启动一个 Git 进程。 */
+function gitFingerprints(root: string, entries: readonly [string, string][]): Map<string, string> {
+  const batchSize = 256;
+  const files = new Map<string, string>();
+  function hashBatch(batch: readonly [string, string][]) {
     const hashed = gitSync(["hash-object", "--", ...batch.map(([path]) => path)], root);
-    if (hashed.code !== 0) throw new Error(`git hash-object 失败：${hashed.stderr.trim()}`);
+    if (hashed.code !== 0) {
+      // Git 遇到已删除的路径会中断整个批次。只重算仍存在的文件，其余错误照常报告。
+      const remaining = batch.filter(([path]) => candidateStats(join(root, path))?.isFile());
+      if (remaining.length === batch.length) throw new Error(`git hash-object 失败：${hashed.stderr.trim()}`);
+      if (remaining.length) hashBatch(remaining);
+      return;
+    }
     const oids = hashed.stdout.trim().split("\n");
-    return batch.map(([path, raw], i) => {
-      const mode = (Number.parseInt(raw.split(" ")[1]!, 8) & 0o100) !== 0 ? "100755" : "100644";
-      return [path, `git ${mode} ${oids[i]}`] as const;
-    });
-  }).flat();
-  return new Map([...links, ...files]);
+    batch.forEach(([path, mode], index) => files.set(path, `git ${mode} ${oids[index]}`));
+  }
+  for (let start = 0; start < entries.length; start += batchSize) hashBatch(entries.slice(start, start + batchSize));
+  return files;
 }
 
 function sameFingerprint(before: string | undefined, after: string | undefined): boolean {
@@ -162,20 +181,24 @@ export function matchingFingerprints(root: string, paths: readonly string[], exp
   for (const path of paths) {
     const value = expected[path];
     if (typeof value !== "string") continue;
-    const raw = fingerprint(root, path, value.startsWith("submodule "));
-    if (value.startsWith("git ")) {
-      candidates.push([path, raw]);
+    if (!value.startsWith("git ")) {
+      if (sameFingerprint(value, fingerprint(root, path, value.startsWith("submodule ")))) matching.add(path);
       continue;
     }
-    if (sameFingerprint(value, raw)) matching.add(path);
-  }
-  const first = candidates[0];
-  if (first !== undefined) {
-    // 一份审查快照里的 Git 对象都来自同一仓库。
-    const oidLength = expected[first[0]]!.split(" ")[2]!.length;
-    for (const [path, git] of gitFingerprints(root, candidates, oidLength)) {
-      if (git === expected[path]) matching.add(path);
+    const full = join(root, path);
+    const stats = candidateStats(full);
+    const [, mode, oid] = value.split(" ");
+    if (stats?.isFile() && gitFileMode(stats.mode) === mode) candidates.push([path, mode]);
+    if (stats?.isSymbolicLink() && mode === "120000" && oid) {
+      try {
+        if (gitLinkFingerprint(readlinkSync(full), oid.length) === value) matching.add(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
+  }
+  for (const [path, git] of gitFingerprints(root, candidates)) {
+    if (git === expected[path]) matching.add(path);
   }
   return matching;
 }

@@ -280,6 +280,48 @@ test("批量核对 Git、混合、旧字节、链接及新增删除指纹", (t) 
   paths.forEach((path) => assert.equal(matchesFingerprint(dir, path, expected[path]), matching.has(path)));
 });
 
+test("匹配时 Git 文件只让 Git 读内容，批内删除仍校验其余文件", (t) => {
+  const dir = gitProject(t);
+  const paths = ["keep", "deleted", "edited", "mode", "type", "parent/file", "mixed.txt", "raw.txt"];
+  paths.forEach((path) => write(dir, path, "base\n"));
+  write(dir, ".gitattributes", "*.txt text\n");
+  commitAll(dir, "review");
+  write(dir, "mixed.txt", "reviewed\n");
+  const expected = takeSnapshot(dir).files;
+  expected["raw.txt"] = fingerprint(dir, "raw.txt");
+  assert.match(expected["mixed.txt"], /\0git /);
+  write(dir, "mixed.txt", "reviewed\r\n");
+  write(dir, "raw.txt", "base\r\n");
+  write(dir, "edited", "edit\n");
+  chmodSync(join(dir, "mode"), 0o755);
+  rmSync(join(dir, "type"));
+  symlinkSync("keep", join(dir, "type"));
+  rmSync(join(dir, "parent"), { recursive: true });
+  write(dir, "parent", "file");
+
+  const stat = fs.lstatSync;
+  const read = fs.readFileSync;
+  const reads = [];
+  const statHandle = t.mock.method(fs, "lstatSync", (path, ...args) => {
+    const stats = stat(path, ...args);
+    if (stats && path === join(dir, "deleted")) rmSync(path);
+    return stats;
+  });
+  const readHandle = t.mock.method(fs, "readFileSync", (path, ...args) => {
+    reads.push(path);
+    return read(path, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(matchingFingerprints(dir, paths, expected), new Set(["keep"]));
+    assert.deepEqual(reads, [join(dir, "mixed.txt"), join(dir, "raw.txt")]);
+  } finally {
+    statHandle.mock.restore();
+    readHandle.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
 test("旧快照仍可按原始字节结算", (t) => {
   const dir = gitProject(t);
   write(dir, "a.txt", "one\n");

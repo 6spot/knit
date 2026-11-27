@@ -92,6 +92,10 @@ test("直接 hook 子进程按命令加载模块，保留各宿主的放行和�
 
 test("hook 的帮助、未知事件及无效参数沿用既有输出与退出码", () => {
   const help = "Usage: knit hook [options] [command]\n\nOptions:\n  -h, --help      display help for command\n\nCommands:\n  agy <event>\n  help [command]  display help for command\n";
+  for (const [host, event, input] of [["agy", "PreInvocation", ""], ["pi", "tool-call", "{"]]) {
+    const result = spawnSync(process.execPath, [cli, "hook", host, event], { input, encoding: "utf8" });
+    assert.deepEqual([result.status, result.stdout, result.stderr], [1, "", "knit hook 需要从标准输入读取有效的 JSON\n"]);
+  }
   const agyHelp = "Usage: knit hook agy [options] <event>\n\nOptions:\n  -h, --help  display help for command\n";
   for (const [args, status, stdout, stderr] of [
     [["--help"], 0, help, ""], [["agy", "--help"], 0, agyHelp, ""],
@@ -750,11 +754,15 @@ for (const [host, projectDir] of [["workbuddy", "CODEBUDDY_PROJECT_DIR"], ["qode
   const shims = join(home, ".local/share/mise/shims");
   mkdirSync(shims, { recursive: true });
   symlinkSync(cli, join(shims, "knit"));
-  writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_NODE_CALLS"\nexec "$KNIT_TEST_NODE" "$@"\n', { mode: 0o755 });
+  const userBin = join(home, "user-bin");
+  mkdirSync(userBin);
+  writeFileSync(join(userBin, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_NODE_CALLS"\nexec "$KNIT_TEST_NODE" "$@"\n', { mode: 0o755 });
   const nodeCalls = join(home, "node-calls");
   const hooks = JSON.parse(readFileSync(join(root, `.${host}/settings.json`))).hooks;
   assert.equal(hooks.PreToolUse[0].matcher, "^Bash$");
-  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", [projectDir]: root,
+  // 用户 PATH 优先于同样带 node 的版本管理器目录。
+  writeFileSync(join(shims, "node"), '#!/bin/sh\nexit 98\n', { mode: 0o755 });
+  const env = { HOME: home, PATH: `${userBin}:/usr/bin:/bin:/usr/sbin:/sbin`, [projectDir]: root,
     KNIT_TEST_NODE_CALLS: nodeCalls, KNIT_TEST_NODE: process.execPath };
   const invoke = (event, fields) => spawnSync("/bin/sh", ["-c", hooks[event][0].hooks[0].command], { cwd: home, env,
     input: JSON.stringify({ hook_event_name: event, session_id: buddySession, ...fields }), encoding: "utf8" });
@@ -767,7 +775,7 @@ for (const [host, projectDir] of [["workbuddy", "CODEBUDDY_PROJECT_DIR"], ["qode
   const denied = invoke("PreToolUse", { cwd: root, tool_name: "Bash", tool_input: { command: "knit deliver id" } });
   assert.equal(denied.status, 0, denied.stderr);
   assert.equal(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecision, "deny");
-  assert.equal(readFileSync(nodeCalls, "utf8"), `-v\n${join(shims, "knit")}\n`.repeat(3));
+  assert.equal(readFileSync(nodeCalls, "utf8"), `${join(shims, "knit")}\n`.repeat(3));
 });
 
 test("桌面钩子遇到 Node 22 或缺少 knit 时由登录 shell 启动", (t) => {
@@ -782,26 +790,28 @@ test("桌面钩子遇到 Node 22 或缺少 knit 时由登录 shell 启动", (t) 
   symlinkSync(cli, join(shims, "knit"));
   symlinkSync(cli, join(loginBin, "knit"));
   symlinkSync(process.execPath, join(loginBin, "node"));
-  writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$KNIT_TEST_CALLS"\n[ "$1" = -v ] || exit 99\nprintf "v22.0.0\\n"\n', { mode: 0o755 });
+  writeFileSync(join(home, "node22.cjs"), 'Object.defineProperty(process.versions, "node", { value: "22.0.0" });');
+  writeFileSync(join(shims, "node"), '#!/bin/sh\nprintf "old-node\\n" >> "$KNIT_TEST_CALLS"\nexec "$KNIT_TEST_NODE" --require "$HOME/node22.cjs" "$@"\n', { mode: 0o755 });
   writeFileSync(join(home, ".profile"), 'printf "login\\n" >> "$KNIT_TEST_CALLS"\nexport PATH="$KNIT_TEST_LOGIN_BIN:$PATH"\n');
-  const env = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/bin/sh",
+  const env = { HOME: home, PATH: `${shims}:/usr/bin:/bin:/usr/sbin:/sbin`, KNIT_TEST_NODE: process.execPath,
     KNIT_TEST_CALLS: calls, KNIT_TEST_LOGIN_BIN: loginBin };
   const hook = join(root, ".workbuddy/knit-hook.sh");
   const input = JSON.stringify({ hook_event_name: "PreToolUse", session_id: buddySession, cwd: root,
     tool_name: "Bash", tool_input: { command: "knit deliver id" } });
   // 模拟找不到 knit，不依赖机器的 Homebrew 等固定 PATH 目录是否装了 knit。
   const scenarios = [
-    { name: "Node 22", args: [hook, "pre-tool-use"], calls: "-v\nlogin\n" },
-    { name: "缺少 knit", args: ["-c", 'command() { return 1; }; . "$0"', hook, "pre-tool-use"], calls: "login\n" },
+    { name: "Node 22、fish", shell: { SHELL: "/usr/bin/fish" }, args: [hook, "pre-tool-use"], calls: "old-node\nlogin\n" },
+    { name: "缺少 knit", shell: { SHELL: "/bin/sh" }, args: ["-c", 'command() { return 1; }; . "$0"', hook, "pre-tool-use"], calls: "login\n" },
   ];
-  const qoder = spawnSync("/bin/sh", [join(root, ".qoder/knit-hook.sh"), "session-start"], { cwd: root, env, encoding: "utf8",
+  // macOS 的 /bin/sh 会从用户账户补上 SHELL，在脚本入口显式还原未设置的场景。
+  const qoder = spawnSync("/bin/sh", ["-c", 'unset SHELL; . "$0"', join(root, ".qoder/knit-hook.sh"), "session-start"], { cwd: root, env, encoding: "utf8",
     input: JSON.stringify({ hook_event_name: "SessionStart", session_id: session, cwd: root }) });
   assert.equal(qoder.status, 0, qoder.stderr);
   assert.equal(JSON.parse(qoder.stdout).hookSpecificOutput.hookEventName, "SessionStart");
-  assert.equal(readFileSync(calls, "utf8"), "-v\nlogin\n");
+  assert.equal(readFileSync(calls, "utf8"), "old-node\nlogin\n");
   for (const scenario of scenarios) {
     writeFileSync(calls, "");
-    const result = spawnSync("/bin/sh", scenario.args, { cwd: root, env, input, encoding: "utf8" });
+    const result = spawnSync("/bin/sh", scenario.args, { cwd: root, env: { ...env, ...scenario.shell }, input, encoding: "utf8" });
     assert.equal(result.status, 0, `${scenario.name}: ${result.stderr}`);
     assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "deny", scenario.name);
     assert.equal(readFileSync(calls, "utf8"), scenario.calls, scenario.name);

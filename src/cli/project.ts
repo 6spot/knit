@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
-import { builtinAgents, piCommand, sessionAgentName } from "../adapters/agents.js";
-import { hostProjectRoot, selectHostTask } from "../application/host-hook.js";
-import { initGuidance, initProject } from "../application/init.js";
-import { buildSessionContext, cliDispatchMode, contextLines } from "../application/session-context.js";
+import { hostProjectRoot } from "../application/project-root.js";
 import { CONFIG_PATH, legacyStandardCopies, loadConfig, loadStandards, readWorkflow, savePitfall } from "../application/project-config.js";
 import { taskWorktree } from "../application/worktree.js";
 import { HOST_SPECS, type HostOptions } from "../contracts/host.js";
@@ -24,7 +21,8 @@ export function registerInitCommand(program: Command): void {
   init
     .option("--force", "备份并恢复流程、角色文件以及本次指定或已有的宿主桥接")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((options: HostOptions & { dir: string; force?: boolean }) => {
+    .action(async (options: HostOptions & { dir: string; force?: boolean }) => {
+      const { initGuidance, initProject } = await import("../application/init.js");
       const root = projectRoot(options.dir);
       const result = initProject(root, options.force, options);
       const lines = [
@@ -54,7 +52,7 @@ export function registerContextCommand(program: Command): void {
     .addOption(new Option("--use <id>", "为当前宿主会话选中任务").conflicts("unuse"))
     .option("--unuse", "清除当前宿主会话的任务选择")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string | undefined, options: { dir: string; use?: string; unuse?: boolean }) => {
+    .action(async (id: string | undefined, options: { dir: string; use?: string; unuse?: boolean }) => {
       if (options.use !== undefined || options.unuse) {
         if (id !== undefined) return fail(["选择任务时请使用 knit context --use <id> 或 knit context --unuse"]);
         const host = process.env.KNIT_HOST;
@@ -62,6 +60,7 @@ export function registerContextCommand(program: Command): void {
         if (!host || !sessionId) return fail(["选择任务需要 KNIT_HOST 和 KNIT_HOST_SESSION"]);
         const root = hostProjectRoot(options.dir);
         if (root === null) return fail(["这个项目里没有 .knit/ 目录"]);
+        const { selectHostTask } = await import("../application/host-hook.js");
         const selected = selectHostTask(root, { host, sessionId }, options.use ?? null);
         if (selected.kind === "refused") return fail(selected.problems);
         process.stdout.write(options.unuse ? "已取消选中\n" : `已选中 ${taskLabel(selected.title!, options.use!)}\n`);
@@ -69,6 +68,7 @@ export function registerContextCommand(program: Command): void {
       }
       const root = knitRoot(options.dir);
       if (root === null) return;
+      const { buildSessionContext, cliDispatchMode, contextLines } = await import("../application/session-context.js");
       const mode = cliDispatchMode();
       const context = buildSessionContext(root, id, mode === "tools");
       if (context.kind === "refused") return fail(context.problems);
@@ -97,9 +97,9 @@ export function registerStandardsCommands(program: Command): void {
     .description("列出规范来源、适用环节、正文大小和旧版副本")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string }) => {
-      const known = knownStages(options.dir);
-      if (!known) return;
       const root = projectRoot(options.dir);
+      const known = knownStages(root);
+      if (!known) return;
       const lines = loadStandards(root).map((standard) => {
         const bytes = Buffer.byteLength(standard.body, "utf8");
         const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
@@ -113,10 +113,11 @@ export function registerStandardsCommands(program: Command): void {
     .description("查看通用区和适用于指定环节的避坑条目")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((stage: string, options: { dir: string }) => {
-      const known = knownStages(options.dir);
+      const root = projectRoot(options.dir);
+      const known = knownStages(root);
       if (!known) return;
       if (!known.includes(stage)) return fail([`流程里没有的环节：${stage}`]);
-      const checklist = loadStandards(projectRoot(options.dir)).filter(({ path }) => path === PITFALLS_PATH);
+      const checklist = loadStandards(root).filter(({ path }) => path === PITFALLS_PATH);
       if (checklist[0]?.problems.length) return fail(checklist[0].problems.map((problem) => `${PITFALLS_PATH}：${problem}`));
       const [selected] = standardsForStage(checklist, stage);
       process.stdout.write(`${selected?.body ?? "没有适用的避坑条目"}\n`);
@@ -129,14 +130,15 @@ export function registerStandardsCommands(program: Command): void {
     .requiredOption("--body <正文>", "经验或要补充的内容")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string; section: string; title: string; body: string }) => {
-      const known = knownStages(options.dir);
+      const root = projectRoot(options.dir);
+      const known = knownStages(root);
       if (!known) return;
       const stages = pitfallScope(options.section);
       if (!stages) return fail(["分区要写通用或逗号分隔的环节 id，每个环节 id 都不能为空"]);
       const unknown = stages.filter((id) => !known.includes(id));
       if (unknown.length) return fail([`流程里没有的环节：${unknown.join("、")}`]);
       try {
-        savePitfall(projectRoot(options.dir), options.section, options.title, options.body);
+        savePitfall(root, options.section, options.title, options.body);
         process.stdout.write(`${PITFALLS_PATH}（${options.section}）\n`);
       } catch (error) {
         fail([error instanceof Error ? error.message : String(error)]);
@@ -180,7 +182,8 @@ function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefin
   ];
 }
 
-function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
+async function reportEnvironment(root: string, workflow: WorkflowDefinition): Promise<void> {
+  const { builtinAgents, piCommand, sessionAgentName } = await import("../adapters/agents.js");
   const checks: { label: string; problem: string | null }[] = [];
   const check = (label: string, inspect: () => string | null, remedy: string) => {
     try {
@@ -252,7 +255,7 @@ export function registerWorkflowCommands(program: Command): void {
     .description("显示流程和每个环节的配置")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string }) => {
-      const loaded = loadWorkflow(options.dir);
+      const loaded = loadWorkflow(projectRoot(options.dir));
       if (loaded === null) return;
       const lines = [chainLine(loaded), `环节（${loaded.stages.length}）：`, ...loaded.stages.flatMap((stage, index) => stageLines(stage, index, loaded))];
       process.stdout.write(`${lines.join("\n")}\n`);
@@ -268,6 +271,6 @@ export function registerWorkflowCommands(program: Command): void {
       const loaded = readWorkflow(root);
       if (loaded.workflow === null) return fail(loaded.problems);
       process.stdout.write(`配置有效\n${chainLine(loaded.workflow)}\n`);
-      if (options.env) reportEnvironment(root, loaded.workflow);
+      if (options.env) return reportEnvironment(root, loaded.workflow);
     });
 }

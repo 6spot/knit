@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { checkHostCommand } from "../application/host-command.js";
-import { shellQuote } from "../infrastructure/process.js";
+import { hostProjectRoot } from "../application/project-root.js";
 
 export function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -61,14 +60,18 @@ export function desktopHostHook(host: DesktopHost) {
     const sessionId = payload?.session_id;
     if (event === "session-start" || event === "user-prompt-submit") {
       if (typeof sessionId !== "string" || !sessionId) return null;
+      const root = hostProjectRoot(cwd);
+      if (root === null) return null;
       const { hostContext } = await import("../application/host-hook.js");
-      const text = hostContext([cwd], { host: host.host, sessionId }, host.guidance, "native");
+      const text = hostContext(root, { host: host.host, sessionId }, host.guidance, "native");
       return text === null ? null : { hookSpecificOutput: {
         hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: text,
       } };
     }
     const toolInput = record(payload?.tool_input);
     if (event !== "pre-tool-use" || payload?.tool_name !== "Bash" || typeof toolInput?.command !== "string") return null;
+    const { checkHostCommand } = await import("../application/host-command.js");
+    const { shellQuote } = await import("../infrastructure/process.js");
     const checked = await checkHostCommand(toolInput.command, () => userMessages(payload.transcript_path, cwd, host), {
       session: typeof sessionId === "string" && sessionId ? `KNIT_HOST=${host.host} KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
     }, { rejectStartReason: host.rejectStartReason });

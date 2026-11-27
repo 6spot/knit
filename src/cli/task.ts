@@ -1,12 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
-import { recordedPaths } from "../application/delivery.js";
 import { readWorkflow } from "../application/project-config.js";
 import { startingWorker } from "../application/run-control.js";
 import { archivedTaskHeaders, createTask, findArchivedTasks, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
 import { taskBranch, taskWorktree } from "../application/worktree.js";
-import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
+import type { RequirementProblems } from "../application/task-lifecycle.js";
 import { DEFAULT_AGENT } from "../contracts/workflow.js";
 import { RUNS_DIR, TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
 import { nextStep } from "../domain/progress.js";
@@ -193,13 +192,14 @@ export function registerTaskCommands(program: Command): void {
     .command("show <id>")
     .description("显示一个任务的情况")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { dir: string }) => {
+    .action(async (id: string, options: { dir: string }) => {
       const loaded = loadTask(options.dir, id);
       if (loaded === null) return;
       const frontmatter = loaded.document.frontmatter;
       const status = shownStatus(loaded.document, loaded.record);
       const scenarios = scenarioStateOf(loaded.document.requirement);
       const clarify = clarifyStateOf(loaded.document.requirement);
+      const { recordedPaths } = await import("../application/delivery.js");
       const changed = recordedPaths(loaded.record);
       const worktree = taskWorktree(loaded.root, loaded.stored.dir);
       const commit = taskCommit(loaded);
@@ -232,9 +232,10 @@ export function registerTaskCommands(program: Command): void {
     .command("ready <id>")
     .description("确认一个任务的需求")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { dir: string }) => {
+    .action(async (id: string, options: { dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
+      const { readyTask } = await import("../application/task-lifecycle.js");
       const result = readyTask(root, id);
       if (result.kind === "refused") return fail(result.problems);
       if (result.kind === "invalidRequirement") return fail(requirementLines(result));
@@ -254,9 +255,10 @@ export function registerTaskCommands(program: Command): void {
     .option("--paths <path...>", "主会话自己改动的文件", [])
     .option("--reason <理由>", "独立审查的任务没有审查通过的记录时，直接完成的理由")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { result?: string; paths: string[]; reason?: string; dir: string }) => {
+    .action(async (id: string, options: { result?: string; paths: string[]; reason?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
+      const { closeTask } = await import("../application/task-lifecycle.js");
       const result = closeTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
       const label = taskLabel(result.title, id);
@@ -268,9 +270,10 @@ export function registerTaskCommands(program: Command): void {
     .description("取消一个任务并归档")
     .requiredOption("--reason <原因>", "为什么不做了")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { reason: string; dir: string }) => {
+    .action(async (id: string, options: { reason: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
+      const { cancelTask } = await import("../application/task-lifecycle.js");
       const result = cancelTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
       const lines = [`已取消 ${taskLabel(result.title, id)}`, result.archiveDir, ...cleanupLines(root, result.cleanup)];

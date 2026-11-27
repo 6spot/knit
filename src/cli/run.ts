@@ -1,8 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
-import { builtinAgents, sessionAgentName } from "../adapters/agents.js";
-import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/project-config.js";
 import { executeRun, readResume } from "../application/run-execute.js";
@@ -35,7 +33,7 @@ export function registerRunCommands(program: Command): void {
     .option("--model <模型>", "这一次用的模型（Pi 用 provider/模型，agy 用模型 ID）")
     .option("--thinking <等级>", `这一次用的思考等级：${THINKING_LEVELS.join("、")}`)
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; fresh?: boolean; stage?: string; dir: string }) => {
+    .action(async (id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; fresh?: boolean; stage?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const { config, problems } = loadConfig(root);
@@ -45,6 +43,7 @@ export function registerRunCommands(program: Command): void {
       if (options.instructionFile !== undefined && !statSync(options.instructionFile, { throwIfNoEntry: false })?.isFile()) {
         return fail([`读不到修改指令：--instruction-file 需要已有的普通文件：${options.instructionFile}`]);
       }
+      const { builtinAgents, sessionAgentName } = await import("../adapters/agents.js");
       const sessionAgent = sessionAgentName();
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
@@ -106,6 +105,7 @@ export function registerRunCommands(program: Command): void {
       if (workflow === null) return;
       const { root } = loaded;
       const taskId = loaded.document.frontmatter.id;
+      const { builtinAgents } = await import("../adapters/agents.js");
       const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents, runId: options.run });
       if (result.cancelled === null) return fail(result.problems);
       const label = taskLabel(loaded.document.frontmatter.title, taskId);
@@ -128,6 +128,7 @@ export function registerRunCommands(program: Command): void {
       if (root === null) return;
       const workflow = loadWorkflow(root);
       if (workflow === null) return;
+      const { builtinAgents } = await import("../adapters/agents.js");
       const problems = await executeRun({
         root,
         taskId: options.task,
@@ -137,7 +138,7 @@ export function registerRunCommands(program: Command): void {
         thinking: options.thinking,
         agents: builtinAgents,
         paneHost: process.env.REX_SESSION && process.env.REX_BLOCK
-          ? new RexPaneHost(process.env.REX_SESSION, process.env.REX_BLOCK)
+          ? new (await import("../adapters/rex/pane.js")).RexPaneHost(process.env.REX_SESSION, process.env.REX_BLOCK)
           : null,
       });
       if (problems.length > 0) fail(problems);
