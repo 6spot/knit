@@ -4,7 +4,9 @@ import { shellQuote } from "../infrastructure/process.js";
 
 const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>，把 --preview 放在动态参数之前";
 
-type HostCommand = { kind: "session" | "start"; offset: number };
+type HostCommand =
+  | { kind: "session"; offset: number }
+  | { kind: "start"; offset: number; explicit: boolean };
 
 /** 只读取静态参数。命令替换由语法树单独遍历，变量和通配符不作为原话。 */
 function literal(parts: WordPart[], quoted = false): string | null {
@@ -57,7 +59,9 @@ function inspectCall(call: CallExpr, source: string, index: (byte: number) => nu
       const body = args.slice(start, end);
       if (!body.includes(null)) return { kind: "script", text: body.join(" "), words: call.args.slice(start, end) };
     }
-    return /knit[\s\S]*deliver/.test(source.slice(index(call.start), index(call.end))) ? { kind: "delivery", quote: "" } : null;
+    const raw = source.slice(index(call.start), index(call.end));
+    if (/knit[\s\S]*deliver/.test(raw)) return { kind: "delivery", quote: "" };
+    return /knit[\s\S]*run[\s\S]*start/.test(raw) ? { kind: "start", offset: index(call.start), explicit: true } : null;
   }
   if (name !== "knit") return null;
 
@@ -78,7 +82,7 @@ function inspectCall(call: CallExpr, source: string, index: (byte: number) => nu
   const explicit = call.assigns.some((assign) => assign.name?.value === "KNIT_SESSION_AGENT") ||
     call.args.slice(0, executable).some((word, i) => args[i]?.startsWith("KNIT_SESSION_AGENT=") ||
       source.slice(index(word.start), index(word.end)).startsWith("KNIT_SESSION_AGENT="));
-  return explicit ? null : { kind: "start", offset };
+  return { kind: "start", offset, explicit };
 }
 
 function knitArguments(words: { raw: string; value: string | null }[]) {
@@ -122,14 +126,16 @@ export function canSkipHostCommand(command: string): boolean {
     !/knit|\b(eval|sh|bash|zsh|dash|ksh|source|base64)\b|(?:^|[\s/;&|()<>])\.(?=$|[\s;&|()<>])/i.test(command.replace(/['"]/g, ""));
 }
 
-export async function inspectHostCommand(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
-  if (canSkipHostCommand(command)) return { command, quotes: [] };
+async function inspectHost(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
+  if (canSkipHostCommand(command)) return { command, quotes: [], hasStart: false };
   const quotes: string[] = [];
+  const starts: boolean[] = [];
   const { parse, createSourceIndex, walk } = await import("sh-syntax");
   async function inspect(source: string): Promise<string> {
     const tree = await parse(source).catch(() => null);
     if (tree === null) {
       if (/knit[\s\S]*deliver/.test(source)) quotes.push("");
+      if (/knit[\s\S]*run[\s\S]*start/.test(source)) starts.push(true);
       return source;
     }
     const nested: Script[] = [];
@@ -141,6 +147,10 @@ export async function inspectHostCommand(command: string, environment: Partial<R
       if (call === null) return;
       if (call.kind === "script") { nested.push(call); return; }
       if (call.kind === "delivery") { quotes.push(call.quote); return; }
+      if (call.kind === "start") {
+        starts.push(true);
+        if (call.explicit) return;
+      }
       const env = environment[call.kind];
       if (env) edits.push({ start: call.offset, end: call.offset, text: `env ${env} ` });
     });
@@ -155,12 +165,19 @@ export async function inspectHostCommand(command: string, environment: Partial<R
     return edits.sort((a, b) => b.start - a.start).reduce((text, edit) =>
       text.slice(0, edit.start) + edit.text + text.slice(edit.end), source);
   }
-  return { command: await inspect(command), quotes };
+  return { command: await inspect(command), quotes, hasStart: starts.length > 0 };
+}
+
+export async function inspectHostCommand(command: string, environment: Partial<Record<HostCommand["kind"], string>> = {}) {
+  const { command: updated, quotes } = await inspectHost(command, environment);
+  return { command: updated, quotes };
 }
 
 export async function checkHostCommand(command: string, userMessages: () => readonly string[],
-  environment: Partial<Record<HostCommand["kind"], string>> = {}) {
-  const { command: updated, quotes } = await inspectHostCommand(command, environment);
+  environment: Partial<Record<HostCommand["kind"], string>> = {},
+  options: { readonly rejectStartReason?: string } = {}) {
+  const { command: updated, quotes, hasStart } = await inspectHost(command, environment);
+  if (hasStart && options.rejectStartReason) return { command: updated, reason: options.rejectStartReason };
   if (!quotes.length) return { command: updated, reason: null };
   const messages = userMessages();
   const matched = quotes.every((quote) => quote && messages.some((text) =>

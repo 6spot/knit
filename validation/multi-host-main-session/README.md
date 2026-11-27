@@ -62,17 +62,19 @@
   - `pre-tool-use`（`knit run start k-1234`）：原样放行，不注入 `KNIT_SESSION_AGENT=workbuddy`；
   - `pre-tool-use`（`knit context --use k-1234`）：返回 `hookSpecificOutput.updatedInput.command="env KNIT_HOST=workbuddy KNIT_HOST_SESSION='wb-s1' knit context --use k-1234"`。
 
-### 4.2 未核实项（需用户在 `WorkBuddy.app` GUI 窗口人工复核）
+### 4.2 真实 `WorkBuddy.app` 桌面窗口验收（2026-11-27 实机复核）
 
-因无人值守环境无法操作 `WorkBuddy.app` 桌面窗口，以下 3 项**未实机点击复核**：
-1. 在 `WorkBuddy.app` 打开经 `knit init --workbuddy` 初始化的项目目录后，点击「信任工作区」弹窗后 `.workbuddy/settings.json` 三个钩子的自动触发；
-2. 在 WorkBuddy Desktop 的 macOS Seatbelt 沙箱中执行 `knit run start <id>` 时是否触发沙箱豁免审批（`dangerouslyDisableSandbox`）；
-3. `Bash({ command: "knit run wait <id>", run_in_background: true })` 完成后 `<task-notification>` 是否在当前版本 WorkBuddy GUI 中自动续跑。
+在隔离 Git 仓库 `/tmp/knit-wb-verify`（由全局安装版 `knit 0.1.0` 执行 `knit init --workbuddy` 初始化，验收结束后清理）中，使用真实 `WorkBuddy.app` 打开工作区并完成实机核对：
 
-**建议手工复核步骤**：
-1. 在临时测试目录运行 `knit init --workbuddy`，用 `WorkBuddy.app` 打开并信任该工作区；
-2. 发送不含“knit”的普通需求消息，确认模型已自动拿到 `discuss` 规范且第二轮未重复注入；
-3. 创建测试任务并执行 `knit run start <id>`，观察是否需要沙箱豁免以及后台等待/下轮刷新是否正常。
+1. **信任工作区与三钩子自动触发 + 分块增量去重（通过）**：
+   - 在 `WorkBuddy.app` 点击「信任工作区」后，`.workbuddy/settings.json` 中的 `SessionStart`、`UserPromptSubmit`、`PreToolUse` 均自动生效。
+   - 会话 `6a80f146-d1aa-4c6f-97bc-67a98c00de14` 自动写入 `.knit/.runtime/host-sessions/workbuddy-6a80f146-d1aa-4c6f-97bc-67a98c00de14.json`，记录分块摘要 `digests`（`discussion`、`supplement`、`pitfalls`、`guidance`），状态未变轮次静默跳过。
+2. **`PreToolUse` 会话绑定与原话授权交付闭环（通过）**：
+   - 在 WorkBuddy 主会话中选中任务 `k-d851a9fb9c6a`、修改 `hello.txt`、关闭任务后，先用非用户原话试交付被 `PreToolUse` 拦截，随后使用用户原话 `我同意交付测试任务一` 成功放行并提交 `2011563 feat(hello): 在 hello.txt 追加问候语`，任务目录正常归档至 `.knit/tasks/archive/2026-11/`。
+3. **外部 CLI 派发受桌面沙箱硬拦截与降级收口（实机定案）**：
+   - 在 WorkBuddy 会话中实测对任务 `k-b2095fbd7ed2` 运行 `knit run start`（执行 `r-67fa82e94df8`、`r-30c6abd9b60e`），后台 worker 拉起外部 `pi` 均在 260 ms 内失败，报错一致：`执行者启动失败：Pi RPC 连接在等待响应 ... 时结束；stderr: Brokered program policy check unavailable`。
+   - 据此确认 WorkBuddy Desktop 沙箱不允许主会话后台派发外部 CLI 执行者；同步收口 [src/adapters/workbuddy/host-hook.ts](../../src/adapters/workbuddy/host-hook.ts) 与 [src/application/host-command.ts](../../src/application/host-command.ts)，WorkBuddy 全程降级使用自身工具与原生子 Agent 完成实现和检查，`PreToolUse` 直接拒绝 `knit run start` 并提示改用原生流程或外部终端。
+   - 另观察到 `WorkBuddy.app` 会在工作区生成 `.workbuddy/memory/` 目录。
 
 ---
 

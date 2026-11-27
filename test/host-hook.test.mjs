@@ -341,9 +341,8 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
   assert.equal(first.hookEventName, "SessionStart");
   assert.deepEqual(standardPaths(first.additionalContext), discussionPaths);
   assert.ok(first.additionalContext.includes(unselected));
-  assert.match(first.additionalContext, /原生子 Agent[\s\S]*显式指定外部执行者/);
-  assert.match(first.additionalContext, /run_in_background: true[\s\S]*--timeout 60[\s\S]*下一轮/);
-  assert.match(first.additionalContext, /dangerouslyDisableSandbox: true/);
+  assert.match(first.additionalContext, /原生子 Agent[\s\S]*不调用 knit run start/);
+  assert.doesNotMatch(first.additionalContext, /dangerouslyDisableSandbox|run_in_background/);
   assert.equal(await buddyHook(prompt), null);
   symlinkSync(cli, join(plain, "knit"));
   const select = async (command) => {
@@ -358,7 +357,7 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
     assert.equal(output.hookEventName, "UserPromptSubmit");
     assert.match(output.additionalContext, expectedStatus);
     assert.deepEqual(standardPaths(output.additionalContext), paths);
-    assert.doesNotMatch(output.additionalContext, /WorkBuddy 是桌面 GUI 主会话宿主|dangerouslyDisableSandbox|run_in_background/);
+    assert.doesNotMatch(output.additionalContext, /WorkBuddy 是桌面 GUI 主会话宿主|不调用 knit run start/);
     return output.additionalContext;
   };
   await select(`knit context --use ${task.id}`);
@@ -382,7 +381,7 @@ test("实际事件从启动到每轮提交按会话注入，选择、状态变�
   assert.equal(await buddyHook(prompt), null);
 });
 
-test("Bash 交付只接受转录中完整的用户原话，预览和派发原样放行", async (t) => {
+test("Bash 交付只接受转录中完整的用户原话，预览放行、外部派发被拦截", async (t) => {
   const cwd = project(t);
   const transcript = join(cwd, `${buddySession}.jsonl`);
   const text = (value) => ({ type: "input_text", text: value });
@@ -403,7 +402,12 @@ test("Bash 交付只接受转录中完整的用户原话，预览和派发原样
   for (const quote of ["先等等\n同意交付 A", "同意交付 A", "同意交付 B"]) assert.equal(await buddyPreTool(cwd, `${deliver} --authorization '${quote}'`), null);
   writeFileSync(transcript, "");
   assert.equal((await buddyPreTool(cwd, `${deliver} --authorization '同意交付 B'`)).permissionDecision, "deny");
-  for (const command of ["git status", `${deliver} --preview`, "knit run start k-test"]) assert.equal(await buddyPreTool(cwd, command), null);
+  for (const command of ["knit run start k-test", "KNIT_SESSION_AGENT=pi knit run start k-test", "sh -c 'knit run start k-test'", `sh -c "knit run start $ID"`]) {
+    const denied = await buddyPreTool(cwd, command);
+    assert.equal(denied.permissionDecision, "deny", command);
+    assert.match(denied.permissionDecisionReason, /原生子 Agent[\s\S]*knit run start/);
+  }
+  for (const command of ["git status", `${deliver} --preview`, "knit run status k-test"]) assert.equal(await buddyPreTool(cwd, command), null);
   assert.equal(await buddyPreTool(cwd, deliver, "Other"), null);
 });
 

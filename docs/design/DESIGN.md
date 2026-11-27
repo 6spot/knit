@@ -215,7 +215,7 @@ createdAt: 2026-11-14T13:36:56Z
 - Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - 两个钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和 WorkBuddy 指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
-- WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use` 和 `--unuse` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
+- WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use`、`--unuse` 与 `knit task new` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。`knit run start` 直接返回 `permissionDecision: deny` 并提示改用 WorkBuddy 原生工具与子 Agent（或在外部终端/Pi/Antigravity 中派发）。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
 放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
@@ -531,7 +531,7 @@ knit workflow validate [--env]
 
 WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
 
-WorkBuddy 作为桌面 GUI 主会话宿主，默认使用自身工具与原生子 Agent 完成实现和检查，通过 Bash 调用 `knit task`、`knit context --use <任务>`、`knit task close` 与 `knit deliver` 管理任务与交付，不默认派发外部 CLI。仅在用户明确要求或 `.knit/workflow.yaml` 显式指定外部执行者（`pi` / `antigravity`）时，才在沙箱外（`dangerouslyDisableSandbox: true`）运行 `knit run start <任务>`，派发后立即返回。支持后台等待时用 `run_in_background: true` 运行 `knit run wait <任务>` 并等待完成通知；沙箱拒绝后台等待或无法唤醒时，可用 `knit run wait <任务> --timeout 60` 短等，也可报告已派发，等用户下一轮发言自动刷新选中任务的状态。
+WorkBuddy 作为桌面 GUI 主会话宿主，全程降级使用自身工具与原生子 Agent 完成实现和检查，仅通过 Bash 调用 `knit task`、`knit context --use <任务>`、`knit task close` 与 `knit deliver` 管理任务与交付。WorkBuddy 桌面沙箱会拦截后台派发的外部 CLI 执行者（实测 `pi` 报 `Brokered program policy check unavailable`），因此 `PreToolUse` 钩子直接拒绝 `knit run start` 并提示改用 WorkBuddy 原生工具与子 Agent，或在普通终端、Pi、Antigravity 中派发外部执行者。
 
 Antigravity 主会话通过 `run_command` 调用 Knit CLI。`knit run start <任务>` 成功后，主会话立即用后台 `run_command` 运行 `knit run wait <任务>`，由后台命令完成通知唤醒会话并读取整批结果。
 

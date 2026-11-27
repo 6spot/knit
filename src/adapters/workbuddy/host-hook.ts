@@ -4,10 +4,11 @@ import { checkHostCommand, hostContext } from "../../application/host-hook.js";
 import { shellQuote } from "../../infrastructure/process.js";
 
 const guidance = [
-  "WorkBuddy 是桌面 GUI 主会话宿主，通过 Bash 调用 Knit（knit task / knit context --use <id> / knit task close / knit deliver）。默认直接使用 WorkBuddy 自身工具与原生子 Agent 完成实现和检查，不默认派发外部 CLI。",
-  "仅在用户明确要求或 .knit/workflow.yaml 显式指定外部执行者（pi 或 antigravity）时，才运行 knit run start <id>（需传 dangerouslyDisableSandbox: true 在沙箱外执行，派发后立即返回）。",
-  "派发外部执行者后，用 Bash 的 run_in_background: true 运行 knit run wait <id> 等待完成通知；沙箱不支持后台等待或无法唤醒时，可用 knit run wait <id> --timeout 60 短等，或告知用户已派发，下一轮会自动刷新选中任务的状态。",
+  "WorkBuddy 是桌面 GUI 主会话宿主，仅通过 Bash 使用 Knit 管理任务与交付（knit task / knit context --use <id> / knit task close / knit deliver）。",
+  "实现与独立检查全程使用 WorkBuddy 自身工具与原生子 Agent 完成，不调用 knit run start 派发外部 CLI（WorkBuddy 桌面沙箱会拦截外部执行者子进程；如确需外部执行者，请提示用户在普通终端、Pi 或 Antigravity 中运行 knit run start <id>）。",
 ].join("\n");
+
+const rejectStartReason = "WorkBuddy 桌面端不支持派发外部 CLI 执行者（桌面沙箱会拦截外部执行者进程）。请直接使用 WorkBuddy 自身工具与原生子 Agent 完成实现和检查，再运行 knit task close 与 knit deliver；如确需外部执行者，请在普通终端、Pi 或 Antigravity 中运行 knit run start。";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -56,7 +57,7 @@ export async function workbuddyHostHook(event: string, input: unknown) {
   if (event !== "pre-tool-use" || payload?.tool_name !== "Bash" || typeof command !== "string") return null;
   const checked = await checkHostCommand(command, () => userMessages(payload.transcript_path, cwd), {
     session: typeof sessionId === "string" && sessionId ? `KNIT_HOST=workbuddy KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
-  });
+  }, { rejectStartReason });
   if (checked.reason) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checked.reason } };
   return checked.command === command ? null : { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { command: checked.command } } };
 }

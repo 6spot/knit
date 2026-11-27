@@ -23,7 +23,7 @@
    普通 `knit init` 生成核心文件，首次启用宿主用对应选项，可以一次指定多个宿主，例如 `knit init --pi --agy --workbuddy`。`--force` 还会识别已启用的桥接，将有差异的桥接、流程和角色文件按相对路径备份到 `.knit/.runtime/backups/<时间>/` 后再恢复模板。已有配置、规范和任务由项目保留。WorkBuddy 项目若已有自定义 `settings.json`，普通安装保留原文件，需要把模板中的三个钩子合入其中。[初始化实现](../src/application/init.ts) · [CLI 选项](../src/cli/init.ts) · [模板](../assets/templates/)
 2. **把上下文送进正确的会话。** 首轮提供 `discuss` 规范，选任务后提供任务状态、下一步和对应环节的补充规范。Pi 在每轮构建系统提示时加入这些内容。钩子宿主复用 `hostContext`，按项目、宿主和原生会话标识保存任务选择及内容摘要，只在 Knit 项目的上下文首次出现或内容变化时注入。可在同一项目打开两个会话，分别选中不同任务，确认各自只收到自己的任务状态。[Pi 扩展模板](../assets/templates/pi/extensions/knit.ts) · [共享宿主钩子](../src/application/host-hook.ts)
 3. **连接任务选择与交付。** Pi 通过 `knit_task`、`knit_run`、`knit_deliver` 调用 Knit。命令型宿主在工具执行前把 `knit context --use <id>` 或 `knit context --unuse` 绑定到当前会话，复用 `checkHostCommand` 处理命令。交付预览直接放行。实际交付时，CLI 要求提供 `--authorization`，由宿主桥接核对引用能否匹配当前会话的一条真实用户消息。匹配范围是整条消息或其中完整的一行。提取文本时要剔除宿主合成消息和元数据。分别验证预览、原话不符、原话相符，以及宿主自身的拒绝规则。[共享命令处理](../src/application/host-command.ts) · [主会话验收记录](../validation/multi-host-main-session/README.md)
-4. **确定派发后如何继续。** 派发立即返回，结果由发起会话读取。Pi 在 `knit run wait <id>` 结束后唤起新一轮。只接入主会话的宿主派发时沿用已注册的执行者。WorkBuddy 默认用自身工具和原生子 Agent，用户明确要求或工作流指定外部执行者时才在沙箱外派发。它先尝试后台等待，宿主无法唤醒会话时可用 `knit run wait <id> --timeout 60` 或在下一轮刷新选中任务。新宿主按实测能力写明采用哪种方式。[WorkBuddy 宿主指引](../src/adapters/workbuddy/host-hook.ts)
+4. **确定派发后如何继续。** 派发立即返回，结果由发起会话读取。Pi 在 `knit run wait <id>` 结束后唤起新一轮。只接入主会话的宿主按实测能力决定是否派发外部执行者：WorkBuddy 桌面沙箱会拦截外部执行者子进程（实测 `Brokered program policy check unavailable`），因此全程降级为使用自身工具与原生子 Agent 完成实现和检查，`PreToolUse` 直接拒绝 `knit run start` 并提示改用原生流程或外部终端。新宿主按实测能力写明采用哪种方式。[WorkBuddy 宿主指引](../src/adapters/workbuddy/host-hook.ts)
 
 | 钩子宿主 | 配置与上下文事件 | 命令协议要点 |
 | --- | --- | --- |
@@ -65,4 +65,4 @@ stages:
 
 - **Pi** 有真实 Pi 和模型从派发到交付、取消的记录，另有 Rex 窗格回退和 Pi 原生会话失效后重新交接的演练。[全流程演练](../validation/slim-h1-2026-11/README.md) · [Rex 演练](../validation/slim-rex-2026-11/README.md) · [原生续聊与回退](../validation/adversarial-review-resume/README.md)
 - **Antigravity 1.5.13** 有真实主会话连续六轮从规范注入到交付的记录，也有真实执行者的 Worktree 隔离、Rex 同会话补报与 Pi 主会话续跑证据。[主会话与隔离](../validation/multi-host-main-session/README.md) · [执行者 Rex 验收](../.knit/tasks/archive/2026-11/11-22-antigravity-cli-live-acceptance/evidence.md)
-- **WorkBuddy Desktop** 已验证安装生成物，并用模拟 GUI `PATH` 和事件输入验证脚本与协议。信任工作区后三个钩子自动触发、沙箱外派发的审批、后台通知唤醒桌面会话，这三项仍待真实窗口复核。[已验证条件与待核实项](../validation/multi-host-main-session/README.md)
+- **WorkBuddy Desktop** 已在真实桌面窗口（`WorkBuddy.app`）完成信任工作区后的三钩子触发、分块增量去重、`PreToolUse` 会话绑定与原话交付授权验收；同时实测确认其桌面沙箱禁止后台派发外部 CLI（`Brokered program policy check unavailable`），已收口为纯 GUI 原生流程并在 `PreToolUse` 拒绝 `knit run start`。[真机验收记录](../validation/multi-host-main-session/README.md)
