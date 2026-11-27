@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { after, describe, test } from "node:test";
 import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { loadConfig } from "../dist/application/project-config.js";
@@ -319,6 +319,90 @@ test("快进合并并清理，被忽略的归档留在主检出", async (t) => {
   assert.equal(realpathSync(delivered.archiveRoot), realpathSync(root));
   assert.equal(delivered.archiveDir, archive);
   assert.equal((await knit(root, "task", "show", task.id)).code, 0);
+});
+
+test("仅忽略 archive 时预览与实际归档都在主检出，自动合并后仍能读取", async (t) => {
+  const { root, task, worktree, archive, deliver } = await completed(t, true);
+  autoMergeConfig(root);
+  writeFileSync(join(worktree.path, ".gitignore"), ".knit/.runtime/\n.knit/tasks/archive/\n");
+  git(worktree.path, "commit", "-qm", "ignore only archive", "--only", "--", ".gitignore");
+  const preview = deliver({ preview: true }).preview;
+  assert.equal(realpathSync(preview.archiveRoot), realpathSync(root));
+  assert.equal(preview.commit.taskDir, false);
+  const result = deliver();
+  assert.equal(result.integration.cleanup.kind, "removed");
+  assert.equal(git(root, "ls-tree", "HEAD", "--", task.dir), "");
+  assert.equal(existsSync(worktree.path), false);
+  assert.match(readFileSync(join(root, archive, "task.md"), "utf8"), /^status: delivered$/m);
+});
+
+test("Worktree 切偏分支或处于 detached HEAD 时拒绝预览与交付，切回后可正常交付", async (t) => {
+  const { root, task, worktree, archive, deliver } = await completed(t, false);
+  autoMergeConfig(root);
+  const mainHead = git(root, "rev-parse", "HEAD");
+  for (const args of [["-c", "other"], ["--detach"]]) {
+    git(worktree.path, "switch", ...args);
+    for (const options of [{ preview: true }, {}]) {
+      const refused = deliver(options);
+      assert.equal(refused.kind, "refused");
+      assert.ok(refused.problems.join("\n").includes(`git -C '${worktree.path}' switch '${worktree.branch}'`));
+    }
+    assert.equal(git(root, "rev-parse", "HEAD"), mainHead);
+    assert.equal(existsSync(join(root, task.dir, "task.md")), true);
+    assert.equal(existsSync(worktree.path), true);
+  }
+  git(worktree.path, "switch", worktree.branch);
+  const delivered = deliver();
+  assert.equal(delivered.kind, "delivered");
+  assert.equal(delivered.integration.merged, true);
+  assert.equal(existsSync(join(root, archive, "task.md")), true);
+});
+
+test("回滚时主检出原位置被占用，报告两个路径并保留两侧文件", async (t) => {
+  const { root, task, worktree, archive, deliver } = await completed(t, true);
+  const old = taskFiles(worktree.path, task);
+  const hooks = join(root, ".git/hooks");
+  git(root, "config", "core.hooksPath", hooks);
+  writeFileSync(join(hooks, "pre-commit"), `#!/bin/sh\nmkdir -p '${join(root, task.dir)}'\necho occupied > '${join(root, task.dir, "keep")}'\nexit 1\n`, { mode: 0o755 });
+  const result = deliver();
+  assert.equal(result.kind, "rolledBack");
+  assert.ok(result.rollbackProblems.some((problem) => problem.includes(join(worktree.path, archive)) && problem.includes(task.dir)));
+  assert.equal(readFileSync(join(root, task.dir, "keep"), "utf8"), "occupied\n");
+  assert.deepEqual(taskFiles(worktree.path, task), old);
+  assert.match(readFileSync(join(worktree.path, archive, "task.md"), "utf8"), /^status: delivered$/m);
+  assert.ok(!readdirSync(dirname(worktree.path)).some((name) => name.startsWith(".knit-delivery-")));
+});
+
+test("hook 执行期间备份在 Worktree 外，回滚冲突保留用户修改和未归位的备份", async (t) => {
+  const { root, task, worktree, archive, cli } = await completed(t, true);
+  const oldFiles = taskFiles(worktree.path, task);
+  const head = git(worktree.path, "rev-parse", "HEAD");
+  const hooks = join(root, ".git/hooks");
+  git(root, "config", "core.hooksPath", hooks);
+  writeFileSync(join(hooks, "pre-commit"), `#!/bin/sh
+set -eu
+for d in .knit-delivery-*; do test ! -e "$d"; done
+set -- ../.knit-delivery-*/task
+test -f "$1/task.md"
+echo 'user note' >> '${archive}/task.md'
+mkdir -p '${task.dir}'
+echo 'keep my file' > '${task.dir}/keep'
+echo 'fixture hook refused' >&2
+exit 1
+`, { mode: 0o755 });
+  const result = await cli();
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /fixture hook refused/);
+  assert.match(result.stderr, /撤回未完成/);
+  assert.match(result.stderr, /恢复到已占用/);
+  assert.match(result.stderr, /task\.md 在读入之后被改过/);
+  assert.doesNotMatch(result.stderr, /状态是 done/);
+  assert.match(taskFiles(root, task)[0], /user note/);
+  assert.equal(readFileSync(join(worktree.path, task.dir, "keep"), "utf8"), "keep my file\n");
+  const backups = readdirSync(dirname(worktree.path)).filter((name) => name.startsWith(".knit-delivery-"));
+  assert.equal(backups.length, 1);
+  assert.deepEqual(taskFiles(join(dirname(worktree.path), backups[0]), { dir: "task" }), oldFiles);
+  assert.equal(git(worktree.path, "rev-parse", "HEAD"), head);
 });
 
 test("没有要提交的文件也合并并清理，归档仍在主检出", async (t) => {

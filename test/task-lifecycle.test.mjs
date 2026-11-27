@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import fs, { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -7,7 +9,7 @@ import { test } from "node:test";
 import { RUNS_DIR } from "../dist/contracts/task.js";
 import { procStartTicks } from "../dist/infrastructure/process.js";
 import { loadConfig } from "../dist/application/project-config.js";
-import { startRun, taskRunLockHeld, waitRun } from "../dist/application/run-control.js";
+import { startRun, taskRunLockHeld, waitRun, withTaskRunLock } from "../dist/application/run-control.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { cancelTask, closeTask, readyTask } from "../dist/application/task-lifecycle.js";
@@ -32,6 +34,35 @@ function draft(root, options = {}) {
   const dir = dirname(result.created.file);
   return { id: result.created.id, dir, file: join(root, result.created.file), record: join(root, dir, "record.json") };
 }
+
+test("两个进程并发创建同名任务时分别占用目录", async (t) => {
+  const root = project(t);
+  const create = () => promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+    import { createTask } from './dist/application/task-store.js';
+    console.log(JSON.stringify(createTask(process.argv[1], JSON.parse(process.argv[2]))));
+  `, root, JSON.stringify(defaults)]);
+  const results = (await Promise.all([create(), create()])).map(({ stdout }) => JSON.parse(stdout));
+  assert.deepEqual(results.map((result) => result.problems), [[], []]);
+  assert.deepEqual(results.map((result) => basename(dirname(result.created.file))).sort(), [`${TODAY}-task`, `${TODAY}-task-2`]);
+  assert.equal(new Set(results.map((result) => readCreated(root, result.created.file).frontmatter.id)).size, 2);
+});
+
+test("结算锁阻止生命周期与交付入口写入，非 Git 项目也使用同一把锁", (t) => {
+  for (const root of [project(t), gitProject(t)]) {
+    const task = draft(root);
+    const done = doneTask(root);
+    for (const [id, action] of [[task.id, () => readyTask(root, task.id)],
+      [task.id, () => cancelTask(root, task.id, { reason: "取消" })],
+      [done.id, () => closeTask(root, done.id, { paths: ["new"] })],
+      [done.id, () => deliverTask(root, done.id, { authorization: "同意", message: "交付" })]]) {
+      const before = findTask(root, id);
+      const result = withTaskRunLock(root, id, 0, action, assert.fail);
+      assert.equal(result.kind, "refused");
+      assert.match(result.problems.join("\n"), /稍后重试/);
+      assert.deepEqual(findTask(root, id), before);
+    }
+  }
+});
 
 test("创建一个任务：文件能解析，输出 id 和路径", (t) => {
   const dir = project(t);
@@ -72,7 +103,7 @@ test("多引用只扫描一次，识别活跃、主检出归档和 Worktree 交�
   const archived = draft(root, { slug: "archived" });
   assert.equal(cancelTask(root, archived.id, { reason: "取消" }).kind, "cancelled");
   const done = doneTask(root);
-  git(root, "worktree", "add", "--detach", worktreeOf(root, done), "HEAD");
+  git(root, "worktree", "add", "-b", `knit/${basename(done.dir)}`, worktreeOf(root, done), "HEAD");
   const delivery = deliverTask(root, done.id, { authorization: "已同意", message: "完成" });
   assert.equal(delivery.kind, "delivered");
   assert.equal(delivery.archiveRoot, worktreeOf(root, done));
@@ -652,7 +683,7 @@ test("已经结束的任务不能取消，文件和目录都不变", (t) => {
   assert.deepEqual(cancel(dir, task), { kind: "refused", problems: ["任务已经结束（cancelled），不能取消"] });
   assert.deepEqual(cancel(dir, open, "  "), { kind: "refused", problems: ["--reason 不能为空：写为什么不做了"] });
   assert.equal(cancel(dir, { id: "k-000000000000" }).kind, "refused");
-  assert.deepEqual(tree(dir), before);
+  assert.deepEqual(tree(dir), [...before, `${createHash("sha256").digest("hex")}  .knit/.runtime/${open.id}.lock`].sort());
 
   const delivered = readDirectory(dir, open.dir);
   writeFileSync(join(dir, open.dir, "task.md"), renderTaskDocument({ ...delivered, frontmatter: { ...delivered.frontmatter, status: "delivered" } }));

@@ -95,6 +95,23 @@ test("执行期间主检出的受保护文件和无关文件不算执行者改�
   assert.deepEqual(lastRun(root, task).changedPaths, ["src/a.txt"]);
 });
 
+test("复用 Worktree 前拒绝切偏分支和 detached HEAD，恢复后可以派发", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const path = expectedWorktree(root, task);
+  git(root, "worktree", "add", "-b", branchOf(task), path, "HEAD");
+  const before = filesOf(root, task);
+  for (const args of [["-c", "other"], ["--detach"]]) {
+    git(path, "switch", ...args);
+    const refused = prepare(root, task);
+    assert.equal(refused.run, null);
+    assert.ok(refused.problems.join("\n").includes(`git -C '${path}' switch '${branchOf(task)}'`));
+    assert.deepEqual(filesOf(root, task), before);
+  }
+  git(path, "switch", branchOf(task));
+  assert.deepEqual(prepare(root, task).problems, []);
+});
+
 test("下个环节和返工复用同一 Worktree，执行者看得到上轮文件", async (t) => {
   const root = runProject(t);
   const task = readyTask(root);

@@ -447,7 +447,7 @@ test("用带斜杠的目录登记子模块时，预览包含 Git 报告的子模
   writeFileSync(join(dir, "file"), "ordinary");
   const preview = previewDelivery(dir, findTask(dir, task.id)).commit;
   assert.deepEqual(preview.files.map((file) => file.path), ["module"]);
-  assert.deepEqual(preview.unchanged, ["file/", "module/"]);
+  assert.deepEqual(preview.unchanged, ["file/"]);
   assert.deepEqual(preview.others, ["file"]);
 });
 
@@ -632,6 +632,7 @@ test("提交文案缺失、为空或来源冲突时拒绝", (t) => {
     ...["task.md", "record.json"].map((name) => readFileSync(join(dir, task.dir, name), "utf8")),
   ];
   const before = stateOf();
+  assert.deepEqual(deliverTask(dir, task.id, { preview: true, message: "" }), { kind: "refused", problems: ["提交文案是空的：--message"] });
   const blank = messageFile(t, " \n\n");
 
   const preview = knit(dir, "deliver", task.id, "--preview");
@@ -729,6 +730,128 @@ test("Git 拒绝提交时撤回", (t) => {
   assert.equal(stored.record.authorization, authorization);
   assert.equal(git(dir, "log", "-1", "--format=%b"), `Knit-Task: ${task.id}`);
   assert.equal(git(dir, "status", "--porcelain"), "M  src/c.ts");
+});
+
+test("提交后的 show 和 log 失败时报告 Git 错误，保留实际提交", (t) => {
+  const dir = gitProject(t);
+  const task = doneTask(dir);
+  const spawn = childProcess.spawnSync;
+  const check = t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+    if (command === "git" && ["log", "show"].includes(args[0])) return { status: 128, stderr: `${args[0]} failed\n`, stdout: "" };
+    return spawn(command, args, options);
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = deliverTask(dir, task.id, { authorization, message: "提交" });
+    assert.equal(result.kind, "delivered");
+    assert.match(result.commit.summary, /log failed/);
+    assert.match(result.commit.summary, /show failed/);
+    assert.deepEqual(result.commit.missing, []);
+  } finally {
+    check.mock.restore();
+    syncBuiltinESMExports();
+  }
+  assert.equal(git(dir, "log", "-1", "--format=%b"), `Knit-Task: ${task.id}`);
+  assert.match(git(dir, "show", `HEAD:${archived(task)}/task.md`), /^status: delivered$/m);
+});
+
+test("status 读取索引失败时撤回任务，并保留原文件及其排版", (t) => {
+  const dir = gitProject(t);
+  const task = doneTask(dir, ["code"]);
+  writeFileSync(join(dir, "code"), "user contents");
+  const file = join(dir, task.dir, "task.md");
+  writeFileSync(file, readFileSync(file, "utf8").replaceAll("\n", "\r\n"));
+  const before = filesOf(dir, task.dir);
+  const head = git(dir, "rev-parse", "HEAD");
+  writeFileSync(join(dir, ".git/index"), "invalid index");
+  const failed = deliverTask(dir, task.id, { authorization, message: "交付" });
+  assert.equal(failed.kind, "rolledBack");
+  assert.match(failed.error, /index/);
+  assert.deepEqual(failed.rollbackProblems, []);
+  assert.deepEqual(filesOf(dir, task.dir), before);
+  assert.equal(existsSync(join(dir, archived(task))), false);
+  assert.equal(git(dir, "rev-parse", "HEAD"), head);
+  assert.equal(readFileSync(join(dir, "code"), "utf8"), "user contents");
+  assert.equal(readFileSync(join(dir, ".git/index"), "utf8"), "invalid index");
+});
+
+test("空仓库首次交付先经 hook 拒绝，再重试成功，原有暂存与工作文件独立保留", (t) => {
+  const dir = project(t);
+  git(dir, "init", "-q");
+  git(dir, "config", "user.name", "knit");
+  git(dir, "config", "user.email", "test@example.invalid");
+  git(dir, "config", "core.hooksPath", ".git/hooks");
+  const path = "新\n文件 [1]";
+  const task = doneTask(dir, [path]);
+  writeFileSync(join(dir, path), "staged");
+  writeFileSync(join(dir, "other"), "other staged");
+  git(dir, "add", "--", path, "other");
+  writeFileSync(join(dir, path), "working");
+  const index = git(dir, "ls-files", "--stage", "-z");
+  const before = filesOf(dir, task.dir);
+  const hook = join(dir, ".git/hooks/pre-commit");
+  writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const deliver = () => knit(dir, "deliver", task.id, "--authorization", authorization, "--message", "首次交付");
+  assert.equal(deliver().code, 1);
+  assert.equal(git(dir, "ls-files", "--stage", "-z"), index);
+  assert.deepEqual(filesOf(dir, task.dir), before);
+  assert.equal(readFileSync(join(dir, path), "utf8"), "working");
+  rmSync(hook);
+  const result = deliver();
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(git(dir, "rev-list", "--count", "HEAD"), "1");
+  assert.equal(git(dir, "log", "-1", "--format=%b"), `Knit-Task: ${task.id}`);
+  assert.equal(git(dir, "show", `HEAD:${path}`), "working");
+  assert.equal(git(dir, "diff", "--cached", "--name-only"), "other");
+  assert.match(filesOf(dir, archived(task))[0], /^status: delivered$/m);
+});
+
+test("真实子模块内部未提交改动不进入交付，推进 gitlink 后预览和提交一致", (t) => {
+  const dir = gitProject(t);
+  const upstream = gitProject(t);
+  writeFileSync(join(dir, ".gitignore"), ".knit/\n");
+  git(dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", upstream, "module");
+  commitAll(dir, "submodule");
+  const module = join(dir, "module");
+  writeFileSync(join(module, "dirty"), "work in progress");
+  const first = doneTask(dir, ["module/"]);
+  const deliver = (task) => deliverTask(dir, task.id, { authorization, message: "更新" });
+  assert.deepEqual(deliverTask(dir, first.id, { preview: true }).preview.commit.files, []);
+  assert.deepEqual(deliver(first).commit, { kind: "nothing" });
+  assert.equal(readFileSync(join(module, "dirty"), "utf8"), "work in progress");
+  commitAll(module, "update module");
+  const next = doneTask(dir, ["module/"]);
+  const preview = deliverTask(dir, next.id, { preview: true }).preview.commit;
+  assert.deepEqual(preview.files.map((file) => file.path), ["module"]);
+  assert.deepEqual(preview.unchanged, []);
+  assert.deepEqual(deliver(next).commit.missing, []);
+  assert.equal(git(dir, "rev-parse", "HEAD:module"), git(module, "rev-parse", "HEAD"));
+});
+
+test("已暂存未入库任务目录和 git rm --cached 文件时预览不重复，撤回保留暂存且重试可交付", (t) => {
+  const dir = gitProject(t);
+  writeFileSync(join(dir, "tracked.txt"), "v1\n");
+  commitAll(dir, "tracked");
+  const task = doneTask(dir, ["tracked.txt", "added.txt"]);
+  writeFileSync(join(dir, "added.txt"), "new\n");
+  git(dir, "rm", "--cached", "-q", "tracked.txt");
+  git(dir, "add", "--", task.dir);
+  const preview = deliverTask(dir, task.id, { preview: true });
+  assert.deepEqual(preview.preview.commit.files.map((file) => file.path), ["added.txt", "tracked.txt"]);
+  const hook = join(dir, ".git/hooks/pre-commit");
+  git(dir, "config", "core.hooksPath", ".git/hooks");
+  writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const indexBefore = git(dir, "ls-files", "--stage", "-z");
+  const failed = deliverTask(dir, task.id, { authorization, message: "交付" });
+  assert.equal(failed.kind, "rolledBack");
+  assert.deepEqual(failed.rollbackProblems, []);
+  assert.equal(git(dir, "ls-files", "--stage", "-z"), indexBefore);
+  rmSync(hook);
+  const delivered = deliverTask(dir, task.id, { authorization, message: "交付" });
+  assert.equal(delivered.kind, "delivered");
+  assert.deepEqual(delivered.commit.extra, []);
+  assert.equal(git(dir, "status", "--porcelain", "--", task.dir), "");
+  assert.match(git(dir, "show", `HEAD:${archived(task)}/task.md`), /^status: delivered$/m);
 });
 
 test("hook 改了提交的内容时报告差别", (t) => {

@@ -211,12 +211,10 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
   if (refs.code !== 0 && (existsSync(join(root, ".git")) || gitCommonDirectory(root) !== null)) {
     return { created: null, problems: [`无法读取本地任务分支：${refs.stderr.trimEnd()}`] };
   }
-  const name = availableTaskName(root, base, refs.stdout.split("\n").filter(Boolean));
-  if (name === undefined) return { created: null, problems: [`无法分配任务目录名：${base}`] };
+  mkdirSync(join(root, TASKS_DIR), { recursive: true });
+  const name = claimTaskName(root, base, refs.stdout.split("\n").filter(Boolean));
   const dir = `${TASKS_DIR}/${name}`;
   const id = `k-${randomBytes(6).toString("hex")}`;
-  // 先建目录：atomicWrite 自己建的目录只有本人能进，而任务目录要入库。
-  mkdirSync(join(root, dir), { recursive: true });
   atomicWrite({
     path: join(root, dir, TASK_FILE),
     data: Buffer.from(
@@ -242,7 +240,7 @@ export function createTask(root: string, input: NewTask): CreateTaskResult {
   return { created: { id, title: input.title, file: `${dir}/${TASK_FILE}` }, problems: [] };
 }
 
-function availableTaskName(root: string, base: string, refs: readonly string[]) {
+function claimTaskName(root: string, base: string, refs: readonly string[]) {
   const directories = [
     join(root, TASKS_DIR),
     ...directoryNames(join(root, ARCHIVE_DIR)).map((month) => join(root, ARCHIVE_DIR, month)),
@@ -253,10 +251,17 @@ function availableTaskName(root: string, base: string, refs: readonly string[]) 
   // 打包后的引用按精确拼写查找，后来写的松散引用却可能遮住它。用已有的 HEAD 文件判断引用库的大小写。
   const gitDir = branches.length > 0 ? gitCommonDirectory(root) : null;
   const foldedBranches = new Set(gitDir !== null && existsSync(join(gitDir, "head")) ? branches.map((name) => name.toLowerCase()) : []);
-  return [base, ...Array.from(taken, (_, index) => `${base}-${index + 2}`)].find((name) =>
-    !taken.has(name) && !foldedBranches.has(name.toLowerCase()) &&
-    directories.every((dir) => lstatSync(join(dir, name), { throwIfNoEntry: false }) === undefined),
-  );
+  for (let suffix = 1; ; suffix++) {
+    const name = suffix === 1 ? base : `${base}-${suffix}`;
+    if (taken.has(name) || foldedBranches.has(name.toLowerCase()) || directories.slice(1).some((dir) =>
+      lstatSync(join(dir, name), { throwIfNoEntry: false }) !== undefined)) continue;
+    try {
+      mkdirSync(join(root, TASKS_DIR, name));
+      return name;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    }
+  }
 }
 
 function gitCommonDirectory(root: string): string | null {
@@ -267,7 +272,7 @@ function gitCommonDirectory(root: string): string | null {
  * 把改过的两个文件写回。读入之后有文件被别人改过时不写，返回是哪个文件。
  * 先写 record.json 再写 task.md。后者遇到版本冲突时，用刚写入的版本撤回前者。
  */
-export function saveTask(root: string, stored: StoredTask, document: TaskDocument | null, record: TaskRecord): string[] {
+export function saveTask(root: string, stored: StoredTask, document: TaskDocument | Buffer | null, record: TaskRecord | Buffer): string[] {
   if (root !== stored.storeRoot) return [`任务已在 Worktree 归档，只能读取：${join(stored.storeRoot, stored.dir)}`];
   const taskFile = join(root, stored.dir, TASK_FILE);
   const recordFile = join(root, stored.dir, RECORD_FILE);
@@ -281,11 +286,15 @@ export function saveTask(root: string, stored: StoredTask, document: TaskDocumen
   if (changed.length > 0) return changed.map(conflict);
   // 未改动的记录跳过写入，也无需在文档冲突时回滚。
   const writtenRecord = record === stored.record ? undefined
-    : writeTaskFile(recordFile, Buffer.from(renderTaskRecord(record)), stored.versions.record);
+    : writeTaskFile(recordFile, Buffer.isBuffer(record) ? record : Buffer.from(renderTaskRecord(record)), stored.versions.record);
   if (writtenRecord === null) return [conflict(RECORD_FILE)];
-  if (document === null || writeTaskFile(taskFile, Buffer.from(renderTaskDocument(document)), stored.versions.task)) return [];
-
-  const conflicts = [conflict(TASK_FILE)];
+  const conflicts: string[] = [];
+  try {
+    if (document === null || writeTaskFile(taskFile, Buffer.isBuffer(document) ? document : Buffer.from(renderTaskDocument(document)), stored.versions.task)) return [];
+    conflicts.push(conflict(TASK_FILE));
+  } catch (error) {
+    conflicts.push(error instanceof Error ? error.message : String(error));
+  }
   if (writtenRecord === undefined) return conflicts;
   if (previousRecord !== null) {
     if (!writeTaskFile(recordFile, previousRecord.data, writtenRecord.sha256)) conflicts.push(conflict(RECORD_FILE));
@@ -308,7 +317,7 @@ function writeTaskFile(path: string, data: Buffer, expectedSha256: string | null
 }
 
 /** 这个任务现在归档的话会在哪个目录：当月的归档目录加原目录名。 */
-export function archiveDirOf(stored: StoredTask): string {
+export function archiveDirOf(stored: Pick<StoredTask, "dir">): string {
   const now = new Date();
   return `${ARCHIVE_DIR}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}/${basename(stored.dir)}`;
 }

@@ -60,8 +60,9 @@ export function registerDeliverCommand(program: Command): void {
       const result = deliverTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
       if (result.kind === "rolledBack") {
+        if (result.rollbackProblems.length) return fail([result.error.trimEnd(), "交付撤回未完成", ...result.rollbackProblems]);
         if (result.reason === "move") return fail([
-          result.error instanceof Error ? result.error.message : String(result.error),
+          result.error,
           `移动任务目录失败，交付已经撤回：任务目录仍在原位置 ${result.taskDir}，状态是 done`,
         ]);
         return fail([result.error.trimEnd(), `Git 没有接受这次提交，交付已经撤回：任务目录在 ${result.taskDir}，状态是 done`]);

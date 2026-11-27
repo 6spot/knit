@@ -112,6 +112,19 @@ test("Worktree 被锁住时仍取消并归档，退出码 0，原样报告 Git �
   assert.equal(readFileSync(join(worktree.path, "untracked.txt"), "utf8"), "must remain\n");
 });
 
+test("Worktree 缺少 .git 时取消会 prune 登记并删除分支，保留目录中的文件", (t) => {
+  const root = runProject(t);
+  const { task, worktree } = dispatch(root);
+  rmSync(join(worktree.path, ".git"));
+  writeFileSync(join(worktree.path, "keep"), "user file");
+  const cancelled = cancelTask(root, task.id, { reason: "不做了" });
+  assertArchived(root, task);
+  assert.deepEqual(cancelled.cleanup, { kind: "pruned", worktree, branch: "deleted", discardedFiles: 0 });
+  assert.ok(!git(root, "worktree", "list", "--porcelain").includes(worktree.path));
+  assert.equal(git(root, "branch", "--list", worktree.branch), "");
+  assert.equal(readFileSync(join(worktree.path, "keep"), "utf8"), "user file");
+});
+
 test("Worktree 目录已丢失时 prune 登记并强制删除任务分支，另一个 Worktree 保留", (t) => {
   const root = runProject(t);
   const { task, worktree } = dispatch(root);

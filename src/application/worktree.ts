@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { gitSync } from "../infrastructure/process.js";
+import { gitSync, shellQuote } from "../infrastructure/process.js";
 
 export interface TaskWorktree {
   readonly path: string;
@@ -36,9 +36,20 @@ export interface PreparedWorktree {
   readonly branchCreated: boolean;
 }
 
+/** 核对已有 Worktree 当前是否检出任务分支；切偏或 detached HEAD 时返回恢复提示。 */
+export function worktreeBranchProblem(worktree: TaskWorktree, action: "派发" | "交付"): string | null {
+  const ref = gitSync(["symbolic-ref", "--quiet", "HEAD"], worktree.path);
+  return ref.code === 0 && ref.stdout.trimEnd() === `refs/heads/${worktree.branch}`
+    ? null
+    : `Worktree 当前没有检出任务分支；恢复后再${action}：git -C ${shellQuote(worktree.path)} switch ${shellQuote(worktree.branch)}`;
+}
+
 /** 非交接的派发校验通过后调用；已有目录复用，丢失目录按原分支重建。 */
 export function ensureWorktree(root: string, worktree: TaskWorktree): PreparedWorktree {
-  if (existsSync(join(worktree.path, ".git"))) return { problems: [], created: false, branchCreated: false };
+  if (existsSync(join(worktree.path, ".git"))) {
+    const problem = worktreeBranchProblem(worktree, "派发");
+    return { problems: problem === null ? [] : [problem], created: false, branchCreated: false };
+  }
   const branchExists = gitSync(["show-ref", "--verify", "--quiet", `refs/heads/${worktree.branch}`], root).code === 0;
   const pruned = branchExists ? gitSync(["worktree", "prune"], root) : null;
   if (pruned !== null && pruned.code !== 0) return { problems: [pruned.stderr.trimEnd()], created: false, branchCreated: false };
@@ -72,7 +83,7 @@ export type WorktreeCleanup = { readonly worktree: TaskWorktree } & (
 
 /** 取消并归档成功之后强制清理；Git 拒绝时只报告，不能撤回取消。 */
 export function cleanCancelledWorktree(root: string, worktree: TaskWorktree): WorktreeCleanup {
-  const present = existsSync(worktree.path);
+  const present = existsSync(join(worktree.path, ".git"));
   const branchExists = gitSync(["show-ref", "--verify", "--quiet", `refs/heads/${worktree.branch}`], root).code === 0;
   if (!present && !branchExists) return { kind: "absent", worktree };
   // NUL 分隔支持文件名中的换行；逐个列出未跟踪文件，不把目录算作一个文件。

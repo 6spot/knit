@@ -2,19 +2,21 @@
  * 交付：把完成的任务归档；项目在 Git 仓库里时再把它的改动提交成一次提交。
  * Git 不是必须的，不在 Git 仓库里时只归档。
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
 import { lastPassedReview } from "../domain/progress.js";
-import { currentStatus } from "../domain/task.js";
+import { sha256Text } from "../contracts/primitives.js";
+import { currentStatus, renderTaskDocument, renderTaskRecord, type TaskDocument } from "../domain/task.js";
 import { moveDirectory, removeCopy } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { loadConfig } from "./project-config.js";
 import { cleanArchivedRuns } from "./runtime-cleanup.js";
 import { RUNS_DIR } from "./run-prepare.js";
-import { archiveDirOf, findTask, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
+import { withTaskWriteLock } from "./run-control.js";
+import { archiveDirOf, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
 import { matchingFingerprints, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
-import { mergeAndCleanWorktree, taskWorktree, type TaskWorktree, type WorktreeIntegration } from "./worktree.js";
+import { mergeAndCleanWorktree, taskWorktree, worktreeBranchProblem, type TaskWorktree, type WorktreeIntegration } from "./worktree.js";
 
 export interface DeliveryPreview {
   /** 归档之后的任务目录。 */
@@ -53,13 +55,22 @@ export interface DeliveryOptions {
 export type DeliveryResult = TaskRefusal
   | { kind: "preview"; preview: DeliveryPreview; title: string; taskDir: string; result: string | null;
       message: string | undefined; mergeBranch: string | null }
-  | { kind: "rolledBack"; reason: "move"; error: unknown; taskDir: string }
-  | { kind: "rolledBack"; reason: "commit"; error: string; taskDir: string }
+  | { kind: "rolledBack"; reason: "move" | "commit"; error: string; taskDir: string; rollbackProblems: string[] }
   | { kind: "delivered"; title: string; archiveDir: string; archiveRoot: string; worktree: TaskWorktree | null;
       commit: Exclude<DeliveryCommit, { kind: "refused" }> | null; integration: WorktreeIntegration | null;
       cleanup: ReturnType<typeof cleanArchivedRuns> };
 
 export function deliverTask(root: string, id: string, options: DeliveryOptions): DeliveryResult {
+  const action = () => performDelivery(root, id, options);
+  try {
+    return options.preview ? action() : withTaskWriteLock(root, id, action);
+  } catch (error) {
+    if (error instanceof DeliveryGitError) return { kind: "refused", problems: [error.message] };
+    throw error;
+  }
+}
+
+function performDelivery(root: string, id: string, options: DeliveryOptions): DeliveryResult {
   if (options.message !== undefined && options.messageFile !== undefined) {
     return { kind: "refused", problems: ["--message 与 --message-file 只能选一个"] };
   }
@@ -71,6 +82,8 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (status !== "done") return { kind: "refused", problems: [`任务 ${id} 还没有完成（${status}）；完成之后再交付：knit task close ${id}`] };
   const checkout = deliveryCheckout(root, stored.dir);
   const { git, worktree } = checkout;
+  const branchProblem = worktree === null ? null : worktreeBranchProblem(worktree, "交付");
+  if (branchProblem !== null) return { kind: "refused", problems: [branchProblem] };
   const config = loadConfig(root);
   if (config.config === null) return { kind: "refused", problems: config.problems };
   const mergeBranch = worktree !== null && config.config.worktree?.autoMerge === true
@@ -83,63 +96,95 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (!options.preview && git && options.message === undefined && options.messageFile === undefined) {
     return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"] };
   }
-  const preview = options.preview ? previewDelivery(root, stored, mergeBranch !== null, checkout) : null;
   const file = git ? options.messageFile : undefined;
   if (file !== undefined && !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     return { kind: "refused", problems: [`读不到提交文案：${file}`] };
   }
   const message = git ? (file === undefined ? options.message : readFileSync(file, "utf8"))?.trim() : undefined;
-  if (preview !== null) {
+  if (message === "") return { kind: "refused", problems: [`提交文案是空的：${file ?? "--message"}`] };
+  if (options.preview) {
+    const preview = previewDelivery(root, stored, mergeBranch !== null, checkout);
     return { kind: "preview", preview, title: document.frontmatter.title, taskDir: stored.dir, result: document.result, message, mergeBranch };
   }
-  if (message === "") return { kind: "refused", problems: [`提交文案是空的：${file ?? "--message"}`] };
 
   const workspace = worktree?.path ?? root;
-  const archiveRoot = deliveryArchiveRoot(root, stored.dir, worktree);
   const archiveDir = archiveDirOf(stored);
+  const archiveRoot = deliveryArchiveRoot(root, stored.dir, worktree, archiveDir);
   const source = join(root, stored.dir);
   const destination = join(archiveRoot, archiveDir);
   const branchTask = join(workspace, stored.dir);
-  // 备份与任务分支在同一文件系统，不依赖系统临时目录的位置。
-  const backup = worktree !== null && archiveRoot === workspace && existsSync(branchTask)
-    ? mkdtempSync(join(workspace, ".knit-delivery-")) : null;
+  const moveBranchTask = worktree !== null && existsSync(branchTask) &&
+    (archiveRoot === workspace || !ignored(workspace, `${stored.dir}/task.md`));
   const newArchiveParents = [dirname(destination), join(archiveRoot, ".knit/tasks/archive"),
     join(archiveRoot, ".knit/tasks"), join(archiveRoot, ".knit")].filter((path) => !existsSync(path));
-  const rollback = () => {
-    if (!existsSync(source)) moveDirectory(destination, source);
-    if (backup !== null) {
-      if (existsSync(join(backup, "task"))) renameSync(join(backup, "task"), branchTask);
-      rmSync(backup, { recursive: true, force: true });
-    }
-    newArchiveParents.forEach((path) => {
-      if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);
+  const originalTask = readFileSync(join(source, "task.md"));
+  const originalRecord = stored.versions.record === null ? null : readFileSync(join(source, "record.json"));
+  const delivered: TaskDocument = { ...document, frontmatter: { ...document.frontmatter, status: "delivered" } };
+  const authorized = { ...record, authorization };
+  const conflicts = saveTask(root, stored, delivered, authorized);
+  if (conflicts.length) return { kind: "refused", problems: conflicts };
+
+  let backup: string | null = null;
+  const rollback = (reason: "move" | "commit", error: unknown, problems: string[] = []): DeliveryResult => {
+    const attempt = (step: () => void) => {
+      try {
+        step();
+        return true;
+      } catch (failure) {
+        problems.push(errorText(failure));
+        return false;
+      }
+    };
+    const pathExists = (path: string) => lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+    const atSource = reason === "move" || attempt(() => {
+      if (pathExists(source)) throw new Error(`无法将 ${destination} 移回已占用的 ${source}`);
+      try {
+        moveDirectory(destination, source);
+      } catch (failure) {
+        throw new Error(`无法将 ${destination} 移回 ${source}：${errorText(failure)}`);
+      }
     });
-    const restored = findTask(root, id);
-    if (restored !== null) saveTask(root, restored, document, record);
+    if (backup !== null) {
+      const saved = join(backup, "task");
+      if (pathExists(saved)) attempt(() => {
+        if (pathExists(branchTask)) throw new Error(`无法将 ${saved} 恢复到已占用的 ${branchTask}`);
+        try {
+          renameSync(saved, branchTask);
+        } catch (failure) {
+          throw new Error(`无法将 ${saved} 恢复到 ${branchTask}：${errorText(failure)}`);
+        }
+      });
+      const directory = backup;
+      if (!pathExists(saved)) attempt(() => rmdirSync(directory));
+    }
+    newArchiveParents.forEach((path) => attempt(() => {
+      if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);
+    }));
+    if (atSource) attempt(() => {
+      const expected = { ...stored, record: authorized, versions: {
+        task: sha256Text(renderTaskDocument(delivered)), record: sha256Text(renderTaskRecord(authorized)),
+      } };
+      const conflicts = saveTask(root, expected, originalTask, originalRecord ?? authorized);
+      problems.push(...conflicts);
+      if (!conflicts.length && originalRecord === null) unlinkSync(join(source, "record.json"));
+    });
+    return { kind: "rolledBack", reason, error: errorText(error), taskDir: stored.dir, rollbackProblems: problems };
   };
-  const conflicts = saveTask(root, stored,
-    { ...document, frontmatter: { ...document.frontmatter, status: "delivered" } }, { ...record, authorization });
-  if (conflicts.length > 0) {
-    if (backup !== null) rmSync(backup, { recursive: true, force: true });
-    return { kind: "refused", problems: conflicts };
-  }
   try {
-    if (backup !== null) renameSync(branchTask, join(backup, "task"));
+    if (moveBranchTask) {
+      backup = mkdtempSync(join(dirname(workspace), ".knit-delivery-"));
+      renameSync(branchTask, join(backup, "task"));
+    }
     mkdirSync(dirname(destination), { recursive: true });
     moveDirectory(source, destination);
   } catch (error) {
-    rollback();
-    return { kind: "rolledBack", reason: "move", error, taskDir: stored.dir };
+    return rollback("move", error);
   }
   const commit = git ? commitDelivery(workspace, {
     taskId: id, taskDir: archiveRoot === workspace ? stored.dir : null, archiveDir,
-    recorded: recordedPaths(record), message: message ?? "",
+    recorded: [...recordedPaths(record), ...(moveBranchTask && archiveRoot !== workspace ? [stored.dir] : [])], message: message ?? "",
   }) : null;
-  if (commit?.kind === "refused") {
-    gitSync(["--literal-pathspecs", "reset", "-q", "--", ...commit.files], workspace);
-    rollback();
-    return { kind: "rolledBack", reason: "commit", error: commit.error, taskDir: stored.dir };
-  }
+  if (commit?.kind === "refused") return rollback("commit", commit.error, commit.rollbackProblems);
   if (backup !== null) removeCopy(backup);
   const integration = worktree !== null && mergeBranch !== null ? mergeAndCleanWorktree(root, worktree, mergeBranch) : null;
   // --abort 会恢复主检出里已入库的旧任务目录；当前记录已经在任务 Worktree 的归档里。
@@ -163,10 +208,25 @@ function deliveryCheckout(root: string, taskDir: string) {
   return { git: true, worktree: existsSync(join(worktree.path, ".git")) ? worktree : null };
 }
 
-/** 被 Git 忽略的任务目录留在主检出归档，不随任务分支提交。 */
-export function deliveryArchiveRoot(root: string, taskDir: string, worktree: TaskWorktree | null): string {
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+class DeliveryGitError extends Error {}
+
+function gitError(command: string, result: ReturnType<typeof gitSync>): string {
+  return (result.stderr + result.stdout).trimEnd() || `git ${command} 退出码 ${result.code}`;
+}
+
+function ignored(root: string, ...paths: string[]): boolean {
+  const result = gitSync(["check-ignore", "--", ...paths], root);
+  if (result.code === 0 || result.code === 1) return result.code === 0;
+  throw new DeliveryGitError(gitError("check-ignore", result));
+}
+
+export function deliveryArchiveRoot(root: string, taskDir: string, worktree: TaskWorktree | null, archiveDir = archiveDirOf({ dir: taskDir })): string {
   if (worktree === null) return root;
-  return gitSync(["check-ignore", "-q", "--", `${taskDir}/task.md`], worktree.path).code === 0 ? root : worktree.path;
+  return ignored(worktree.path, `${taskDir}/task.md`, `${archiveDir}/task.md`) ? root : worktree.path;
 }
 
 /** 这些路径里现在有改动的文件：含新增、删除和没有跟踪的，不含被 Git 忽略的；目录列出里面的文件。 */
@@ -174,22 +234,47 @@ export function changedAmong(root: string, paths: readonly string[]): string[] {
   return workspaceChanges(root, paths).files;
 }
 
-function workspaceChanges(root: string, paths: readonly string[]) {
+function workspaceChanges(root: string, paths: readonly string[], forCommit = false): {
+  files: string[]; unstageOnly: string[]; submodules: Set<string>; indexChanges: string[];
+} {
   const files: string[] = [];
+  const unstageOnly: string[] = [];
   const submodules = new Set<string>();
   // 不带路径时 Git 会列出整个工作区。
-  if (!paths.length) return { files, submodules };
-  const status = gitSync(["--literal-pathspecs", "status", "--porcelain=v2", "-z", "--no-renames", "-uall", "--", ...paths], root);
+  const indexChanges: string[] = [];
+  if (!paths.length) return { files, unstageOnly, submodules, indexChanges };
+  // status 不接受从 stdin 传路径，将过长的查询拆开，合并重叠目录的结果。
+  if (paths.length > 1 && Buffer.byteLength(paths.join("\0")) > 64 * 1024) {
+    const mid = Math.ceil(paths.length / 2);
+    const left = workspaceChanges(root, paths.slice(0, mid), forCommit);
+    const right = workspaceChanges(root, paths.slice(mid), forCommit);
+    return {
+      files: [...new Set([...left.files, ...right.files])].sort(),
+      unstageOnly: [...new Set([...left.unstageOnly, ...right.unstageOnly])].sort(),
+      submodules: new Set([...left.submodules, ...right.submodules]),
+      indexChanges: [...new Set([...left.indexChanges, ...right.indexChanges])],
+    };
+  }
+  const status = gitSync(["--literal-pathspecs", "status", "--porcelain=v2", "-z", "--no-renames", "--ignore-submodules=dirty", "-uall", "--", ...paths], root);
+  if (status.code !== 0) throw new DeliveryGitError(gitError("status", status));
   for (const entry of status.stdout.split("\0")) {
     if (entry.startsWith("? ")) files.push(entry.slice(2));
     if (!entry.startsWith("1 ") && !entry.startsWith("u ")) continue;
     // 普通条目和未合并条目的路径分别从第 9 和第 11 字段开始；路径本身可以含空格。
     const fields = entry.split(" ");
     const path = fields.slice(fields[0] === "1" ? 8 : 10).join(" ");
-    files.push(path);
+    // 回滚先恢复 HEAD，再用 porcelain v2 的暂存区 mode 和对象 ID 放回用户原有的暂存。
+    if (forCommit && fields[0] === "u") throw new DeliveryGitError(`无法提交尚未解决的 Git 冲突：${path}`);
+    if (forCommit && fields[1]?.[0] !== ".") indexChanges.push(`${fields[4]} ${fields[7]}\t${path}`);
     if (fields[2]?.startsWith("S")) submodules.add(path);
+    // 仅存在于暂存区的新文件已被删或移走（AD）：只撤暂存，不传给 git add / commit --only。
+    if (forCommit && fields[0] === "1" && fields[3] === "000000" && fields[5] === "000000") {
+      unstageOnly.push(path);
+      continue;
+    }
+    files.push(path);
   }
-  return { files: files.sort(), submodules };
+  return { files: [...new Set(files)].sort(), unstageOnly: [...new Set(unstageOnly)].sort(), submodules, indexChanges };
 }
 
 /** 任务记录的改动路径：主会话登记的和各次执行的合在一起。 */
@@ -224,9 +309,9 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
     for (const slash of path.matchAll(/\//g)) {
       prefixes.push(path.slice(0, slash.index), path.slice(0, slash.index + 1));
     }
-    const selected = pathspecs.has(".") || pathspecs.has("./") || prefixes.some((prefix) => pathspecs.has(prefix)) ||
-      (submodules.has(path) && pathspecs.has(`${path}/`));
-    if (selected) prefixes.forEach((prefix) => dirtyPaths.add(prefix));
+    if (submodules.has(path)) prefixes.push(`${path}/`);
+    const selected = pathspecs.has(".") || pathspecs.has("./") || prefixes.some((prefix) => pathspecs.has(prefix));
+    if (selected) [...prefixes, ".", "./"].forEach((prefix) => dirtyPaths.add(prefix));
     return selected;
   });
   const included = new Set(files);
@@ -239,7 +324,7 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
       ? (JSON.parse(readFileSync(passedFile, "utf8")) as WorkspaceSnapshot).files
       : null;
   const matching = passed === null ? null : matchingFingerprints(workspace, files, passed);
-  const taskDir = gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0;
+  const taskDir = !ignored(workspace, `${stored.dir}/task.md`, `${archiveDir}/task.md`);
   const outsideTask = (path: string) => !path.startsWith(`${stored.dir}/`) && !path.startsWith(RUNTIME_PREFIX);
   return {
     archiveDir,
@@ -252,7 +337,7 @@ export function previewDelivery(root: string, stored: StoredTask, autoMerge?: bo
         changedAfterReview: matching !== null && !matching.has(path),
       })),
       taskDir,
-      unchanged: recorded.filter((path) => !dirtyPaths.has(path)),
+      unchanged: recorded.filter((path) => !dirtyPaths.has(posix.normalize(path))),
       others: dirty.filter((path) => outsideTask(path) && !included.has(path)),
       mergeRisks: worktree !== null && (autoMerge ?? loadConfig(root).config?.worktree?.autoMerge) ? {
         dirty: changedAmong(root, ["."]).filter(outsideTask),
@@ -273,7 +358,7 @@ function mergeOverlap(root: string, worktree: TaskWorktree, files: readonly stri
   const task = new Set([...files, ...changedSinceBase(worktree.branch)]);
   return main.filter((path) => task.has(path) || (
     taskDirs.some((dir) => path === dir || path.startsWith(`${dir}/`)) &&
-    gitSync(["check-ignore", "-q", "--", path], worktree.path).code === 1
+    !ignored(worktree.path, path)
   )).sort();
 }
 
@@ -296,44 +381,53 @@ export type DeliveryCommit =
     }
   | { readonly kind: "nothing" }
   /** Git 没有接受；`error` 是它的标准错误，`files` 是已经暂存的文件。 */
-  | { readonly kind: "refused"; readonly error: string; readonly files: readonly string[] };
+  | { readonly kind: "refused"; readonly error: string; readonly files: readonly string[]; readonly rollbackProblems: string[] };
 
 /** 归档之后把这个任务的文件提交成一次提交；别的改动不动，不推送。 */
 export function commitDelivery(root: string, input: CommitDeliveryInput): DeliveryCommit {
   // 任务目录已经移走：原目录里跟踪过的文件是删除，归档目录里的是新增。
-  const files = changedAmong(root, [...input.recorded, ...(input.taskDir === null ? [] : [input.taskDir, input.archiveDir])]);
-  // 不带路径的 git add -A 会暂存整个工作区。
+  const paths = [...input.recorded, ...(input.taskDir === null ? [] : [input.taskDir, input.archiveDir])];
+  try {
+    return stageAndCommit(root, input, workspaceChanges(root, paths, true));
+  } catch (error) {
+    if (error instanceof DeliveryGitError) return { kind: "refused", error: error.message, files: [], rollbackProblems: [] };
+    throw error;
+  }
+}
+
+function stageAndCommit(root: string, input: CommitDeliveryInput, changes: ReturnType<typeof workspaceChanges>): DeliveryCommit {
+  const { files, unstageOnly, indexChanges } = changes;
   if (files.length === 0) return { kind: "nothing" };
-  // 已经暂存的删除在工作区和暂存区里都已经没有文件，add 的路径对不上；先撤掉这些路径的暂存，
-  // 别的路径的暂存不动。
-  const reset = gitSync(["--literal-pathspecs", "reset", "-q", "--", ...files], root);
-  if (reset.code !== 0) return { kind: "refused", error: reset.stderr, files };
-  const added = gitSync(["--literal-pathspecs", "add", "-A", "--", ...files], root);
-  if (added.code !== 0) return { kind: "refused", error: added.stderr, files };
-  // --only：原来已经暂存的别的文件不进这次提交。不加 --no-verify，仓库的 hook 照常运行。
-  const committed = gitSync(
-    [
-      "--literal-pathspecs",
-      "commit",
-      "-q",
-      "--only",
-      "-m",
-      `${input.message.trim()}\n\nKnit-Task: ${input.taskId}`,
-      "--",
-      ...files,
-    ],
-    root,
-  );
-  if (committed.code !== 0) return { kind: "refused", error: committed.stderr, files };
-  // hook 可以往提交里加文件，也可以拿掉文件。
-  const actual = gitSync(["show", "--name-only", "--no-renames", "-z", "--format=", "HEAD"], root)
-    .stdout.split("\0")
-    .filter((path) => path !== "")
-    .sort();
+  const head = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
+  if (head.code !== 0 && head.code !== 1) return { kind: "refused", files: [], error: gitError("rev-parse", head), rollbackProblems: [] };
+  const gitPaths = (target: readonly string[], ...args: string[]) => gitSync(["--literal-pathspecs", ...args, "--pathspec-from-file=-", "--pathspec-file-nul"],
+    root, undefined, `${target.join("\0")}\0`);
+  const toUnstage = [...new Set([...files, ...unstageOnly])].sort();
+  const unstage = () => head.code === 0 ? gitPaths(toUnstage, "reset", "-q") : gitPaths(toUnstage, "rm", "--cached", "--ignore-unmatch", "-q", "-f");
+  const reset = unstage();
+  if (reset.code !== 0) return { kind: "refused", error: gitError("unstage", reset), files: [], rollbackProblems: [] };
+  const added = gitPaths(files, "add", "-A");
+  const committed = added.code === 0 ? gitPaths(files, "commit", "-q", "--only", "-m", `${input.message.trim()}\n\nKnit-Task: ${input.taskId}`) : added;
+  if (committed.code !== 0) {
+    const rollbackProblems: string[] = [];
+    const reset = unstage();
+    if (reset.code !== 0) rollbackProblems.push(gitError("unstage", reset));
+    if (indexChanges.length) {
+      const restored = gitSync(["update-index", "-z", "--index-info"], root, undefined, `${indexChanges.join("\0")}\0`);
+      if (restored.code !== 0) rollbackProblems.push(gitError("update-index", restored));
+    }
+    return { kind: "refused", error: gitError(added.code === 0 ? "commit" : "add", committed), files, rollbackProblems };
+  }
+  // commit 已经成功。读取失败只报告核对错误，不能撤回已提交的归档。
+  const show = gitSync(["show", "--name-only", "--no-renames", "-z", "--format=", "HEAD"], root);
+  const log = gitSync(["log", "-1", "--format=%h %s"], root);
+  const actual = new Set(show.stdout.split("\0").filter(Boolean));
+  const expected = new Set(files);
   return {
     kind: "committed",
-    summary: gitSync(["log", "-1", "--format=%h %s"], root).stdout.trim(),
-    extra: actual.filter((path) => !files.includes(path)),
-    missing: files.filter((path) => !actual.includes(path)),
+    summary: [log.code === 0 ? log.stdout.trim() : `提交已生成，git log 失败：${gitError("log", log)}`,
+      ...(show.code === 0 ? [] : [`无法核对提交文件，git show 失败：${gitError("show", show)}`])].join("\n"),
+    extra: show.code === 0 ? [...actual].filter((path) => !expected.has(path)).sort() : [],
+    missing: show.code === 0 ? files.filter((path) => !actual.has(path)) : [],
   };
 }

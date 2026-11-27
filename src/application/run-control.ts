@@ -4,7 +4,7 @@ import { closeSync, existsSync, openSync, readFileSync, statSync } from "node:fs
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentRegistry } from "../contracts/agent.js";
-import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
+import { RUNS_DIR, TASK_ID_PATTERN, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { parseTaskRecord, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -13,7 +13,7 @@ import { pidAlive, processIdentities, processTable, processTreePids, procStartTi
 import { readWorkflow } from "./project-config.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";
-import { findTask, RECORD_FILE } from "./task-store.js";
+import { findTask, readTask, RECORD_FILE, type TaskRefusal } from "./task-store.js";
 
 const EPHEMERAL_HOST_SANDBOX_ENV = [
   "CODEBUDDY_BROKERED_FS_HOOK_ENABLED",
@@ -259,6 +259,16 @@ function taskLockPath(root: string, taskId: string): string {
 
 export function withTaskRunLock<T>(root: string, taskId: string, timeout: number, action: () => T, busy: () => T): T {
   return withFileLock(taskLockPath(root, taskId), timeout, action, busy);
+}
+
+export function withTaskWriteLock<T>(root: string, id: string, action: () => T): T | TaskRefusal {
+  const valid = new RegExp(TASK_ID_PATTERN).test(id);
+  if (!valid || !existsSync(taskLockPath(root, id))) {
+    const loaded = readTask(root, id);
+    if (loaded.kind === "refused") return loaded;
+  }
+  return withTaskRunLock<T | TaskRefusal>(root, id, 0, action,
+    () => ({ kind: "refused", problems: [`任务 ${id} 正在写入，请稍后重试`] }));
 }
 
 export function taskRunLockHeld(root: string, taskId: string): boolean {

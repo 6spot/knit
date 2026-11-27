@@ -4,6 +4,7 @@ import { lastPassedReview } from "../domain/progress.js";
 import { currentStatus, renderTaskDocument, requirementDigest, type TaskDocument } from "../domain/task.js";
 import { clarifyStateOf, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRelative } from "../infrastructure/paths.js";
+import { withTaskWriteLock } from "./run-control.js";
 import { archiveTask, readTask, saveTask, type TaskRefusal } from "./task-store.js";
 import { cleanCancelledWorktree, taskWorktree, type WorktreeCleanup } from "./worktree.js";
 
@@ -15,7 +16,11 @@ export interface RequirementProblems {
   readonly missingScenarios: boolean;
 }
 
-export function readyTask(root: string, id: string): TaskRefusal | RequirementProblems | { kind: "alreadyReady"; title: string } |
+export function readyTask(root: string, id: string) {
+  return withTaskWriteLock(root, id, () => confirmRequirement(root, id));
+}
+
+function confirmRequirement(root: string, id: string): TaskRefusal | RequirementProblems | { kind: "alreadyReady"; title: string } |
   { kind: "ready"; title: string; scenarios: number; assumed: number } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
@@ -49,7 +54,11 @@ interface CloseOptions {
   readonly reason?: string;
 }
 
-export function closeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done"; title: string } |
+export function closeTask(root: string, id: string, options: CloseOptions) {
+  return withTaskWriteLock(root, id, () => completeTask(root, id, options));
+}
+
+function completeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done"; title: string } |
   { kind: "pathsRegistered"; title: string; paths: readonly string[] } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
@@ -99,7 +108,11 @@ function unfinishedRunRefusal(record: TaskRecord, id: string): TaskRefusal | nul
   };
 }
 
-export function cancelTask(root: string, id: string, options: { readonly reason: string }): TaskRefusal |
+export function cancelTask(root: string, id: string, options: { readonly reason: string }) {
+  return withTaskWriteLock(root, id, () => archiveCancelledTask(root, id, options));
+}
+
+function archiveCancelledTask(root: string, id: string, options: { readonly reason: string }): TaskRefusal |
   { kind: "cancelled"; title: string; archiveDir: string; cleanup: WorktreeCleanup } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
