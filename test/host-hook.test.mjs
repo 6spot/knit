@@ -333,6 +333,17 @@ function buddyPreTool(cwd, command, tool = "Bash") {
     tool_input: { command, timeout: 120000, description: "调用 Knit", run_in_background: false } });
 }
 
+test("WorkBuddy 改写 Bash 命令时保留其余工具参数", async () => {
+  const fields = { timeout: 120000, description: "调用 Knit", run_in_background: false };
+  for (const command of ["knit context --use k-test", "knit context --unuse", "knit task new --title 示例"]) {
+    const toolInput = Object.freeze({ command, ...fields });
+    const result = await workbuddyHostHook("pre-tool-use", { session_id: buddySession, tool_name: "Bash", tool_input: toolInput });
+    assert.deepEqual(result, { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: {
+      ...fields, command: `env KNIT_HOST=workbuddy KNIT_HOST_SESSION='${buddySession}' ${command}`,
+    } } });
+  }
+});
+
 test("实际事件从启动到每轮提交按会话注入，选择、状态变化和取消选择后刷新", async (t) => {
   isolateEnvironment(t);
   const cwd = project(t);
@@ -408,6 +419,7 @@ test("Bash 交付只接受转录中完整的用户原话，预览放行、外部
     const result = await buddyPreTool(cwd, quote ? `${deliver} --authorization '${quote}'` : deliver);
     assert.equal(result.permissionDecision, "deny", quote);
     assert.match(result.permissionDecisionReason, /--authorization[\s\S]*--preview/);
+    assert.equal(Object.hasOwn(result, "updatedInput"), false);
   }
   for (const quote of ["先等等\n同意交付 A", "同意交付 A", "同意交付 B"]) assert.equal(await buddyPreTool(cwd, `${deliver} --authorization '${quote}'`), null);
   writeFileSync(transcript, "");
@@ -416,6 +428,7 @@ test("Bash 交付只接受转录中完整的用户原话，预览放行、外部
     const denied = await buddyPreTool(cwd, command);
     assert.equal(denied.permissionDecision, "deny", command);
     assert.match(denied.permissionDecisionReason, /原生子 Agent[\s\S]*knit run start/);
+    assert.equal(Object.hasOwn(denied, "updatedInput"), false);
   }
   for (const command of ["git status", `${deliver} --preview`, "knit run status k-test"]) assert.equal(await buddyPreTool(cwd, command), null);
   assert.equal(await buddyPreTool(cwd, deliver, "Other"), null);

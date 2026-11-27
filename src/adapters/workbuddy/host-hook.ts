@@ -53,11 +53,13 @@ export async function workbuddyHostHook(event: string, input: unknown) {
       hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: text,
     } };
   }
-  const command = record(payload?.tool_input)?.command;
-  if (event !== "pre-tool-use" || payload?.tool_name !== "Bash" || typeof command !== "string") return null;
-  const checked = await checkHostCommand(command, () => userMessages(payload.transcript_path, cwd), {
+  const toolInput = record(payload?.tool_input);
+  if (event !== "pre-tool-use" || payload?.tool_name !== "Bash" || typeof toolInput?.command !== "string") return null;
+  const checked = await checkHostCommand(toolInput.command, () => userMessages(payload.transcript_path, cwd), {
     session: typeof sessionId === "string" && sessionId ? `KNIT_HOST=workbuddy KNIT_HOST_SESSION=${shellQuote(sessionId)}` : undefined,
   }, { rejectStartReason });
   if (checked.reason) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checked.reason } };
-  return checked.command === command ? null : { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { command: checked.command } } };
+  return checked.command === toolInput.command ? null : { hookSpecificOutput: {
+    hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: checked.command },
+  } };
 }
