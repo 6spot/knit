@@ -153,6 +153,8 @@ test("桥接派发透传模型、思考等级、多行指令与 fresh，立即�
   const instruction = "--修订第一项\n保留引号 ' 和空格";
   const schema = bridge.definitions.find((tool) => tool.name === "knit_run").parameters;
   assert.equal(schema.properties.instruction.type, "string");
+  assert.equal(schema.properties.stage.type, "string");
+  assert.ok(!schema.required.includes("stage"));
   assert.equal(schema.properties.fresh.type, "boolean");
   const started = await bridge.tool("knit_run", { action: "start", taskId: task.id, instruction, fresh: true },
     { model: { provider: "p", id: "m" }, thinkingLevel: "high" });
@@ -235,7 +237,7 @@ test("两个任务同时执行，桥接各等一次结束并各发一条通知",
   assert.equal(bridge.messages.length, 2);
 });
 
-test("同一批审查等最后一名结束才通知，列出两个报告和各自的结论", async (t) => {
+test("并行审查结束后通知一次，裁决用 stage 指定实现环节", async (t) => {
   const { dir, bridge, outside, task } = await notificationBridge(t, () => ({ texts: ['```json\n{"verdict":"pass"}\n```'] }));
   const gate = join(outside, "release");
   writeFileSync(join(outside, "slow.json"), JSON.stringify({ waitFor: gate, texts: ['```json\n{"verdict":"changes_requested"}\n```'] }));
@@ -244,7 +246,7 @@ test("同一批审查等最后一名结束才通知，列出两个报告和各�
   process.env.KNIT_PI_BIN = launcher;
   writeFileSync(join(dir, ".knit/workflow.yaml"), ["version: 1", "stages:", "  - id: review", "    tools: [read]",
     "    executors: [{id: first, model: fake/fast}, {id: second, model: fake/slow}]",
-    "    report: {verdict: [pass, changes_requested]}", ""].join("\n"));
+    "    report: {verdict: [pass, changes_requested]}", "  - id: implement", "    model: fake/fast", "    tools: [read, write]", ""].join("\n"));
   const runs = () => JSON.parse(readFileSync(join(dir, task.dir, "record.json"), "utf8")).runs;
   const started = await bridge.tool("knit_run", { action: "start", taskId: task.id });
   assert.equal(started.isError, undefined, text(started));
@@ -265,6 +267,12 @@ test("同一批审查等最后一名结束才通知，列出两个报告和各�
   }
   await waitUntil(() => waitersOf(task).length === 0, "批次等待退出");
   assert.equal(bridge.messages.length, 1);
+  const adjudicated = await bridge.tool("knit_run", { action: "start", taskId: task.id, stage: "implement", instruction: "按审查意见修改" });
+  assert.equal(adjudicated.isError, undefined, text(adjudicated));
+  await ended(dir, task);
+  assert.equal(runs().at(-1).stage, "implement");
+  assert.equal(runs().at(-1).failure, null);
+  await waitUntil(() => bridge.messages.length === 2, "裁决后的执行结束通知");
 });
 
 test("自己取消的不通知", async (t) => {

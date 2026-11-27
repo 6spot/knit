@@ -72,16 +72,16 @@ function readTaskBytes(root: string, dir: string): Buffer | null {
   return existsSync(path) ? readFileSync(path) : null;
 }
 
-function* storedTasks(root: string, directories: ReturnType<typeof taskDirectories>, id?: string): Generator<StoredTask> {
+function* storedTasks(root: string, directories: ReturnType<typeof taskDirectories>, ids?: ReadonlySet<string>): Generator<StoredTask> {
   for (const entry of directories) {
     const taskFile = readTaskBytes(root, entry.dir);
     if (taskFile === null) continue;
     const markdown = taskFile.toString("utf8");
-    if (id !== undefined && !taskDocumentMayHaveId(markdown, id)) continue;
+    if (ids !== undefined && !taskDocumentMayHaveId(markdown, ids)) continue;
     const document = parseTaskDocument(markdown);
     // 写坏的任务也要能按 id 找到，命令才说得出它哪里坏了。
     const taskId = document.document?.frontmatter.id ?? unparsedTaskId(markdown);
-    if (id !== undefined && taskId !== id) continue;
+    if (ids !== undefined && (taskId === null || !ids.has(taskId))) continue;
     const recordFile = readWithVersion(join(root, entry.dir, RECORD_FILE));
     const record = parseTaskRecord(recordFile?.data.toString("utf8") ?? null);
     yield {
@@ -100,8 +100,20 @@ function* storedTasks(root: string, directories: ReturnType<typeof taskDirectori
   }
 }
 
+export function* findArchivedTasks(root: string, ids: Iterable<string>): Generator<StoredTask> {
+  const remaining = new Set(ids);
+  if (!remaining.size) return;
+  for (const task of storedTasks(root, archiveDirectories(root), remaining)) {
+    if (task.document === null) continue;
+    yield task;
+    remaining.delete(task.document.frontmatter.id);
+    if (!remaining.size) return;
+  }
+}
+
 export function findTask(root: string, id: string, { includeWorktrees = true, requireDocument = false } = {}): StoredTask | null {
-  for (const task of storedTasks(root, taskDirectories(root, "all"), id)) {
+  const ids = new Set([id]);
+  for (const task of storedTasks(root, taskDirectories(root, "all"), ids)) {
     if (!requireDocument || task.document !== null) return task;
   }
   if (!includeWorktrees) return null;
@@ -113,7 +125,7 @@ export function findTask(root: string, id: string, { includeWorktrees = true, re
       if (linkedRepo === null || linkedRepo !== gitCommonDirectory(root)) continue;
     }
     // 其它任务的归档可能随建分支时的 HEAD 一起检出，只读该分支自己的交付。
-    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name), id)) {
+    for (const task of storedTasks(checkout, archiveDirectories(checkout, entry.name), ids)) {
       if (task.document?.frontmatter.status === "delivered") return task;
     }
   }

@@ -1,7 +1,13 @@
 import { Option, type Command } from "commander";
-import { createTask, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
+import { readWorkflow } from "../application/project-config.js";
+import { liveWorker, startingWorker } from "../application/run-control.js";
+import { createTask, findArchivedTasks, scanTasks, shownTaskDirectory, taskCommit } from "../application/task-store.js";
+import { taskBranch } from "../application/worktree.js";
 import { cancelTask, closeTask, readyTask, type RequirementProblems } from "../application/task-lifecycle.js";
-import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter } from "../contracts/task.js";
+import { TASK_PRIORITIES, TASK_VERIFICATIONS, type TaskFrontmatter, type TaskRecord } from "../contracts/task.js";
+import { nextStep } from "../domain/progress.js";
+import type { WorkflowDefinition } from "../domain/workflow.js";
+import { gitSync, shellQuote } from "../infrastructure/process.js";
 import { clarifyStateOf, SCENARIO_FORMAT_EXAMPLE, scenarioStateOf } from "../domain/task-requirements.js";
 import { cleanupLines, fail, knitRoot, loadTask, shownStatus, taskLabel } from "./shared.js";
 
@@ -20,6 +26,83 @@ function requirementLines(problems: RequirementProblems): string[] {
     ...(problems.missingScenarios ? ["独立审查的任务必须把完成条件写成场景；另一条路是把 task.md 开头的 verification 改成 self。"] : []),
     ...(problems.scenarioIssues.length > 0 || problems.missingScenarios ? ["场景的写法：", SCENARIO_FORMAT_EXAMPLE] : []),
   ];
+}
+
+interface TaskRow {
+  frontmatter: TaskFrontmatter;
+  record: TaskRecord;
+  stale: boolean;
+  line: string;
+}
+
+function taskListLines(root: string, archive: boolean): string[] {
+  const tasks = scanTasks(root, archive ? "archived" : "active");
+  const broken: string[] = [];
+  const rows = tasks.flatMap((task) => {
+    if (task.document === null || task.record === null) {
+      broken.push(`${task.dir}：${task.problems[0]}`);
+      return [];
+    }
+    const frontmatter = task.document.frontmatter;
+    const status = shownStatus(task.document, task.record);
+    const line = `${frontmatter.priority}  ${frontmatter.id}  ${status.text}  ${frontmatter.title}` +
+      (status.stale ? "（确认后改过需求）" : "");
+    return [{ frontmatter, record: task.record, stale: status.stale, line }];
+  }).sort((a, b) => a.frontmatter.priority.localeCompare(b.frontmatter.priority) ||
+    a.frontmatter.createdAt.localeCompare(b.frontmatter.createdAt));
+  if (archive) return [...rows.map((row) => row.line), ...broken];
+
+  const unmerged = new Set(gitSync(["for-each-ref", "--no-merged=HEAD", "--format=%(refname:lstrip=2)", "refs/heads/knit/"], root)
+    .stdout.split("\n").filter(Boolean));
+  const activeIds = new Set(tasks.map((task) => task.id));
+  const dependencies = rows.flatMap((row) => row.frontmatter.dependsOn).filter((id) => !activeIds.has(id));
+  const satisfied = new Set([...findArchivedTasks(root, dependencies)]
+    .filter((task) => task.document?.frontmatter.status === "delivered" && !unmerged.has(taskBranch(task.dir)))
+    .map((task) => task.id));
+
+  const workflow = readWorkflow(root).workflow;
+  const ids = new Set(rows.map((row) => row.frontmatter.id));
+  const children = Map.groupBy(rows, (row) => ids.has(row.frontmatter.parent ?? "") ? row.frontmatter.parent : null);
+  const lines: string[] = [];
+  const visited = new Set<TaskRow>();
+  function visit(row: TaskRow, depth: number): void {
+    if (visited.has(row)) return;
+    visited.add(row);
+    const parent = row.frontmatter.parent;
+    const blocked = row.frontmatter.dependsOn.filter((id) => !satisfied.has(id));
+    lines.push("  ".repeat(depth) + [row.line,
+      ...(parent !== null && !ids.has(parent) ? [`父:${parent}`] : []),
+      ...(blocked.length ? [`阻塞:${blocked.join(", ")}`] : []),
+      ...runLabels(root, row, workflow),
+    ].join("  "));
+    children.get(row.frontmatter.id)?.forEach((child) => visit(child, depth + 1));
+  }
+  children.get(null)?.forEach((row) => visit(row, 0));
+  // 手写 parent 形成环时，这组任务也要可见。
+  rows.forEach((row) => visit(row, 0));
+  lines.push(...broken);
+  if (!lines.length) lines.push("没有任务");
+  const activeBranches = new Set(tasks.map((task) => taskBranch(task.dir)));
+  const leftover = [...unmerged].filter((branch) => !activeBranches.has(branch));
+  if (leftover.length) lines.push("", "尚未合并进 HEAD 的任务分支，可在当前检出运行：",
+    ...leftover.map((branch) => `  git merge ${shellQuote(branch)}`));
+  return lines;
+}
+
+function runLabels(root: string, row: TaskRow, workflow: WorkflowDefinition | null): string[] {
+  const runs = row.record.runs.filter((run) => run.endedAt === null);
+  if (!runs.length) {
+    const status = row.frontmatter.status;
+    return workflow !== null && !row.stale && (status === "ready" || status === "active") &&
+      nextStep(workflow, row.frontmatter.verification, row.record).kind === "arbitrate" ? ["待裁决"] : [];
+  }
+  return runs.map((run) => {
+    const member = runs.length > 1 ? `${run.executor ?? run.id}:` : "";
+    if (startingWorker(root, row.frontmatter.id, run)) return `${member}正在启动`;
+    if (liveWorker(root, run.id) === null) return `${member}进程已退出`;
+    const minutes = Math.floor((Date.now() - Date.parse(run.startedAt)) / 60000);
+    return `${member}运行中 ${minutes >= 1 ? `${minutes}m` : "<1m"}`;
+  });
 }
 
 export function registerTaskCommands(program: Command): void {
@@ -73,28 +156,8 @@ export function registerTaskCommands(program: Command): void {
     .action((options: { archive: boolean; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
-      const tasks = scanTasks(root, options.archive ? "archived" : "active");
-      const readable = tasks
-        .flatMap((stored) =>
-          stored.document === null || stored.record === null
-            ? []
-            : [{ frontmatter: stored.document.frontmatter, status: shownStatus(stored.document, stored.record) }],
-        )
-        .sort(
-          (a, b) =>
-            a.frontmatter.priority.localeCompare(b.frontmatter.priority) ||
-            a.frontmatter.createdAt.localeCompare(b.frontmatter.createdAt),
-        )
-        .map(
-          (row) =>
-            `${row.frontmatter.priority}  ${row.frontmatter.id}  ${row.status.text}  ${row.frontmatter.title}` +
-            (row.status.stale ? "（确认后改过需求）" : ""),
-        );
-      const broken = tasks
-        .filter((stored) => stored.document === null || stored.record === null)
-        .map((stored) => `${stored.dir}：${stored.problems[0]}`);
-      const lines = [...readable, ...broken];
-      process.stdout.write(lines.length === 0 ? "没有任务\n" : lines.map((line) => `${line}\n`).join(""));
+      const lines = taskListLines(root, options.archive);
+      process.stdout.write(`${lines.length ? lines.join("\n") : "没有任务"}\n`);
     });
 
   task
