@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import process from "node:process";
+import { HOST_SPECS } from "../dist/contracts/host.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const failures = [];
@@ -35,16 +36,9 @@ const required = [
   "assets/standards/task-splitting.md",
   "assets/standards/delivery.md",
   "assets/templates/workflow.yaml",
-  "assets/templates/pi/extensions/knit.ts",
-  "assets/templates/agents/plugins/knit/plugin.json",
-  "assets/templates/agents/plugins/knit/hooks.json",
-  "assets/templates/agents/plugins/knit/rules/AGENTS.md",
-  "assets/templates/workbuddy/settings.json",
-  "assets/templates/workbuddy/knit-hook.sh",
-  "dist/adapters/workbuddy/host-hook.js",
-  "assets/templates/qoder/settings.json",
-  "assets/templates/qoder/knit-hook.sh",
-  "dist/adapters/qoder/host-hook.js",
+  "dist/contracts/host.js",
+  ...HOST_SPECS.flatMap((host) => host.templates.map((template) => `assets/templates/${template}`)),
+  ...HOST_SPECS.flatMap((host) => host.hook ? [`dist/adapters/${host.hook.module}`] : []),
   "dist/adapters/antigravity/client.js",
   "dist/adapters/pi/pane-worker.js",
   "dist/cli/knit.js",

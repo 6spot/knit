@@ -1,6 +1,7 @@
 /** `knit init`：把随 Knit 发布的模板生成到项目里。 */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { HOST_SPECS, type HostOptions, type SharedSettings } from "../contracts/host.js";
 import { atomicWrite } from "../infrastructure/fs.js";
 import { createTask, hasTasks } from "./task-store.js";
 
@@ -16,19 +17,6 @@ export const CORE_TEMPLATES = [
   // 模板的文件名不带点：npm 打包时不收名叫 .gitignore 的文件。
   { template: "gitignore", target: ".knit/.gitignore", restore: false },
 ] as const;
-
-const HOST_BRIDGES = [
-  { host: "pi", templates: ["pi/extensions/knit.ts"] },
-  { host: "workbuddy", templates: ["workbuddy/knit-hook.sh", "workbuddy/settings.json"] },
-  { host: "qoder", templates: ["qoder/knit-hook.sh", "qoder/settings.json"] },
-  { host: "agy", templates: [
-    "agents/plugins/knit/plugin.json",
-    "agents/plugins/knit/hooks.json",
-    "agents/plugins/knit/rules/AGENTS.md",
-  ] },
-] as const;
-
-type HostOptions = Partial<Record<(typeof HOST_BRIDGES)[number]["host"], boolean>>;
 
 // 编译后位于 dist/application/，往上两级是根目录。
 const TEMPLATE_DIR = new URL("../../assets/templates/", import.meta.url);
@@ -51,9 +39,10 @@ export interface InitResult {
 export function initProject(root: string, force = false, hosts: HostOptions = {}): InitResult {
   mkdirSync(join(root, ".knit", "standards"), { recursive: true });
   mkdirSync(join(root, ".knit", "tasks"), { recursive: true });
-  const bridges = HOST_BRIDGES.flatMap(({ host, templates }) => {
-    const items = templates.map((template) => ({ template, target: `.${template}`, restore: true }));
-    return hosts[host] || (force && items.some((item) => installedBridge(root, host, item.target))) ? items : [];
+  const bridges = HOST_SPECS.flatMap((host) => {
+    const items = host.templates.map((template) => ({ template, target: `.${template}`, restore: true }));
+    const shared = "sharedSettings" in host ? host.sharedSettings : undefined;
+    return hosts[host.id] || (force && items.some((item) => installedBridge(root, item.target, shared))) ? items : [];
   });
   const templates = [...CORE_TEMPLATES, ...bridges];
   const missing = templates.filter((item) => !existsSync(join(root, item.target)));
@@ -84,16 +73,17 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
   };
 }
 
-function installedBridge(root: string, host: keyof HostOptions, target: string): boolean {
+function installedBridge(root: string, target: string, shared?: SharedSettings): boolean {
   const path = join(root, target);
   if (!existsSync(path)) return false;
-  if (target !== `.${host}/settings.json`) return true;
-  const launcher = new RegExp(String.raw`(?:^|[/'"\s])\.${host}/knit-hook\.sh(?=["'\s]|$)`);
+  if (target !== shared?.target) return true;
+  const launcherPath = shared.launcher.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const launcher = new RegExp(String.raw`(?:^|[/'"\s])${launcherPath}(?=["'\s]|$)`);
   // 设置文件由项目共用，只有事件钩子引用启动脚本才表示启用了桥接。
   try {
     type Group = { hooks?: { type?: string; command?: string }[] };
     const settings: { hooks?: Record<string, Group[]> } | null = JSON.parse(readFileSync(path, "utf8"));
-    return ["SessionStart", "UserPromptSubmit", "PreToolUse"].some((event) => {
+    return shared.events.some((event) => {
       const groups = settings?.hooks?.[event];
       return Array.isArray(groups) && groups.some((group) => Array.isArray(group?.hooks) && group.hooks.some((hook) =>
         hook?.type === "command" && typeof hook.command === "string" && launcher.test(hook.command)));

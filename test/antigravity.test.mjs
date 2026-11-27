@@ -11,7 +11,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { AntigravityExecutionAdapter, cleanAgyRuntime } from "../dist/adapters/antigravity/execution.js";
-import { agyPreflight } from "../dist/adapters/antigravity/isolation.js";
+import { WORKSPACE_CONTROL, agyPreflight } from "../dist/adapters/antigravity/isolation.js";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
@@ -19,6 +19,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { buildTaskStatus, statusLines } from "../dist/application/session-context.js";
 import { ensureWorktree, taskWorktree } from "../dist/application/worktree.js";
 import { scanTasks } from "../dist/application/task-store.js";
+import { HOST_SPECS } from "../dist/contracts/host.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { cachedGitProject, commitAll, git } from "./helpers/git.mjs";
@@ -179,6 +180,13 @@ function addDetachedService(f) {
     service.unref();
   `);
 }
+
+test("工作树写保护覆盖所有登记的宿主目录并去重", () => {
+  assert.equal(WORKSPACE_CONTROL.length, new Set(WORKSPACE_CONTROL).size);
+  for (const host of HOST_SPECS) {
+    for (const dir of host.controlDirs) assert.ok(WORKSPACE_CONTROL.includes(dir), `${host.id}: ${dir}`);
+  }
+});
 
 test("显式 agent、模型和 effort 配置报告各自的行号", () => {
   const parsed = parseWorkflow(`version: 1\nstages:\n  - id: a\n    agent: other\n  - id: b\n    agent: antigravity\n    model: pi/model\n    thinking: minimal\n  - id: c\n    agent: pi\n    model: gemini-3\n`);

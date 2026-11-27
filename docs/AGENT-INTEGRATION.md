@@ -19,7 +19,9 @@
 
 ## 2. 接入主会话宿主
 
-1. **安装项目桥接。** 在 `assets/templates/` 维护桥接模板，在 `knit init` 登记宿主选项和生成物。采用命令型钩子时，在 CLI 登记 `knit hook <宿主> <事件>`。CLI 从标准输入读取事件 JSON，客户端适配器按宿主协议生成响应。[钩子入口](../src/cli/knit.ts)
+1. **安装项目桥接。** 在 `src/adapters/` 实现平台适配器，在 `assets/templates/` 添加桥接模板，然后在 `src/contracts/host.ts` 的 `HOST_SPECS` 增加一条声明。`id`、`optionDescription` 和 `optionOrder` 决定 `knit init --<id>` 选项及其帮助。`templates` 按生成顺序列出模板相对路径，安装时在路径前加 `.`。与项目共用设置文件的宿主用 `sharedSettings` 声明目标文件、启动脚本路径和事件名，供 `--force` 识别已有桥接。`controlDirs` 中的项目目录自动纳入 Antigravity 工作树写保护。[宿主注册表](../src/contracts/host.ts)
+
+   命令型宿主在 `hook` 中指定相对 `adapters/` 的编译模块路径、导出函数名、命令是否隐藏，以及返回 `null` 时是否静默。CLI 收到 `knit hook <id> <事件>` 后加载该模块，将事件名和标准输入中的 JSON 传给处理函数。打包检查自动核对登记的模板和编译钩子文件。[钩子入口](../src/cli/knit.ts) · [打包检查](../scripts/pack-check.mjs)
 
    普通 `knit init` 生成核心文件，首次启用宿主用对应选项，可以一次指定多个宿主，例如 `knit init --pi --agy --workbuddy --qoder`。`--force` 还会识别已启用的桥接，将有差异的桥接、流程和角色文件按相对路径备份到 `.knit/.runtime/backups/<时间>/` 后再恢复模板。已有配置、规范和任务由项目保留。WorkBuddy 或 Qoder 项目若已有自定义 `settings.json`，普通安装保留原文件，需要把模板中的三个钩子合入其中。[初始化实现](../src/application/init.ts) · [CLI 选项](../src/cli/project.ts) · [模板](../assets/templates/)
 2. **把上下文送进正确的会话。** 首轮提供 `discuss` 规范，选任务后提供任务状态、下一步和对应环节的补充规范。Pi 在每轮构建系统提示时加入这些内容。钩子宿主复用 `hostContext`，按项目、宿主和原生会话标识保存任务选择及内容摘要，只在 Knit 项目的上下文首次出现或内容变化时注入。可在同一项目打开两个会话，分别选中不同任务，确认各自只收到自己的任务状态。[Pi 扩展模板](../assets/templates/pi/extensions/knit.ts) · [共享宿主钩子](../src/application/host-hook.ts)

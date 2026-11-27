@@ -8,6 +8,7 @@ import { initProject } from "../application/init.js";
 import { buildSessionContext, contextLines } from "../application/session-context.js";
 import { CONFIG_PATH, legacyStandardCopies, loadConfig, loadStandards, readWorkflow, savePitfall } from "../application/project-config.js";
 import { taskWorktree } from "../application/worktree.js";
+import { HOST_SPECS, type HostOptions } from "../contracts/host.js";
 import { AGENT_SPECS, DEFAULT_AGENT, TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
@@ -16,16 +17,14 @@ import { findExecutable, gitSync } from "../infrastructure/process.js";
 import { fail, knitRoot, loadWorkflow, projectRoot, taskLabel } from "./shared.js";
 
 export function registerInitCommand(program: Command): void {
-  program
-    .command("init")
-    .description("生成项目流程、角色文件和配置；通用规范随安装包加载")
-    .option("--pi", "安装 Pi 项目桥接")
-    .option("--agy", "安装 Antigravity 项目插件")
-    .option("--qoder", "安装 Qoder 桌面端主会话钩子")
-    .option("--workbuddy", "安装 WorkBuddy 桌面端主会话钩子")
+  const init = program.command("init").description("生成项目流程、角色文件和配置；通用规范随安装包加载");
+  for (const host of HOST_SPECS.toSorted((a, b) => a.optionOrder - b.optionOrder)) {
+    init.option(`--${host.id}`, host.optionDescription);
+  }
+  init
     .option("--force", "备份并恢复流程、角色文件以及本次指定或已有的宿主桥接")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((options: { dir: string; force?: boolean; pi?: boolean; agy?: boolean; workbuddy?: boolean; qoder?: boolean }) => {
+    .action((options: HostOptions & { dir: string; force?: boolean }) => {
       const root = projectRoot(options.dir);
       const result = initProject(root, options.force, options);
       const lines = [

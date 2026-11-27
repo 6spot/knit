@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Command } from "commander";
+import { HOST_SPECS } from "../contracts/host.js";
 import { registerDeliverCommand } from "./deliver.js";
 import { registerContextCommand, registerInitCommand, registerStandardsCommands, registerWorkflowCommands } from "./project.js";
 import { registerRunCommands } from "./run.js";
@@ -46,19 +47,14 @@ hook.command("pi <event>", { hidden: true }).action(async (event: string) => {
   if (checked.reason) return fail([checked.reason]);
   process.stdout.write(JSON.stringify({ command: checked.command }));
 });
-hook.command("agy <event>").action(async (event: string) => {
-  const { agyHostHook } = await import("../adapters/antigravity/host-hook.js");
-  const result = await agyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-});
-hook.command("workbuddy <event>", { hidden: true }).action(async (event: string) => {
-  const { workbuddyHostHook } = await import("../adapters/workbuddy/host-hook.js");
-  const result = await workbuddyHostHook(event, JSON.parse(readFileSync(0, "utf8")));
-  if (result !== null) process.stdout.write(`${JSON.stringify(result)}\n`);
-});
-hook.command("qoder <event>", { hidden: true }).action(async (event: string) => {
-  const { qoderHostHook } = await import("../adapters/qoder/host-hook.js");
-  const result = await qoderHostHook(event, JSON.parse(readFileSync(0, "utf8")));
-  if (result !== null) process.stdout.write(`${JSON.stringify(result)}\n`);
-});
+for (const host of HOST_SPECS) {
+  if (!("hook" in host)) continue;
+  const route = host.hook;
+  hook.command(`${host.id} <event>`, { hidden: route.hidden }).action(async (event: string) => {
+    const adapter = await import(`../adapters/${route.module}`);
+    const handle: (event: string, input: unknown) => Promise<unknown> = adapter[route.exportName];
+    const result = await handle(event, JSON.parse(readFileSync(0, "utf8")));
+    if (result !== null || !route.omitNull) process.stdout.write(`${JSON.stringify(result)}\n`);
+  });
+}
 await program.parseAsync();

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { CORE_TEMPLATES, initProject } from "../dist/application/init.js";
 import { loadConfig, loadStandards } from "../dist/application/project-config.js";
 import { createTask, scanTasks } from "../dist/application/task-store.js";
+import { HOST_SPECS } from "../dist/contracts/host.js";
 import { parseTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
@@ -31,6 +32,16 @@ function emptyDir(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
+
+test("每个宿主都有可安装的模板，init 帮助列出对应选项", (t) => {
+  const help = knit(emptyDir(t), "init", "--help");
+  assert.equal(help.code, 0, help.stderr);
+  const options = new Map([...help.stdout.matchAll(/^  --([\w-]+) +([^\n]+)$/gm)].map((match) => [match[1], match[2]]));
+  for (const host of HOST_SPECS) {
+    assert.equal(options.get(host.id), host.optionDescription);
+    for (const path of host.templates) assert.ok(statSync(new URL(`../assets/templates/${path}`, import.meta.url)).isFile(), path);
+  }
+});
 
 test("在空目录里初始化", (t) => {
   const dir = emptyDir(t);

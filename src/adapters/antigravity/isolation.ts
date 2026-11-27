@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpat
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { HOST_SPECS } from "../../contracts/host.js";
 import type { ToolCapability } from "../../contracts/workflow.js";
 import { findExecutable, gitSync } from "../../infrastructure/process.js";
 
@@ -30,7 +31,9 @@ const HOME_EXTERNAL = [
 const startupSource = (path: string) => !TEXT_SOURCES.has(basename(path));
 const WORKSPACE_STARTUP = WORKSPACE_EXTERNAL.filter(startupSource);
 const HOME_STARTUP = HOME_EXTERNAL.filter(startupSource);
-export const WORKSPACE_CONTROL = [".git", ".knit", ".pi", ".workbuddy", ".qoder", ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json"];
+export const WORKSPACE_CONTROL = [...new Set([
+  ".git", ".knit", ...HOST_SPECS.flatMap<string>((host) => host.controlDirs), ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json",
+])];
 
 export function agyExecutable(): string | null {
   return findExecutable(process.env.KNIT_AGY_BIN ?? "agy");

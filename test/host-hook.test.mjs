@@ -19,6 +19,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { buildSessionContext, contextLines } from "../dist/application/session-context.js";
 import { createTask } from "../dist/application/task-store.js";
+import { HOST_SPECS } from "../dist/contracts/host.js";
 import { knit, project } from "./helpers/cli.mjs";
 import { agents, readyTask, runProject } from "./helpers/run.mjs";
 
@@ -46,6 +47,14 @@ function preTool(payload, command) {
     CommandLine: command, Cwd: payload.cwd, WaitMsBeforeAsync: 5000,
   } } });
 }
+
+test("命令型宿主的编译模块导出登记的钩子函数", async () => {
+  for (const host of HOST_SPECS) {
+    if (!host.hook) continue;
+    const adapter = await import(`../dist/adapters/${host.hook.module}`);
+    assert.equal(typeof adapter[host.hook.exportName], "function", `${host.id}: ${host.hook.exportName}`);
+  }
+});
 
 test("普通命令不加载 shell 解析器，Knit 命令仍使用既有解析及改写", async (t) => {
   const bridgeTemplate = await import("../assets/templates/pi/extensions/knit.ts");
