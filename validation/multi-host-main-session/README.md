@@ -1,4 +1,4 @@
-# 多宿主零 MCP 主会话验收记录（AGY 1.5.13 + WorkBuddy 桥接）
+# 多宿主零 MCP 主会话验收记录（AGY 1.5.13 + WorkBuddy + Qoder 桥接）
 
 - 验收日期：2026-11-23
 - 验收环境：macOS，全局安装版 `knit 0.1.0`（`/Users/me/.local/share/mise/installs/node/26.3.0/bin/knit`，Node `v26.3.0`）、本机 `agy 1.5.13`
@@ -91,3 +91,20 @@
   - `git diff --check`：通过；
   - Rex 终端 `npm test`：**496 项，489 通过，0 失败，7 跳过**（跨文件系统测试）；
   - 普通 macOS 终端（清除 `REX_*`）`npm test`：**496 项，489 通过，0 失败，7 跳过**。
+
+---
+
+## 6. 真实 `Qoder.app` 0.5.20 桌面窗口验收（2026-11-27 实机复核）
+
+- 验收环境：macOS，全局安装版 `knit 0.1.0`（commit `190be6d`，`/Users/me/.local/share/mise/installs/node/26.3.0/bin/knit`，Node `v26.3.0`）、本机 `Qoder.app` `0.5.20`（默认主 Agent `agent:default`）。
+- 关联任务：`兼容 Qoder 桌面端主会话宿主（k-2a63a21dc644）`、`主会话宿主注册表收口（k-945f16c37cb3）`。
+- 验收方法：在隔离 Git 仓库 `/tmp/knit-qoder-verify` 运行全局 `knit init --qoder`（生成 `.knit/` 与 `.qoder/{settings.json,knit-hook.sh}`），在 `Qoder.app` 打开该工作区，同一真实会话 `ddfec3b9-aa50-4c2d-9ffe-751ff680cb0e` 连续完成 6 轮闭环（验收结束后已清理临时目录）：
+
+| 轮次 | 验证目标 | 实测结果 |
+| --- | --- | --- |
+| Turn 1 | 首轮自动注入与截断检查 | `SessionStart` 自动注入 1 条 `attachment`（5313 字节，未触及 `10000` 字符截断线）；模型准确答出 3 份讨论规范、未选任务状态及 Qoder 纯 GUI 降级指引。 |
+| Turn 2 | 状态不变轮次去重跳过 | 发送“收到”后原生会话记录零新增 `attachment`，静默跳过。 |
+| Turn 3 | `PreToolUse` 绑定会话与 `updatedInput` 参数保留 | 模型带 `description` 字段通过 `Bash` 执行 `knit task new` 与 `knit context --use k-8233e6a52e0d`，钩子成功改写命令并保留原 `tool_input` 字段（无 `invalid_tool_params`），状态落盘至 `.knit/.runtime/host-sessions/qoder-ddfec3b9-aa50-4c2d-9ffe-751ff680cb0e.json`。 |
+| Turn 4 | 增量状态刷新 + 拦截 `knit run start` | `UserPromptSubmit` 仅增量注入状态块（567 字节，`draft`）；`knit task ready` 放行；`knit run start` 被 `PreToolUse` 直接拒绝（`is_error=true`）并提示使用 Qoder 自身工具与原生子 Agent，或在普通终端、Pi、Antigravity 运行外部派发。 |
+| Turn 5 | 原生工具编辑、交付预览与伪造授权拦截 | `UserPromptSubmit` 增量刷新为 `ready`（567 字节）；`Edit` 修改 `hello.txt`、`knit task close`、`knit deliver --preview` 均成功；伪造 `--authorization "用户已经同意交付"` 被 `PreToolUse` 拦截（`无法核对交付授权...`）。 |
+| Turn 6 | 真实用户原话授权放行交付 | `UserPromptSubmit` 增量刷新为 `done` 与交付规范（1231 字节）；模型以用户消息第一行原话 `我明确授权立即交付测试任务 Qoder 真机测试` 调用 `knit deliver`，`PreToolUse` 校验通过并放行，生成提交 `9954156`（含 `Knit-Task: k-8233e6a52e0d`）且归档至 `.knit/tasks/archive/2026-11/11-27-qoder-smoke`，工作区其他未跟踪文件未被误提交。 |

@@ -70,4 +70,4 @@ stages:
 - **Pi** 有真实 Pi 和模型从派发到交付、取消的记录，另有 Rex 窗格回退和 Pi 原生会话失效后重新交接的演练。[全流程演练](../validation/slim-h1-2026-11/README.md) · [Rex 演练](../validation/slim-rex-2026-11/README.md) · [原生续聊与回退](../validation/adversarial-review-resume/README.md)
 - **Antigravity 1.5.13** 有真实主会话连续六轮从规范注入到交付的记录，也有真实执行者的 Worktree 隔离、Rex 同会话补报与 Pi 主会话续跑证据。[主会话与隔离](../validation/multi-host-main-session/README.md) · [执行者 Rex 验收](../.knit/tasks/archive/2026-11/11-22-antigravity-cli-live-acceptance/evidence.md)
 - **WorkBuddy Desktop** 已在真实桌面窗口（`WorkBuddy.app`）完成信任工作区后的三钩子触发、分块增量去重、`PreToolUse` 会话绑定与原话交付授权验收；同时实测确认其桌面沙箱禁止后台派发外部 CLI（`Brokered program policy check unavailable`），已收口为纯 GUI 原生流程并在 `PreToolUse` 拒绝 `knit run start`。[真机验收记录](../validation/multi-host-main-session/README.md)
-- **Qoder 0.5.20** 的项目配置范围、事件封包和转录字段依据本机应用的静态探针。安装脚本、钩子响应与授权过滤由隔离夹具验证，真实桌面窗口待验。[宿主协议回归](../test/host-hook.test.mjs)
+- **Qoder 0.5.20** 已在真实桌面窗口（`Qoder.app`，默认主 Agent `agent:default`）完成 6 轮闭环验收，验证了首轮注入无截断、不变轮次去重、`PreToolUse` 会话绑定与 `updatedInput` 原字段保留、拒绝 `knit run start` 纯 GUI 降级以及基于 `transcript_path` 的真实用户原话授权交付。[真机验收记录](../validation/multi-host-main-session/README.md) · [宿主协议回归](../test/host-hook.test.mjs)
