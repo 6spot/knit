@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import type { CallExpr, Word, WordPart } from "sh-syntax";
 import { shellQuote } from "../infrastructure/process.js";
 
-const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>，把 --preview 放在动态参数之前";
+const quoteHint = "请直接运行 knit deliver <id> --authorization '用户同意交付的原话'，填写当前会话用户消息的整条或完整一行。只需预览时用 knit deliver --preview <id>，把 --preview 放在动态任务 ID 之前。文案可以用单引号按原样传入，或用 --message-file <文件> 读取";
 
 type HostCommand =
   | { kind: "session"; offset: number }
@@ -99,12 +99,15 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
       break;
     }
     const flag = word?.split("=", 1)[0] ?? /^"?(--[\w-]+)=/.exec(input.raw)?.[1];
-    if (flag && ["--dir", "--authorization", "--message-file", "--use"].includes(flag)) {
+    if (flag && ["--dir", "--authorization", "--message", "--message-file", "--use"].includes(flag)) {
       const arg = word === flag ? words[++i] : {
         raw: input.raw.startsWith(`${flag}=`) ? input.raw.slice(flag.length + 1) : input.raw,
         value: word?.slice(flag.length + 1) ?? null,
       };
-      if (arg?.value === null && !scalar.test(arg.raw)) state.uncertain = true;
+      if (arg?.value === null && !scalar.test(arg.raw)) {
+        state.uncertain = true;
+        if (flag === "--message") state.preview = false;
+      }
       flags.set(flag, arg?.value ?? null);
       continue;
     }
@@ -113,7 +116,7 @@ function knitArguments(words: { raw: string; value: string | null }[]) {
       operands.push(word);
       continue;
     }
-    // 已识别的布尔开关不会被后面的动态参数撤销。
+    // 在动态任务 ID 之前识别的预览开关仍然有效。
     if (word === "--preview" && !state.uncertain) state.preview = true;
     flags.set(word, null);
   }

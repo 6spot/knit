@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Command } from "commander";
+import { Option, type Command } from "commander";
 import { deliverTask, type DeliveryOptions, type DeliveryPreview, type DeliveryResult } from "../application/delivery.js";
 import { shellQuote } from "../infrastructure/process.js";
 import { fail, integrationLines, knitRoot, taskLabel } from "./shared.js";
@@ -44,7 +44,8 @@ export function registerDeliverCommand(program: Command): void {
     .description("交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次")
     .option("--preview", "只列出会做什么，什么都不改")
     .option("--authorization <引用>", "用户是在哪条消息里同意交付的")
-    .option("--message-file <文件>", "提交文案")
+    .addOption(new Option("--message <文案>", "提交文案").conflicts("messageFile"))
+    .option("--message-file <文件>", "从文件读取提交文案")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: DeliveryOptions & { dir: string }) => {
       const root = knitRoot(options.dir);
@@ -52,7 +53,10 @@ export function registerDeliverCommand(program: Command): void {
       const result = deliverTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
       if (result.kind === "rolledBack") {
-        if (result.reason === "move") throw result.error;
+        if (result.reason === "move") return fail([
+          result.error instanceof Error ? result.error.message : String(result.error),
+          `移动任务目录失败，交付已经撤回：任务目录仍在原位置 ${result.taskDir}，状态是 done`,
+        ]);
         return fail([result.error.trimEnd(), `Git 没有接受这次提交，交付已经撤回：任务目录在 ${result.taskDir}，状态是 done`]);
       }
       const lines = result.kind === "preview" ? previewLines(id, result) : deliveredLines(root, id, result);
@@ -108,7 +112,7 @@ function previewLines(id: string, result: Extract<DeliveryResult, { kind: "previ
     ...(preview.commit === null
       ? []
       : message === undefined
-        ? ["提交文案: 没有给；交付时加 --message-file <文件>"]
+        ? ["提交文案: 没有给；交付时加 --message <文案> 或 --message-file <文件>"]
         : ["提交文案:", ...indented(message)]),
   ];
 }

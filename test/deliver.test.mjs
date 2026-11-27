@@ -344,9 +344,11 @@ test("不在 Git 仓库里只说明归档", (t) => {
   assert.equal(preview.kind, "preview");
   assert.equal(preview.preview.commit, null);
   assert.equal(preview.preview.archiveDir, archived(task));
+  assert.deepEqual(deliverTask(dir, task.id, { preview: true, message: "文案" }), preview);
   assert.deepEqual(deliverTask(dir, task.id, { preview: true, messageFile: join(dir, "nope.txt") }), preview);
   assert.equal(existsSync(join(dir, task.dir, "task.md")), true);
   assert.equal(existsSync(join(dir, archived(task))), false);
+  assert.equal(deliverTask(dir, task.id, { authorization, message: "   " }).kind, "delivered");
 });
 
 test("不能交付的任务被拒绝", (t) => {
@@ -466,7 +468,26 @@ test("别的已经暂存的文件不受影响", (t) => {
   assert.equal(git(dir, "status", "--porcelain"), "M  other.txt");
 });
 
-test("没有提交文案时拒绝", (t) => {
+test("直接传入多行提交文案时，预览只读，交付按预览文案提交", (t) => {
+  const dir = gitProject(t);
+  const task = doneTask(dir);
+  commitAll(dir, "done");
+  const head = git(dir, "rev-parse", "HEAD");
+  const message = "feat: 加问候语\n\n说明一行";
+  const preview = knit(dir, "deliver", task.id, "--preview", "--message", message);
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.match(preview.stdout, /提交文案:\n  feat: 加问候语\n\n  说明一行\n$/);
+  assert.equal(git(dir, "rev-parse", "HEAD"), head);
+  assert.equal(git(dir, "status", "--porcelain"), "");
+
+  const delivered = knit(dir, "deliver", task.id, "--authorization", authorization, "--message", message);
+  assert.equal(delivered.code, 0, delivered.stderr);
+  assert.equal(existsSync(join(dir, task.dir)), false);
+  assert.match(git(dir, "show", `HEAD:${archived(task)}/task.md`), /^status: delivered$/m);
+  assert.equal(git(dir, "log", "-1", "--format=%B"), `${message}\n\nKnit-Task: ${task.id}`);
+});
+
+test("提交文案缺失、为空或来源冲突时拒绝", (t) => {
   const dir = gitProject(t);
   const task = doneTask(dir);
   const stateOf = () => [
@@ -477,11 +498,24 @@ test("没有提交文案时拒绝", (t) => {
   const before = stateOf();
   const blank = messageFile(t, " \n\n");
 
-  for (const [messageFile, problem] of [
-    [undefined, "在 Git 仓库里交付要给提交文案：加 --message-file <文件>"],
-    [blank, `提交文案是空的：${blank}`],
-    [`${blank}.nope`, `读不到提交文案：${blank}.nope`],
-  ]) assert.deepEqual(deliverTask(dir, task.id, { authorization, messageFile }), { kind: "refused", problems: [problem] });
+  const preview = knit(dir, "deliver", task.id, "--preview");
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.match(preview.stdout, /交付时加 --message <文案> 或 --message-file <文件>/);
+  for (const [options, problem] of [
+    [{}, "在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"],
+    [{ messageFile: blank }, `提交文案是空的：${blank}`],
+    [{ messageFile: `${blank}.nope` }, `读不到提交文案：${blank}.nope`],
+    [{ message: "" }, "提交文案是空的：--message"],
+    [{ message: "", messageFile: blank }, "--message 与 --message-file 只能选一个"],
+  ]) assert.deepEqual(deliverTask(dir, task.id, { authorization, ...options }), { kind: "refused", problems: [problem] });
+  for (const [args, problem] of [
+    [["--message", "   "], /提交文案是空的/],
+    [["--message", "文案", "--message-file", blank], /--message .*cannot be used with .*--message-file/],
+  ]) {
+    const refused = knit(dir, "deliver", task.id, "--authorization", authorization, ...args);
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, problem);
+  }
   assert.deepEqual(stateOf(), before);
 });
 

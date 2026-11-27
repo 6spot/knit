@@ -45,19 +45,23 @@ export interface DeliveryPreview {
 export interface DeliveryOptions {
   readonly preview?: boolean;
   readonly authorization?: string;
+  readonly message?: string;
   readonly messageFile?: string;
 }
 
 export type DeliveryResult = TaskRefusal
   | { kind: "preview"; preview: DeliveryPreview; title: string; taskDir: string; result: string | null;
       message: string | undefined; mergeBranch: string | null }
-  | { kind: "rolledBack"; reason: "move"; error: unknown }
+  | { kind: "rolledBack"; reason: "move"; error: unknown; taskDir: string }
   | { kind: "rolledBack"; reason: "commit"; error: string; taskDir: string }
   | { kind: "delivered"; title: string; archiveDir: string; archiveRoot: string; worktree: TaskWorktree | null;
       commit: Exclude<DeliveryCommit, { kind: "refused" }> | null; integration: WorktreeIntegration | null;
       cleanup: ReturnType<typeof cleanArchivedRuns> };
 
 export function deliverTask(root: string, id: string, options: DeliveryOptions): DeliveryResult {
+  if (options.message !== undefined && options.messageFile !== undefined) {
+    return { kind: "refused", problems: ["--message 与 --message-file 只能选一个"] };
+  }
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
@@ -75,19 +79,19 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (!options.preview && authorization === "") {
     return { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"] };
   }
-  if (!options.preview && git && options.messageFile === undefined) {
-    return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message-file <文件>"] };
+  if (!options.preview && git && options.message === undefined && options.messageFile === undefined) {
+    return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"] };
   }
   const preview = options.preview ? previewDelivery(root, stored) : null;
   const file = git ? options.messageFile : undefined;
   if (file !== undefined && !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     return { kind: "refused", problems: [`读不到提交文案：${file}`] };
   }
-  const message = file === undefined ? undefined : readFileSync(file, "utf8").trim();
+  const message = git ? (file === undefined ? options.message : readFileSync(file, "utf8"))?.trim() : undefined;
   if (preview !== null) {
     return { kind: "preview", preview, title: document.frontmatter.title, taskDir: stored.dir, result: document.result, message, mergeBranch };
   }
-  if (git && message === "") return { kind: "refused", problems: [`提交文案是空的：${file}`] };
+  if (message === "") return { kind: "refused", problems: [`提交文案是空的：${file ?? "--message"}`] };
 
   const workspace = worktree?.path ?? root;
   const archiveRoot = deliveryArchiveRoot(root, stored.dir, worktree);
@@ -124,7 +128,7 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
     moveDirectory(source, destination);
   } catch (error) {
     rollback();
-    return { kind: "rolledBack", reason: "move", error };
+    return { kind: "rolledBack", reason: "move", error, taskDir: stored.dir };
   }
   const commit = git ? commitDelivery(workspace, {
     taskId: id, taskDir: archiveRoot === workspace ? stored.dir : null, archiveDir,

@@ -281,6 +281,9 @@ test("交付只接受本次调用的预览选项或转录中完整的用户原�
   writeFileSync(payload.transcriptPath, [user("先不要交付"), user("同意交付这个任务"), user("第一行\n  同意交付 A  "),
     row("模型原话", "PLANNER_RESPONSE", "MODEL")].join("\n"));
   for (const command of ["git status", "command -v knit deliver", "echo 'knit deliver id'", "knit deliver id --preview", "knit deliver id --authorization='同意交付这个任务'",
+    'knit deliver id --message "fix: 文案含空格" --preview',
+    'knit deliver id --message "fix: 文案含空格" --authorization "同意交付这个任务"',
+    'knit deliver id --message="fix: 文案含空格" --authorization "同意交付这个任务"',
     'knit deliver --preview "$TASK_ID"', 'knit deliver id --dir "$PWD/sub dir" --preview',
     `knit deliver id --dir="$PWD/sub dir" --authorization '同意交付这个任务'`,
     "printf 中文 && env DEBUG=1 knit deliver --dir '目录 A' id --authorization ' 同意交付 A '",
@@ -289,6 +292,12 @@ test("交付只接受本次调用的预览选项或转录中完整的用户原�
     "A=1 knit deliver id --authorization '第一行\n  同意交付 A  '"]) assert.deepEqual(await preTool(payload, command), { decision: "allow" }, command);
   for (const command of ["knit deliver id", "knit deliver id --authorization 交付", "knit deliver id --authorization 伪造",
     "knit deliver id --authorization 元数据", "knit deliver id --authorization 模型原话", "knit deliver id --authorization=$QUOTE",
+    'knit deliver id --message="fix: 文案含空格" --authorization "原话不匹配"',
+    'knit deliver id --message "--preview"',
+    'knit deliver id --message $(printf dynamic) --authorization "同意交付这个任务"',
+    'knit deliver id --message=$(printf dynamic) --preview',
+    'knit deliver id --preview --message=$(printf dynamic)',
+    'knit deliver id --preview --message $TEXT --authorization "同意交付这个任务"',
     "knit deliver id --authorization 交付 --message-file '--preview'", "knit deliver id --preview && knit deliver other",
     "knit deliver id --authorization '同意交付这个任务' | env A=1 knit --dir '目录 A' deliver other",
     "echo $(knit deliver id)", `bash -lc 'knit deliver id'`, "knit deliver id --authorization '未闭合"]) {

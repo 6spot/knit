@@ -519,6 +519,8 @@ describe("独立仓库中的归档查询与交付", { concurrency: 3 }, () => {
   const refused = deliver();
 
   assert.equal(refused.kind, "rolledBack");
+  assert.equal(refused.reason, "move");
+  assert.equal(refused.taskDir, task.dir);
   assert.match(String(refused.error), /ENOTDIR/);
   assert.deepEqual(state(), before);
   assert.equal(JSON.parse(taskFiles(root, task)[1]).authorization, null);
@@ -573,13 +575,17 @@ test("旧任务目录无法移到备份位置时原样撤回", async (t) => {
 });
 
 test("归档目标已被非空目录占用时保留原目录并撤回", async (t) => {
-  const { root, task, worktree, archive, deliver } = await completed(t, true);
+  const { root, task, worktree, archive, cli } = await completed(t, true);
   mkdirSync(join(worktree.path, archive), { recursive: true });
   writeFileSync(join(worktree.path, archive, "existing.txt"), "leave this alone\n");
   const before = [taskFiles(root, task), taskFiles(worktree.path, task), git(worktree.path, "status", "--porcelain"), git(worktree.path, "rev-parse", "HEAD")];
-  const refused = deliver();
-  assert.equal(refused.kind, "rolledBack");
-  assert.match(String(refused.error), /ENOTEMPTY|EEXIST/);
+  const refused = await cli();
+  assert.equal(refused.code, 1);
+  assert.equal(refused.stdout, "");
+  const [cause, ...notice] = refused.stderr.trimEnd().split("\n");
+  assert.match(cause, /ENOTEMPTY|EEXIST/);
+  assert.deepEqual(notice, [`移动任务目录失败，交付已经撤回：任务目录仍在原位置 ${task.dir}，状态是 done`]);
+  assert.match(taskFiles(root, task)[0], /^status: done$/m);
   assert.deepEqual([taskFiles(root, task), taskFiles(worktree.path, task), git(worktree.path, "status", "--porcelain"), git(worktree.path, "rev-parse", "HEAD")], before);
   assert.equal(readFileSync(join(worktree.path, archive, "existing.txt"), "utf8"), "leave this alone\n");
   assert.equal(readdirSync(worktree.path).some((name) => name.startsWith(".knit-delivery-")), false);

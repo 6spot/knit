@@ -514,8 +514,8 @@ knit context --use <任务> | --unuse       选中或清除当前宿主会话的
 knit hook agy <事件>                     Antigravity 插件钩子的入口
 knit hook workbuddy <事件>               WorkBuddy 项目钩子的隐藏入口
 knit hook qoder <事件>                   Qoder 项目钩子的隐藏入口
-knit deliver <任务> --authorization <引用> [--message-file <文件>]
-knit deliver <任务> --preview [--message-file <文件>]
+knit deliver <任务> --authorization <引用> [--message <文案> | --message-file <文件>]
+knit deliver <任务> --preview [--message <文案> | --message-file <文件>]
 knit standards list
 knit standards pitfalls <环节>
 knit standards record --section <分区> --title <标题> --body <正文>
