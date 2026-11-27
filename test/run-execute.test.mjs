@@ -41,6 +41,22 @@ function reviewRun(dir, task) {
   return reviewAgain(dir, task);
 }
 
+test("损坏或消失的 before.json 将执行记为失败", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  for (const content of ["{", '{"head":null,"files":{"file":1}}', null]) {
+    const run = prepare(root, task);
+    const file = join(root, run.dir, "before.json");
+    if (content === null) rmSync(file);
+    else writeFileSync(file, content);
+    assert.deepEqual(finishRun({ agents, root, taskId: task.id, workflow: workflowOf(root), runId: run.id, verdict: "pass", failure: null, sessionFile: null }), []);
+    const ended = lastRun(root, task);
+    assert.ok(ended.endedAt && ended.resumeBlocked);
+    assert.match(ended.failure, /before\.json/);
+    assert.equal(ended.verdict, null);
+  }
+});
+
 for (const mode of ["开窗失败", "启动超时"]) {
   test(`注入的窗格宿主${mode}时回退后台，并通过同一注册表结算`, async (t) => {
     const root = runProject(t);

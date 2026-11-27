@@ -27,10 +27,18 @@ export function countedRuns(record: TaskRecord): TaskRun[] {
 
 /** 续聊候选独立于状态推进；违规后不能借更早的记录恢复同一原生会话。 */
 export function resumableRun(record: TaskRecord, target: { stage: string; executor?: string; agent: AgentName }): TaskRun | undefined {
-  const prior = record.runs.findLast((run) => run.endedAt !== null && run.requirementDigest === record.confirmedDigest &&
-    run.stage === target.stage && run.executor === target.executor && (run.agent ?? DEFAULT_AGENT) === target.agent &&
-    (run.resumeId || preventsResume(run)));
-  return prior?.resumeId && !preventsResume(prior) ? prior : undefined;
+  return resumeDecision(record, target).run;
+}
+
+export function resumeDecision(record: TaskRecord, target: { stage: string; executor?: string; agent: AgentName }) {
+  const matching = record.runs.filter((run) => run.endedAt !== null && run.stage === target.stage &&
+    run.executor === target.executor && (run.agent ?? DEFAULT_AGENT) === target.agent);
+  const prior = matching.findLast((run) => run.requirementDigest === record.confirmedDigest && (run.resumeId || preventsResume(run)));
+  if (prior) return preventsResume(prior) ? { reason: "上次执行已阻断续聊", run: undefined } : { reason: null, run: prior };
+  const last = matching.at(-1);
+  if (!last && !record.runs.some((run) => run.stage === target.stage && run.endedAt !== null)) return { reason: null, run: undefined };
+  const reason = last && last.requirementDigest !== record.confirmedDigest ? "需求摘要已变更" : "没有匹配的可恢复执行";
+  return { reason, run: undefined };
 }
 
 function preventsResume(run: TaskRun): boolean {

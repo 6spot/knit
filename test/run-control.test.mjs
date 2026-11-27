@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { PiExecutionAdapter } from "../dist/adapters/pi/execution.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { loadConfig } from "../dist/application/project-config.js";
-import { DEFAULT_STOP_GRACE_MS, cancelRun, startRun, stopRunProcesses, waitRun } from "../dist/application/run-control.js";
+import { DEFAULT_STOP_GRACE_MS, cancelRun, startRun, stopRunProcesses, taskRunLockHeld, waitRun } from "../dist/application/run-control.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { RUNS_DIR, prepareRun } from "../dist/application/run-prepare.js";
 import { buildTaskStatus, statusLines } from "../dist/application/session-context.js";
@@ -276,6 +276,36 @@ for (const count of [1, 2]) test(`${count} 个执行器刚入账时的 status、
     if (lastRun(root, task).endedAt === null) await cancelRun({ ...input, agents });
     await pending.wait;
   }
+});
+
+test("缺失的只读任务锁视为未持有，损坏锁给出恢复位置", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const runtime = join(root, ".knit/.runtime");
+  const lock = join(runtime, `${task.id}.lock`);
+  rmSync(lock, { force: true });
+  assert.equal(taskRunLockHeld(root, task.id), false);
+  mkdirSync(runtime, { recursive: true });
+  writeFileSync(lock, Buffer.alloc(200, 65));
+  assert.throws(() => taskRunLockHeld(root, task.id), /任务锁 .*\.lock 已损坏.*移走/);
+});
+
+test("批次取消分别报告自然结束和被取消的成员，损坏快照仍可结算", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const source = "version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}]\n";
+  writeFileSync(join(root, ".knit/workflow.yaml"), source);
+  const input = { root, taskId: task.id, workflow: parseWorkflow(source).workflow, config: loadConfig(root).config, model: null };
+  const result = startRun({ ...input, workerCommand: (run) => run.executor === "a" ? ["/bin/sh", "-c", "exit 0"] : [process.execPath, "-e", "setTimeout(() => {}, 10000)"] });
+  assert.deepEqual(result.problems, []);
+  const [first, second] = result.runs;
+  assert.deepEqual(finishRun({ ...input, agents, runId: first.id, failure: null, verdict: null, sessionFile: null }), []);
+  writeFileSync(join(root, second.dir, "before.json"), "{");
+  const cancelled = knit(root, "run", "cancel", task.id);
+  assert.equal(cancelled.code, 0, cancelled.stderr);
+  assert.ok(cancelled.stdout.includes(`${first.id} 取消前已结束`));
+  assert.ok(cancelled.stdout.includes(`已取消 加问候语（${task.id}）的执行 ${second.id}`));
+  assert.match(lastRun(root, task).failure, /已取消.*before\.json/);
 });
 
 test("两次轮询之间派发下一环节，原等待返回所等批次的全部报告", async (t) => {
@@ -863,7 +893,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     const dir = runProject(suite);
     const task = readyTask(dir);
     setupConfig(dir, [
-      nodeCommand("require('node:fs').writeFileSync('setup.txt', 'first')"),
+      nodeCommand("require('node:fs').writeFileSync('setup.txt', 'first', { flag: 'wx' }); process.stdout.write('P'.repeat(2 ** 20))"),
       nodeCommand("setTimeout(() => require('node:fs').appendFileSync('setup.txt', ':second:' + process.env.KNIT_SETUP_TEST), 100)"),
     ]);
     const pi = fakePi(t, dir, { KNIT_SETUP_TEST: "inherited" });
@@ -878,8 +908,8 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     assert.equal(existsSync(join(dir, "setup.txt")), false);
     assert.deepEqual(lastRun(dir, task).changedPaths, ["worker.txt"]);
 
-    // 若复用时误跑，第二条会追加，第一条会以 19 退出。
-    setupConfig(dir, [nodeCommand("process.exit(19)"), nodeCommand("require('node:fs').appendFileSync('setup.txt', ':again')")]);
+    assert.ok(started.stderr.startsWith("P".repeat(65536)));
+    assert.ok(Buffer.byteLength(started.stderr) < 65700);
     pi.script({ texts: ['```json\n{"verdict":"changes_requested"}\n```'] });
     const review = await pi.knit("run", "start", task.id);
     assert.equal(review.code, 0, review.stderr);
@@ -927,7 +957,7 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     const dir = runProject(suite);
     const task = readyTask(dir);
     const marker = join(process.env.KNIT_HOME, "must-not-run");
-    const failedCommand = nodeCommand("console.log('setup stdout'); console.error('setup stderr'); process.exit(23)");
+    const failedCommand = nodeCommand("console.log('setup stdout'); process.stderr.write(Buffer.alloc(1024 * 1024, 88), () => console.error('setup stderr')); process.exitCode = 23");
     setupConfig(dir, [
       nodeCommand("require('node:fs').writeFileSync('untracked.txt', 'unfinished'); require('node:fs').mkdirSync('node_modules')"),
       failedCommand,
@@ -945,6 +975,8 @@ test("独立仓库中的后台派发", { concurrency: 6 }, async (suite) => {
     assert.match(refused.stderr, /退出码[：: ]+23/);
     assert.match(refused.stderr, /setup stdout\n/);
     assert.match(refused.stderr, /setup stderr\n/);
+    assert.ok(Buffer.byteLength(refused.stderr) < 2 * 65536 + 1024);
+    assert.ok(refused.stderr.endsWith("setup stderr\n\n") || refused.stderr.endsWith("setup stderr\n"));
     assert.equal(existsSync(marker), false);
     assert.equal(existsSync(worktreeOf(dir, task)), false);
     assert.equal(git(dir, "branch", "--list", `knit/${basename(task.dir)}`), "");

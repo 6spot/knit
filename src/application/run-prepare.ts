@@ -8,12 +8,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, dirname, join, resolve } from "node:path";
 import { RUNS_DIR, TASK_ID_PATTERN, type TaskRecord, type TaskRun } from "../contracts/task.js";
 import { AGENT_SPECS, DEFAULT_AGENT, type AgentName, type ThinkingLevel, type ToolCapability } from "../contracts/workflow.js";
-import { completedBatches, dispatchLimit, nextStep, resumableRun, type NextStep } from "../domain/progress.js";
+import { completedBatches, dispatchLimit, nextStep, resumeDecision, type NextStep } from "../domain/progress.js";
 import { stageRules } from "../domain/report.js";
 import { currentStatus, parseTaskDocument, requirementDigest } from "../domain/task.js";
 import { validateAgentTarget, workflowPrompts, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
-import { gitSync } from "../infrastructure/process.js";
+import { fileURLToPath } from "node:url";
+import { sha256Text } from "../contracts/primitives.js";
+import { gitSync, shellQuote } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./project-config.js";
 import { appendReviewChanges, assembleHandoff, resumeMessage, reviewChanges, type HandoffReport } from "./handoff.js";
 import { logSessionMode } from "./run-execute.js";
@@ -83,7 +85,19 @@ export function prepareRun(input: PrepareRunInput, startWorker?: (run: PreparedR
     const { document, record } = stored;
     if (document === null || record === null) return refuse(...stored.problems);
     const prepared = prepareStage(input, { root, stored, document, record });
-    if (prepared.run && startWorker) prepared.runs.forEach(startWorker);
+    if (!prepared.run || !startWorker) return prepared;
+    for (const [index, run] of prepared.runs.entries()) {
+      try { startWorker(run); }
+      catch (error) {
+        const failure = `执行者启动失败：${String(error)}`;
+        const pending = new Set(prepared.runs.slice(index).map((member) => member.id));
+        const latest = findTask(root, taskId, { includeWorktrees: false });
+        if (!latest?.record) return refuse(failure, ...(latest?.problems ?? ["无法读取执行记录"]));
+        const endedAt = new Date().toISOString();
+        return refuse(failure, ...saveTask(root, latest, null, { ...latest.record,
+          runs: latest.record.runs.map((item) => pending.has(item.id) ? { ...item, endedAt, failure } : item) }));
+      }
+    }
     return prepared;
   }, () => refuse(`任务 ${taskId} 正在准备或结算执行，请稍后重试`));
 }
@@ -129,7 +143,8 @@ function prepareStage(input: PrepareRunInput, task: LoadedTask): PrepareRunResul
 function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: WorkflowStage, targets: readonly ReturnType<typeof resolveExecutor>[]): PrepareRunResult {
   const { root, stored, document, record } = task;
   const worktree = taskWorktree(root, stored.dir);
-  const checkIsolation = () => targets.flatMap(({ agent }) => input.checkAgent?.(agent, stage.tools, worktree) ?? []);
+  const agents = [...new Set(targets.map((target) => target.agent))];
+  const checkIsolation = () => agents.flatMap((agent) => input.checkAgent?.(agent, stage.tools, worktree) ?? []);
   const unavailable = checkIsolation();
   if (unavailable.length) return refuse(...unavailable);
   const preparedWorktree = ensureWorktree(root, worktree);
@@ -139,7 +154,12 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
 
   const batches = completedBatches(record);
   const previous = batches.at(-1) ?? [];
-  const setup = preparedWorktree.created ? input.config.worktree?.setup ?? [] : [];
+  const metadata = gitSync(["rev-parse", "--absolute-git-dir"], worktree.path);
+  if (metadata.code !== 0) return refusePrepared([metadata.stderr]);
+  const marker = join(metadata.stdout.trimEnd(), "knit-setup.sha256");
+  const commands = input.config.worktree?.setup ?? [];
+  const digest = sha256Text(JSON.stringify(commands));
+  const setup = existsSync(marker) && readFileSync(marker, "utf8") === digest ? [] : commands;
   const batchId = targets.length > 1 ? `b-${randomBytes(6).toString("hex")}` : undefined;
   const runs = targets.map(({ executor, agent, model, thinking }) => {
     const id = `r-${randomBytes(6).toString("hex")}`;
@@ -161,20 +181,19 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
     });
     const issues = handoffs.flatMap((handoff) => handoff.problems);
     if (issues.length) return refusePrepared(issues);
-    for (const command of setup) {
-      const result = spawnSync(command, { cwd: worktree.path, shell: true, encoding: "utf8", maxBuffer: Infinity });
-      if (result.status !== 0) return refusePrepared([
-        `准备命令失败：${command}\n退出码：${result.status ?? -1}` +
-        (result.signal === null ? "" : `（信号：${result.signal}）`) +
-        `\n${result.stdout ?? ""}${result.stderr ?? ""}${result.error?.message ?? ""}`,
-      ], true);
-    }
+    if (!commands.length || setup.length) rmSync(marker, { force: true });
     if (setup.length) {
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL("./worktree-setup.js", import.meta.url))], {
+        cwd: worktree.path, encoding: "utf8", stdio: ["pipe", "pipe", "inherit"],
+        input: JSON.stringify({ commands, timeoutSeconds: input.config.worktree?.setupTimeoutSeconds ?? null, parent: process.pid }),
+      });
+      if (result.status !== 0) return refusePrepared([result.stdout || `准备命令失败：${result.error?.message ?? result.signal}`], true);
+      atomicWrite({ path: marker, data: Buffer.from(digest) });
       const unavailableAfterSetup = checkIsolation();
       if (unavailableAfterSetup.length) return refusePrepared(unavailableAfterSetup, true);
     }
     const changes = Object.hasOwn(stage.report, "verdict") ? reviewChanges(worktree.path) : null;
-    const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path, workflowPrompts(input.workflow)), null, 2)}\n`);
+    const snapshot = Buffer.from(`${JSON.stringify(takeSnapshot(worktree.path, workflowPrompts(input.workflow)))}\n`);
     runs.forEach((run, index) => {
       const dir = join(root, run.dir);
       mkdirSync(dir, { recursive: true });
@@ -204,7 +223,8 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
   if (run.stage.resume) writeFileSync(join(dir, "standards.sha256"), standardsDigest);
   if (input.fresh) return logSessionMode(dir, "新会话（指定了 --fresh）");
   if (!run.stage.resume) return;
-  const prior = resumableRun(record, { stage: run.stage.id, executor: run.executor, agent: run.agent });
+  const decision = resumeDecision(record, { stage: run.stage.id, executor: run.executor, agent: run.agent });
+  const prior = decision.run;
   if (prior?.resumeId) {
     const priorDigest = join(input.root, RUNS_DIR, prior.id, "standards.sha256");
     if (!existsSync(priorDigest) || readFileSync(priorDigest, "utf8") !== standardsDigest) {
@@ -216,8 +236,7 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
     writeFileSync(join(dir, "resume-message.md"), appendReviewChanges(message, changes, input.config.handoff));
     return;
   }
-  const last = record.runs.findLast((item) => item.stage === run.stage.id);
-  if (last) logSessionMode(dir, `已自动回退新会话（${last.requirementDigest !== record.confirmedDigest ? "需求摘要已变更" : "没有匹配的可恢复执行"}）`);
+  if (decision.reason) logSessionMode(dir, `已自动回退新会话（${decision.reason}）`);
 }
 
 function resolveExecutor(input: PrepareRunInput, executor: WorkflowExecutor) {
@@ -244,21 +263,17 @@ export function arbitrationNotice(id: string, step: Extract<NextStep, { kind: "a
 function dependencyProblems(root: string, id: string): string[] {
   const dependency = findTask(root, id, { includeWorktrees: false, requireDocument: true });
   if (!dependency?.document) {
-    const branches = gitSync(["for-each-ref", "--format=%(refname)", "refs/heads/knit/"], root).stdout
-      .split("\n")
-      .filter((reference) => reference !== "")
-      .filter((reference) => gitSync(["grep", "-l", "-z", "-F", "-e", id, reference, "--", ":(glob).knit/tasks/**/task.md"], root).stdout
-        .split("\0")
-        .some((file) => {
-          const path = file.slice(reference.length + 1);
-          // 别的分支可能带着归档，正文也可能举例写了这个 ID；只认对应目录的开头字段。
-          return reference === `refs/heads/knit/${basename(dirname(path))}` &&
-            parseTaskDocument(gitSync(["show", `${reference}:${path}`], root).stdout).document?.frontmatter.id === id;
-        }))
-      .map((reference) => reference.slice("refs/heads/".length));
+    const refs = gitSync(["for-each-ref", "--format=%(refname)", "refs/heads/knit/"], root).stdout.split("\n").filter(Boolean);
+    const files = refs.length ? gitSync(["grep", "-l", "-z", "-F", "-e", id, ...refs, "--", ":(glob).knit/tasks/**/task.md"], root).stdout : "";
+    const branches = files.split("\0").filter(Boolean).flatMap((file) => {
+      const colon = file.indexOf(":");
+      const reference = file.slice(0, colon);
+      const branch = `knit/${basename(dirname(file.slice(colon + 1)))}`;
+      return reference === `refs/heads/${branch}` && parseTaskDocument(gitSync(["show", file], root).stdout).document?.frontmatter.id === id ? [branch] : [];
+    });
     return [
       `主检出里找不到依赖的任务：${id}；可能已经在任务分支上交付、还没有合并，也可能确实不存在；交付并合并之后再派发` +
-      branches.map((branch) => `\n任务分支：${branch}；在主检出里运行 git merge ${branch}`).join(""),
+      branches.map((branch) => `\n任务分支：${branch}；在主检出里运行 git merge --no-edit ${shellQuote(branch)}`).join(""),
     ];
   }
   const status = dependency.document.frontmatter.status;
@@ -268,7 +283,7 @@ function dependencyProblems(root: string, id: string): string[] {
   const reference = `refs/heads/${branch}`;
   if (gitSync(["show-ref", "--verify", "--quiet", reference], root).code !== 0) return [];
   if (gitSync(["merge-base", "--is-ancestor", reference, "HEAD"], root).code === 0) return [];
-  return [`依赖的任务已经交付，但任务分支还没有合并进主检出的当前分支：${id}（${branch}）；在主检出里运行 git merge ${branch}，合并之后再派发`];
+  return [`依赖的任务已经交付，但任务分支还没有合并进主检出的当前分支：${id}（${branch}）；在主检出里运行 git merge --no-edit ${shellQuote(branch)}，合并之后再派发`];
 }
 
 /**
@@ -288,10 +303,10 @@ export function limitNotice(
       (run) => `  ${nameOf(run.stage)}（${run.id}）${run.verdict ?? ""}：${RUNS_DIR}/${run.id}/report.md`,
     ),
     "可以走的路：",
-    `  1. 主会话直接修，改完运行 knit task close ${taskId} --paths <改动的文件>`,
+    `  1. 主会话直接修，改完运行 knit task close ${taskId} --result <总结> --paths <改动的文件>`,
     "  2. 拆成更小的任务",
     `  3. 需求本身有问题就改需求，再运行 knit task ready ${taskId}；进入次数从头数`,
-    `  4. 用户决定带理由接受：knit task close ${taskId} --reason <理由>`,
+    `  4. 用户决定带理由接受：knit task close ${taskId} --result <总结> --reason <理由>`,
   ];
 }
 

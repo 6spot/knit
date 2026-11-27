@@ -1,6 +1,6 @@
 /** 派发后台执行进程、等待记录入账、取消并结算；CLI 和宿主桥接共用。 */
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentRegistry } from "../contracts/agent.js";
@@ -9,7 +9,7 @@ import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { parseTaskRecord, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
-import { pidAlive, processIdentities, processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree, withFileLock } from "../infrastructure/process.js";
+import { pidAlive, processIdentities, processTable, processTreePids, procStartTicks, readProcessRegistration, recordedProcess, registeredPid, sameProcessStart, signalProcessGroup, signalProcessTree, withFileLock, type WorkerProcess } from "../infrastructure/process.js";
 import { readWorkflow } from "./project-config.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";
@@ -40,18 +40,24 @@ export function startRun(input: PrepareRunInput & {
   readonly workerCommand: (run: PreparedRun) => readonly string[];
 }): PrepareRunResult {
   return prepareRun(input, (run) => {
-    const log = openSync(join(input.root, run.dir, "worker.log"), "a");
     const command = input.workerCommand(run);
-    const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log], env: workerEnv() });
-    worker.unref();
-    closeSync(log);
-    atomicWrite({
-      path: join(input.root, run.dir, "worker.json"),
-      data: Buffer.from(`${JSON.stringify({
-        pid: worker.pid,
-        start: worker.pid === undefined ? null : procStartTicks(worker.pid),
-      }, null, 2)}\n`),
-    });
+    const path = join(input.root, run.dir, "worker.log");
+    const log = openSync(path, "a");
+    try {
+      const worker = spawn(command[0]!, command.slice(1), { detached: true, stdio: ["ignore", log, log], env: workerEnv() });
+      worker.once("error", (error) => appendFileSync(path, `${error.message}\n`));
+      worker.unref();
+      if (worker.pid === undefined) throw new Error(`无法启动 ${command[0]}`);
+      const table = processIdentities([worker.pid]);
+      const start = table?.get(worker.pid)?.startTicks ?? null;
+      if (table !== null && start === null) return;
+      try {
+        atomicWrite({ path: join(input.root, run.dir, "worker.json"), data: Buffer.from(JSON.stringify({ pid: worker.pid, start })) });
+      } catch (error) {
+        signalProcessGroup(worker.pid, "SIGKILL", { exited: false });
+        throw error;
+      }
+    } finally { closeSync(log); }
   });
 }
 
@@ -77,23 +83,34 @@ export async function waitRun(
   options?: { readonly pollMs?: number },
 ): Promise<WaitRunResult> {
   const workflowPath = join(root, WORKFLOW_CONFIG_PATH);
-  const poll = async (
-    loaded: ReturnType<typeof readRunTask>,
-    cachedWorkflow: { readonly stamp: string; readonly workflow: WorkflowDefinition } | null,
-    watchedBatch: string | undefined,
-    attempt: number,
-  ): Promise<WaitRunResult> => {
+  let loaded = readRunTask(root, taskId);
+  let cachedWorkflow: { stamp: string; workflow: WorkflowDefinition } | null = null;
+  let watchedBatch = batchId;
+  const started = Date.now();
+  const workers = new Map<string, { stamp: string; registration: WorkerProcess; checkedAt: number }>();
+  for (let attempt = 0; ; attempt++) {
     if (loaded.task === null) return { task: null, problems: loaded.problems, workflow: null };
     const stamp = fileStamp(workflowPath);
-    const workflow = cachedWorkflow !== null && stamp !== null && stamp === cachedWorkflow.stamp
+    const workflow: ReturnType<typeof readWorkflow> = cachedWorkflow !== null && stamp !== null && stamp === cachedWorkflow.stamp
       ? { workflow: cachedWorkflow.workflow, problems: [] as readonly string[] }
       : readWorkflow(root);
     if (workflow.workflow === null) return { task: null, ...workflow };
-    const nextWorkflow = stamp === null ? null : { stamp, workflow: workflow.workflow };
+    cachedWorkflow = stamp === null ? null : { stamp, workflow: workflow.workflow };
     const running = loaded.task.record.runs.filter((run) => run.endedAt === null &&
       (watchedBatch === undefined || run.batchId === watchedBatch));
     const watched = { workflow: workflow.workflow, batchId: watchedBatch ?? running[0]?.batchId };
-    const finished = !running.length || running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null);
+    const finished = running.every((run) => {
+      const file = join(root, RUNS_DIR, run.id, "worker.json");
+      const stamp = fileStamp(file);
+      if (stamp === null) return !startingWorker(root, taskId, run);
+      const cached = workers.get(run.id);
+      const same = cached?.stamp === stamp;
+      if (same && Date.now() - started > 30_000 && Date.now() - cached.checkedAt < 5000) return !pidAlive(cached.registration.pid);
+      const registration = same ? cached.registration : readProcessRegistration(file);
+      if (registeredPid(registration) === null || !registration) return true;
+      workers.set(run.id, { stamp, registration, checkedAt: Date.now() });
+      return false;
+    });
     const remaining = deadline === undefined ? Infinity : deadline - Date.now();
     if (finished || remaining <= 0) {
       const { task, problems } = attempt === 0 && !running.length ? loaded : readRunTask(root, taskId);
@@ -103,10 +120,9 @@ export async function waitRun(
     const interval = options?.pollMs ?? WAIT_POLL_MS[Math.min(attempt, WAIT_POLL_MS.length - 1)]!;
     await sleep(Math.min(interval, remaining));
     const record = readPollingRecord(loaded.recordPath);
-    const next = record === null ? readRunTask(root, taskId) : { ...loaded, task: { ...loaded.task, record } };
-    return poll(next, nextWorkflow, watched.batchId, attempt + 1);
-  };
-  return poll(readRunTask(root, taskId), null, batchId, 0);
+    loaded = record === null ? readRunTask(root, taskId) : { ...loaded, task: { ...loaded.task, record } };
+    watchedBatch = watched.batchId;
+  }
 }
 
 function fileStamp(path: string): string | null {
@@ -132,15 +148,31 @@ export async function cancelRun(input: {
   if (loaded.task === null) return { cancelled: null, problems: loaded.problems };
   const running = loaded.task.record.runs.filter((run) => run.endedAt === null && (input.runId === undefined || run.id === input.runId));
   if (running.length === 0) return { cancelled: null, problems: [`任务 ${input.taskId} 没有正在跑的执行${input.runId ? ` ${input.runId}` : ""}`] };
-  while (running.some((run) => startingWorker(input.root, input.taskId, run))) await sleep(100);
-  const results = await Promise.all(running.map(async (run) => {
-    const workerMissing = liveWorker(input.root, run.id) === null;
-    await stopRunProcesses(input.root, run.id, input.graceMs);
-    const problems = finishRun({ ...input, runId: run.id, verdict: null,
-      failure: workerMissing ? "执行进程意外退出" : "已取消", sessionFile: null });
-    const ended = findTask(input.root, input.taskId)?.record?.runs.find((item) => item.id === run.id);
-    return { runId: run.id, workerMissing, changedPaths: ended?.changedPaths ?? [], problems };
+  const deadline = Date.now() + 5000;
+  while (running.some((run) => startingWorker(input.root, input.taskId, run))) {
+    if (Date.now() >= deadline) return { cancelled: null, problems: ["等待执行者登记超时，请稍后重试取消"] };
+    await sleep(100);
+  }
+  const batch = running[0]?.batchId;
+  const members = !input.runId && batch ? loaded.task.record.runs.filter((run) => run.batchId === batch) : running;
+  const table = processTable();
+  const stopped = await Promise.all(members.map(async (run) => {
+    const worker = run.endedAt === null ? liveWorker(input.root, run.id) : null;
+    if (run.endedAt === null) {
+      await stopProcesses([worker, livePane(input.root, run.id)], input.graceMs, table);
+      await stopProcesses([liveWorker(input.root, run.id), livePane(input.root, run.id)], input.graceMs);
+    }
+    return { run, workerMissing: worker === null };
   }));
+  const results = stopped.map(({ run, workerMissing }) => {
+    const current = () => findTask(input.root, input.taskId)?.record?.runs.find((item) => item.id === run.id);
+    const before = current();
+    const issues = before?.endedAt ? [] : finishRun({ ...input, runId: run.id, verdict: null,
+      failure: workerMissing ? "执行进程意外退出" : "已取消", sessionFile: null });
+    const ended = before?.endedAt ? before : current();
+    const alreadyEnded = Boolean(before?.endedAt || (issues.length && ended?.endedAt));
+    return { runId: run.id, workerMissing, alreadyEnded, changedPaths: ended?.changedPaths ?? [], problems: alreadyEnded ? [] : issues };
+  });
   const problems = results.flatMap((result) => result.problems);
   return { cancelled: problems.length ? null : results[0]!, runs: results, problems };
 }
@@ -164,10 +196,7 @@ function stopGraceMs(graceMs?: number): number {
 }
 
 /** 一个进程：进程号会被别的进程重新用上，启动标识一样才是原来那个。 */
-export interface WorkerProcess {
-  readonly pid: number;
-  readonly start: string | null;
-}
+export type { WorkerProcess };
 
 /** 执行已登记、worker.json 还没发布时，持锁的派发进程仍在启动执行者。 */
 export function startingWorker(root: string, taskId: string, run: TaskRun): boolean {
@@ -190,10 +219,10 @@ export function workerProcesses(root: string, runId: string): WorkerProcess[] {
   return processChains([liveWorker(root, runId), livePane(root, runId)])?.chain ?? [];
 }
 
-function processChains(roots: readonly (number | null)[]) {
+function processChains(roots: readonly (number | null)[], snapshot?: ReturnType<typeof processTable>) {
   const live = roots.filter((pid) => pid !== null);
   if (!live.length) return null;
-  const table = processTable();
+  const table = snapshot ?? processTable();
   const chain = live.flatMap((pid) => processTreePids(pid, table)).map((pid) => ({ pid, start: table.get(pid)?.startTicks ?? null }));
   return { chain, table };
 }
@@ -218,8 +247,8 @@ export async function stopRunProcesses(root: string, runId: string, graceMs?: nu
   await stopProcesses(roots(), graceMs);
 }
 
-async function stopProcesses(roots: readonly (number | null)[], graceMs?: number): Promise<void> {
-  const snapshot = processChains(roots);
+async function stopProcesses(roots: readonly (number | null)[], graceMs?: number, tableSnapshot?: ReturnType<typeof processTable>): Promise<void> {
+  const snapshot = processChains(roots, tableSnapshot);
   if (!snapshot) return;
   const { chain, table } = snapshot;
   if (chain[0] === undefined) return;
@@ -243,13 +272,12 @@ async function stillAlive(processes: readonly WorkerProcess[], deadline: number)
 /** 其中现在还在的。 */
 export function aliveAmong(processes: readonly WorkerProcess[]): WorkerProcess[] {
   const live = processes.filter((item) => pidAlive(item.pid));
-  const identified = live.filter((item) => item.start !== null);
-  if (!identified.length) return live;
-  const table = processIdentities(identified.map((item) => item.pid));
+  if (!live.length) return [];
+  const table = processIdentities(live.map((item) => item.pid));
   if (table === null) return live.filter((item) => pidAlive(item.pid));
   return live.filter((item) => {
     const current = table.get(item.pid)?.startTicks;
-    return item.start === null || (current != null && sameProcessStart(item.start, current));
+    return table.has(item.pid) && (item.start === null || (current != null && sameProcessStart(item.start, current)));
   });
 }
 
@@ -273,5 +301,12 @@ export function withTaskWriteLock<T>(root: string, id: string, action: () => T):
 
 export function taskRunLockHeld(root: string, taskId: string): boolean {
   const path = taskLockPath(root, taskId);
-  return existsSync(path) && withFileLock(path, 0, () => false, () => true, true);
+  try { return withFileLock(path, 0, () => false, () => true, true); }
+  catch (error) {
+    if (error instanceof Error && "errcode" in error) {
+      if (error.errcode === 14) return false; // SQLITE_CANTOPEN
+      if (error.errcode === 26) throw new Error(`任务锁 ${path} 已损坏；确认没有派发和结算进程后移走该文件，再重试`, { cause: error });
+    }
+    throw error;
+  }
 }

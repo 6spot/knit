@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { after, describe, test } from "node:test";
@@ -121,6 +121,7 @@ test("未合并的 Worktree 归档保留运行资料，合并后只在另一次�
   record.runs[0].endedAt = "2000-01-01T01:00:00.000Z";
   writeFileSync(file, JSON.stringify(record));
   const run = join(root, ".knit/.runtime/runs", record.runs[0].id);
+  utimesSync(run, new Date(record.runs[0].endedAt), new Date(record.runs[0].endedAt));
   const options = { authorization: "user:delivery", messageFile: message };
   assert.equal(deliver().kind, "delivered");
   assert.equal(deliverTask(root, doneTask(root).id, options).cleanup.removed, 0);
@@ -550,7 +551,7 @@ describe("独立仓库中的归档查询与交付", { concurrency: 3 }, () => {
     assert.equal(confirmTask(root, childId).kind, "ready");
     const blocked = await knit(root, "run", "start", childId);
     assert.equal(blocked.code, 1);
-    assert.ok(blocked.stderr.includes(`git merge ${worktree.branch}`), blocked.stderr);
+    assert.ok(blocked.stderr.includes(`git merge --no-edit '${worktree.branch}'`), blocked.stderr);
 
     git(root, "merge", "--no-edit", worktree.branch);
     const shown = await knit(root, "task", "show", task.id);

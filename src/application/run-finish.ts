@@ -46,9 +46,9 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
   const cleanupFailure = previousCleanupFailure === undefined
     ? cleanRun(input.agents[run.agent ?? "pi"], cwd, dir)
     : previousCleanupFailure;
-  const beforeFile = join(dir, "before.json");
-  const before = existsSync(beforeFile) ? JSON.parse(readFileSync(beforeFile, "utf8")) as WorkspaceSnapshot : null;
-  const after = before === null ? null : takeSnapshot(cwd, workflowPrompts(input.workflow), before);
+  const before = readBeforeSnapshot(join(dir, "before.json"));
+  const snapshotFailure = before instanceof Error ? before.message : null;
+  const after = before instanceof Error ? null : takeSnapshot(cwd, workflowPrompts(input.workflow), before);
   if (after && run.batchId) {
     for (const member of batchOf(stored.record, run)) {
       const memberDir = join(root, RUNS_DIR, member.id);
@@ -60,7 +60,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     }
   }
   const changes =
-    before === null || after === null
+    before instanceof Error || after === null
       ? { changedPaths: [], head: null }
       : changesBetween(before, after);
   const guarded = protectedChanges(changes.changedPaths, input.workflow);
@@ -77,7 +77,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
       return { file: null, error: `读取会话路径失败：${String(error)}` };
     }
   })();
-  const failure = [input.failure, violation, cleanupFailure, session.error].filter(Boolean).join("；") || null;
+  const failure = [input.failure, snapshotFailure, violation, cleanupFailure, session.error].filter(Boolean).join("；") || null;
   const declared = input.workflow.stages.find((stage) => stage.id === run.stage)?.report;
   const verdict = failure === null && input.verdict && declared && Object.hasOwn(declared, "verdict") ? input.verdict : null;
   const persist = () => {
@@ -87,7 +87,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     }
     // 等待者一旦读到 pass 就能开始交付预览，先发布它会读取的快照。
     if (after !== null && verdict === "pass") {
-      atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after, null, 2)}\n`) });
+      atomicWrite({ path: join(dir, "after.json"), data: Buffer.from(`${JSON.stringify(after)}\n`) });
     }
     return saveTask(root, latest, null, {
       ...latest.record,
@@ -98,7 +98,7 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
             endedAt: new Date().toISOString(),
             verdict,
             failure,
-            ...(violation !== null || cleanupFailure !== null ? { resumeBlocked: true } : {}),
+            ...(snapshotFailure !== null || violation !== null || cleanupFailure !== null ? { resumeBlocked: true } : {}),
             // 任务目录在交付时整个提交，不逐个记。
             changedPaths: changes.changedPaths.filter((path) => !path.startsWith(`${stored.dir}/`)),
             resumeId: input.resumeId ?? null,
@@ -112,6 +112,15 @@ function finishAttempt(input: FinishRunInput, attemptsLeft: number, previousClea
     () => [`任务 ${taskId} 正在写入执行记录，请稍后重试`]);
   // 任务文件在读入之后被别人改过时重新读一遍再做。
   return conflicts.length === 0 || attemptsLeft === 1 ? conflicts : finishAttempt(input, attemptsLeft - 1, cleanupFailure);
+}
+
+function readBeforeSnapshot(path: string): WorkspaceSnapshot | Error {
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    if (data && (data.head === null || typeof data.head === "string") && data.files && typeof data.files === "object" &&
+        !Array.isArray(data.files) && Object.values(data.files).every((value) => typeof value === "string")) return data;
+    return new Error("before.json 快照格式损坏");
+  } catch (error) { return new Error(`无法读取 before.json：${String(error)}`); }
 }
 
 function cleanRun(agent: AgentRegistry[keyof AgentRegistry], cwd: string, dir: string): string | null {

@@ -161,9 +161,9 @@ test("失败续聊准备沿用规范、需求和 fresh 的回退条件，违规�
   for (const [mode, reason] of [
     ["resume", null], ["fresh", /指定了 --fresh/], ["changed", /需求摘要已变更/],
     ["standards", /适用规范已有更新/], ["missing", /旧执行没有规范摘要/],
-    ["执行者提交了改动：HEAD 从 abc 变成 def", /没有匹配的可恢复执行/],
-    ["执行者改了受保护的文件：.knit/config.json", /没有匹配的可恢复执行/],
-    ["执行者出错：HTTP 429；执行清理失败：清理异常", /没有匹配的可恢复执行/],
+    ["执行者提交了改动：HEAD 从 abc 变成 def", /上次执行已阻断续聊/],
+    ["执行者改了受保护的文件：.knit/config.json", /上次执行已阻断续聊/],
+    ["执行者出错：HTTP 429；执行清理失败：清理异常", /上次执行已阻断续聊/],
   ]) {
     paths.forEach((path, index) => writeFileSync(path, baseline[index]));
     writeFileSync(digest, standards);
@@ -190,6 +190,21 @@ test("失败续聊准备沿用规范、需求和 fresh 的回退条件，违规�
       assert.match(message, /<main-instruction>\n继续测试/);
     }
   }
+});
+
+test("同 Agent 并行成员共享预检，启动失败时结算未启动成员", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const workflow = parseWorkflow("version: 1\nmodel: fake/model\nstages:\n  - id: check\n    tools: [read]\n    executors: [{id: a}, {id: b}, {id: c}]\n").workflow;
+  const calls = [];
+  const prepared = prepareRun({ root, taskId: task.id, workflow, model: null, config: { ...loadConfig(root).config, worktree: { setup: ["true"] } },
+    checkAgent: (agent) => { calls.push(agent); return null; } }, (run) => { if (run.executor === "b") throw new Error("spawn failed"); });
+  assert.deepEqual(calls, ["pi", "pi"]);
+  assert.match(prepared.problems.join("\n"), /spawn failed/);
+  const [first, ...rest] = recordOf(root, task).runs;
+  assert.equal(first.endedAt, null);
+  assert.equal(rest.length, 2);
+  assert.ok(rest.every((run) => run.endedAt && run.failure.includes("spawn failed")));
 });
 
 test("省略 agent 时配置逐字段接受，派发按实际客户端校验", (t) => {
@@ -445,7 +460,7 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   git(root, "branch", unrelatedBranch);
   rmSync(join(root, dependency.dir), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   const problem = refusedWithoutChanges(root, task, /主检出里找不到/);
-  assert.ok(problem.includes(`任务分支：${branch}；在主检出里运行 git merge ${branch}`), problem);
+  assert.ok(problem.includes(`任务分支：${branch}；在主检出里运行 git merge --no-edit '${branch}'`), problem);
   assert.equal(problem.includes(`任务分支：${unrelatedBranch}；`), false, problem);
   git(root, "config", "grep.patternType", "fixed");
   assert.equal(refusedWithoutChanges(root, task, /主检出里找不到/), problem);
@@ -480,7 +495,7 @@ test("缺失依赖按任务文档的身份定位分支，不依赖 YAML 排版�
   git(root, "branch", "knit/unrelated", worktree.branch);
   const problem = refusedWithoutChanges(root, task, /还没有合并/);
   assert.ok(problem.includes(dependency.id), problem);
-  assert.ok(problem.includes(`git merge ${worktree.branch}`), problem);
+  assert.ok(problem.includes(`git merge --no-edit '${worktree.branch}'`), problem);
   assert.equal(problem.includes("knit/unrelated"), false);
   if (!ignored) {
     assert.equal(findTask(root, dependency.id).storeRoot, worktree.path);
@@ -575,10 +590,10 @@ function atLimit(t) {
     "实现环节已经进入 2 次，到了上限，不再派发。各轮的报告：",
     ...runs.map(([name, id, verdict]) => `  ${name}（${id}）${verdict}：${RUNS_DIR}/${id}/report.md`),
     "可以走的路：",
-    `  1. 主会话直接修，改完运行 knit task close ${task.id} --paths <改动的文件>`,
+    `  1. 主会话直接修，改完运行 knit task close ${task.id} --result <总结> --paths <改动的文件>`,
     "  2. 拆成更小的任务",
     `  3. 需求本身有问题就改需求，再运行 knit task ready ${task.id}；进入次数从头数`,
-    `  4. 用户决定带理由接受：knit task close ${task.id} --reason <理由>`,
+    `  4. 用户决定带理由接受：knit task close ${task.id} --result <总结> --reason <理由>`,
   ];
   assert.equal(notice.some((line) => line.includes(failed)), false);
   return { dir, task, notice };

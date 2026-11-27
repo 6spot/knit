@@ -34,6 +34,10 @@ function recordRuns(root, taskDir, ages) {
   const record = JSON.parse(readFileSync(file, "utf8"));
   const runs = Object.entries(ages).map(([id, days]) => {
     mkdirSync(runPath(root, id), { recursive: true });
+    if (days !== null) {
+      const date = new Date(Date.now() - days * 86_400_000);
+      utimesSync(runPath(root, id), date, date);
+    }
     return { id, stage: "implement", agent: "pi", startedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
       endedAt: days === null ? null : new Date(Date.now() - days * 86_400_000).toISOString(), verdict: null,
       failure: null, requirementDigest: record.confirmedDigest, changedPaths: [], sessionFile: null, resumeId: null };
@@ -102,6 +106,33 @@ test("扫描全部归档记录，只读引用现存运行目录的归档任务�
   }
 });
 
+test("新目录跳过归档扫描，损坏的活跃任务文档只阻止锁回收", (t) => {
+  const root = realpathSync(project(t));
+  const archive = previousDelivery(root, { expired: 30 });
+  const path = join(root, archive, "record.json");
+  const record = JSON.parse(readFileSync(path));
+  record.runs[0].endedAt = record.runs[0].endedAt.replace(/\.\d{3}Z$/, "Z");
+  writeFileSync(path, JSON.stringify(record));
+  const dir = runPath(root, "expired");
+  utimesSync(dir, new Date(), new Date());
+  const reads = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  try {
+    assert.equal(cleanArchivedRuns(root, "current", [], false).removed, 0);
+    assert.ok(!reads.mock.calls.some((call) => call.arguments[0] === path));
+  } finally { reads.mock.restore(); syncBuiltinESMExports(); }
+  ageFile(dir);
+  const broken = readyTask(root);
+  writeFileSync(join(root, broken.dir, "task.md"), "?");
+  const lock = join(root, ".knit/.runtime/k-stale.lock");
+  writeFileSync(lock, "");
+  ageFile(lock);
+  const result = cleanArchivedRuns(root, "current", [], false);
+  assert.equal(result.removed, 1);
+  assert.match(result.warnings.join("\n"), /活跃任务 ID/);
+  assert.ok(existsSync(lock));
+});
+
 function ageFile(path) {
   const old = new Date(Date.now() - 30 * 86_400_000);
   utimesSync(path, old, old);
@@ -137,6 +168,27 @@ test("没有运行目录时交付仍回收超期会话与闲置锁，保护活�
   assert.deepEqual(readdirSync(runtime).filter((name) => name.endsWith(".lock")).sort(),
     [`${current.id}.lock`, `${active.id}.lock`, "k-busy.lock", "k-linked.lock", "k-recent.lock"].sort());
   assert.ok(lstatSync(join(runtime, "k-linked.lock")).isSymbolicLink());
+});
+
+test("清理替换已打开的锁后，旧连接不能进入新持有者的临界区", (t) => {
+  const root = project(t);
+  const path = join(root, ".knit/.runtime/host-sessions/old.lock");
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, "");
+  ageFile(path);
+  const Database = process.getBuiltinModule("node:sqlite").DatabaseSync;
+  const exec = Database.prototype.exec;
+  let replacement;
+  const hook = t.mock.method(Database.prototype, "exec", function (sql) {
+    hook.mock.restore();
+    assert.deepEqual(cleanArchivedRuns(root, "current", [], false).warnings, []);
+    assert.equal(existsSync(path), false);
+    replacement = new Database(path);
+    replacement.exec("BEGIN EXCLUSIVE");
+    return exec.call(this, sql);
+  });
+  try { assert.equal(withFileLock(path, 0, assert.fail, () => "busy"), "busy"); }
+  finally { replacement?.close(); }
 });
 
 test("没有清理候选时跳过主检出检查，有过期锁时必须核实检出身份", (t) => {

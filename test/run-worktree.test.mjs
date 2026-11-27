@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -7,6 +9,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig } from "../dist/application/project-config.js";
+import { processIdentities } from "../dist/infrastructure/process.js";
+import { taskRunLockHeld } from "../dist/application/run-control.js";
 import { executeRun } from "../dist/application/run-execute.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun, RUNS_DIR } from "../dist/application/run-prepare.js";
@@ -242,6 +246,57 @@ test("相对 KNIT_HOME 按主检出定位，快照、执行和状态使用同一
   assert.equal(context.kind, "context");
   assert.ok(statusLines(context.task.status).includes(line));
   assert.ok(contextLines(context).includes(line));
+});
+
+test("已有 Worktree 无标记时重做 setup，成功后复用，列表变化时重新执行", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const path = expectedWorktree(root, task);
+  git(root, "worktree", "add", "-b", branchOf(task), path, "HEAD");
+  setupConfig(root, ["echo run >> attempts; test -f ready"]);
+  assert.match(prepare(root, task).problems.join("\n"), /准备命令失败/);
+  writeFileSync(join(path, "ready"), "");
+  const second = prepare(root, task).run;
+  assert.equal(second.setupCommands, 1);
+  assert.deepEqual(finish(root, task, second), []);
+  setupConfig(root, ["echo changed >> attempts"]);
+  const third = prepare(root, task).run;
+  assert.equal(third.setupCommands, 1);
+  assert.equal(readFileSync(join(path, "attempts"), "utf8"), "run\nrun\nchanged\n");
+});
+
+test("派发进程在 setup 中被杀后，原 Worktree 的下一次派发重新准备", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const tree = expectedWorktree(root, task);
+  setupConfig(root, ["echo attempt >> attempts; if [ ! -f ready ]; then sleep 60 & echo $! > pid; echo waiting; wait; fi"]);
+  const cli = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
+  const child = spawn(process.execPath, [cli, "run", "start", task.id, "--dir", root], { stdio: ["ignore", "ignore", "pipe"] });
+  const closed = once(child, "close");
+  let progress = "";
+  child.stderr.on("data", (chunk) => { progress += chunk; });
+  try { await waitUntil(() => progress.includes("waiting")); }
+  finally { child.kill("SIGKILL"); await closed; }
+  assert.equal(taskRunLockHeld(root, task.id), false);
+  assert.deepEqual(processIdentities([Number(readFileSync(join(tree, "pid")))]), new Map());
+  writeFileSync(join(tree, "ready"), "");
+  assert.equal(prepare(root, task).run.setupCommands, 1);
+  assert.equal(readFileSync(join(tree, "attempts"), "utf8"), "attempt\nattempt\n");
+});
+
+test("setup 超时终止进程组、释放任务锁并回滚，可立即重新派发", (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const file = join(root, "child.pid");
+  const command = `sleep 60 & echo $! > '${file}'; wait`;
+  writeFileSync(join(root, ".knit/config.json"), JSON.stringify({ worktree: { setup: [command], setupTimeoutSeconds: 1 } }));
+  assert.match(prepare(root, task).problems.join("\n"), /准备命令超时/);
+  assert.deepEqual(processIdentities([Number(readFileSync(file))]), new Map());
+  assert.equal(taskRunLockHeld(root, task.id), false);
+  assert.equal(existsSync(expectedWorktree(root, task)), false);
+  assert.equal(git(root, "branch", "--list", branchOf(task)), "");
+  setupConfig(root, ["true"]);
+  assert.deepEqual(prepare(root, task).problems, []);
 });
 
 test("目录丢失后重新运行准备命令，原分支提交和旧执行记录保留", (t) => {

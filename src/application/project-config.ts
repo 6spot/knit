@@ -17,7 +17,7 @@ export const DEFAULT_RUNTIME_RETAIN_DAYS = 14;
 const ConfigFileSchema = obj({
   handoff: opt(obj({ fileBytes: opt(int({ minimum: 1 })), totalBytes: opt(int({ minimum: 1 })) })),
   runtime: opt(obj({ retainDays: opt(nullable(int({ minimum: 0 }))) })),
-  worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))), autoMerge: opt(bool()) })),
+  worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))), setupTimeoutSeconds: opt(nullable(int({ minimum: 1 }))), autoMerge: opt(bool()) })),
 });
 
 /** 按内容的 UTF-8 字节数算，不算块外面的标记行。 */
@@ -33,7 +33,7 @@ export const DEFAULT_HANDOFF_LIMITS: HandoffLimits = { fileBytes: 16384, totalBy
 export interface ProjectConfig {
   readonly handoff: HandoffLimits;
   readonly runtime?: { readonly retainDays?: number | null };
-  readonly worktree?: { readonly setup?: readonly string[]; readonly autoMerge?: boolean };
+  readonly worktree?: { readonly setup?: readonly string[]; readonly setupTimeoutSeconds?: number | null; readonly autoMerge?: boolean };
 }
 
 export interface ConfigLoadResult {

@@ -17,7 +17,9 @@ export function cleanArchivedRuns(root: string, currentId: string, currentRuns: 
     const runtime = dirname(runs);
     const sessions = join(runtime, "host-sessions");
     const cutoff = Date.now() - retainDays * 86_400_000;
-    const present = new Set(directoryEntries(runs).filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+    const currentIds = new Set(currentRuns.map((run) => run.id));
+    const present = new Set(directoryEntries(runs).filter((entry) => entry.isDirectory() && !currentIds.has(entry.name) &&
+      (lstatSync(join(runs, entry.name), { throwIfNoEntry: false })?.mtimeMs ?? Infinity) < cutoff).map((entry) => entry.name));
     const sessionLocks = new Set(directoryEntries(sessions)
       .filter((entry) => entry.isFile() && /\.(json|lock)$/.test(entry.name) && expiredFile(join(sessions, entry.name), cutoff))
       .map((entry) => join(sessions, entry.name.endsWith(".lock") ? entry.name : `${entry.name}.lock`)));
@@ -33,23 +35,14 @@ export function cleanArchivedRuns(root: string, currentId: string, currentRuns: 
     for (const lock of sessionLocks) {
       removeExpiredFiles(lock, lock.endsWith(".json.lock") ? lock.slice(0, -5) : null, cutoff, result.warnings);
     }
-    if (taskLocks.length) {
-      const active = new Set(Array.from(taskDirectories(checkout, "active"), (task) => {
-        const file = join(checkout, task.dir, TASK_FILE);
-        const markdown = readRegularFile(file) ?? "";
-        const id = parseTaskDocument(markdown).document?.frontmatter.id ?? unparsedTaskId(markdown);
-        if (!id) throw new Error(`${file} 无法确认活跃任务 ID`);
-        return id;
-      }));
-      for (const entry of taskLocks.filter((entry) => !active.has(entry.name.slice(0, -5)))) {
-        removeExpiredFiles(join(runtime, entry.name), null, cutoff, result.warnings);
-      }
-    }
+    try {
+      if (taskLocks.length) cleanTaskLocks(checkout, runtime, taskLocks.map((entry) => entry.name), cutoff, result.warnings);
+    } catch (error) { result.warnings.push(String(error)); }
     if (!present.size) return result;
     const archive = join(checkout, ARCHIVE_DIR);
     if (!lstatSync(archive, { throwIfNoEntry: false })) return result;
     if (realpathSync(archive) !== archive) throw new Error(`${ARCHIVE_DIR} 路径含符号链接`);
-    const eligible = expiredRunIds(checkout, currentId, currentRuns, cutoff, present);
+    const eligible = expiredRunIds(checkout, currentId, cutoff, present);
     for (const id of eligible) {
       const dir = join(runs, id);
       try {
@@ -79,6 +72,17 @@ function directoryEntries(path: string) {
   return readdirSync(path, { withFileTypes: true });
 }
 
+function cleanTaskLocks(root: string, runtime: string, names: string[], cutoff: number, warnings: string[]) {
+  const active = new Set(Array.from(taskDirectories(root, "active"), (task) => {
+    const file = join(root, task.dir, TASK_FILE);
+    const markdown = readRegularFile(file) ?? "";
+    const id = parseTaskDocument(markdown).document?.frontmatter.id ?? unparsedTaskId(markdown);
+    if (!id) throw new Error(`${file} 无法确认活跃任务 ID`);
+    return id;
+  }));
+  names.filter((name) => !active.has(name.slice(0, -5))).forEach((name) => removeExpiredFiles(join(runtime, name), null, cutoff, warnings));
+}
+
 function expiredFile(path: string, cutoff: number) {
   const stat = lstatSync(path, { throwIfNoEntry: false });
   return stat?.isFile() && stat.mtimeMs < cutoff;
@@ -89,6 +93,8 @@ function removeExpiredFiles(lock: string, session: string | null, cutoff: number
     const before = lstatSync(lock, { throwIfNoEntry: false });
     if (before ? !before.isFile() : !session || !expiredFile(session, cutoff)) return;
     withFileLock(lock, 0, () => {
+      const current = lstatSync(lock, { throwIfNoEntry: false });
+      if (!current?.isFile() || (before && (current.dev !== before.dev || current.ino !== before.ino))) return;
       if (session) {
         const state = lstatSync(session, { throwIfNoEntry: false });
         if (state && (!state.isFile() || state.mtimeMs >= cutoff)) return;
@@ -102,9 +108,9 @@ function removeExpiredFiles(lock: string, session: string | null, cutoff: number
   }
 }
 
-function expiredRunIds(root: string, currentId: string, currentRuns: readonly TaskRun[], cutoff: number, present: ReadonlySet<string>) {
-  // 本次任务可能只在 Worktree 里归档。重复登记的 ID 无法唯一归属，也一律保留。
-  const seen = new Set(currentRuns.map((run) => run.id));
+function expiredRunIds(root: string, currentId: string, cutoff: number, present: ReadonlySet<string>) {
+  // 重复登记的 ID 无法唯一归属，也一律保留。
+  const seen = new Set<string>();
   const eligible = new Set<string>();
   for (const task of taskDirectories(root, "all")) {
     const dir = join(root, task.dir);
@@ -125,7 +131,8 @@ function expiredRunIds(root: string, currentId: string, currentRuns: readonly Ta
       if (!archived || run.endedAt === null) continue;
       const end = new Date(run.endedAt);
       // 写入时使用 toISOString；Date.parse 也接受单个数字或不存在的日期。
-      if (end.getTime() < cutoff && end.toISOString() === run.endedAt) eligible.add(run.id);
+      const timestamp = run.endedAt.replace(/(T\d\d:\d\d:\d\d)Z$/, "$1.000Z");
+      if (end.getTime() < cutoff && end.toISOString() === timestamp) eligible.add(run.id);
     }
   }
   return eligible;

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import {
   chmodSync, closeSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync,
-  readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeSync,
+  readdirSync, readFileSync, readlinkSync, readSync, renameSync, rmSync, statSync, unlinkSync, writeSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { sha256Bytes, sha256Text } from "../contracts/primitives.js";
@@ -76,7 +77,12 @@ export function atomicWrite(request: AtomicWriteRequest): { sha256: string } {
       if (up === parent) break;
       parent = up;
     }
-    for (const segment of missing) mkdirSync(segment, { recursive: false, mode: 0o700 });
+    for (const segment of missing) {
+      try { mkdirSync(segment, { mode: 0o700 }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !statSync(segment).isDirectory()) throw error;
+      }
+    }
   }
   const temp = `${target}.knit-tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
   const mode = request.mode ?? 0o600;
@@ -145,8 +151,10 @@ export function moveDirectory(source: string, target: string): void {
 
 /** 只清理可丢弃的副本：放开只读子目录的权限，不改变源目录或要恢复的备份。 */
 export function removeCopy(path: string): void {
-  if (!existsSync(path)) return;
-  chmodSync(path, statSync(path).mode | 0o700);
+  const stats = lstatSync(path, { throwIfNoEntry: false });
+  if (!stats) return;
+  if (stats.isSymbolicLink()) return unlinkSync(path);
+  chmodSync(path, stats.mode | 0o700);
   readdirSync(path, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .forEach((entry) => removeCopy(join(path, entry.name)));
@@ -155,7 +163,7 @@ export function removeCopy(path: string): void {
 
 export interface FileFacts {
   /** 常量 "file"；不存在时整条记为 absent；符号链接记 link，不追踪目标。 */
-  kind: "file" | "directory" | "link" | "absent";
+  kind: "file" | "directory" | "link" | "special" | "absent";
   /** 八进制字符串，符号链接为目标字符串（DESIGN §5.3）；目录为 null。 */
   mode: string | null;
   /** 字节指纹；目录、链接与不存在为 null。 */
@@ -178,7 +186,16 @@ export function fileFacts(path: string): FileFacts {
   if (stats.isDirectory()) {
     return { kind: "directory", mode: null, sha256: null, childCount: readdirSync(path).length };
   }
-  return { kind: "file", mode: stats.mode.toString(8), sha256: sha256Bytes(readFileSync(path)), childCount: null };
+  const mode = stats.mode.toString(8);
+  if (!stats.isFile()) return { kind: "special", mode, sha256: null, childCount: null };
+  if (stats.size <= 1024 * 1024) return { kind: "file", mode, sha256: sha256Bytes(readFileSync(path)), childCount: null };
+  const fd = openSync(path, "r");
+  try {
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    for (let bytes; (bytes = readSync(fd, buffer)) > 0;) hash.update(buffer.subarray(0, bytes));
+    return { kind: "file", mode, sha256: hash.digest("hex"), childCount: null };
+  } finally { closeSync(fd); }
 }
 
 /**

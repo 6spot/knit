@@ -118,7 +118,7 @@ export function registerRunCommands(program: Command): void {
       if (result.cancelled === null) return fail(result.problems);
       const label = taskLabel(loaded.document.frontmatter.title, taskId);
       result.runs.forEach((run) => {
-        const first = run.workerMissing
+        const first = run.alreadyEnded ? `${label}的执行 ${run.runId} 取消前已结束` : run.workerMissing
           ? `${label}的执行 ${run.runId} 进程已经不在了，已记为失败`
           : `已取消 ${label}的执行 ${run.runId}`;
         process.stdout.write(`${first}\n改动文件: ${run.changedPaths.length} 个\n`);

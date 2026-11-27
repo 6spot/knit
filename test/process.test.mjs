@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { aliveAmong } from "../dist/application/run-control.js";
-import { gitSync, parseProcessTablePs, procStartTicks, processIdentities, processTreePids, recordedProcess, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
+import { gitSync, parseProcessTablePs, procStartTicks, processIdentities, processTreePids, recordedProcess, sameProcessStart, signalProcessTree, withFileLock } from "../dist/infrastructure/process.js";
 
 /** 本机存活检查：权限未知视作仍存活。 */
 function isProcessAlive(pid) {
@@ -58,7 +58,43 @@ test("进程身份：仅查询存活的目标 PID，批量判活共用一次 ps"
   if (process.platform === "linux") assert.equal(existsSync(`${ps}.log`), false);
   if (process.platform !== "linux") {
     assert.deepEqual(readFileSync(`${ps}.log`, "utf8").trim().split("\n"), [pids, [process.pid], [process.pid], pids]
-      .map((ids) => `-p ${ids.join(",")} -o pid=,ppid=,pgid=,lstart=,comm=`));
+      .map((ids) => `-p ${ids.join(",")} -o pid=,ppid=,pgid=,stat=,lstart=,comm=`));
+  }
+});
+
+test("ps 正常无匹配返回空表，诊断输出表示不可用", { skip: process.platform === "linux" }, (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-ps-result-"));
+  const saved = process.env.PATH;
+  t.after(() => { process.env.PATH = saved; rmSync(dir, { recursive: true, force: true }); });
+  process.env.PATH = dir;
+  const path = join(dir, "ps");
+  writeFileSync(path, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  assert.deepEqual(processIdentities([process.pid]), new Map());
+  writeFileSync(path, "#!/bin/sh\necho unavailable >&2\nexit 1\n");
+  assert.equal(processIdentities([process.pid]), null);
+});
+
+test("短命子进程尚未回收时过滤僵尸，回收后返回空表", async () => {
+  const child = spawn("/bin/sh", ["-c", "exit 0"], { stdio: "ignore" });
+  const closed = once(child, "close");
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline && !spawnSync("/bin/ps", ["-p", String(child.pid), "-o", "stat="], { encoding: "utf8" }).stdout.trim().startsWith("Z")) {}
+  assert.ok(isProcessAlive(child.pid));
+  assert.deepEqual(processIdentities([child.pid]), new Map());
+  await closed;
+  assert.deepEqual(processIdentities([child.pid]), new Map());
+});
+
+test("锁回调保留 SQLite 业务异常，损坏或缺失的登记返回 null", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-registration-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const error = Object.assign(new Error("business busy"), { errcode: 5 });
+  assert.throws(() => withFileLock(join(dir, "lock"), 0, () => { throw error; }, assert.fail), (actual) => actual === error);
+  const file = join(dir, "pane.json");
+  assert.equal(recordedProcess(file), null);
+  for (const value of ["{", "null", '{}', JSON.stringify({ pid: process.pid, start: 1 })]) {
+    writeFileSync(file, value);
+    assert.equal(recordedProcess(file), null);
   }
 });
 
@@ -130,7 +166,7 @@ test("进程树：取消时清理工具自建进程组的后代", async () => {
 });
 
 test("进程身份：ps 回退带可执行名；同秒不同命令视为不同进程，旧格式只比 lstart", () => {
-  const table = parseProcessTablePs("  200 1 200 Tue Nov  3 10:20:30 2026 /usr/local/bin/node\n  201 1 201 Tue Nov  3 10:20:30 2026 sleep\n");
+  const table = parseProcessTablePs("  200 1 200 S Tue Nov  3 10:20:30 2026 /usr/local/bin/node\n  201 1 201 R Tue Nov  3 10:20:30 2026 sleep\n");
   assert.equal(table.get(200).startTicks, "Tue Nov  3 10:20:30 2026|/usr/local/bin/node");
   assert.equal(table.get(201).startTicks, "Tue Nov  3 10:20:30 2026|sleep");
   assert.equal(sameProcessStart(table.get(200).startTicks, table.get(201).startTicks), false, "同秒 PID 复用：命令不同即不同");
@@ -143,10 +179,10 @@ test("进程身份：ps 回退带可执行名；同秒不同命令视为不同�
 
 test("进程059：ps解析兼容24字符日期、单日空白和多位日，忽略残缺行", () => {
   const table = parseProcessTablePs(`
-  100 1 100 Tue Nov  3 10:20:30 2026   
-  101 100 101 Tue Nov 3 10:20:30 2026
-  102 100 101 Mon Nov 23 10:20:30 2026
-  103 100 101 broken
+  100 1 100 Ss Tue Nov  3 10:20:30 2026
+  101 100 101 R Tue Nov 3 10:20:30 2026
+  102 100 101 S Mon Nov 23 10:20:30 2026
+  103 100 101 Z+ Mon Nov 23 10:20:30 2026 defunct
 `);
   assert.equal(table.size, 3);
   assert.deepEqual(table.get(100), { ppid: 1, pgid: 100, startTicks: "Tue Nov  3 10:20:30 2026" });

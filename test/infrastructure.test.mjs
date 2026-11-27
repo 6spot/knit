@@ -4,14 +4,35 @@ import { syncBuiltinESMExports } from "node:module";
 import fs, { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, chmodSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { promisify } from "node:util";
+import { execFile, execFileSync } from "node:child_process";
 import { sha256Text } from "../dist/contracts/primitives.js";
-import { atomicWrite, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fs.js";
+import { atomicWrite, digestOf, fileFacts, listFiles, removeCopy } from "../dist/infrastructure/fs.js";
 import { normalizeRoot, hashKey, projectRelative, resolveWithMissingTail, safeJoin, canonicalPath, samePath } from "../dist/infrastructure/paths.js";
 
 function freshDir(prefix) {
   return mkdtempSync(join(tmpdir(), `knit-infra-${prefix}-`));
 }
+
+test("特殊文件、流式哈希、链接清理和并发建目录", async (t) => {
+  const dir = freshDir("facts");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fifo = join(dir, "pipe");
+  execFileSync("mkfifo", [fifo]);
+  assert.equal(fileFacts(fifo).kind, "special");
+  const bytes = Buffer.alloc(2 ** 21 + 3, 42);
+  const large = join(dir, "large");
+  writeFileSync(large, bytes, { mode: 0o400 });
+  assert.equal(fileFacts(large).sha256, createHash("sha256").update(bytes).digest("hex"));
+  symlinkSync(large, join(dir, "link"));
+  removeCopy(join(dir, "link"));
+  assert.equal(statSync(large).mode & 0o777, 0o400);
+  const module = new URL("../dist/infrastructure/fs.js", import.meta.url).href;
+  await Promise.all(Array.from({ length: 4 }, (_, i) => promisify(execFile)(process.execPath, ["--input-type=module", "-e",
+    `import { atomicWrite } from ${JSON.stringify(module)}; atomicWrite({ path: process.argv[1], data: Buffer.from('ok') });`, join(dir, "new/nested", String(i))])));
+  assert.equal(readdirSync(join(dir, "new/nested")).length, 4);
+});
 
 test("原子写：预期版本不符不覆盖后来内容", () => {
   const dir = freshDir("atomic");

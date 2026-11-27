@@ -5,6 +5,9 @@
  * Pi 协议形状只出现在本目录；不导入 Pi SDK 或 RpcClient。
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { signalProcessGroup } from "../../infrastructure/process.js";
+
+export { signalProcessGroup, type SignalFunction } from "../../infrastructure/process.js";
 
 export type PiRpcRecord = { type: string } & Record<string, unknown>;
 
@@ -326,42 +329,6 @@ export class PiRpcConnection {
     const pid = this.pid;
     if (pid === null) return false;
     return signalProcessGroup(pid, signal, { exited: this.exitInfo !== null });
-  }
-}
-
-export type SignalFunction = (pid: number, signal: NodeJS.Signals) => unknown;
-
-/**
- * 向以 pid 为组长的进程组发信号；返回是否发出。
- * - ESRCH：组已不存在，返回 false。
- * - EPERM：macOS／BSD 在组内只剩僵尸或组长已退出被回收时 killpg 返回 EPERM（Linux 返回 ESRCH）。
- *   已观察到退出时按已结束处理；尚未退出时退而向组长 pid 本身发信号。组长是本连接自己 spawn、
- *   尚未被回收的子进程（同一用户，pid 不会被复用），此时再遇 EPERM 只可能是僵尸／退出中，按已结束处理。
- *   其它错误码如实抛出。
- * 信号函数可注入，便于在任意平台用测试模拟 macOS 语义。
- */
-export function signalProcessGroup(
-  pid: number,
-  signal: NodeJS.Signals,
-  options: { exited: boolean; kill?: SignalFunction },
-): boolean {
-  const kill = options.kill ?? ((target, value) => process.kill(target, value));
-  try {
-    kill(-pid, signal);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return false;
-    if (code !== "EPERM") throw error;
-    if (options.exited) return false;
-  }
-  try {
-    kill(pid, signal);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH" || code === "EPERM") return false;
-    throw error;
   }
 }
 

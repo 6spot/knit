@@ -63,14 +63,32 @@ export function pidAlive(pid: number): boolean {
  * 仅当启动或核对阶段进程表不可用（例如 macOS 沙箱禁止执行 setuid /bin/ps）导致无法核对启动标识时，
  * 退回 kill(pid, 0) 判活，避免把仍在运行的后台执行者误判为已退出。
  */
+export interface WorkerProcess {
+  readonly pid: number;
+  readonly start: string | null;
+}
+
+export function readProcessRegistration(file: string): WorkerProcess | null {
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8"));
+    return value && Number.isSafeInteger(value.pid) && value.pid > 0 &&
+      (typeof value.start === "string" || value.start === null) ? { pid: value.pid, start: value.start } : null;
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 export function recordedProcess(file: string): number | null {
-  if (!existsSync(file)) return null;
-  const recorded = JSON.parse(readFileSync(file, "utf8")) as { pid: number; start: string | null };
-  if (recorded.start === null) return pidAlive(recorded.pid) ? recorded.pid : null;
+  return registeredPid(readProcessRegistration(file));
+}
+
+export function registeredPid(recorded: WorkerProcess | null): number | null {
+  if (!recorded) return null;
   const table = processIdentities([recorded.pid]);
   if (table === null) return pidAlive(recorded.pid) ? recorded.pid : null;
   const current = table.get(recorded.pid)?.startTicks;
-  return current != null && sameProcessStart(recorded.start, current) ? recorded.pid : null;
+  return current != null && (recorded.start === null || sameProcessStart(recorded.start, current)) ? recorded.pid : null;
 }
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */
@@ -124,6 +142,7 @@ function readProcStats(pids: readonly number[]): ProcessTable {
     try {
       const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      if (fields[0] === "Z") continue;
       const ppid = Number(fields[1]);
       const pgid = Number(fields[2]);
       const start = fields[19];
@@ -135,13 +154,13 @@ function readProcStats(pids: readonly number[]): ProcessTable {
 }
 
 function processTablePs(selection: string[]): ProcessTable | null {
-  const result = spawnSync("ps", [...selection, "pid=,ppid=,pgid=,lstart=,comm="], {
+  const result = spawnSync("ps", [...selection, "pid=,ppid=,pgid=,stat=,lstart=,comm="], {
     encoding: "utf8",
     env: { ...process.env, LC_ALL: "C" },
     maxBuffer: 16 * 1024 * 1024,
   });
-  const table = parseProcessTablePs(result.stdout ?? "");
-  return table.size === 0 && (result.error || result.status !== 0) ? null : table;
+  if (result.error || result.stderr || (result.status !== 0 && result.status !== 1)) return null;
+  return parseProcessTablePs(result.stdout ?? "");
 }
 
 /**
@@ -151,15 +170,15 @@ function processTablePs(selection: string[]): ProcessTable | null {
 export function parseProcessTablePs(output: string): ProcessTable {
   const table: ProcessTable = new Map();
   for (const line of output.split("\n")) {
-    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})(?:\s+(\S.*))?$/.exec(line.trim());
-    if (match === null) continue;
+    const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})(?:\s+(\S.*))?$/.exec(line.trim());
+    if (match === null || match[4]!.startsWith("Z")) continue;
     const pid = Number(match[1]);
     const ppid = Number(match[2]);
     const pgid = Number(match[3]);
     if (!Number.isInteger(pid) || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
     // 维持ps既有lstart文本的单日两列格式，避免同日不同空白产生不同身份。
-    const startText = `${match[4]} ${match[5]} ${match[6]!.padStart(2, " ")} ${match[7]} ${match[8]}`;
-    const comm = match[9]?.trim() ?? "";
+    const startText = `${match[5]} ${match[6]} ${match[7]!.padStart(2, " ")} ${match[8]} ${match[9]}`;
+    const comm = match[10]?.trim() ?? "";
     table.set(pid, { ppid, pgid, startTicks: comm === "" ? startText : `${startText}${PS_IDENTITY_SEPARATOR}${comm}` });
   }
   return table;
@@ -208,8 +227,7 @@ export function signalProcessTree(
   for (const pgid of groups) {
     if (pgid === table.get(process.pid)?.pgid) continue;
     try {
-      process.kill(-pgid, signal);
-      signaled.push(-pgid);
+      if (signalProcessGroup(pgid, signal, { exited: !targets.includes(pgid) })) signaled.push(-pgid);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ESRCH") errors.push(`${-pgid}:${code ?? String(error)}`);
@@ -228,6 +246,30 @@ export function signalProcessTree(
   return { signaled, errors };
 }
 
+export type SignalFunction = (pid: number, signal: NodeJS.Signals) => unknown;
+
+/** BSD 上只剩僵尸的组也可能返回 EPERM；组长仍归调用方时向组长兜底。 */
+export function signalProcessGroup(pid: number, signal: NodeJS.Signals, options: { exited: boolean; kill?: SignalFunction }): boolean {
+  const kill = options.kill ?? ((target, value) => process.kill(target, value));
+  try {
+    kill(-pid, signal);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code !== "EPERM") throw error;
+    if (options.exited) return false;
+  }
+  try {
+    kill(pid, signal);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH" || code === "EPERM") return false;
+    throw error;
+  }
+}
+
 export const MAIN_SESSION_KEYS = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL", "PI_OFFLINE"];
 
 export function executorEnv(): Record<string, string> {
@@ -239,15 +281,20 @@ export function executorEnv(): Record<string, string> {
 /** SQLite 的文件锁随进程退出释放，派发、结算和共享钩子按各自的资源路径互斥。 */
 export function withFileLock<T>(path: string, timeout: number, action: () => T, busy: () => T, readOnly = false): T {
   if (!readOnly) mkdirSync(dirname(path), { recursive: true });
-  const lock = new (process.getBuiltinModule("node:sqlite").DatabaseSync)(path, { timeout, readOnly });
-  try {
-    // 读取数据库头即可观察排他锁，在只读检出中也能查询进程状态。
-    lock.exec(readOnly ? "PRAGMA user_version" : "BEGIN EXCLUSIVE");
-    return action();
-  } catch (error) {
-    if (error instanceof Error && "errcode" in error && error.errcode === 5) return busy(); // SQLITE_BUSY
-    throw error;
-  } finally {
-    lock.close();
+  const Database = process.getBuiltinModule("node:sqlite").DatabaseSync;
+  // 清理可能在打开之后回收旧 inode。取得锁后复核，旧连接不能进入业务临界区。
+  for (;;) {
+    const before = statSync(path, { bigint: true, throwIfNoEntry: false });
+    const lock = new Database(path, { timeout, readOnly });
+    try {
+      if (!before) continue;
+      try { lock.exec(readOnly ? "PRAGMA user_version" : "BEGIN EXCLUSIVE"); }
+      catch (error) {
+        if (error instanceof Error && "errcode" in error && error.errcode === 5) return busy();
+        throw error;
+      }
+      const current = statSync(path, { bigint: true, throwIfNoEntry: false });
+      if (before.ino === current?.ino && before.dev === current.dev) return action();
+    } finally { lock.close(); }
   }
 }

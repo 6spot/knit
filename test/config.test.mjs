@@ -30,6 +30,19 @@ test("写了的值生效", (t) => {
   });
 });
 
+test("setupTimeoutSeconds 接受缺省、null 和正整数秒", (t) => {
+  for (const value of [undefined, null, 2, 0, -1, 0.5, "3", false, {}]) {
+    const loaded = loadConfig(projectWithConfig(t, JSON.stringify({ worktree: { setupTimeoutSeconds: value } })));
+    if ([undefined, null, 2].includes(value)) {
+      assert.deepEqual(loaded.problems, []);
+      assert.equal(loaded.config.worktree.setupTimeoutSeconds, value);
+    } else {
+      assert.equal(loaded.config, null);
+      assert.match(loaded.problems.join("\n"), /worktree\/setupTimeoutSeconds/);
+    }
+  }
+});
+
 test("Worktree 准备命令保留内容和顺序，空数组合法", (t) => {
   [[], ["npm ci", "  echo ready  "]].forEach((setup) => {
     assert.deepEqual(loadConfig(projectWithConfig(t, JSON.stringify({ worktree: { setup } }))), {
