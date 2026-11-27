@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readReport } from "../dist/domain/report.js";
+import { readReport, reportOutcome } from "../dist/domain/report.js";
 
 const FENCE = "`".repeat(3);
 const block = (value) => [`${FENCE}json`, typeof value === "string" ? value : JSON.stringify(value, null, 2), FENCE].join("\n");
@@ -40,6 +40,30 @@ test("读出声明的字段", () => {
   const others = { summary: "string", changedPaths: "paths" };
   const values = { summary: "", changedPaths: ["next/src/a.ts"] };
   assert.deepEqual(readReport(others, block(values)), { fields: values, problems: [] });
+});
+
+test("只读最后一个顶层围栏，尾块损坏或未闭合时要求补报", () => {
+  const declared = { verdict: ["pass", "blocked"] };
+  const example = block({ verdict: "pass" });
+  for (const tail of [block('{"verdict":"blocked",}'), '~~~json\n{}\n```', `${FENCE}json\n{`,
+    `~~~~markdown\n${example}\n~~~~`]) {
+    assert.deepEqual(readReport(declared, `${example}\n\n${tail}`), {
+      fields: null, problems: ["报告结尾没有能解析的 json 代码块"],
+    });
+  }
+  assert.equal(readReport(declared, `正文 ${example}`).fields, null);
+  assert.equal(readReport(declared, `  ${example}`).fields, null);
+  const fields = { verdict: "blocked", example: `第一行\n${FENCE}json\n{}\n${FENCE}\n~~~` };
+  for (const marker of [FENCE, "~~~"]) {
+    const tail = [`${marker}json`, JSON.stringify(fields), marker].join("\r\n");
+    assert.deepEqual(readReport(declared, `${example}\n${tail}`), { fields, problems: [] });
+  }
+});
+
+test("空白报告即使没有声明字段也要求补报", () => {
+  for (const declared of [{}, { verdict: ["pass"] }]) {
+    assert.deepEqual(reportOutcome(declared, " \n\t"), { outcome: null, problems: ["执行者没有给出报告"] });
+  }
 });
 
 test("读不出时说明原因", () => {

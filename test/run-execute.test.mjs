@@ -260,7 +260,7 @@ test("工具按环节的 tools 给", async (t) => {
   });
 });
 
-test("没有给出报告时记为失败，不要求补报", async (t) => {
+test("连续两次空报告在同一会话补报一次后记为失败", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
   const pi = fakePi(t);
@@ -272,9 +272,11 @@ test("没有给出报告时记为失败，不要求补报", async (t) => {
   const ended = lastRun(dir, task);
   assert.deepEqual(
     { id: ended.id, verdict: ended.verdict, failure: ended.failure },
-    { id: run.id, verdict: null, failure: "执行者没有给出报告" },
+    { id: run.id, verdict: null, failure: "报告读不出来：执行者没有给出报告" },
   );
-  assert.equal(pi.messages().length, 1);
+  assert.equal(pi.log().filter((line) => line.args).length, 1);
+  assert.equal(pi.messages().length, 2);
+  assert.match(pi.messages()[1], /执行者没有给出报告/);
 });
 
 test("模型请求出错时记下模型服务给的原因，不要求补报", async (t) => {
@@ -430,21 +432,22 @@ test("被中止时记为失败，不要求补报", async (t) => {
 
 const PASS = '改好了格式。\n\n```json\n{ "verdict": "pass" }\n```';
 
-test("补报之后读得出就按正常结束", async (t) => {
+test("空报告在原会话补报后按有效结论结束", async (t) => {
   const dir = runProject(t);
   const task = readyTask(dir);
   const pi = fakePi(t);
   const run = reviewRun(dir, task);
-  pi.script({ texts: ["看过了，没有问题。", PASS] });
+  pi.script({ texts: ["", PASS] });
 
   assert.deepEqual(await execute(dir, task, run), []);
 
   const ended = lastRun(dir, task);
   assert.deepEqual({ verdict: ended.verdict, failure: ended.failure }, { verdict: "pass", failure: null });
   assert.equal(readFileSync(join(dir, run.dir, "report.md"), "utf8"), PASS);
+  assert.equal(pi.log().filter((line) => line.args).length, 1);
   assert.deepEqual(pi.messages(), [
     readFileSync(join(dir, run.dir, "message.md"), "utf8"),
-    "上一条消息里的报告读不出来：\n- 报告结尾没有能解析的 json 代码块\n" +
+    "上一条消息里的报告读不出来：\n- 执行者没有给出报告\n" +
       "请只重新输出完整的报告，结尾带上 json 代码块。不要修改文件，不要重新做一遍。",
   ]);
 });
@@ -455,7 +458,7 @@ test("补报之后仍读不出就记为失败", async (t) => {
   const pi = fakePi(t);
   const run = reviewRun(dir, task);
   const second = "再说一遍：没有问题。";
-  pi.script({ texts: ["看过了，没有问题。", second, PASS] });
+  pi.script({ texts: [`${PASS}\n\n~~~json\n{"verdict":"blocked",}\n~~~`, second, PASS] });
 
   assert.deepEqual(await execute(dir, task, run), []);
 

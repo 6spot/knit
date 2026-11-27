@@ -400,20 +400,22 @@ function validateSemantics(config: WorkflowConfig, positions: SourcePositions): 
       }
     }
 
-    const declaredVerdicts = new Set<string>();
-    for (const type of Object.values(stage.report ?? {})) {
-      if (isReportEnum(type)) for (const value of type) declaredVerdicts.add(value);
+    const verdict = stage.report?.verdict;
+    const declaredVerdicts = Array.isArray(verdict) ? verdict : [];
+    if (stage.onVerdict && Object.keys(stage.onVerdict).length === 0 && !Array.isArray(verdict)) {
+      const pointer = `/stages/${index}/onVerdict`;
+      issues.push(makeIssue("undeclared_verdict_value", positions.at(pointer), pointer, "onVerdict 要求 report.verdict 为枚举字段"));
     }
     for (const [value, target] of Object.entries(stage.onVerdict ?? {})) {
       const pointer = joinPointer(`/stages/${index}/onVerdict`, value);
       const position = positions.at(pointer);
-      if (!declaredVerdicts.has(value)) {
+      if (!declaredVerdicts.includes(value)) {
         issues.push(
           makeIssue(
             "undeclared_verdict_value",
             position,
             pointer,
-            `onVerdict 键 "${value}" 未在 report 的枚举字段中声明`,
+            `onVerdict 键 "${value}" 未在 report.verdict 枚举中声明`,
           ),
         );
       }
@@ -535,7 +537,8 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): W
     prompt: executor.prompt ?? stage.prompt ?? null,
   }));
   const single = executors.length === 1 ? executors[0] : undefined;
-  const normalized = {
+  const prompt = single?.prompt ?? stage.prompt ?? null;
+  return {
     id: stage.id,
     name: stage.name !== undefined && stage.name.length > 0 ? stage.name : stage.id,
     description: stage.description ?? null,
@@ -544,17 +547,13 @@ function normalizeStage(stage: WorkflowStageConfig, defaultMaxVisits: number): W
     agent: single?.agent ?? null,
     model: single?.model ?? null,
     thinking: single?.thinking ?? null,
-    prompt: single?.prompt ?? stage.prompt ?? null,
+    prompt,
+    ...(stage.prompt && stage.prompt !== prompt ? { sharedPrompt: stage.prompt } : {}),
     tools: normalizeTools(stage.tools),
     report: copyReport(stage.report ?? {}),
     onVerdict: { ...(stage.onVerdict ?? {}) },
     maxVisits: stage.maxVisits === undefined ? defaultMaxVisits : stage.maxVisits,
   };
-  // 覆盖前的角色仍受保护，但不参与有效执行配置的序列化和相等比较。
-  if (stage.prompt && stage.prompt !== normalized.prompt) {
-    Object.defineProperty(normalized, "sharedPrompt", { value: stage.prompt });
-  }
-  return normalized;
 }
 
 /**
@@ -700,16 +699,18 @@ function schemaIssueMessage(code: WorkflowIssueCode, error: ValidationError, raw
 function toolsIssueMessage(pointer: string, path: string, raw: unknown): string {
   const segments = pointerSegments(pointer);
   const executors = valueAtPointer(raw, `/stages/${segments[1]}/executors`);
-  if (Array.isArray(executors) && executors.length >= 2) return parallelToolsMessage(path);
+  const parallel = Array.isArray(executors) && executors.length >= 2;
   const value = valueAtPointer(raw, pointer);
   const isElement = segments.length > 3;
   if (isElement && typeof value === "string" && TOOLS_ALL_REGEX.test(value)) {
+    if (parallel) return `${path} 不能在能力列表里写 all；请显式配置只读能力数组，如 tools: [read, exec]`;
     return `${path} 不能在能力列表里写 all；全部放开请写标量 tools: all 或不写 tools，全部禁用写 tools: []`;
   }
   if (!isElement) {
+    if (parallel) return `${path} 的值 ${describeValue(value)} 无效；请显式配置只读能力数组，如 tools: [read, exec]`;
     return `${path} 只能是标量 all（全部放开）或能力数组（[] 为全部禁用）；能力只允许 read／write／exec／external／network`;
   }
-  return `${path} 含无效能力；只允许 read／write／exec／external／network`;
+  return `${path} 含无效能力 ${describeValue(value)}；只允许 ${parallel ? "read／exec／external／network" : "read／write／exec／external／network"}`;
 }
 
 function valueAtPointer(raw: unknown, pointer: string): unknown {

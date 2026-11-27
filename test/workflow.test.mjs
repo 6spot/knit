@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { checkSchema } from "../dist/contracts/primitives.js";
 import { TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_STAGE_ID_REGEX, WorkflowIssueSchema, WorkflowValidationSchema } from "../dist/contracts/workflow.js";
-import { DEFAULT_MAX_REPAIR_ROUNDS, parseWorkflow } from "../dist/domain/workflow.js";
+import { DEFAULT_MAX_REPAIR_ROUNDS, parseWorkflow, workflowPrompts } from "../dist/domain/workflow.js";
 
 /** docs/design/DESIGN.md 第 6.1 节的示例流程。 */
 const SAMPLE_WORKFLOW_YAML = `version: 1
@@ -129,8 +129,11 @@ test("单执行器列表与旧写法解析为相同定义，允许写权限", ()
   const base = "version: 1\nstages:\n  - id: review\n    tools: all\n";
   const fields = ["agent: pi", "model: p/m", "thinking: high", "prompt: roles/review.md"];
   const legacy = base + fields.map((field) => `    ${field}\n`).join("");
-  const listed = base + `    prompt: shared.md\n    executors:\n      - ${fields.join("\n        ")}\n`;
+  const listed = base + `    executors:\n      - ${fields.join("\n        ")}\n`;
   assert.deepEqual(assertValid(listed), assertValid(legacy));
+  const overridden = assertValid(listed.replace("    executors:", "    prompt: shared.md\n    executors:"));
+  assert.deepEqual(workflowPrompts({ ...overridden, stages: overridden.stages.map((stage) => ({ ...stage })) }),
+    ["shared.md", "roles/review.md"]);
 });
 
 test("maxRepairRounds 作为阶段缺省，显式 maxVisits 覆盖它", () => {
@@ -474,6 +477,15 @@ test("onVerdict 键未在 report 枚举中声明时被拒绝", () => {
   assert.equal(result.validation.issues[0].line, 5);
 });
 
+test("onVerdict 只从 report.verdict 的枚举取值", () => {
+  for (const report of ["{grade: [pass]}", "{grade: [pass], verdict: string}", "{grade: [pass], verdict: [blocked]}"]) {
+    const result = assertInvalid(`version: 1\nstages:\n  - id: review\n    report: ${report}\n    onVerdict: {pass: deliver}\n`,
+      "undeclared_verdict_value");
+    assert.match(result.validation.issues[0].message, /pass.*report\.verdict/);
+  }
+  assertInvalid("version: 1\nstages:\n  - id: review\n    onVerdict: {}\n", "undeclared_verdict_value");
+});
+
 test("无上限阶段之间成环时被拒绝", () => {
   const result = assertInvalid(
     [
@@ -664,10 +676,27 @@ test("并行环节配置错误时，解析器指出具体行号", () => {
     assert.equal(parsed.validation.reason, code, source);
     const [issue] = parsed.validation.issues;
     assert.equal(issue.line, line, issue.message);
-    if (code === "parallel_stage_requires_readonly_tools" || code === "invalid_tools") {
+    if (code === "parallel_stage_requires_readonly_tools") {
       assert.match(issue.message, /必须只读.*不得含 write.*tools: \[read, exec\]/);
+    }
+    if (code === "invalid_tools") {
+      assert.match(issue.message, /只读能力数组/);
       assert.doesNotMatch(issue.message, /tools: all|不写 tools/);
     }
+  }
+});
+
+test("并行工具分别指出非法能力名和写权限", () => {
+  for (const first of ["read", "write"]) {
+    const result = parseWorkflow(parallelWorkflow.replace("[read, exec]", `[${first}, invalid]`));
+    assert.equal(result.workflow, null);
+    const issues = result.validation.issues;
+    assert.deepEqual(issues.map(({ path, code }) => [path, code]), [
+      ...(first === "write" ? [["/stages/1/tools/0", "parallel_stage_requires_readonly_tools"]] : []),
+      ["/stages/1/tools/1", "invalid_tools"],
+    ]);
+    assert.match(issues.at(-1).message, /含无效能力 "invalid"/);
+    assert.doesNotMatch(issues.at(-1).message, /不得含 write/);
   }
 });
 
