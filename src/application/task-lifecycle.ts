@@ -63,7 +63,7 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
   const unreviewed = status !== "done" && document.frontmatter.verification === "independent" &&
     lastPassedReview(record) === undefined;
   if (unreviewed && options.reason === undefined) {
-    return { kind: "refused", problems: ["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"] };
+    return { kind: "refused", problems: ["独立审查的任务需要在 Knit 审查通过后才能完成；如已通过其他方式完成审查或用户明确要求直接完成，加 --reason <说明>"] };
   }
   const paths = options.paths.map((path) => ({ path, relative: status === "done" && path === "" ? null : projectRelative(path) }));
   const problems = paths.filter((item) => item.relative === null).map((item) => `--paths 要写项目内的相对路径：${item.path}`);
@@ -74,7 +74,7 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
   const conflicts = saveTask(root, stored, status === "done" ? null : {
     ...document,
     frontmatter: { ...document.frontmatter, status: "done", stage: null },
-    result: unreviewed ? `${result}\n\n没有经过独立审查，直接完成：${options.reason}` : result,
+    result: unreviewed ? `${result}\n\n未通过 Knit 独立审查记录，按说明完成：${options.reason}` : result,
   }, { ...record, changedPaths: [...new Set([...record.changedPaths, ...registered])].sort() });
   if (conflicts.length) return { kind: "refused", problems: conflicts };
   return status === "done" ? { kind: "pathsRegistered", title: document.frontmatter.title, paths: registered }

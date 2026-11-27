@@ -382,14 +382,18 @@ test("不能完成时说明下一步，不写文件", (t) => {
   }
 });
 
-test("独立审查的任务要先审查通过，或给出直接完成的理由", (t) => {
+test("独立审查任务按 Knit 审查记录决定是否需要收尾说明", (t) => {
   const dir = project(t);
   const task = closeFixture(dir, { verification: "independent" });
   const before = files(task);
   const refused = close(dir, task);
   assert.equal(refused.kind, "refused");
-  assert.match(refused.problems[0], /独立审查的任务要在审查通过后才能完成.*--reason <理由>/);
+  assert.deepEqual(refused.problems, [REFUSED]);
   assert.deepEqual(files(task), before);
+
+  const native = closeFixture(dir, { verification: "independent", slug: "native" });
+  assert.equal(close(dir, native, { reason: "原生子 Agent 已独立检查并通过" }).kind, "done");
+  assert.equal(read(native).result, "做完了\n\n未通过 Knit 独立审查记录，按说明完成：原生子 Agent 已独立检查并通过");
 
   // 最后一条带结论的执行不是 pass：仍然拒绝。
   const withRuns = (target, ...runs) => {
@@ -400,7 +404,7 @@ test("独立审查的任务要先审查通过，或给出直接完成的理由",
   assert.equal(close(dir, task).kind, "refused");
 
   assert.equal(close(dir, task, { reason: "用户要求" }).kind, "done");
-  assert.equal(read(task).result, "做完了\n\n没有经过独立审查，直接完成：用户要求");
+  assert.equal(read(task).result, "做完了\n\n未通过 Knit 独立审查记录，按说明完成：用户要求");
   assert.equal(read(task).frontmatter.status, "done");
 
   // 审查通过之后不需要理由，给了也不写进结果。
@@ -797,7 +801,7 @@ test("改过的需求回退 draft，同项目未改的任务仍是 ready", (t) =
   assert.equal(status(kept), "ready");
 });
 
-const REFUSED = "独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>\n";
+const REFUSED = "独立审查的任务需要在 Knit 审查通过后才能完成；如已通过其他方式完成审查或用户明确要求直接完成，加 --reason <说明>";
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;
 const filesOf = (dir, task) => ["task.md", "record.json"].map((name) => readFileSync(join(dir, task.dir, name), "utf8"));
 
@@ -857,7 +861,7 @@ test("需求改过之后以前的审查通过不算", (t) => {
   assert.equal(readyTask(dir, changed.id).kind, "ready");
   const before = filesOf(dir, changed);
   const refused = close(dir, changed);
-  assert.deepEqual(refused, { kind: "refused", problems: [REFUSED.trimEnd()] });
+  assert.deepEqual(refused, { kind: "refused", problems: [REFUSED] });
   assert.deepEqual(filesOf(dir, changed), before);
 
   const unchanged = closeFixture(dir, { verification: "independent" });

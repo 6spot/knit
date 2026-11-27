@@ -216,6 +216,7 @@ createdAt: 2026-11-14T13:36:56Z
 - Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 和 `knit workflow validate --env` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。环境和命令中都未指定 `KNIT_SESSION_AGENT` 时，钩子为派发和环境预检补上 `KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT-antigravity}"`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - Qoder 仅在默认主 Agent（`agent:default`）加载项目级 `.qoder/settings.json`。`SessionStart` 和 `UserPromptSubmit` 返回对应的 `hookEventName` 和 `additionalContext`。优先取事件的 `cwd`，缺省时依次取 `QODER_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和进程工作目录。
+- WorkBuddy 和 Qoder 选中 `ready` 或 `active` 任务且下一步需要派发环节时，状态块提示使用当前宿主自身工具与原生子 Agent 完成该环节，再运行 `knit task close <id> --result <总结>`。`independent` 任务缺少有效的 Knit 审查通过记录时，提示在原生独立检查通过后用 `--reason` 写明检查说明。Antigravity、Pi 和普通 CLI 在待派发时提示 `knit run start <id>`。
 - 钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和宿主指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
 - WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use`、`--unuse` 与 `knit task new` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。`updatedInput` 保留原始 `tool_input` 中除 `command` 外的全部字段。`knit run start` 直接返回 `permissionDecision: deny` 并提示改用 WorkBuddy 原生工具与子 Agent（或在外部终端/Pi/Antigravity 中派发）。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - Qoder 的 `PreToolUse` 只订阅 `Bash`。选择、取消选择和建草稿的命令带上 `KNIT_HOST=qoder` 与 `KNIT_HOST_SESSION`。Qoder 用 `updatedInput` 整对象替换 `tool_input`，因此返回改写后的 `command` 及其余全部原始字段。预览直接放行。实际交付从 `transcript_path` 的 JSONL 中读取用户文本，排除摘要、元消息、工具结果与非用户来源，剥离 `<system-reminder>`、`<hook_context>` 和 `<loaded_context>`。标签残缺的消息不参与核对。授权原话须匹配整条或完整一行，匹配失败返回 `permissionDecision: deny`，放行时 stdout 为空。
@@ -429,7 +430,7 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 ### 8.1 完成
 
 - `self`／`none` 任务：主会话 `task close` 并写「结果」。
-- `independent` 任务：审查结论 `pass` 后完成。用户明确要求时可以带理由直接完成，理由写进「结果」。
+- `independent` 任务有有效的 Knit 审查通过记录时，可直接用 `task close --result` 收尾。缺少该记录时，如已通过其他方式完成审查，或用户明确要求直接完成，须在收尾时加 `--reason <说明>`。Knit 将 `未通过 Knit 独立审查记录，按说明完成：<说明>` 追加到 `task.md` 的「结果」。
 
 ### 8.2 交付
 
@@ -509,7 +510,7 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 ```
 knit init [--pi] [--agy] [--workbuddy] [--qoder] [--force]
 knit task new | ready | close | cancel | list | show
-knit task close <id> --result <总结> [--paths <path...>] [--reason <理由>]   完成 ready 或 active 任务
+knit task close <id> --result <总结> [--paths <path...>] [--reason <说明>]   完成 ready 或 active 任务
 knit task close <id> --paths <path...>        给 done 任务补录改动文件，保留状态和结果
 knit task list [--archive]                查看活跃任务；--archive 平铺列出已归档任务
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支

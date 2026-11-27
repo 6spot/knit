@@ -215,7 +215,7 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
   assert.equal(confirmTask(root, task.id).kind, "ready");
   const ready = await injected();
   assert.match(ready, /^状态: ready$/m);
-  assert.match(ready, /^下一步: .*knit run start /m);
+  assert.ok(ready.split("\n").includes(`下一步: 派发实现环节（knit run start ${task.id}）`));
   assert.match(ready, /^规范（implement 环节）:/m);
   assert.deepEqual(standardPaths(ready), [development]);
   assert.deepEqual(await agyHostHook("PreInvocation", payload), {});
@@ -418,6 +418,33 @@ function buddyPreTool(cwd, command, tool = "Bash") {
     call_id: "call-8", tool_use_id: "call-8", tool_name: tool,
     tool_input: { command, timeout: 120000, description: "调用 Knit", run_in_background: false } });
 }
+
+test("WorkBuddy 和 Qoder 为待派发环节注入原生工具和收尾命令", async (t) => {
+  const cwd = runProject(t);
+  const self = readyTask(cwd, { verification: "self" });
+  const independent = readyTask(cwd);
+  const check = async (task, stage, status, event) => {
+    for (const [host, hook] of [["workbuddy", workbuddyHostHook], ["qoder", qoderHostHook]]) {
+      assert.equal(selectHostTask(cwd, { host, sessionId: session }, task.id).kind, "selected");
+      const output = await hook(event, { cwd, session_id: session });
+      const lines = output.hookSpecificOutput.additionalContext.split("\n");
+      assert.ok(lines.includes(`状态: ${status}`), host);
+      const next = lines.find((line) => line.startsWith("下一步:"));
+      assert.ok(next.includes(`宿主自身工具与原生子 Agent 完成${stage}环节`), host);
+      assert.ok(next.includes(`knit task close ${task.id} --result`), host);
+      assert.doesNotMatch(next, /knit run start/);
+      if (task === independent) assert.match(next, /原生独立检查通过后.*--reason <原生独立检查说明>/);
+      if (task === self) assert.doesNotMatch(next, /--reason/);
+    }
+  };
+  await check(self, "实现", "ready", "session-start");
+  await check(independent, "实现", "ready", "user-prompt-submit");
+  const workflow = readWorkflow(cwd).workflow;
+  const { run, problems } = prepareRun({ root: cwd, taskId: independent.id, workflow, config: loadConfig(cwd).config, model: null });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(finishRun({ agents, root: cwd, taskId: independent.id, runId: run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
+  await check(independent, "审查", "active(implement)", "user-prompt-submit");
+});
 
 test("WorkBuddy 改写 Bash 命令时保留其余工具参数", async () => {
   const fields = { timeout: 120000, description: "调用 Knit", run_in_background: false };

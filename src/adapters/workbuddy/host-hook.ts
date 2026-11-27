@@ -49,7 +49,7 @@ export async function workbuddyHostHook(event: string, input: unknown) {
   if (event === "session-start" || event === "user-prompt-submit") {
     if (typeof sessionId !== "string" || !sessionId) return null;
     const { hostContext } = await import("../../application/host-hook.js");
-    const text = hostContext([cwd], { host: "workbuddy", sessionId }, guidance);
+    const text = hostContext([cwd], { host: "workbuddy", sessionId }, guidance, "native");
     return text === null ? null : { hookSpecificOutput: {
       hookEventName: event === "session-start" ? "SessionStart" : "UserPromptSubmit", additionalContext: text,
     } };

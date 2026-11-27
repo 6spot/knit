@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskRecord } from "../contracts/task.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
-import { batchOf, nextStep, sessionStage } from "../domain/progress.js";
+import { batchOf, lastPassedReview, nextStep, sessionStage } from "../domain/progress.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
 import { currentStatus, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
@@ -94,7 +94,9 @@ function runLines(task: SessionTaskStatus, member: SessionTaskStatus["members"][
       ];
 }
 
-function nextLine(task: SessionTaskStatus): string[] {
+export type DispatchMode = "external" | "native";
+
+function nextLine(task: SessionTaskStatus, dispatchMode?: DispatchMode): string[] {
   const id = task.frontmatter.id;
   const status = task.status;
   if (status === "draft") return [`下一步: 先确认需求（knit task ready ${id}）`];
@@ -107,10 +109,17 @@ function nextLine(task: SessionTaskStatus): string[] {
     const [first, ...rest] = limitNotice(id, task.workflow, task.record, step);
     return [`下一步: ${first}`, ...rest];
   }
+  if (dispatchMode === "native") {
+    const close = `knit task close ${id} --result <总结>`;
+    const finish = task.frontmatter.verification === "independent" && lastPassedReview(task.record) === undefined
+      ? `原生独立检查通过后，运行 ${close} --reason <原生独立检查说明>`
+      : `完成后运行 ${close}`;
+    return [`下一步: 使用当前宿主自身工具与原生子 Agent 完成${step.stage.name}环节。${finish}`];
+  }
   return [`下一步: 派发${step.stage.name}环节（knit run start ${id}）`];
 }
 
-export function statusLines(task: SessionTaskStatus): string[] {
+export function statusLines(task: SessionTaskStatus, dispatchMode?: DispatchMode): string[] {
   return [
     `任务: ${task.frontmatter.title}（${task.frontmatter.id}）`,
     `状态: ${task.status === "active" ? `active(${task.frontmatter.stage})` : task.status}`,
@@ -120,7 +129,7 @@ export function statusLines(task: SessionTaskStatus): string[] {
       ...runLines(task, member),
       ...(member.sessionNotice ? [member.sessionNotice] : []),
     ]) : ["还没有派发过"]),
-    ...(task.members.some(({ run }) => run.endedAt === null) ? [] : nextLine(task)),
+    ...(task.members.some(({ run }) => run.endedAt === null) ? [] : nextLine(task, dispatchMode)),
   ];
 }
 
@@ -135,21 +144,21 @@ export function contextLines(context: SessionContext): string[] {
   ];
 }
 
-export function contextBlocks(context: SessionContext) {
+export function contextBlocks(context: SessionContext, dispatchMode?: DispatchMode) {
   const supplement = context.task?.supplement;
   const pitfalls = (supplement?.standards ?? context.discussion).find((standard) => standard.path === PITFALLS_PATH);
   const supplemental = supplement?.standards.filter((standard) => standard.path !== PITFALLS_PATH) ?? [];
   return {
     discussion: standardLines("discuss", context.discussion.filter((standard) => standard.path !== PITFALLS_PATH)).join("\n"),
-    status: taskContextLines(context.task).join("\n"),
+    status: taskContextLines(context.task, dispatchMode).join("\n"),
     supplement: supplement != null && supplemental.length > 0 ? standardLines(supplement.stage, supplemental).join("\n") : "",
     pitfalls: pitfalls === undefined ? "" : renderStandard(pitfalls),
   };
 }
 
-function taskContextLines(task: SessionContext["task"]): string[] {
+function taskContextLines(task: SessionContext["task"], dispatchMode?: DispatchMode): string[] {
   return task === null ? [] : [
-    ...statusLines(task.status),
+    ...statusLines(task.status, dispatchMode),
     `目录: ${task.dir}`,
     ...(task.commit === null ? [] : [`提交: ${task.commit}`]),
   ];

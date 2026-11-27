@@ -1,4 +1,4 @@
-import { buildSessionContext, contextLines, statusLines } from "../dist/application/session-context.js";
+import { buildSessionContext, contextBlocks, contextLines, statusLines } from "../dist/application/session-context.js";
 import { initProject } from "../dist/application/init.js";
 import { waitRun } from "../dist/application/run-control.js";
 import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
@@ -89,6 +89,25 @@ test("各个状态给对应环节的规范", (t) => {
 
   assert.equal(closeTask(dir, id, { result: "做完了", paths: [] }).kind, "done");
   assert.equal(standardsPart(dir, id, taskDir), delivery);
+});
+
+test("Knit 审查通过后仍有环节待派发时，桌面原生收尾无需说明，CLI 继续提示派发", (t) => {
+  const dir = runProject(t);
+  const workflow = join(dir, ".knit/workflow.yaml");
+  writeFileSync(workflow, `${readFileSync(workflow, "utf8")}  - id: verify\n    name: 验收\n`);
+  const task = readyTask(dir);
+  ranStage(dir, task.id, null);
+  ranStage(dir, task.id, "pass");
+  const status = contextBlocks(buildSessionContext(dir, task.id), "native").status;
+  const next = status.split("\n").find((line) => line.startsWith("下一步:"));
+  assert.ok(next.includes(`完成验收环节。完成后运行 knit task close ${task.id} --result`));
+  assert.doesNotMatch(next, /--reason|knit run start/);
+
+  for (const command of [["context"], ["run", "status"], ["run", "wait"]]) {
+    const output = knit(dir, ...command, task.id);
+    assert.equal(output.code, 0, output.stderr);
+    assert.ok(output.stdout.split("\n").includes(`下一步: 派发验收环节（knit run start ${task.id}）`));
+  }
 });
 
 test("没有规范和已经结束的任务", (t) => {

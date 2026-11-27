@@ -5,7 +5,7 @@ import { sha256Text } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { withFileLock } from "../infrastructure/process.js";
-import { buildSessionContext, contextBlocks } from "./session-context.js";
+import { buildSessionContext, contextBlocks, type DispatchMode } from "./session-context.js";
 import { readTask } from "./task-store.js";
 
 export { checkHostCommand } from "./host-command.js";
@@ -66,12 +66,12 @@ export function selectHostTask(root: string, session: HostSession, taskId: strin
   return { kind: "selected", title: loaded?.task.document.frontmatter.title ?? null };
 }
 
-export function hostContext(dirs: readonly string[], session: HostSession, guidance?: string): string | null {
+export function hostContext(dirs: readonly string[], session: HostSession, guidance?: string, dispatchMode?: DispatchMode): string | null {
   const root = dirs.map(hostProjectRoot).find((path) => path !== null);
   if (root === undefined) return null;
   return withSession(root, session, (path) => {
     const state = readState(path);
-    const blocks = sessionBlocks(root, state.taskId, guidance);
+    const blocks = sessionBlocks(root, state.taskId, guidance, dispatchMode);
     const digests = { ...state.digests };
     const changed = blockNames.filter((name) => {
       const text = blocks[name];
@@ -88,7 +88,7 @@ export function hostContext(dirs: readonly string[], session: HostSession, guida
   });
 }
 
-function sessionBlocks(root: string, taskId: string | null, guidance: string | undefined): Partial<Record<BlockName, string>> {
+function sessionBlocks(root: string, taskId: string | null, guidance?: string, dispatchMode?: DispatchMode): Partial<Record<BlockName, string>> {
   const context = readContext(root, taskId);
   if (context.kind === "refused") {
     const discussion = buildSessionContext(root);
@@ -100,7 +100,7 @@ function sessionBlocks(root: string, taskId: string | null, guidance: string | u
       ].join("\n"),
     };
   }
-  const blocks = contextBlocks(context);
+  const blocks = contextBlocks(context, dispatchMode);
   return {
     ...blocks,
     status: taskId === null ? "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。" : blocks.status,
