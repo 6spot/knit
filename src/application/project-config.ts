@@ -117,6 +117,6 @@ export function savePitfall(root: string, scope: string, title: string, detail: 
     const standard = parseStandard(PITFALLS_PATH, original);
     if (standard.problems.length) throw new Error(standard.problems.join("\n"));
     const updated = recordPitfall(original, scope, title, detail);
-    if (updated !== original) atomicWrite({ path, data: Buffer.from(updated), expectedSha256: current?.sha256 ?? null });
+    if (updated !== original) atomicWrite({ path, data: Buffer.from(updated), expectedSha256: current?.sha256 ?? null, mode: 0o644 });
   }, () => { throw new Error("避坑清单正在写入，请重试"); });
 }

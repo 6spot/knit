@@ -3,7 +3,7 @@
  * `.knit/tasks/archive/<YYYY-MM>/<目录>/` 是已归档的。
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { sha256Bytes } from "../contracts/primitives.js";
 import type { TaskFrontmatter, TaskRecord } from "../contracts/task.js";
@@ -16,7 +16,7 @@ import {
   unparsedTaskId,
   type TaskDocument,
 } from "../domain/task.js";
-import { atomicWrite, InfrastructureError, readWithVersion } from "../infrastructure/fs.js";
+import { atomicWrite, InfrastructureError, moveDirectory, readWithVersion } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { projectWorktreeRoot, taskWorktree } from "./worktree.js";
 
@@ -77,7 +77,7 @@ function readTaskBytes(root: string, dir: string, ids?: ReadonlySet<string>): Bu
     const prefix = buffer.subarray(0, readSync(fd, buffer));
     const text = prefix.toString("utf8");
     // 结束标记必须连换行一起读到，缓冲区末尾的 --- 可能只是一行的开头。
-    if (text.startsWith("---\n") && text.includes("\n---\n", 4) && !taskDocumentMayHaveId(text, ids)) return null;
+    if (/^---\r?\n[\s\S]*?\n---\r?\n/.test(text) && !taskDocumentMayHaveId(text, ids)) return null;
     return Buffer.concat([prefix, readFileSync(fd)]);
   } finally {
     closeSync(fd);
@@ -317,7 +317,7 @@ export function archiveDirOf(stored: StoredTask): string {
 export function archiveTask(root: string, stored: StoredTask, targetRoot = root): string {
   const dir = archiveDirOf(stored);
   mkdirSync(dirname(join(targetRoot, dir)), { recursive: true });
-  renameSync(join(root, stored.dir), join(targetRoot, dir));
+  moveDirectory(join(root, stored.dir), join(targetRoot, dir));
   return dir;
 }
 

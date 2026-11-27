@@ -28,12 +28,12 @@ const taskFrontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const rawIdLine = /^id:[ \t]*(\S+)[ \t]*$/m;
 
 export function unparsedTaskId(markdown: string): string | null {
-  return rawIdLine.exec(taskFrontmatter.exec(markdown)?.[1] ?? "")?.[1] ?? null;
+  return rawIdLine.exec(taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1] ?? "")?.[1] ?? null;
 }
 
 /** 先筛掉 ID 不同的常规任务；手写 YAML 可能用引号、显式键或别名。 */
 export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>): boolean {
-  const header = taskFrontmatter.exec(markdown)?.[1];
+  const header = taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1];
   if (header === undefined) return false;
   const rawId = rawIdLine.exec(header)?.[1];
   if (rawId !== undefined && ids.has(rawId)) return true;
@@ -44,11 +44,12 @@ export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>
 }
 
 export function parseTaskDocument(markdown: string): TaskDocumentParse {
-  const match = taskFrontmatter.exec(markdown);
+  const normalized = markdown.replaceAll("\r\n", "\n");
+  const match = taskFrontmatter.exec(normalized);
   if (match === null) return { document: null, problems: ["没有开头字段：文件要以 --- 开头，字段之后再用一行 --- 结束"] };
   const { frontmatter, problems } = parseTaskFrontmatter(match[1] ?? "");
   if (frontmatter === null) return { document: null, problems };
-  const lines = markdown.slice(match[0].length).split("\n");
+  const lines = normalized.slice(match[0].length).split("\n");
   const heading = resultHeadingLine(lines);
   return {
     document: {

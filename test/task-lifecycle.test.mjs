@@ -12,7 +12,7 @@ import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { cancelTask, closeTask, readyTask } from "../dist/application/task-lifecycle.js";
 import { deliverTask } from "../dist/application/delivery.js";
-import { createTask, findArchivedTasks, findTask, readTask, saveTask, scanTasks, taskCommit } from "../dist/application/task-store.js";
+import { archiveTask, createTask, findArchivedTasks, findTask, readTask, saveTask, scanTasks, taskCommit } from "../dist/application/task-store.js";
 import { currentStatus, parseTaskDocument, renderTaskDocument, renderTaskRecord, requirementDigest } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { knit, project } from "./helpers/cli.mjs";
@@ -580,6 +580,31 @@ test("取消并归档：目录移到当月的归档目录，状态 cancelled，�
   );
 });
 
+test("跨目标检出归档遇到 EXDEV 时移走完整目录并清理暂存目录", (t) => {
+  const root = project(t);
+  const target = project(t);
+  const task = closeFixture(root);
+  const stored = findTask(root, task.id);
+  const before = filesOf(root, task);
+  const expected = `.knit/tasks/archive/${MONTH}/${basename(task.dir)}`;
+  const rename = t.mock.method(fs, "renameSync");
+  rename.mock.mockImplementationOnce((source, destination) => {
+    assert.equal(source, join(root, task.dir));
+    assert.equal(destination, join(target, expected));
+    throw Object.assign(new Error("cross-device link"), { code: "EXDEV" });
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(archiveTask(root, stored, target), expected);
+    assert.equal(existsSync(join(root, task.dir)), false);
+    assert.deepEqual(filesOf(target, { dir: expected }), before);
+    assert.deepEqual(readdirSync(join(target, dirname(expected))), [basename(expected)]);
+  } finally {
+    rename.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
 test("已经结束的任务不能取消，文件和目录都不变", (t) => {
   const dir = project(t);
   const task = cancelDraft(dir);
@@ -743,15 +768,24 @@ test("按 ID 从最近月份查找，短头排除无关正文，超长头仍能�
   const target = "k-aaaaaaaaaaaa";
   const other = "k-bbbbbbbbbbbb";
   const markdown = readFileSync(active.file, "utf8");
+  const crlf = markdown.replaceAll("\n", "\r\n");
+  writeFileSync(active.file, crlf);
+  const activeMatch = findTask(root, active.id);
+  assert.equal(activeMatch.dir, active.dir);
+  assert.equal(activeMatch.versions.task, createHash("sha256").update(crlf).digest("hex"));
+  const boundaryId = "k-cccccccccccc";
+  // 前 2048 字节截止于 ---；读完整行才知道它是 YAML 起始标记，后面还有 ID。
+  const prefix = "---\r\n#".padEnd(2048 - "\r\n---".length, "x") + "\r\n---";
   for (const [dir, text] of [
     ["2025-01/old", markdown.replace(active.id, target)],
-    ["2026-10/a", markdown.replace(active.id, other) + "正文".repeat(5000)],
+    ["2026-10/a", crlf.replace(active.id, other) + "正文".repeat(5000)],
     ["2026-10/b", markdown.replace(`id: ${active.id}`, `---\n# ${"长".repeat(2048)}\nid: ${target}`)],
+    ["2026-10/c", crlf.replace("---", `${prefix} # YAML`).replace(active.id, boundaryId)],
   ]) {
     mkdirSync(join(archive, dir), { recursive: true });
     writeFileSync(join(archive, dir, "task.md"), text);
   }
-  assert.deepEqual(scanTasks(root, "archived").map((task) => task.id), [target, other, target]);
+  assert.deepEqual(scanTasks(root, "archived").map((task) => task.id), [target, other, target, boundaryId]);
   mkdirSync(join(archive, "2025-01/first/task.md"), { recursive: true });
   const unrelated = fs.statSync(join(archive, "2026-10/a/task.md")).ino;
   const original = fs.readFileSync;
@@ -764,6 +798,9 @@ test("按 ID 从最近月份查找，短头排除无关正文，超长头仍能�
     const recent = findTask(root, target);
     assert.equal(recent.dir, ".knit/tasks/archive/2026-10/b");
     assert.deepEqual([...findArchivedTasks(root, [target])], [recent]);
+    const boundary = findTask(root, boundaryId);
+    assert.equal(boundary.dir, ".knit/tasks/archive/2026-10/c");
+    assert.equal(boundary.document.frontmatter.id, boundaryId);
   } finally {
     reads.mock.restore();
     syncBuiltinESMExports();

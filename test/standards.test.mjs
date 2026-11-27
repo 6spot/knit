@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadStandards, savePitfall } from "../dist/application/project-config.js";
@@ -171,7 +171,9 @@ test("从空清单写入、补充适用条目，按当前流程分区查看", (t
   const show = (stage) => knit(dir, "standards", "pitfalls", stage);
   assert.equal(show("implement").stdout, "没有适用的避坑条目\n");
   assert.equal(record("通用", "查证", "所有环节先核实").code, 0);
+  assert.equal(statSync(file).mode & 0o777, 0o644);
   savePitfall(dir, "implement, audit", "运行夹具", "先执行夹具");
+  assert.equal(statSync(file).mode & 0o777, 0o644);
   savePitfall(dir, "deliver", "交付", "交付时核对提交");
   savePitfall(dir, "audit", "运行夹具", "再检查输出");
   const saved = readFileSync(file, "utf8");

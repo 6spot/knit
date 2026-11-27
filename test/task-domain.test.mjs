@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { readMaterials } from "../dist/application/handoff.js";
 import { sha256Text } from "../dist/contracts/primitives.js";
 import { clarifyStateOf, scenarioStateOf } from "../dist/domain/task-requirements.js";
-import { currentStatus, headingsOf, parseTaskDocument, parseTaskRecord, referencesOf, renderTaskDocument, renderTaskRecord, requirementDigest, sectionOf } from "../dist/domain/task.js";
+import { currentStatus, headingsOf, parseTaskDocument, parseTaskRecord, referencesOf, renderTaskDocument, renderTaskRecord, requirementDigest, sectionOf, taskDocumentMayHaveId, unparsedTaskId } from "../dist/domain/task.js";
 import { project } from "./helpers/cli.mjs";
 
 const FRONTMATTER = `id: k-19c962be9fb8
@@ -61,6 +61,18 @@ test("解析出九个字段、需求部分和结果", () => {
     requirement: REQUIREMENT,
     result: "交接改为只传需求部分。",
   });
+});
+
+test("CRLF 任务的开头字段、ID、需求摘要和渲染结果与 LF 一致", () => {
+  const lf = documentOf(EXAMPLE);
+  const crlf = EXAMPLE.replaceAll("\n", "\r\n");
+  const parsed = documentOf(crlf);
+  assert.deepEqual(parsed, lf);
+  assert.equal(requirementDigest(parsed), requirementDigest(lf));
+  assert.equal(renderTaskDocument(parsed), EXAMPLE);
+  assert.equal(taskDocumentMayHaveId(crlf, new Set([lf.frontmatter.id])), true);
+  assert.equal(taskDocumentMayHaveId(crlf, new Set(["k-000000000000"])), false);
+  assert.equal(unparsedTaskId(crlf.replace("priority: P2", "priority: PX")), lf.frontmatter.id);
 });
 
 test("解析后再渲染与原文逐字相同", () => {
@@ -311,6 +323,19 @@ test("待澄清：两种标记各自计数，正文最多 3 条并截断，区�
   assert.deepEqual(clarifyStateOf("## 待澄清\n- [blocking] 甲\n# 一级标题\n- [blocking] 乙").blocking, 1);
   assert.deepEqual(clarifyStateOf(THREE), { blocking: 0, assumed: 0, blockingItems: [] });
   assert.deepEqual(clarifyStateOf("## 待澄清\n"), { blocking: 0, assumed: 0, blockingItems: [] });
+});
+
+test("待澄清忽略围栏中的标题和未决项", () => {
+  for (const fence of ["````", "~~~~"]) {
+    const markdown = [
+      `   ${fence}markdown`, "## 待澄清", fence,
+      "- [blocking] 仍在待澄清区段之前",
+      "## 待澄清", ` ${fence}`, fence.slice(1),
+      "- [assumed] 示例", "- [blocking] 示例", "## 其它", "# 一级标题", `${fence}${fence}`,
+      "- [assumed] 实际假定", "- [blocking] 实际问题",
+    ].join("\n");
+    assert.deepEqual(clarifyStateOf(markdown), { blocking: 1, assumed: 1, blockingItems: ["实际问题"] });
+  }
 });
 
 test("取出一节和它的下级内容", () => {

@@ -23,6 +23,22 @@ function clarifyItemText(text: string): string {
   return chars.length > 120 ? `${chars.slice(0, 119).join("")}…` : chars.join("");
 }
 
+function* linesOutsideFences(markdown: string) {
+  const lines = markdown.split(/\r?\n/).entries();
+  const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+  for (const entry of lines) {
+    const opening = marker.exec(entry[1]);
+    if (opening === null) {
+      yield entry;
+      continue;
+    }
+    for (const [, line] of lines) {
+      const closing = marker.exec(line);
+      if (closing?.[1]?.startsWith(opening[1]!) && closing[2]!.trim() === "") break;
+    }
+  }
+}
+
 /**
  * 解析需求部分的「待澄清」区段：只认固定标题与顶格前缀，
  * 区段到下一个一级／二级标题为止。无区段、空区段或只有 assumed 不阻挡 ready。
@@ -32,7 +48,7 @@ export function clarifyStateOf(taskMarkdown: string): ClarifyState {
   let blocking = 0;
   let assumed = 0;
   const blockingItems: string[] = [];
-  for (const line of taskMarkdown.split(/\r?\n/)) {
+  for (const [, line] of linesOutsideFences(taskMarkdown)) {
     if (line.trimEnd() === CLARIFY_HEADING) {
       inSection = true;
       continue;
@@ -137,10 +153,8 @@ export function scenarioStateOf(taskMarkdown: string): ScenarioState {
   const found: Array<ScenarioIssue & { line: number }> = [];
   const requirements: RequirementNode[] = [];
   let inSection = false;
-  let fence: { char: string; length: number } | null = null;
   // 游标放在对象里：标题处理函数改写它，循环体按声明类型读取。
   const cursor: { requirement: RequirementNode | null; scenario: ScenarioNode | null } = { requirement: null, scenario: null };
-  const lines = taskMarkdown.split(/\r?\n/);
   const malformed = (line: number, heading: string, expected: string): void => {
     found.push({ line, kind: "heading_malformed", message: `标题「${heading}」不符合固定写法，应为「${expected}」（半角冒号加一个空格，关键字首字母大写）` });
   };
@@ -153,20 +167,7 @@ export function scenarioStateOf(taskMarkdown: string): ScenarioState {
     cursor.scenario = { line, name, wellFormed, steps: [] };
     if (cursor.requirement !== null) cursor.requirement.scenarios.push(cursor.scenario);
   };
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    // 围栏从文档开头跟踪：围栏里的「## 完成条件」与场景标题都不算。
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence !== null) {
-      const marker = fenceMatch?.[1] ?? "";
-      if (marker[0] === fence.char && marker.length >= fence.length && (fenceMatch?.[2] ?? "").trim() === "") fence = null;
-      continue;
-    }
-    if (fenceMatch !== null) {
-      const marker = fenceMatch[1] ?? "";
-      fence = { char: marker[0] ?? "`", length: marker.length };
-      continue;
-    }
+  for (const [index, line] of linesOutsideFences(taskMarkdown)) {
     if (!inSection) {
       if (line.trimEnd() === ACCEPTANCE_HEADING) inSection = true;
       continue;
