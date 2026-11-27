@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, chmodSync, statSync, symlinkSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import fs, { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, chmodSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -37,6 +38,36 @@ test("原子写：预期版本不符不覆盖后来内容", () => {
     assert.deepEqual(readdirSync(dir).filter((name) => name.includes(".knit-tmp-")), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("无条件原子覆写跳过旧文件读取，写入、同步及改名失败保留原错误和原文件", (t) => {
+  const dir = freshDir("atomic-overwrite");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "state.json");
+  writeFileSync(path, "old");
+  const request = { path, data: Buffer.from("new") };
+  const reads = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  try {
+    assert.equal(atomicWrite(request).sha256, sha256Text("new"));
+    assert.equal(reads.mock.calls.some((call) => call.arguments[0] === path), false);
+  } finally {
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
+  for (const operation of ["writeSync", "fsyncSync", "renameSync"]) {
+    const error = new Error(operation);
+    const fault = t.mock.method(fs, operation, () => { throw error; });
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => atomicWrite({ path, data: Buffer.from("failed") }), (actual) => actual === error);
+      assert.deepEqual(readdirSync(dir), ["state.json"]);
+      assert.equal(readFileSync(path, "utf8"), "new");
+    } finally {
+      fault.mock.restore();
+      syncBuiltinESMExports();
+    }
   }
 });
 

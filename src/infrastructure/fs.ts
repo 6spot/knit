@@ -46,14 +46,14 @@ function fsyncDir(path: string): void {
 }
 
 /**
- * 原子写单文件。流程：读当前字节核对预期 → 写临时文件（同目录）→ fsync → rename → 目录同步。
+ * 原子写单文件。提供预期版本时先核对当前字节，再写同目录临时文件、fsync、rename 并同步目录。
  * 任一步失败保留原文件；rename 前新内容只出现在临时路径。
  * 预期版本不匹配抛 version_conflict，不覆盖后来内容。
  */
 export function atomicWrite(request: AtomicWriteRequest): { sha256: string } {
   const target = request.path;
   const expected = request.expectedSha256;
-  const currentBytes = existsSync(target) ? readFileSync(target) : null;
+  const currentBytes = expected !== undefined && existsSync(target) ? readFileSync(target) : null;
   const currentSha = currentBytes ? sha256Bytes(currentBytes) : null;
 
   if (expected === null && currentBytes !== null) {
@@ -80,18 +80,19 @@ export function atomicWrite(request: AtomicWriteRequest): { sha256: string } {
   }
   const temp = `${target}.knit-tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
   const mode = request.mode ?? 0o600;
-  let tempFd: number | null = null;
+  const tempFd = openSync(temp, "wx", mode);
   try {
-    tempFd = openSync(temp, "wx", mode);
-    let offset = 0;
-    while (offset < request.data.length) {
-      offset += writeSync(tempFd, request.data, offset, request.data.length - offset);
+    try {
+      let offset = 0;
+      while (offset < request.data.length) {
+        offset += writeSync(tempFd, request.data, offset, request.data.length - offset);
+      }
+      fsyncSync(tempFd);
+    } catch (error) {
+      try { closeSync(tempFd); } catch { /* 保留写入或同步错误 */ }
+      throw error;
     }
-    fsyncSync(tempFd);
-  } finally {
-    if (tempFd !== null) closeSync(tempFd);
-  }
-  try {
+    closeSync(tempFd);
     renameSync(temp, target);
   } catch (error) {
     try {

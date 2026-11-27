@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { basename, join } from "node:path";
@@ -8,6 +8,8 @@ import { deliverTask, previewDelivery } from "../dist/application/delivery.js";
 import { cancelTask, closeTask } from "../dist/application/task-lifecycle.js";
 import { createTask, findTask, scanTasks } from "../dist/application/task-store.js";
 import { loadConfig } from "../dist/application/project-config.js";
+import { cleanArchivedRuns } from "../dist/application/runtime-cleanup.js";
+import { withFileLock } from "../dist/infrastructure/process.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { prepareRun } from "../dist/application/run-prepare.js";
 import { parseTaskDocument } from "../dist/domain/task.js";
@@ -80,11 +82,88 @@ test("交付只清理主检出归档中唯一归属且已超期的运行目录",
   assert.equal(existsSync(runPath(root, "current")), false);
 });
 
+test("扫描全部归档记录，只读引用现存运行目录的归档任务文档", (t) => {
+  const root = realpathSync(project(t));
+  const archive = previousDelivery(root, { expired: 30 });
+  const record = JSON.parse(readFileSync(join(root, archive, "record.json"), "utf8"));
+  const history = writeArchiveHistory(root, parseTaskDocument(readFileSync(join(root, archive, "task.md"), "utf8")).document);
+  history.forEach((dir, i) => writeFileSync(join(dir, "record.json"), JSON.stringify({ ...record,
+    runs: [{ ...record.runs[0], id: `gone-${i}` }] })));
+  const reads = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(cleanArchivedRuns(root, "current", [], false), { retainDays: 14, removed: 1, warnings: [] });
+    const paths = new Set(reads.mock.calls.map((call) => call.arguments[0]));
+    assert.ok(paths.has(join(root, archive, "task.md")));
+    assert.ok(history.every((dir) => paths.has(join(dir, "record.json")) && !paths.has(join(dir, "task.md"))));
+  } finally {
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+function ageFile(path) {
+  const old = new Date(Date.now() - 30 * 86_400_000);
+  utimesSync(path, old, old);
+}
+
+test("没有运行目录时交付仍回收超期会话与闲置锁，保护活跃任务、持锁文件和符号链接", (t) => {
+  const root = project(t);
+  const active = readyTask(root);
+  const current = doneTask(root);
+  const runtime = join(root, ".knit/.runtime");
+  const sessions = join(runtime, "host-sessions");
+  mkdirSync(sessions, { recursive: true });
+  const stale = ["old.json", "old.json.lock", "alone.json", "orphan.lock", "gone.json.lock", "busy.json", "busy.json.lock",
+    "recent.json.lock", "new-lock.json", "linked-lock.json", "linked-state.json.lock"];
+  const taskLocks = [`${current.id}.lock`, `${active.id}.lock`, "k-inactive.lock", "k-busy.lock"];
+  for (const path of [...stale.map((name) => join(sessions, name)), ...taskLocks.map((name) => join(runtime, name))]) {
+    writeFileSync(path, path.endsWith(".lock") ? "" : JSON.stringify({ taskId: null }));
+    ageFile(path);
+  }
+  writeFileSync(join(sessions, "recent.json"), "{}");
+  writeFileSync(join(sessions, "new-lock.json.lock"), "");
+  writeFileSync(join(runtime, "k-recent.lock"), "");
+  symlinkSync("busy.json.lock", join(sessions, "linked-lock.json.lock"));
+  symlinkSync("recent.json", join(sessions, "linked-state.json"));
+  symlinkSync("k-inactive.lock", join(runtime, "k-linked.lock"));
+  const busy = () => assert.fail("夹具未取得排他锁");
+  const result = withFileLock(join(runtime, "k-busy.lock"), 0, () => withFileLock(join(sessions, "busy.json.lock"), 0,
+    () => deliverTask(root, current.id, { authorization }), busy), busy);
+  assert.equal(result.kind, "delivered");
+  assert.deepEqual(result.cleanup, { retainDays: 14, removed: 0, warnings: [] });
+  assert.deepEqual(readdirSync(sessions).sort(), ["busy.json", "busy.json.lock", "linked-lock.json", "linked-lock.json.lock",
+    "linked-state.json", "linked-state.json.lock", "new-lock.json.lock", "recent.json", "recent.json.lock"]);
+  assert.deepEqual(readdirSync(runtime).filter((name) => name.endsWith(".lock")).sort(),
+    [`${current.id}.lock`, `${active.id}.lock`, "k-busy.lock", "k-linked.lock", "k-recent.lock"].sort());
+  assert.ok(lstatSync(join(runtime, "k-linked.lock")).isSymbolicLink());
+});
+
+test("没有清理候选时跳过主检出检查，有过期锁时必须核实检出身份", (t) => {
+  const root = project(t);
+  const sessions = join(root, ".knit/.runtime/host-sessions");
+  mkdirSync(sessions, { recursive: true });
+  const path = join(sessions, "orphan.lock");
+  writeFileSync(path, "");
+  writeFileSync(join(root, ".git"), "gitdir: missing-worktree-metadata\n");
+  assert.deepEqual(cleanArchivedRuns(root, "current", [], true).warnings, []);
+  ageFile(path);
+  assert.match(cleanArchivedRuns(root, "current", [], true).warnings.join("\n"), /无法确认 Git 主检出/);
+  assert.ok(existsSync(path));
+});
+
 test("非法配置拒绝交付，关闭清理时保留目录，自定义天数只清理超期记录", (t) => {
   const root = project(t);
   previousDelivery(root, { older: 5, younger: 2 });
   const config = (retainDays) => writeFileSync(join(root, ".knit/config.json"), JSON.stringify({ runtime: { retainDays } }));
   const first = doneTask(root);
+  const sessions = join(root, ".knit/.runtime/host-sessions");
+  mkdirSync(sessions);
+  const files = [join(sessions, "old.json"), join(sessions, "old.json.lock"), join(root, ".knit/.runtime/k-old.lock")];
+  for (const path of files) {
+    writeFileSync(path, path.endsWith(".lock") ? "" : "{}");
+    ageFile(path);
+  }
   config(-1);
   assert.equal(deliverTask(root, first.id, { authorization }).kind, "refused");
   assert.equal(findTask(root, first.id).document.frontmatter.status, "done");
@@ -94,6 +173,7 @@ test("非法配置拒绝交付，关闭清理时保留目录，自定义天数�
     assert.equal(result.kind, "delivered");
     assert.equal(result.cleanup.removed, days === 3 ? 1 : 0);
     assert.equal(existsSync(runPath(root, "older")), days !== 3);
+    for (const path of files) assert.equal(existsSync(path), days !== 3);
     assert.ok(existsSync(runPath(root, "younger")));
   }
 });
