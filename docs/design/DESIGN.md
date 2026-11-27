@@ -515,8 +515,11 @@ knit deliver <任务> --preview [--message-file <文件>]
 knit standards list
 knit standards pitfalls <环节>
 knit standards record --section <分区> --title <标题> --body <正文>
-knit workflow show | validate
+knit workflow show
+knit workflow validate [--env]
 ```
+
+`knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
 
 `knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy` 可以任意组合。
 

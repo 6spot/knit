@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ToolCapability } from "../../contracts/workflow.js";
-import { gitSync } from "../../infrastructure/process.js";
+import { findExecutable, gitSync } from "../../infrastructure/process.js";
 
 export const SANDBOX = "/usr/bin/sandbox-exec";
 export const COMMAND_TEMP_PREFIX = "knit-agy-exec-";
@@ -33,14 +33,7 @@ const HOME_STARTUP = HOME_EXTERNAL.filter(startupSource);
 export const WORKSPACE_CONTROL = [".git", ".knit", ".pi", ".workbuddy", ...CUSTOMIZATION_DIRS, ".gemini/config.json", ".mcp.json"];
 
 export function agyExecutable(): string | null {
-  const name = process.env.KNIT_AGY_BIN ?? "agy";
-  return (name.includes(sep) ? [resolve(name)] : (process.env.PATH ?? "").split(delimiter).map((dir) => resolve(dir, name)))
-    .find((path) => {
-      try {
-        accessSync(path, constants.X_OK);
-        return statSync(path).isFile();
-      } catch { return false; }
-    }) ?? null;
+  return findExecutable(process.env.KNIT_AGY_BIN ?? "agy");
 }
 
 export function permits(tools: readonly ToolCapability[] | null, tool: ToolCapability): boolean {

@@ -1,15 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
-import { builtinAgents } from "../adapters/agents.js";
+import { builtinAgents, sessionAgentName } from "../adapters/agents.js";
 import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/project-config.js";
 import { executeRun, readResume } from "../application/run-execute.js";
 import { RUNS_DIR } from "../application/run-prepare.js";
 import { buildTaskStatus, statusLines } from "../application/session-context.js";
-import { checkSchema } from "../contracts/primitives.js";
-import { AgentNameSchema, DEFAULT_AGENT } from "../contracts/workflow.js";
 import { fail, knitRoot, loadTask, loadWorkflow, taskLabel } from "./shared.js";
 
 export { statusLines };
@@ -49,8 +47,7 @@ export function registerRunCommands(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      const session = process.env.KNIT_SESSION_AGENT;
-      const sessionAgent = checkSchema(AgentNameSchema, session) ? session : DEFAULT_AGENT;
+      const sessionAgent = sessionAgentName();
       const prepared = startRun({
         root, taskId: id, workflow, config, model: options.model ?? null, thinking: options.thinking,
         instruction: options.instructionFile === undefined ? options.instruction : readFileSync(options.instructionFile, "utf8"),

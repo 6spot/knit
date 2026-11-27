@@ -4,8 +4,19 @@
  * Git 统一参数数组、项目 cwd、固定环境，不经 shell 拼接。
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { delimiter, dirname, resolve, sep } from "node:path";
+
+/** 只核对 POSIX 可执行文件，不启动客户端。 */
+export function findExecutable(name: string): string | null {
+  const paths = name.includes(sep) ? [resolve(name)] : (process.env.PATH ?? "").split(delimiter).map((dir) => resolve(dir, name));
+  return paths.find((path) => {
+    try {
+      accessSync(path, constants.X_OK);
+      return statSync(path).isFile();
+    } catch { return false; }
+  }) ?? null;
+}
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;

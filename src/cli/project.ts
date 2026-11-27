@@ -1,12 +1,18 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { Option, type Command } from "commander";
+import { builtinAgents, piCommand, sessionAgentName } from "../adapters/agents.js";
 import { hostProjectRoot, selectHostTask } from "../application/host-hook.js";
 import { initProject } from "../application/init.js";
 import { buildSessionContext, contextLines } from "../application/session-context.js";
-import { legacyStandardCopies, loadStandards, savePitfall } from "../application/project-config.js";
-import { AGENT_SPECS, DEFAULT_AGENT, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
+import { CONFIG_PATH, legacyStandardCopies, loadConfig, loadStandards, readWorkflow, savePitfall } from "../application/project-config.js";
+import { taskWorktree } from "../application/worktree.js";
+import { AGENT_SPECS, DEFAULT_AGENT, TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
 import { WORKFLOW_ANCHOR_NAMES, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
+import { findExecutable, gitSync } from "../infrastructure/process.js";
 import { fail, knitRoot, loadWorkflow, projectRoot, taskLabel } from "./shared.js";
 
 export function registerInitCommand(program: Command): void {
@@ -166,6 +172,64 @@ function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefin
   ];
 }
 
+/** validate 在普通仓库和链接工作树里都只靠 .git 定位，不启动 Git。 */
+function validationRoot(dir: string): string {
+  const path = resolve(dir);
+  if (!existsSync(path)) return path;
+  const ancestors = (current: string): string => existsSync(join(current, ".git")) ? current
+    : dirname(current) === current ? path : ancestors(dirname(current));
+  return ancestors(realpathSync(path));
+}
+
+function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
+  const checks: { label: string; problem: string | null }[] = [];
+  const check = (label: string, inspect: () => string | null, remedy: string) => {
+    try {
+      const problem = inspect();
+      checks.push({ label, problem: problem === null ? null : `${problem}。${remedy}` });
+    } catch (error) {
+      checks.push({ label, problem: `${error instanceof Error ? error.message : String(error)}。${remedy}` });
+    }
+  };
+  check(`Node ${process.version}`, () => Number.parseInt(process.versions.node, 10) >= 24 ? null : "需要 Node ≥ 24", "请升级 Node 后重试");
+  check(CONFIG_PATH, () => loadConfig(root).problems.join("\n") || null, `请修正 ${CONFIG_PATH} 后重试`);
+  check("Git 仓库与 HEAD", () => {
+    const repo = gitSync(["rev-parse", "--is-inside-work-tree"], root);
+    if (repo.code === -1) return `无法运行 Git（${repo.stderr.trim()}）`;
+    if (repo.stdout.trim() !== "true") return "当前目录不在 Git 工作区内，仅支持主会话直接做，无法派发执行者";
+    return gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root).code === 0 ? null : "Git 仓库没有初始提交，先提交一次再派发";
+  }, "派发需要可用的 Git 和有初始提交的工作区");
+
+  const session = sessionAgentName();
+  const targets = workflow.stages.flatMap((stage) => stage.executors.map((executor) => ({
+    agent: executor.agent ?? session, tools: TOOL_CAPABILITIES.filter((tool) => stage.tools === null || stage.tools.includes(tool)),
+    model: executor.model ?? workflow.model, location: stage.executors.length === 1 ? stage.id : `${stage.id}/${executor.id}`,
+  })));
+  if (targets.some((target) => target.agent === "pi")) {
+    check("Pi 客户端", () => findExecutable(piCommand()) === null ? `找不到可执行文件 ${piCommand()}` : null, "请安装 Pi 并检查 PATH");
+  }
+  const groups = Map.groupBy(targets, (target) => `${target.agent} tools=[${target.tools.join(", ")}]`);
+  for (const [label, group] of groups) {
+    const target = group[0]!;
+    if (target.agent === "antigravity") {
+      // 使用新任务的位置，从 HEAD 预检将要检出的内容，不创建目录或分支。
+      const tree = taskWorktree(root, `env-${randomUUID()}`);
+      check(label, () => builtinAgents.antigravity.checkDispatch!(root, tree.path, tree.branch, target.tools),
+        "请在 macOS 配置 agy 1.5.13 并修正所列隔离条件，或在流程中改用 Pi");
+      continue;
+    }
+    const missing = group.filter((item) => item.model === null).map((item) => item.location);
+    const hint = "不在 Pi 主会话里派发时，需在 workflow.yaml 写 model 或传 --model";
+    const inherits = missing.length > 0 && session === "pi" && builtinAgents.pi.sessionDefaults().model !== null;
+    check(`${label} 模型${inherits ? `（${missing.join("、")} 使用主会话模型。${hint}）` : ""}`,
+      () => missing.length && !inherits ? `${missing.join("、")} 未配置模型` : null, hint);
+  }
+  const ready = checks.every((item) => item.problem === null);
+  process.stdout.write(checks.map(({ label, problem }) => problem === null ? `通过  ${label}\n` : `失败  ${label}：${problem}\n`).join(""));
+  process.stdout.write(ready ? "派发环境就绪\n" : "派发环境未就绪\n");
+  if (!ready) process.exitCode = 1;
+}
+
 /** 流程文件由人手工修改，这里只提供查看和校验两个只读命令。 */
 export function registerWorkflowCommands(program: Command): void {
   const workflow = program.command("workflow").description(`查看和校验 ${WORKFLOW_CONFIG_PATH}`);
@@ -187,13 +251,13 @@ export function registerWorkflowCommands(program: Command): void {
   workflow
     .command("validate")
     .description("校验流程文件，有问题时逐条给出行号")
+    .option("--env", "配置有效后，只读检查本机派发环境")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((options: { dir: string }) => {
-      const loaded = loadWorkflow(options.dir);
-      if (loaded === null) {
-        process.exitCode = 1;
-        return;
-      }
-      process.stdout.write(`配置有效\n${chainLine(loaded)}\n`);
+    .action((options: { dir: string; env?: boolean }) => {
+      const root = validationRoot(options.dir);
+      const loaded = readWorkflow(root);
+      if (loaded.workflow === null) return fail(loaded.problems);
+      process.stdout.write(`配置有效\n${chainLine(loaded.workflow)}\n`);
+      if (options.env) reportEnvironment(root, loaded.workflow);
     });
 }

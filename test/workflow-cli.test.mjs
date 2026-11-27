@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { git, gitProject } from "./helpers/git.mjs";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 
 const cli = new URL("../dist/cli/knit.js", import.meta.url).pathname;
@@ -42,8 +43,10 @@ function project(t, workflow) {
   return dir;
 }
 
-function run(command, dir) {
-  return spawnSync(process.execPath, [cli, "workflow", command, "--dir", dir], { encoding: "utf8" });
+function run(command, dir, args = [], env = {}) {
+  return spawnSync(process.execPath, [cli, "workflow", command, "--dir", dir, ...args], {
+    encoding: "utf8", env: { ...process.env, ...env },
+  });
 }
 
 test("配置正确：show 打印流程和两个环节，validate 退出码为 0", (t) => {
@@ -68,6 +71,38 @@ test("配置正确：show 打印流程和两个环节，validate 退出码为 0"
   assert.equal(validate.stdout, "配置有效\n流程: 讨论 → 实现 → 审查 → 收尾\n");
 });
 
+test("validate 从 Git 子目录读取流程，--env 汇总相同工具组合，两种调用都只读", (t) => {
+  const dir = gitProject(t);
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(dir, ".knit/git"), '#!/bin/sh\n/usr/bin/touch "$0.called"\n', { mode: 0o755 });
+  writeFileSync(join(bin, "pi"), '#!/bin/sh\n/usr/bin/touch "$0.called"\n', { mode: 0o755 });
+  writeFileSync(join(dir, ".knit/workflow.yaml"), SAMPLE_WORKFLOW_YAML.replace("tools: [read, write, exec]", "tools: [exec, write, read]"));
+  writeFileSync(join(dir, ".knit/config.json"), "{}");
+  const snapshot = () => readdirSync(dir, { recursive: true, withFileTypes: true }).map((entry) => {
+    const path = join(entry.parentPath, entry.name);
+    return [path, entry.isFile() ? readFileSync(path).toString("base64") : null];
+  }).sort();
+  const before = snapshot();
+  const plain = run("validate", bin, [], { PATH: join(dir, ".knit") });
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.equal(plain.stdout, "配置有效\n流程: 讨论 → 实现 → 审查 → 收尾\n");
+  assert.equal(plain.stderr, "");
+  const result = run("validate", bin, ["--env"], {
+    KNIT_SESSION_AGENT: "pi", KNIT_PI_BIN: "pi", PATH: `${bin}:${process.env.PATH}`,
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /通过  Node v\d+/);
+  assert.match(result.stdout, /通过  \.knit\/config\.json/);
+  assert.match(result.stdout, /通过  Git 仓库与 HEAD/);
+  assert.match(result.stdout, /通过  Pi 客户端/);
+  assert.equal(result.stdout.match(/通过  pi tools=\[read, write, exec\] 模型/g)?.length, 1);
+  assert.match(result.stdout, /派发环境就绪\n$/);
+  assert.doesNotMatch(result.stdout, /antigravity/);
+  assert.deepEqual(snapshot(), before);
+  assert.deepEqual(readdirSync(process.env.KNIT_HOME), []);
+});
+
 const parallelWorkflow = `version: 1
 stages:
   - id: implement
@@ -84,6 +119,45 @@ stages:
         model: gemini-reviewer
         thinking: high
 `;
+
+test("--env 一次报告配置、空仓库、两个并行客户端和缺模型的执行器", (t) => {
+  const dir = project(t, parallelWorkflow.replace("        model: provider/reviewer\n", ""));
+  git(dir, "init", "-q");
+  writeFileSync(join(dir, ".knit/config.json"), "{");
+  const result = run("validate", dir, ["--env"], {
+    KNIT_SESSION_AGENT: "pi", PI_MODEL: "", KNIT_PI_BIN: join(dir, "pi"), KNIT_AGY_BIN: join(dir, "agy"),
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /失败  \.knit\/config\.json.*不是合法的 JSON.*修正/);
+  assert.match(result.stdout, /失败  Git .*先提交一次再派发/);
+  assert.match(result.stdout, /失败  Pi 客户端.*请安装 Pi/);
+  assert.match(result.stdout, /失败  pi .*review\/pi-review 未配置模型.*workflow.yaml 写 model 或传 --model/);
+  assert.match(result.stdout, /失败  antigravity .*（agy）|失败  antigravity .*sandbox-exec/);
+  assert.match(result.stdout, /派发环境未就绪\n$/);
+});
+
+test("--env 在非 Git 项目说明主会话可直接做，Pi 主会话模型可供派发", (t) => {
+  const dir = project(t, "version: 1\nstages:\n  - id: implement\n");
+  const result = run("validate", dir, ["--env"], {
+    KNIT_SESSION_AGENT: "pi", PI_PROVIDER: "p", PI_MODEL: "a", KNIT_PI_BIN: process.execPath,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /仅支持主会话直接做，无法派发执行者/);
+  assert.match(result.stdout, /通过  pi .*使用主会话模型.*传 --model/);
+});
+
+test("--env 按当前宿主检查隐式 Antigravity，按工具组合复用版本与隔离预检", { skip: process.platform !== "darwin" }, (t) => {
+  const dir = gitProject(t);
+  const agy = join(dir, "agy");
+  writeFileSync(agy, '#!/bin/sh\n[ "$1" = --version ] && echo 1.5.13\n', { mode: 0o755 });
+  writeFileSync(join(dir, ".knit/workflow.yaml"), "version: 1\nstages:\n  - id: implement\n    tools: []\n  - id: review\n    tools: [exec]\n");
+  const result = run("validate", dir, ["--env"], { KNIT_SESSION_AGENT: "antigravity", KNIT_AGY_BIN: agy });
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /通过  antigravity tools=\[\]/);
+  assert.match(result.stdout, /失败  antigravity tools=\[exec\].*通用命令需要 read/);
+  assert.doesNotMatch(result.stdout, /Pi 客户端/);
+  assert.deepEqual(readdirSync(process.env.KNIT_HOME), []);
+});
 
 test("只读审查可并列两个执行器，按各自的 Agent 展示模型、思考等级和角色文件", (t) => {
   const parsed = parseWorkflow(parallelWorkflow);
@@ -135,6 +209,10 @@ test("并行环节的工具、顶层冲突与执行器字段错误按源文件�
 
 test("配置有问题：两个命令都在标准错误里给出行号，退出码为 1，不打印流程", (t) => {
   const dir = project(t, "version: 1\nstages:\n  - id: Bad\n");
+  const preflight = run("validate", dir, ["--env"]);
+  assert.equal(preflight.status, 1);
+  assert.equal(preflight.stderr, run("validate", dir).stderr);
+  assert.equal(preflight.stdout, "");
   for (const command of ["validate", "show"]) {
     const result = run(command, dir);
     assert.equal(result.status, 1, command);

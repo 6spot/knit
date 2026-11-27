@@ -41,7 +41,7 @@ npm install /path/to/knit-0.1.0.tgz
 
 1. 在项目里运行 `knit init` 生成核心文件。首次启用主会话桥接时，按客户端运行 `knit init --pi`、`knit init --agy` 或 `knit init --workbuddy`。选项可以组合。
 2. 在 `.knit/workflow.yaml` 的环节用 `agent` 指定执行者。Pi 的 `model` 写成 `provider/模型`，`thinking` 可取 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。派发时分别取命令行覆盖、环节或执行器、流程顶层、主会话中首个有值的设置。Antigravity 使用自己的模型 ID，模型及思考等级取命令行覆盖或环节、执行器配置，缺省时由 `agy` 决定。
-3. `knit workflow validate`：校验流程文件，有问题时逐条给出行号。
+3. 运行 `knit workflow validate` 校验流程文件，有问题时逐条给出行号。首次接入、换机器或升级客户端后，可运行 `knit workflow validate --env` 一次查看 Node、项目配置、Git 初始提交和流程所用执行者的派发条件。
 4. 在选定的客户端打开项目。Pi 加载项目扩展后提供 `knit_task`、`knit_run`、`knit_deliver` 三个工具，Antigravity 和 WorkBuddy 通过项目钩子与 CLI 接入。主会话从第一轮起即可按 `discuss` 规范讨论需求。什么时候建任务、怎么确认需求和开始实施，按内置讨论规范处理。新建的任务是草稿，不改变当前选择。
 
 讨论、任务编写、任务拆分和交付四份规范由当前 Knit 安装包提供，升级即可生效。`knit standards list` 列出 `knit:standards/` 标识的内置规范，以及 `.knit/standards/` 下的项目规范。旧版 `init` 生成的同名文件会保留并标为停用，可将其中的团队约定迁入另名的项目规范。
@@ -56,6 +56,7 @@ npm install /path/to/knit-0.1.0.tgz
 knit init                        生成项目的流程、角色文件和配置
 knit workflow show               显示流程和每个环节的配置
 knit workflow validate           校验流程文件，有问题时逐条给出行号
+knit workflow validate --env     流程有效后只读检查本机派发环境，列出问题和修复建议
 knit task new                    创建一个任务
 knit task list                   列出任务（--archive 改列已归档的任务）
 knit task show <id>              显示一个任务的情况
