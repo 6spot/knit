@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { basename, isAbsolute, join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../dist/application/project-config.js";
@@ -137,6 +138,52 @@ test("自定义审查环节的首次和续聊交接按本轮预算附上 Worktre
     });
     end(review);
   }
+});
+
+test("并行审查在 64KB 内优先保留上轮报告和补丁，资料只加载一次", (t) => {
+  const root = runProject(t);
+  const paths = Array.from({ length: 6 }, (_, i) => `ref-${i}.md`);
+  paths.forEach((path, i) => writeFileSync(join(root, path), `${i}`.repeat(8192)));
+  writeFileSync(join(root, "tracked.txt"), "before\n");
+  mkdirSync(join(root, ".knit/standards"));
+  writeFileSync(join(root, ".knit/standards/shared.md"), "---\nstages: [review]\n---\n规范正文");
+  commitAll(root, "review materials");
+  const task = readyTask(root);
+  nameMaterials(root, task, paths);
+  writeFileSync(join(root, task.dir, "plan.md"), "计".repeat(5000));
+  const first = prepare(root, task).run;
+  writeFileSync(join(first.worktree.path, "tracked.txt"), `after${"+".repeat(6500)}\n`);
+  for (let i = 0; i < 201; i++) writeFileSync(join(first.worktree.path, `extra-${String(i).padStart(3, "0")}`), "");
+  writeFileSync(join(root, first.dir, "report.md"), "报".repeat(3000));
+  assert.deepEqual(finish(root, task, first), []);
+  const parsed = parseWorkflow(readFileSync(join(root, ".knit/workflow.yaml"), "utf8")
+    .replace("prompt: .knit/agents/review.md\n    tools: [read, write, exec]", "executors: [{id: a}, {id: b}]\n    tools: [read]"));
+  assert.deepEqual(parsed.validation.issues, []);
+  const workflow = parsed.workflow;
+  const reads = [];
+  const read = fs.readFileSync;
+  const spy = t.mock.method(fs, "readFileSync", (...args) => {
+    if (args[1] === "utf8") reads.push(String(args[0]));
+    return read(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { spy.mock.restore(); syncBuiltinESMExports(); });
+  const batch = prepare(root, task, { workflow });
+  assert.deepEqual(batch.problems, []);
+  assert.equal(batch.runs.length, 2);
+  for (const run of batch.runs) {
+    const text = message(root, run);
+    const system = readFileSync(join(root, run.dir, "system.md"), "utf8");
+    assert.match(system, /规范正文/);
+    assert.ok(Buffer.byteLength(system + text) <= 65536);
+    assert.deepEqual([...text.matchAll(/^<(material|plan|previous-report|worktree-changes) /gm)].map((m) => m[1]),
+      [...paths.map(() => "material"), "plan", "previous-report", "worktree-changes"]);
+    for (const body of ["报".repeat(3000), "+after" + "+".repeat(6500), "计".repeat(5000)]) assert.ok(text.includes(body), body.slice(0, 8));
+    assert.match(text, /<material[^>]+>\n加上这份资料会超过/);
+    assert.match(text, /extra-199\n等共 201 个文件/);
+    assert.doesNotMatch(text.slice(text.indexOf('<worktree-changes base="HEAD">')), /extra-200/);
+  }
+  for (const path of [...paths, "shared.md"]) assert.equal(reads.filter((file) => file.endsWith(`/${path}`)).length, 1, path);
 });
 
 test("别的任务目录里没提交的资料从主检出读，给绝对路径", (t) => {

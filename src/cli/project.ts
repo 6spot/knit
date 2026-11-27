@@ -131,7 +131,9 @@ export function registerStandardsCommands(program: Command): void {
     .action((options: { dir: string; section: string; title: string; body: string }) => {
       const known = knownStages(options.dir);
       if (!known) return;
-      const unknown = pitfallScope(options.section).filter((id) => !known.includes(id));
+      const stages = pitfallScope(options.section);
+      if (!stages) return fail(["分区要写通用或逗号分隔的环节 id"]);
+      const unknown = stages.filter((id) => !known.includes(id));
       if (unknown.length) return fail([`流程里没有的环节：${unknown.join("、")}`]);
       try {
         savePitfall(projectRoot(options.dir), options.section, options.title, options.body);

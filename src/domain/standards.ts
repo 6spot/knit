@@ -1,6 +1,6 @@
 /** 内置规范和项目规范的开头声明、正文及按环节选取。 */
 import { basename } from "node:path";
-import { parseDocument } from "yaml";
+import { readHeaderYaml, splitFrontmatter, trimBlankLines } from "./markdown.js";
 import { PITFALLS_PATH, pitfallsForStage } from "./pitfalls.js";
 
 export const BUILTIN_STANDARDS = ["delivery.md", "discussion.md", "task-splitting.md", "task-writing.md"] as const;
@@ -25,18 +25,14 @@ export interface Standard {
 }
 
 export function parseStandard(path: string, markdown: string): Standard {
-  markdown = markdown.replace(/\r\n/g, "\n");
-  const whole = { path, title: basename(path, ".md"), stages: [], body: trimBlankLines(markdown) };
-  const match = /^---\n(?:([\s\S]*?)\n)?---(?:\n|$)/.exec(markdown);
-  if (match === null) {
-    const opened = /^---[ \t]*(?:\n|$)/.test(markdown);
-    return { ...whole, problems: opened ? ["开头声明没有结束：字段之后要再用一行 --- 结束"] : [] };
+  const parts = splitFrontmatter(markdown);
+  const whole = { path, title: basename(path, ".md"), stages: [], body: trimBlankLines(markdown.replaceAll("\r\n", "\n")) };
+  if (parts.header === null) {
+    return { ...whole, problems: parts.opened ? ["开头声明没有结束：字段之后要再用一行 --- 结束"] : [] };
   }
-  const yaml = parseDocument(match[1] ?? "");
-  if (yaml.errors.length > 0) {
-    return { ...whole, problems: yaml.errors.map((error) => `开头声明不是合法的 YAML：${error.message}`) };
-  }
-  const fields: unknown = yaml.toJS() ?? {};
+  const yaml = readHeaderYaml(parts.header, "开头声明");
+  if (yaml.problems.length) return { ...whole, problems: yaml.problems };
+  const fields = yaml.value ?? {};
   if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
     return { ...whole, problems: ["开头声明应当是一组字段，例如 title: 开发规范"] };
   }
@@ -44,6 +40,7 @@ export function parseStandard(path: string, markdown: string): Standard {
   const stages = "stages" in fields ? fields.stages : undefined;
   const titled = typeof title === "string" && title.trim() !== "";
   const problems = [
+    ...Object.keys(fields).filter((key) => key !== "title" && key !== "stages").map((key) => `多了字段 ${key}`),
     ...(title === undefined || titled ? [] : ["字段 title 的值不对：要写一段非空的文字"]),
     ...(stages === undefined || isStageList(stages)
       ? []
@@ -51,9 +48,9 @@ export function parseStandard(path: string, markdown: string): Standard {
   ];
   return {
     path,
-    title: titled ? title : whole.title,
+    title: titled ? title.trim() : whole.title,
     stages: problems.length === 0 && isStageList(stages) ? stages : [],
-    body: problems.length === 0 ? trimBlankLines(markdown.slice(match[0].length)) : whole.body,
+    body: problems.length === 0 ? trimBlankLines(parts.body) : whole.body,
     problems,
   };
 }
@@ -61,8 +58,9 @@ export function parseStandard(path: string, markdown: string): Standard {
 /** 先给内置规范，再给项目规范，各按路径排序。点名清单仍然只选适用分区。 */
 export function standardsForStage(standards: readonly Standard[], stage: string, named?: ReadonlySet<string>): Standard[] {
   return standards.flatMap((standard) => {
+    if (standard.problems.length) return [];
     if (standard.path === PITFALLS_PATH) {
-      const body = standard.problems.length ? "" : pitfallsForStage(standard.body, stage);
+      const body = pitfallsForStage(standard.body, stage);
       return body ? [{ ...standard, body }] : [];
     }
     return standard.stages.includes(stage) || named?.has(standard.path) ? [standard] : [];
@@ -75,8 +73,4 @@ export function standardsForStage(standards: readonly Standard[], stage: string,
 
 function isStageList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((stage) => typeof stage === "string" && stage !== "");
-}
-
-function trimBlankLines(text: string): string {
-  return text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
 }

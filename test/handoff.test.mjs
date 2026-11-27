@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { DEFAULT_HANDOFF_LIMITS, assembleHandoff, resumeMessage } from "../dist/application/handoff.js";
+import { DEFAULT_HANDOFF_LIMITS, assembleHandoff, loadHandoffSources, prepareHandoff, resumeMessage } from "../dist/application/handoff.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
 import { RUNS_DIR, prepareRun } from "../dist/application/run-prepare.js";
@@ -126,7 +126,7 @@ test("第一条消息里是需求、资料、计划和上一环节的报告", (t
   assert.equal(
     handoff.firstMessage,
     [
-      location(dir, task),
+      location(dir, task).replace("这些资料和报告按给出的绝对路径读取。", "本环节无 read 权限，使用下方附上的资料和报告。"),
       `<task path="${join(dir, task.dir, "task.md")}">\n# 拼出交接内容\n\n${task.document.requirement}\n</task>`,
       '<material path="src/a.ts">\nexport const a = 1;\n</material>',
       '<material path="docs/design.md#5-交接">\n## 5. 交接\n\n只给点名的一节。\n</material>',
@@ -231,10 +231,10 @@ test("单个文件超过上限时只给路径", (t) => {
     limits: { fileBytes: 200, totalBytes: 100000 },
   });
 
-  // 100 个汉字是 300 字节：按字符数算不会超过 200。
+  // 磁盘上的 100 个汉字加换行是 301 字节。
   assert.ok(
     handoff.firstMessage.includes(
-      '<material path="docs/big.md">\n这份资料有 300 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n</material>',
+      '<material path="docs/big.md">\n这份资料有 301 字节，超过单个文件的上限 200 字节，没有附上；需要时按路径自己读。\n</material>',
     ),
   );
   assert.ok(handoff.firstMessage.includes(`<material path="docs/small.md">\n${"字".repeat(60)}\n</material>`));
@@ -289,6 +289,23 @@ test("合计超过上限时后面的只给路径", (t) => {
   assert.equal(tight.firstMessage.split("没有附上；").length, 5);
 });
 
+test("逐级收紧总预算时按报告、补丁、自身报告、点名计划和资料取舍", (t) => {
+  const root = project(t);
+  const task = taskWith(root, (dir) => `- \`reference.md\`\n- \`${dir}/plan.md\``);
+  const bodies = ["上", "差", "己", "计", "资"].map((marker) => marker.repeat(1365));
+  write(root, { "reference.md": bodies[4], [`${task.dir}/plan.md`]: bodies[3] });
+  const input = { root, worktree: root, task, stage: { id: "review", prompt: null },
+    previous: { stage: "implement", path: "/previous.md", changedPaths: [], text: bodies[0] },
+    own: { stage: "review", path: "/own.md", changedPaths: [], text: bodies[2] } };
+  for (const keep of [1, 2, 3, 4, 5]) {
+    const limited = { ...input, limits: { fileBytes: 8192, totalBytes: keep * 4096 + 2400 } };
+    const text = prepareHandoff(limited, loadHandoffSources(limited)).message({ summary: "tracked.txt", patch: bodies[1] }, "");
+    assert.deepEqual(bodies.map((body) => text.includes(body)), bodies.map((_, i) => i < keep));
+    assert.deepEqual([...text.matchAll(/^<(material|previous-report|own-last-report|worktree-changes) /gm)].map((m) => m[1]),
+      ["material", "material", "previous-report", "own-last-report", "worktree-changes"]);
+  }
+});
+
 test("多报告的失败原因计入字节上限，裁决指令和成员路径仍能读取", (t) => {
   const dir = project(t);
   const previous = ["first", "second"].map((executor) => ({
@@ -329,6 +346,11 @@ test("没有 read 时沿用配置的单文件上限", (t) => {
   assert.ok(!`${handoff.systemPrompt}${handoff.firstMessage}`.includes("没有附上"));
   assert.ok(handoff.firstMessage.includes("字".repeat(5000)));
   assert.deepEqual(DEFAULT_HANDOFF_LIMITS, { fileBytes: 16384, totalBytes: 65536 });
+  for (const limits of [{ fileBytes: 80, totalBytes: 65536 }, { fileBytes: 16384, totalBytes: 32 }]) {
+    const full = assembleHandoff({ ...input, limits }).firstMessage;
+    assert.match(full, /本环节无 read 权限，无法自行读取；请调整 handoff 预算或精简资料/);
+    assert.doesNotMatch(full, /按路径自己读|按给出的绝对路径读取/);
+  }
 });
 
 test("失败续聊消息附带原因和续做提示，正常返工消息保持原样", () => {
@@ -345,19 +367,24 @@ test("失败续聊消息附带原因和续做提示，正常返工消息保持�
   assert.ok(recovered.endsWith(normal));
   const limits = { fileBytes: 100, totalBytes: bytes(instruction + rules + reports[0].text) };
   assert.ok(resumeMessage(instruction, reports, rules, limits).includes(reports[0].text));
+  assert.match(resumeMessage(instruction, reports, rules, limits, failure), /无 read 权限.*调整 handoff 预算或精简资料/);
   assert.ok(!resumeMessage(instruction, reports, rules, limits, failure).includes(reports[0].text));
 });
 
 test("具备 read 时按呈现内容的字节筛选短文档和章节，计划和报告沿用配置预算", (t) => {
   const dir = project(t);
-  const exact = `短${"a".repeat(4093)}`;
+  const exact = `短${"字".repeat(2729)}ab`;
   const large = `${exact}b`;
-  const task = taskNaming(dir, ["code.ts", "short.md", "long.md", "notes.txt#证据"]);
+  const section = `## 证据\n\n${"字".repeat(2727)}a`;
+  assert.equal(bytes(section), 8193);
+  const task = taskNaming(dir, ["code.ts", "short.md", "long.md", "six.md", "notes.txt#证据", "long.txt#证据"]);
   write(dir, {
     "code.ts": "export const answer = 42;",
+    "six.md": "字".repeat(2048),
     "short.md": exact,
     "long.md": large,
-    "notes.txt": `## 证据\n\n章节正文\n\n## 附录\n\n${large}`,
+    "notes.txt": `${section.slice(0, -1)}\n\n## 附录\n\n${large}`,
+    "long.txt": section,
     [`${task.dir}/plan.md`]: large,
   });
   for (const tools of [null, ["read"]]) {
@@ -368,11 +395,26 @@ test("具备 read 时按呈现内容的字节筛选短文档和章节，计划�
     assert.deepEqual(assembleHandoff(input), handoff);
     assert.doesNotMatch(handoff.firstMessage, /export const answer/);
     assert.ok(handoff.firstMessage.includes(`<material path="short.md">\n${exact}\n</material>`));
-    assert.match(handoff.firstMessage, /<material path="long.md">\n这份资料有 4097 字节，超过单个文件的上限 4096/);
-    assert.match(handoff.firstMessage, /<material path="notes.txt#证据">\n## 证据\n\n章节正文\n<\/material>/);
+    assert.ok(handoff.firstMessage.includes(`<material path="six.md">\n${"字".repeat(2048)}\n</material>`));
+    assert.match(handoff.firstMessage, /<material path="long.md">\n这份资料有 8193 字节，超过单个文件的上限 8192/);
+    assert.ok(handoff.firstMessage.includes(`<material path="notes.txt#证据">\n${section.slice(0, -1)}\n</material>`));
+    assert.match(handoff.firstMessage, /long.txt#证据">\n这份资料有 8193 字节/);
     assert.ok(handoff.firstMessage.includes(`${large}\n</plan>`));
     assert.ok(handoff.firstMessage.includes(`${large}\n</previous-report>`));
   }
+});
+
+test("仅给路径的资料和超限整文件可在没有文件读取权时完成交接，属性值转义", (t) => {
+  const root = project(t);
+  const task = taskNaming(root, ["sample.ts", "large.md"]);
+  write(root, { ".knit/standards/example.md": '---\ntitle: |\n  a"&<\n  b\nstages: [implement]\n---\n有效正文' });
+  writeFileSync(join(root, "sample.ts"), "path only", { mode: 0 });
+  writeFileSync(join(root, "large.md"), "字".repeat(4000), { mode: 0 });
+  const handoff = assembleHandoff({ root, worktree: root, task, stage: { ...IMPLEMENT, prompt: null }, previous: null });
+  assert.deepEqual(handoff.problems, []);
+  assert.match(handoff.systemPrompt, /title="a&quot;&amp;&lt;&#10;b">\n有效正文/);
+  assert.match(handoff.firstMessage, /sample\.ts">\n需要时按路径自己读/);
+  assert.match(handoff.firstMessage, /large\.md">\n这份资料有 12000 字节/);
 });
 
 const workflowOf = (dir) => parseWorkflow(readFileSync(join(dir, ".knit/workflow.yaml"), "utf8")).workflow;

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadStandards, savePitfall } from "../dist/application/project-config.js";
-import { PITFALLS_PATH, pitfallsForStage, recordPitfall } from "../dist/domain/pitfalls.js";
+import { PITFALLS_PATH, pitfallScope, pitfallsForStage, recordPitfall } from "../dist/domain/pitfalls.js";
 import { parseStandard, standardsForStage } from "../dist/domain/standards.js";
 import { knit, project } from "./helpers/cli.mjs";
 
@@ -34,7 +34,7 @@ test("挑出适用某个环节的规范", (t) => {
 test("没有声明环节的规范不挑", () => {
   const standards = [
     parseStandard(".knit/standards/plain.md", "# 没有声明\n\n正文\n"),
-    parseStandard(".knit/standards/untitled.md", "---\nowner: someone\n---\n\n正文\n"),
+    parseStandard(".knit/standards/untitled.md", "---\n---\n\n正文\n"),
     parseStandard(".knit/standards/empty.md", "---\ntitle: 空的\nstages: []\n---\n\n正文\n"),
   ];
   for (const standard of standards) {
@@ -82,7 +82,25 @@ test("声明写坏的规范不挑并说明问题", () => {
   assert.deepEqual(open.stages, []);
   assert.match(open.problems.join("\n"), /没有结束/);
 
-  assert.deepEqual(standardsForStage([broken, scalar, open], "implement"), []);
+  assert.deepEqual(standardsForStage([broken, scalar, open], "implement", new Set([broken.path, scalar.path, open.path])), []);
+  const typo = parseStandard("custom.md", '---\ntitle: "  标题  "\nstage: [implement]\n---\n正文');
+  assert.equal(typo.title, "标题");
+  assert.deepEqual(typo.problems, ["多了字段 stage"]);
+  const aliases = (n) => parseStandard("alias.md", `---\ntitle: &s review\nstages: [${Array(n).fill("*s").join(", ")}]\n---\n正文`);
+  assert.deepEqual(aliases(99).problems, []);
+  assert.match(aliases(100).problems.join("\n"), /YAML.*alias count/i);
+});
+
+test("首次记录按普通目录权限创建，拒绝无效分区和缺少闭合行的清单", (t) => {
+  const root = project(t);
+  savePitfall(root, "通用", "条目", "正文");
+  assert.equal(statSync(join(root, ".knit/standards")).mode & 0o777, 0o777 & ~process.umask());
+  for (const scope of ["", "  ", "通用, implement", "implement、通用"]) {
+    assert.equal(pitfallScope(scope), null);
+    assert.throws(() => recordPitfall("", scope, "条目", "正文"), /分区/);
+  }
+  assert.equal(pitfallsForStage("## 通用, implement\n坏分区\n## review\n有效", "implement"), "");
+  assert.throws(() => recordPitfall("---\ntitle: 清单\n## 通用", "通用", "条目", "正文"), /没有结束/);
 });
 
 /** 和 workflow-cli.test.mjs 里的示例流程相同：implement、review 两个环节。 */
@@ -189,6 +207,7 @@ test("从空清单写入、补充适用条目，按当前流程分区查看", (t
   savePitfall(dir, "audit", "运行夹具", "再检查输出");
   const saved = readFileSync(file, "utf8");
   savePitfall(dir, "audit", "运行夹具", "再检查输出");
+  assert.match(record("", "无效", "空分区").stderr, /分区要写/);
   assert.equal(record("review", "无效", "错误分区").code, 1);
   assert.equal(readFileSync(file, "utf8"), saved);
   assert.equal(saved.match(/### 运行夹具/g).length, 1);

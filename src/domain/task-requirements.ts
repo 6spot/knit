@@ -3,6 +3,8 @@
  * 从旧代码 contracts/task-inputs.ts 搬来，解析规则不变。
  */
 
+import { linesOutsideFences } from "./markdown.js";
+
 /** task.md「待澄清」区段：固定二级标题，位置在完成条件之后、相关资料之前。 */
 export const CLARIFY_HEADING = "## 待澄清";
 /** 未决项行前缀（区分大小写，必须顶格）；缩进或大小写变体不作为未决项。 */
@@ -23,22 +25,6 @@ function clarifyItemText(text: string): string {
   return chars.length > 120 ? `${chars.slice(0, 119).join("")}…` : chars.join("");
 }
 
-function* linesOutsideFences(markdown: string) {
-  const lines = markdown.split(/\r?\n/).entries();
-  const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-  for (const entry of lines) {
-    const opening = marker.exec(entry[1]);
-    if (opening === null) {
-      yield entry;
-      continue;
-    }
-    for (const [, line] of lines) {
-      const closing = marker.exec(line);
-      if (closing?.[1]?.startsWith(opening[1]!) && closing[2]!.trim() === "") break;
-    }
-  }
-}
-
 /**
  * 解析需求部分的「待澄清」区段：只认固定标题与顶格前缀，
  * 区段到下一个一级／二级标题为止。无区段、空区段或只有 assumed 不阻挡 ready。
@@ -48,7 +34,7 @@ export function clarifyStateOf(taskMarkdown: string): ClarifyState {
   let blocking = 0;
   let assumed = 0;
   const blockingItems: string[] = [];
-  for (const [, line] of linesOutsideFences(taskMarkdown)) {
+  for (const [, line] of linesOutsideFences(taskMarkdown.split(/\r?\n/))) {
     if (line.trimEnd() === CLARIFY_HEADING) {
       inSection = true;
       continue;
@@ -167,7 +153,7 @@ export function scenarioStateOf(taskMarkdown: string): ScenarioState {
     cursor.scenario = { line, name, wellFormed, steps: [] };
     if (cursor.requirement !== null) cursor.requirement.scenarios.push(cursor.scenario);
   };
-  for (const [index, line] of linesOutsideFences(taskMarkdown)) {
+  for (const [index, line] of linesOutsideFences(taskMarkdown.split(/\r?\n/))) {
     if (!inSection) {
       if (line.trimEnd() === ACCEPTANCE_HEADING) inSection = true;
       continue;
@@ -179,8 +165,8 @@ export function scenarioStateOf(taskMarkdown: string): ScenarioState {
       const spaced = (heading[2] ?? "") !== "";
       const text = (heading[3] ?? "").trim();
       const shown = line.trim();
-      const looksRequirement = /^requirement/i.test(text);
-      const looksScenario = /^scenario/i.test(text);
+      const looksRequirement = /^requirement\b/i.test(text);
+      const looksScenario = /^scenario\b/i.test(text);
       // 「###Requirement: x」不是 Markdown 标题，但明显是写错的场景标题，同样报错而不是静默忽略。
       if (!spaced && !looksRequirement && !looksScenario) continue;
       if (looksRequirement) {

@@ -6,6 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
+import { trimBlankLines } from "../domain/markdown.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
 import { referencesOf, sectionOf, type TaskDocument, type TaskReference } from "../domain/task.js";
@@ -61,9 +62,13 @@ export interface Handoff {
   readonly problems: readonly string[];
 }
 
-/** 同样的输入得到逐字相同的输出。 */
-export function assembleHandoff(input: HandoffInput): Handoff {
+type HandoffSourcesInput = Pick<HandoffInput, "root" | "worktree" | "task" | "limits"> & { stage: Pick<WorkflowStage, "id" | "tools"> };
+
+/** 同一批的成员共享资料、计划及适用规范，角色文件单独加载。 */
+export function loadHandoffSources(input: HandoffSourcesInput) {
   const limits = input.limits ?? DEFAULT_HANDOFF_LIMITS;
+  const canRead = input.stage.tools == null || input.stage.tools.includes("read");
+  const planPath = `${input.task.dir}/plan.md`;
   const standards = loadStandards(input.root);
   const references = referencesOf(input.task.document.requirement);
   const referencePath = (path: string) => standardReference(projectRelative(path) ?? "");
@@ -78,84 +83,114 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       const normalized = referencePath(path);
       return normalized !== PITFALLS_PATH && !standardPaths.has(normalized);
     }),
-    { worktree: input.worktree },
+    { worktree: input.worktree, canRead, fileBytes: limits.fileBytes, planPath },
   );
   const problems: string[] = [];
-  const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt, `环节 ${input.stage.id} 的角色文件`, problems);
-  const planPath = `${input.task.dir}/plan.md`;
   const namedPlan = named.has(planPath) || named.has(`${planPath}/`);
   const plan = namedPlan ? null : readText(input.root, planPath, "任务计划", problems, true);
   if (namedPlan && materials.materials.some((item) => item.reference.path === resolve(input.root, planPath) && item.kind === "directory")) {
     problems.push(`任务计划不是普通文件：${planPath}`);
   }
 
+  const planFile = resolve(input.root, planPath);
+  const materialBlocks = materials.materials.map((material) => {
+    const { path, anchor } = material.reference;
+    return {
+      tag: "material", attributes: { path: `${path}${anchor === null ? "" : `#${anchor}`}` },
+      content: trimBlankLines(material.text ?? ""),
+      fileBytes: canRead && path !== planFile ? Math.min(8192, limits.fileBytes) : limits.fileBytes,
+      notice: material.notice, size: material.size, isPlan: path === planFile,
+    };
+  });
+  return { limits, canRead, includedStandards, materialBlocks,
+    plan: plan === null ? [] : [{ tag: "plan", attributes: { path: planFile }, content: trimBlankLines(plan) }],
+    problems: [...problems, ...(missingPitfalls ? [`主检出里没有点名的规范：${PITFALLS_PATH}`] : []),
+      ...standards.filter((s) => named.has(s.path)).flatMap((s) => s.problems.map((p) => `${s.path}：${p}`)), ...materials.problems] };
+}
+
+export function assembleHandoff(input: HandoffInput): Handoff {
+  const prepared = prepareHandoff(input, loadHandoffSources(input));
+  return { standardsDigest: prepared.standardsDigest, systemPrompt: prepared.systemPrompt,
+    problems: prepared.problems, firstMessage: prepared.message(null, "") };
+}
+
+interface Attachment extends Block {
+  readonly fileBytes?: number;
+  readonly size?: number;
+  readonly notice?: string;
+}
+
+export function prepareHandoff(input: HandoffInput, sources: ReturnType<typeof loadHandoffSources>) {
+  const { limits, canRead, includedStandards } = sources;
+  const problems: string[] = [];
+  const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt, `环节 ${input.stage.id} 的角色文件`, problems);
   const roleText = role === null ? [] : [trimBlankLines(role)];
   const taskBlock = {
     tag: "task",
     attributes: { path: resolve(input.root, input.task.dir, "task.md") },
     content: trimBlankLines(`# ${input.task.document.frontmatter.title}\n\n${input.task.document.requirement}`),
   };
-  // 受上限约束的块，按第一条消息里的先后。
   const instructions: Block[] = input.instruction === undefined ? [] : [
     { tag: "main-instruction", attributes: {}, content: input.instruction },
   ];
-  const canRead = input.stage.tools == null || input.stage.tools.includes("read");
-  const shortDocumentLimits = { ...limits, fileBytes: Math.min(4096, limits.fileBytes) };
-  const attached: (Block & { notice?: string; limits?: HandoffLimits })[] = [
-    ...materials.materials.map((material) => {
-      const { path, anchor } = material.reference;
-      const slim = canRead && path !== resolve(input.root, planPath);
-      const pathOnly = slim && material.kind === "file" && !path.toLowerCase().endsWith(".md");
-      return {
-        tag: "material",
-        attributes: { path: `${path}${anchor === null ? "" : `#${anchor}`}` },
-        content: material.text === null || pathOnly ? "" : trimBlankLines(material.text),
-        ...(pathOnly ? { notice: "需要时按路径自己读。" } :
-          material.kind === "directory" ? { notice: "这是一个目录，没有附上内容。" } : {}),
-        limits: slim ? shortDocumentLimits : limits,
-      };
-    }),
-    ...(plan === null ? [] : [{ tag: "plan", attributes: { path: resolve(input.root, planPath) }, content: trimBlankLines(plan) }]),
-    ...[input.previous ?? []].flat().map((report) => reportBlock("previous-report", report)),
-    ...(input.own == null ? [] : [reportBlock("own-last-report", input.own)]),
-  ];
-  const fitted = attached.reduce(
-    (state, part) => {
-      const bytes = Buffer.byteLength(part.content);
-      const notice = part.notice ?? attachmentNotice(bytes, state.used, part.limits ?? limits);
-      return notice === null
-        ? { used: state.used + bytes, blocks: [...state.blocks, { ...part, content: part.content }] }
-        : { used: state.used, blocks: [...state.blocks, { ...part, content: notice }] };
-    },
-    {
-      used: [...roleText, ...includedStandards.map((standard) => standard.body), taskBlock.content, input.instruction ?? ""].reduce(
-        (sum, text) => sum + Buffer.byteLength(text),
-        0,
-      ),
-      blocks: [] as Block[],
-    },
-  ).blocks;
-
+  const previous = [input.previous ?? []].flat().map((report) => reportBlock("previous-report", report));
+  const own = input.own ? [reportBlock("own-last-report", input.own)] : [];
+  const lowerPriority = [...own, ...sources.plan, ...sources.materialBlocks.filter((part) => part.isPlan),
+    ...sources.materialBlocks.filter((part) => !part.isPlan)];
+  const display = [...sources.materialBlocks, ...sources.plan, ...previous, ...own];
+  const fixedBytes = [...roleText, ...includedStandards.map((standard) => standard.body), taskBlock.content, input.instruction ?? ""]
+    .reduce((sum, text) => sum + Buffer.byteLength(text), 0);
   const standardBlocks = includedStandards.map(renderStandard);
+  const systemPrompt = [...roleText, ...standardBlocks].join("\n\n");
+  const location = `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；${canRead ? "这些资料和报告按给出的绝对路径读取。" : "本环节无 read 权限，使用下方附上的资料和报告。"}`;
   return {
-    standardsDigest: sha256Text(standardBlocks.join("\n\n")),
-    systemPrompt: [...roleText, ...standardBlocks].join("\n\n"),
-    // 工作位置说明不改变原有的资料字节预算。
-    firstMessage: [
-      `你在任务的 Worktree 里工作：${input.worktree}。仓库资料的相对路径以这里为准。\n任务目录和以前的报告在主检出（${resolve(input.root)}），只读，不要改。任务目录：${resolve(input.root, input.task.dir)}；这些资料和报告按给出的绝对路径读取。`,
-      ...[taskBlock, ...instructions, ...fitted].map(render),
-    ].join("\n\n"),
-    problems: [
-      ...problems,
-      ...(missingPitfalls ? [`主检出里没有点名的规范：${PITFALLS_PATH}`] : []),
-      ...materials.problems,
-    ],
+    standardsDigest: sha256Text(standardBlocks.join("\n\n")), systemPrompt, problems: [...problems, ...sources.problems],
+    message(changes: ReturnType<typeof reviewChanges>, rules: string) {
+      const budget = { used: fixedBytes, roomWithPatch: Infinity };
+      const selected = new Map<Block, string>();
+      const firstMessage = () => [location, ...[taskBlock, ...instructions, ...display].map((part) => render({ ...part, content: selected.get(part) ?? part.content }))].join("\n\n");
+      const noticeFor = (part: Attachment, used: number) => part.notice ?? attachmentNotice(part.size ?? Buffer.byteLength(part.content), used,
+        { ...limits, fileBytes: part.fileBytes ?? limits.fileBytes }, canRead);
+      const fit = (part: Attachment) => {
+        const notice = noticeFor(part, budget.used);
+        if (notice !== null) {
+          selected.set(part, notice);
+          return;
+        }
+        const size = Buffer.byteLength(part.content);
+        const growth = size - Buffer.byteLength(selected.get(part) ?? "");
+        if (growth > budget.roomWithPatch) return;
+        budget.used += size;
+        budget.roomWithPatch -= growth;
+        selected.set(part, part.content);
+      };
+      previous.forEach(fit);
+      const review = reviewAttachment(changes, limits, input.stage.tools == null || input.stage.tools.includes("exec"));
+      // 为每个低优先级块保留最短的有效表示，按含系统提示、标签和路径的实际大小为补丁留位。
+      const chooseReview = () => {
+        if (!review.full) return review.summary;
+        lowerPriority.forEach((part) => {
+          const required = noticeFor(part, 0);
+          const fallback = noticeFor(part, Infinity)!;
+          selected.set(part, required ?? (Buffer.byteLength(part.content) < Buffer.byteLength(fallback) ? part.content : fallback));
+        });
+        const systemBytes = Buffer.byteLength(systemPrompt) + (rules ? 2 + Buffer.byteLength(rules) : 0);
+        const remaining = limits.totalBytes - systemBytes - Buffer.byteLength(firstMessage() + review.full);
+        if (remaining < 0) return review.summary;
+        budget.roomWithPatch = remaining;
+        return review.full;
+      };
+      const reviewBlock = chooseReview();
+      lowerPriority.forEach(fit);
+      return firstMessage() + reviewBlock;
+    },
   };
 }
 
-function attachmentNotice(bytes: number, used: number, limits: HandoffLimits): string | null {
-  if (bytes > limits.fileBytes) return `这份资料有 ${bytes} 字节，超过单个文件的上限 ${limits.fileBytes} 字节，没有附上；需要时按路径自己读。`;
-  if (used + bytes > limits.totalBytes) return `加上这份资料会超过一次交接的上限 ${limits.totalBytes} 字节，没有附上；需要时按路径自己读。`;
+function attachmentNotice(bytes: number, used: number, limits: HandoffLimits, canRead: boolean): string | null {
+  const action = canRead ? "需要时按路径自己读。" : "本环节无 read 权限，无法自行读取；请调整 handoff 预算或精简资料。";
+  if (bytes > limits.fileBytes) return `这份资料有 ${bytes} 字节，超过单个文件的上限 ${limits.fileBytes} 字节，没有附上；${action}`;
+  if (used + bytes > limits.totalBytes) return `加上这份资料会超过一次交接的上限 ${limits.totalBytes} 字节，没有附上；${action}`;
   return null;
 }
 
@@ -169,20 +204,27 @@ export function reviewChanges(worktree: string) {
   const untracked = gitSync([...gitArgs, "ls-files", "--others", "--exclude-standard"], worktree);
   if (stat.code !== 0 || untracked.code !== 0) throw new Error(`无法读取 Worktree 改动摘要：${stat.stderr}${untracked.stderr}`);
   if (!stat.stdout && !untracked.stdout) return null;
-  const summary = [stat.stdout.trimEnd(), untracked.stdout && `未跟踪文件：\n${untracked.stdout.trimEnd()}`].filter(Boolean).join("\n\n");
+  const names = untracked.stdout.split("\n").filter(Boolean);
+  const listing = [...names.slice(0, 200), ...(names.length > 200 ? [`等共 ${names.length} 个文件`] : [])];
+  const summary = [stat.stdout.trimEnd(), listing.length && `未跟踪文件：\n${listing.join("\n")}`].filter(Boolean).join("\n\n");
   const diff = stat.stdout ? gitSync([...diffArgs, "--unified=1", "HEAD", "--"], worktree, MAX_DIFF_BYTES) : null;
   return { summary, patch: diff === null ? "" : diff.code === 0 ? diff.stdout : null };
 }
 
-export function appendReviewChanges(message: string, changes: ReturnType<typeof reviewChanges>, limits: HandoffLimits, systemBytes = 0): string {
-  if (!changes) return message;
-  const block = (detail: string) => render({ tag: "worktree-changes", attributes: { base: "HEAD" },
+function reviewAttachment(changes: ReturnType<typeof reviewChanges>, limits: HandoffLimits, canExec: boolean) {
+  if (!changes) return { summary: "", full: null };
+  const block = (detail: string) => "\n\n" + render({ tag: "worktree-changes", attributes: { base: "HEAD" },
     content: detail ? `${changes.summary}\n\n${detail}` : changes.summary });
-  const patch = changes.patch;
-  const full = `${message}\n\n${block(patch?.replace(/\n$/, "") ?? "")}`;
-  if (patch === "" || (patch !== null && Buffer.byteLength(patch) <= Math.min(MAX_DIFF_BYTES, limits.fileBytes) &&
-    systemBytes + Buffer.byteLength(full) <= limits.totalBytes)) return full;
-  return `${message}\n\n${block("需要时在 Worktree 运行 git diff HEAD 查看补丁。")}`;
+  const hint = canExec ? "需要时在 Worktree 运行 git diff HEAD 查看补丁。" : "本环节无法自行运行 git diff HEAD；请调整 handoff 预算或精简改动。";
+  return {
+    summary: block(changes.patch === "" ? "" : hint),
+    full: changes.patch && Buffer.byteLength(changes.patch) <= Math.min(MAX_DIFF_BYTES, limits.fileBytes) ? block(changes.patch.replace(/\n$/, "")) : null,
+  };
+}
+
+export function appendReviewChanges(message: string, changes: ReturnType<typeof reviewChanges>, limits: HandoffLimits, systemBytes = 0, canExec = true): string {
+  const review = reviewAttachment(changes, limits, canExec);
+  return message + (review.full && systemBytes + Buffer.byteLength(message + review.full) <= limits.totalBytes ? review.full : review.summary);
 }
 
 /** 无读取工具的执行者无法打开报告路径，按交接预算随消息附上报告。 */
@@ -192,8 +234,9 @@ export function resumeMessage(instruction: string | undefined, reports: readonly
   const previous = reports.reduce((state, report) => {
     const reference = `${report.executor ?? report.stage}（${report.failure ?? report.verdict ?? "正常结束"}）的报告：${report.path}`;
     const bytes = Buffer.byteLength(report.text);
-    const include = inlineLimits && attachmentNotice(bytes, state.used, inlineLimits) === null;
-    return { used: state.used + (include ? bytes : 0), messages: [...state.messages, include ? `${reference}\n${report.text}` : reference] };
+    const notice = inlineLimits && attachmentNotice(bytes, state.used, inlineLimits, false);
+    return { used: state.used + (notice === null ? bytes : 0), messages: [...state.messages,
+      inlineLimits ? `${reference}\n${notice ?? report.text}` : reference] };
   }, { used: Buffer.byteLength(instruction ?? "") + Buffer.byteLength(rules) + Buffer.byteLength(recovery.join("")), messages: [] as string[] });
   return [...recovery, ...instructions, ...previous.messages, rules].join("\n\n");
 }
@@ -219,7 +262,7 @@ export function renderStandard(standard: Standard): string {
 
 function render(block: Block): string {
   const opening = Object.entries(block.attributes)
-    .map((attribute) => ` ${attribute[0]}="${attribute[1]}"`)
+    .map(([key, value]) => ` ${key}="${value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll("\n", "&#10;").replaceAll("\r", "&#13;")}"`)
     .join("");
   return `<${block.tag}${opening}>\n${block.content}\n</${block.tag}>`;
 }
@@ -243,19 +286,20 @@ function readText(root: string, path: string, label: string, problems: string[],
   return null;
 }
 
-function trimBlankLines(text: string): string {
-  return text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
-}
-
 export interface TaskMaterial {
   readonly reference: TaskReference;
   readonly kind: "file" | "section" | "directory";
-  /** 目录没有内容，是 null。 */
+  readonly notice?: string;
+  readonly size?: number;
+  /** 目录、仅给路径或超限的文件没有正文。 */
   readonly text: string | null;
 }
 
 interface HandoffLocation {
   readonly worktree: string;
+  readonly canRead: boolean;
+  readonly fileBytes: number;
+  readonly planPath: string;
 }
 
 /** 顺序和 references 相同；交接时仓库资料读 Worktree，任务目录（所有任务的）里的资料读主检出并给绝对路径。 */
@@ -289,8 +333,16 @@ function readMaterial(root: string, reference: TaskReference, handoff?: HandoffL
     }`;
   }
   const supplied = taskMaterial ? { ...reference, path: resolve(root, path) } : reference;
-  if (entry.stats.isDirectory()) return { reference: supplied, kind: "directory", text: null };
+  if (entry.stats.isDirectory()) return { reference: supplied, kind: "directory", text: null,
+    ...(handoff && { notice: "这是一个目录，没有附上内容。" }) };
   if (!entry.stats.isFile()) return `相关资料不是普通文件：${reference.path}`;
+  if (handoff && reference.anchor === null) {
+    const slim = handoff.canRead && path !== handoff.planPath;
+    if (slim && !path.toLowerCase().endsWith(".md")) return { reference: supplied, kind: "file", text: null, notice: "需要时按路径自己读。" };
+    if (entry.stats.size > (slim ? Math.min(8192, handoff.fileBytes) : handoff.fileBytes)) {
+      return { reference: supplied, kind: "file", text: null, size: entry.stats.size };
+    }
+  }
   const text = readFileSync(entry.file, "utf8");
   if (reference.anchor === null) return { reference: supplied, kind: "file", text };
   const section = sectionOf(text, reference.anchor);

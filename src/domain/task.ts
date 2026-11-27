@@ -2,7 +2,7 @@
  * 解析和渲染任务的 `task.md` 与 `record.json`，从需求文本提取相关资料与章节。
  * 需求部分是开头字段之后、`## 结果` 之前的全部内容，交给执行者的和算摘要的都是这一段。
  */
-import { parseDocument, stringify } from "yaml";
+import { stringify } from "yaml";
 import { checkSchema, schemaProblems, sha256Text } from "../contracts/primitives.js";
 import {
   TaskFrontmatterSchema,
@@ -11,6 +11,8 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from "../contracts/task.js";
+
+import { linesOutsideFences, readHeaderYaml, splitFrontmatter, trimBlankLines } from "./markdown.js";
 
 export const RESULT_HEADING = "## 结果";
 
@@ -24,20 +26,19 @@ export type TaskDocumentParse =
   | { readonly document: TaskDocument; readonly problems: readonly [] }
   | { readonly document: null; readonly problems: readonly string[] };
 
-const taskFrontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/;
 const rawIdLine = /^id:[ \t]*([\w-]+)[ \t]*$/m;
 
 function headerId(header: string): string | null {
   const plain = rawIdLine.exec(header)?.[1] ?? null;
   // 常规文档直接读 ID。显式键或别名键可能改变顶层 id 的值。
   if (plain !== null && !/^(?![A-Za-z][\w-]*:(?:[ \t]|$))[^ \t#\r\n]/m.test(header)) return plain;
-  const { value } = readHeaderYaml(header);
+  const { value } = readHeaderYaml(header, "开头字段");
   return typeof value === "object" && value !== null && "id" in value && typeof value.id === "string" ? value.id : plain;
 }
 
 export function unparsedTaskId(markdown: string): string | null {
-  const header = taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1];
-  return header === undefined ? null : headerId(header);
+  const { header } = splitFrontmatter(markdown, "task");
+  return header === null ? null : headerId(header);
 }
 
 export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>): boolean {
@@ -46,18 +47,17 @@ export function taskDocumentMayHaveId(markdown: string, ids: ReadonlySet<string>
 }
 
 export function parseTaskDocument(markdown: string): TaskDocumentParse {
-  const normalized = markdown.replaceAll("\r\n", "\n");
-  const match = taskFrontmatter.exec(normalized);
-  if (match === null) return { document: null, problems: ["没有开头字段：文件要以 --- 开头，字段之后再用一行 --- 结束"] };
-  const { frontmatter, problems } = parseTaskFrontmatter(match[1] ?? "");
+  const parts = splitFrontmatter(markdown, "task");
+  if (parts.header === null) return { document: null, problems: ["没有开头字段：文件要以 --- 开头，字段之后再用一行 --- 结束"] };
+  const { frontmatter, problems } = parseTaskFrontmatter(parts.header);
   if (frontmatter === null) return { document: null, problems };
-  const lines = normalized.slice(match[0].length).split("\n");
+  const lines = parts.body.split("\n");
   const heading = resultHeadingLine(lines);
   return {
     document: {
       frontmatter,
-      requirement: trimSection(lines.slice(0, heading < 0 ? lines.length : heading).join("\n")),
-      result: heading < 0 ? null : trimSection(lines.slice(heading + 1).join("\n")),
+      requirement: trimBlankLines(lines.slice(0, heading < 0 ? lines.length : heading).join("\n")),
+      result: heading < 0 ? null : trimBlankLines(lines.slice(heading + 1).join("\n")),
     },
     problems: [],
   };
@@ -97,25 +97,15 @@ export function currentStatus(document: TaskDocument, record: TaskRecord): TaskS
 }
 
 export function taskHeaderFields(markdown: string): TaskFrontmatter | null {
-  const header = taskFrontmatter.exec(markdown.replaceAll("\r\n", "\n"))?.[1];
-  return header === undefined ? null : parseTaskFrontmatter(header).frontmatter;
-}
-
-function readHeaderYaml(header: string): { value: unknown; problems: string[] } {
-  const yaml = parseDocument(header);
-  if (yaml.errors.length) return { value: null, problems: yaml.errors.map((error) => `开头字段不是合法的 YAML：${error.message}`) };
-  try {
-    return { value: yaml.toJS({ maxAliasCount: 100 }), problems: [] };
-  } catch (error) {
-    return { value: null, problems: [`开头字段不是合法的 YAML：${error instanceof Error ? error.message : String(error)}`] };
-  }
+  const { header } = splitFrontmatter(markdown, "task");
+  return header === null ? null : parseTaskFrontmatter(header).frontmatter;
 }
 
 function parseTaskFrontmatter(header: string): {
   frontmatter: TaskFrontmatter | null;
   problems: readonly string[];
 } {
-  const { value: frontmatter, problems } = readHeaderYaml(header);
+  const { value: frontmatter, problems } = readHeaderYaml(header, "开头字段");
   if (problems.length) return { frontmatter: null, problems };
   if (!checkSchema(TaskFrontmatterSchema, frontmatter)) return { frontmatter: null, problems: schemaProblems(TaskFrontmatterSchema, frontmatter) };
   if (frontmatter.status === "active" && frontmatter.stage === null) {
@@ -125,10 +115,6 @@ function parseTaskFrontmatter(header: string): {
     return { frontmatter: null, problems: [`字段 stage 的值不对：status 是 ${frontmatter.status} 时要写 null`] };
   }
   return { frontmatter, problems: [] };
-}
-
-function trimSection(text: string): string {
-  return text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
 }
 
 /** `## 结果` 所在的行；写在代码围栏里的不算。没有时是 -1。 */
@@ -195,20 +181,17 @@ export interface TaskReference {
 }
 
 /**
- * 「相关资料」一行一项：反引号里是路径，可以带 `#标题`；` — ` 之后是理由，理由里的反引号内容不算。
+ * 「相关资料」一行一项：只取说明之前的首个反引号路径，可以带 `#标题`。
  * 路径和标题都相同的只留第一次出现的。
  */
 export function referencesOf(requirement: string): TaskReference[] {
-  const lines = requirement.split("\n");
+  const lines = requirement.split(/\r?\n/);
   const headings = headingsOf(lines).filter((heading) => heading.level <= 2);
   const start = headings.findIndex((heading) => lines[heading.line]?.trimEnd() === REFERENCES_HEADING);
   const heading = headings[start];
   if (heading === undefined) return [];
-  return lines
-    .slice(heading.line + 1, headings[start + 1]?.line)
-    .filter((line) => line.startsWith("- "))
-    .flatMap((line) => [...(line.split(" — ")[0] ?? "").matchAll(/`([^`]+)`/g)])
-    .map((match) => match[1] ?? "")
+  return [...linesOutsideFences(lines.slice(heading.line + 1, headings[start + 1]?.line))]
+    .flatMap(([, line]) => /^- (?:(?! — | - |：|`).)*`([^`]+)`/.exec(line)?.[1] ?? [])
     .map((named) => {
       const hash = named.indexOf("#");
       return hash < 0
@@ -232,26 +215,10 @@ export interface Heading {
 
 /** 文本里的标题；写在代码围栏里的不算。 */
 export function headingsOf(lines: readonly string[]): Heading[] {
-  return lines.reduce(
-    (state, line, index) => {
-      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (state.fence !== null) {
-        const closes =
-          marker !== null &&
-          (marker[1] ?? "").startsWith(state.fence) &&
-          (marker[2] ?? "").trim() === "";
-        return closes ? { fence: null, headings: state.headings } : state;
-      }
-      if (marker !== null) return { fence: marker[1] ?? null, headings: state.headings };
-      const heading = /^(#{1,6})\s+(\S.*?)\s*$/.exec(line);
-      if (heading === null) return state;
-      return {
-        fence: null,
-        headings: [...state.headings, { line: index, level: (heading[1] ?? "").length, text: heading[2] ?? "" }],
-      };
-    },
-    { fence: null as string | null, headings: [] as Heading[] },
-  ).headings;
+  return [...linesOutsideFences(lines)].flatMap(([line, text]) => {
+    const heading = /^(#{1,6})\s+(\S.*?)\s*$/.exec(text);
+    return heading ? [{ line, level: heading[1]!.length, text: heading[2]! }] : [];
+  });
 }
 
 /**
@@ -259,7 +226,7 @@ export function headingsOf(lines: readonly string[]): Heading[] {
  * 有多个对得上的取第一个，没有时是 null。
  */
 export function sectionOf(markdown: string, anchor: string): string | null {
-  const lines = markdown.split("\n");
+  const lines = markdown.split(/\r?\n/);
   const headings = headingsOf(lines);
   const start = headings.findIndex((heading) => anchorOf(heading.text) === anchorOf(anchor));
   const found = headings[start];

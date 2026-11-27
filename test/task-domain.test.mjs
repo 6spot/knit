@@ -133,6 +133,19 @@ test("代码围栏里的 ## 结果 留在需求部分", () => {
   assert.equal(document.result, "真正的结果");
 });
 
+test("行首反引号片段之后仍能提取场景、待澄清及结果", () => {
+  const requirement = ["## 目标与范围", "   ```示例``` 后续文字", THREE, "### Requirements 说明", "#### Scenarios 说明",
+    "## 待澄清", "  ~~~~info `ok`", "~~~", "~~~~ 后缀", "~~~~\u00a0", "- [blocking] 示例", "   ~~~~~\t",
+    "- [blocking] 待决定", "## 相关资料"].join("\n");
+  const parsed = documentOf(`---\n${FRONTMATTER}\n---\n${requirement}\n## 结果\n已完成`);
+  assert.equal(parsed.requirement, requirement);
+  assert.equal(parsed.result, "已完成");
+  assert.deepEqual(headingsOf(requirement.split("\n")).filter((h) => h.level === 2).map((h) => h.text),
+    ["目标与范围", "完成条件", "待澄清", "相关资料"]);
+  assert.deepEqual(scenarioStateOf(requirement), scenarioStateOf(THREE));
+  assert.deepEqual(clarifyStateOf(requirement), { blocking: 1, assumed: 0, blockingItems: ["待决定"] });
+});
+
 test("没有 ## 结果 时结果是 null，渲染出的文本里没有这一节", () => {
   const markdown = `---\n${FRONTMATTER}\n---\n\n${REQUIREMENT}\n`;
   const document = documentOf(markdown);
@@ -454,6 +467,8 @@ test("从「相关资料」读出路径和标题", () => {
     "",
     "- `.knit/standards/development.md` — 开发规范，里面的 `stages` 不算",
     "- `next/src/a.ts`、`next/src/b.ts` — `currentStatus`、渲染",
+    "```ts", "- `fenced.ts`", "```",
+    "- 读取 `one - two.md` - `忽略`", "- `three.md`：`忽略`", "- 无路径 — `仅说明`",
     "  - `next/src/indented.ts` — 缩进的行不算",
     "- `docs/design.md#5-交接` — 设计的 `5.1` 小节",
     "- `next/src/a.ts` — 写了第二次",
@@ -466,7 +481,8 @@ test("从「相关资料」读出路径和标题", () => {
   assert.deepEqual(referencesOf(requirement), [
     { path: ".knit/standards/development.md", anchor: null },
     { path: "next/src/a.ts", anchor: null },
-    { path: "next/src/b.ts", anchor: null },
+    { path: "one - two.md", anchor: null },
+    { path: "three.md", anchor: null },
     { path: "docs/design.md", anchor: "5-交接" },
     { path: "docs/design.md", anchor: null },
   ]);

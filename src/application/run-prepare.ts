@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { sha256Text } from "../contracts/primitives.js";
 import { gitSync, shellQuote } from "../infrastructure/process.js";
 import type { ProjectConfig } from "./project-config.js";
-import { appendReviewChanges, assembleHandoff, resumeMessage, reviewChanges, type HandoffReport } from "./handoff.js";
+import { appendReviewChanges, loadHandoffSources, prepareHandoff, resumeMessage, reviewChanges, type HandoffReport } from "./handoff.js";
 import { logSessionMode } from "./run-execute.js";
 import { withTaskRunLock } from "./run-control.js";
 import { findTask, saveTask, type LoadedTask } from "./task-store.js";
@@ -172,12 +172,13 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
   };
   try {
     const reports = previous.map((run) => reportOf(root, run));
+    const shared = { root, worktree: worktree.path, task: { dir: stored.dir, document }, stage, limits: input.config.handoff };
+    const sources = loadHandoffSources(shared);
     const handoffs = targets.map(({ executor }) => {
       const own = batches.flat().findLast((run) => run.stage === stage.id && (!run.executor || run.executor === executor.id));
-      return assembleHandoff({ root, worktree: worktree.path, task: { dir: stored.dir, document },
-        stage: { id: stage.id, prompt: executor.prompt, tools: stage.tools }, previous: reports,
+      return prepareHandoff({ ...shared, stage: { ...stage, prompt: executor.prompt }, previous: reports,
         own: own && !previous.includes(own) ? reportOf(root, own) : null,
-        instruction: input.instruction, limits: input.config.handoff });
+        instruction: input.instruction }, sources);
     });
     const issues = handoffs.flatMap((handoff) => handoff.problems);
     if (issues.length) return refusePrepared(issues);
@@ -202,7 +203,7 @@ function prepareExecutors(input: PrepareRunInput, task: LoadedTask, stage: Workf
       const system = `${handoff.systemPrompt}\n\n${rules}`;
       writeFileSync(join(dir, "system.md"), system);
       prepareResumeHandoff(dir, input, record, run, reports, rules, handoff.standardsDigest, changes);
-      writeFileSync(join(dir, "message.md"), appendReviewChanges(handoff.firstMessage, changes, input.config.handoff, Buffer.byteLength(system)));
+      writeFileSync(join(dir, "message.md"), handoff.message(changes, rules));
       atomicWrite({ path: join(dir, "before.json"), data: snapshot });
     });
   } catch (error) {
@@ -233,7 +234,7 @@ function prepareResumeHandoff(dir: string, input: PrepareRunInput, record: TaskR
     const inlineLimits = run.stage.tools !== null && !run.stage.tools.includes("read") ? input.config.handoff : undefined;
     writeFileSync(join(dir, "resume-id.txt"), prior.resumeId);
     const message = resumeMessage(input.instruction, reports, rules, inlineLimits, prior.failure);
-    writeFileSync(join(dir, "resume-message.md"), appendReviewChanges(message, changes, input.config.handoff));
+    writeFileSync(join(dir, "resume-message.md"), appendReviewChanges(message, changes, input.config.handoff, 0, run.stage.tools == null || run.stage.tools.includes("exec")));
     return;
   }
   if (decision.reason) logSessionMode(dir, `已自动回退新会话（${decision.reason}）`);

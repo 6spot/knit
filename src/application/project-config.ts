@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { arr, bool, int, nullable, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { schemaProblems } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
@@ -117,6 +117,8 @@ export function savePitfall(root: string, scope: string, title: string, detail: 
     const standard = parseStandard(PITFALLS_PATH, original);
     if (standard.problems.length) throw new Error(standard.problems.join("\n"));
     const updated = recordPitfall(original, scope, title, detail);
-    if (updated !== original) atomicWrite({ path, data: Buffer.from(updated), expectedSha256: current?.sha256 ?? null, mode: 0o644 });
+    if (updated === original) return;
+    mkdirSync(dirname(path), { recursive: true });
+    atomicWrite({ path, data: Buffer.from(updated), expectedSha256: current?.sha256 ?? null, mode: 0o644 });
   }, () => { throw new Error("避坑清单正在写入，请重试"); });
 }
