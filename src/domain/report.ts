@@ -49,8 +49,9 @@ export type ReportRead =
  */
 export function readReport(declared: Readonly<Record<string, ReportFieldType>>, text: string): ReportRead {
   if (Object.keys(declared).length === 0) return { fields: {}, problems: [] };
-  const fields = fenceCandidates(text).map(jsonObject).findLast((value) => value !== null);
-  if (fields === undefined || fields === null) return { fields: null, problems: ["报告结尾没有能解析的 json 代码块"] };
+  const block = lastFenceContent(text);
+  const fields = block === null ? null : jsonObject(block);
+  if (fields === null) return { fields: null, problems: ["报告结尾没有能解析的 json 代码块"] };
   const problems = Object.entries(declared).flatMap(([name, type]) => fieldProblem(name, type, fields) ?? []);
   return problems.length > 0 ? { fields: null, problems } : { fields, problems: [] };
 }
@@ -69,7 +70,7 @@ export function reportOutcome(
   declared: Readonly<Record<string, ReportFieldType>>,
   text: string,
 ): { readonly outcome: ReportOutcome | null; readonly problems: readonly string[] } {
-  if (text.trim() === "") return { outcome: { verdict: null, failure: "执行者没有给出报告" }, problems: [] };
+  if (text.trim() === "") return { outcome: null, problems: ["执行者没有给出报告"] };
   const read = readReport(declared, text);
   if (read.fields === null) return { outcome: null, problems: read.problems };
   const verdict = Object.hasOwn(declared, "verdict") ? read.fields.verdict : null;
@@ -90,20 +91,21 @@ export function reportRetryMessage(problems: readonly string[]): string {
   ].join("\n");
 }
 
-/**
- * 可能是代码块内容的片段：每个标记和它后面相邻的标记、最后一个标记各配一次。
- * JSON 的字符串值里带着 ``` 时，相邻配对会断在中间，要靠和最后一个标记的配对取出来；
- * 片段是不是报告由调用方解析之后判断。开头那一行剩下的部分是语言标注，不算内容。
- */
-function fenceCandidates(text: string): string[] {
-  const markers = [...text.matchAll(/```/g)].map((match) => match.index);
-  return markers.flatMap((open, index) => {
-    const lineEnd = text.indexOf("\n", open);
-    const start = lineEnd === -1 ? open + 3 : lineEnd + 1;
-    return [markers[index + 1], markers.at(-1)]
-      .filter((close) => close !== undefined && close > open)
-      .map((close) => text.slice(start, close).trim());
-  });
+/** 只认独占一行的闭围栏，JSON 字符串中的围栏和转义换行均保留为内容。 */
+function lastFenceContent(text: string): string | null {
+  let open: RegExpExecArray | undefined;
+  let end: number | undefined;
+  for (const marker of text.matchAll(/(?:^|\n)( {0,3})(`{3,}|~{3,})([^\n]*)/g)) {
+    const [, indent, fence, info] = marker;
+    if (open && end === undefined) {
+      if (fence!.startsWith(open[2]!) && /^[ \t]*\r?$/.test(info!)) end = marker.index;
+      continue;
+    }
+    if (indent || (fence![0] === "`" && info!.includes("`"))) continue;
+    open = marker;
+    end = undefined;
+  }
+  return open === undefined || end === undefined ? null : text.slice(open.index + open[0].length, end);
 }
 
 function jsonObject(text: string): Record<string, unknown> | null {

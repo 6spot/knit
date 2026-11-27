@@ -1,6 +1,7 @@
+import { sha256Text } from "../contracts/primitives.js";
 import type { TaskRecord, TaskStatus } from "../contracts/task.js";
 import { lastPassedReview } from "../domain/progress.js";
-import { currentStatus, requirementDigest } from "../domain/task.js";
+import { currentStatus, renderTaskDocument, requirementDigest, type TaskDocument } from "../domain/task.js";
 import { clarifyStateOf, scenarioStateOf } from "../domain/task-requirements.js";
 import { projectRelative } from "../infrastructure/paths.js";
 import { archiveTask, readTask, saveTask, type TaskRefusal } from "./task-store.js";
@@ -19,6 +20,8 @@ export function readyTask(root: string, id: string): TaskRefusal | RequirementPr
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
+  const running = unfinishedRunRefusal(record, id);
+  if (running !== null) return running;
   const status = currentStatus(document, record);
   if (status === "ready") return { kind: "alreadyReady", title: document.frontmatter.title };
   if (status === "active") {
@@ -32,9 +35,8 @@ export function readyTask(root: string, id: string): TaskRefusal | RequirementPr
     return { kind: "invalidRequirement", blocking: clarify.blocking, blockingItems: clarify.blockingItems,
       scenarioIssues: scenarios.issues.map((issue) => issue.message), missingScenarios: unwritten };
   }
-  const running = record.runs.find((run) => run.endedAt === null);
   const conflicts = saveTask(root, stored,
-    { ...document, frontmatter: { ...document.frontmatter, status: running ? "active" : "ready", stage: running?.stage ?? null } },
+    { ...document, frontmatter: { ...document.frontmatter, status: "ready", stage: null } },
     { ...record, confirmedDigest: requirementDigest(document) },
   );
   if (conflicts.length > 0) return { kind: "refused", problems: conflicts };
@@ -62,10 +64,11 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
   if (status !== "done" && result === "") return { kind: "refused", problems: ["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"] };
   const unreviewed = status !== "done" && document.frontmatter.verification === "independent" &&
     lastPassedReview(record) === undefined;
-  if (unreviewed && options.reason === undefined) {
+  const reason = options.reason?.trim();
+  if (unreviewed && !reason) {
     return { kind: "refused", problems: ["独立审查的任务需要在 Knit 审查通过后才能完成；如已通过其他方式完成审查或用户明确要求直接完成，加 --reason <说明>"] };
   }
-  const paths = options.paths.map((path) => ({ path, relative: status === "done" && path === "" ? null : projectRelative(path) }));
+  const paths = options.paths.map((path) => ({ path, relative: path === "" ? null : projectRelative(path) }));
   const problems = paths.filter((item) => item.relative === null).map((item) => `--paths 要写项目内的相对路径：${item.path}`);
   if (problems.length > 0) return { kind: "refused", problems };
   const running = unfinishedRunRefusal(record, id);
@@ -74,7 +77,7 @@ export function closeTask(root: string, id: string, options: CloseOptions): Task
   const conflicts = saveTask(root, stored, status === "done" ? null : {
     ...document,
     frontmatter: { ...document.frontmatter, status: "done", stage: null },
-    result: unreviewed ? `${result}\n\n未通过 Knit 独立审查记录，按说明完成：${options.reason}` : result,
+    result: unreviewed ? `${result}\n\n未通过 Knit 独立审查记录，按说明完成：${reason}` : result,
   }, { ...record, changedPaths: [...new Set([...record.changedPaths, ...registered])].sort() });
   if (conflicts.length) return { kind: "refused", problems: conflicts };
   return status === "done" ? { kind: "pathsRegistered", title: document.frontmatter.title, paths: registered }
@@ -107,12 +110,20 @@ export function cancelTask(root: string, id: string, options: { readonly reason:
   if (status === "delivered" || status === "cancelled") return { kind: "refused", problems: [`任务已经结束（${status}），不能取消`] };
   const running = unfinishedRunRefusal(record, id);
   if (running !== null) return running;
-  const conflicts = saveTask(root, stored, {
+  const cancelled: TaskDocument = {
     ...document,
     frontmatter: { ...document.frontmatter, status: "cancelled", stage: null },
     result: [...(document.result ? [document.result] : []), `已取消：${reason}`].join("\n\n"),
-  }, record);
+  };
+  const conflicts = saveTask(root, stored, cancelled, record);
   if (conflicts.length > 0) return { kind: "refused", problems: conflicts };
-  const archiveDir = archiveTask(root, stored);
+  let archiveDir: string;
+  try {
+    archiveDir = archiveTask(root, stored);
+  } catch (error) {
+    const versions = { ...stored.versions, task: sha256Text(renderTaskDocument(cancelled)) };
+    const rollback = saveTask(root, { ...stored, versions }, document, record);
+    return { kind: "refused", problems: [`取消归档失败：${error instanceof Error ? error.message : String(error)}`, ...rollback] };
+  }
   return { kind: "cancelled", title: document.frontmatter.title, archiveDir, cleanup: cleanCancelledWorktree(root, taskWorktree(root, stored.dir)) };
 }

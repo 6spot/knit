@@ -75,7 +75,7 @@ test("按结论跳转", () => {
   const toDeliver = workflowOf([
     "  - id: triage",
     "    report:",
-    "      outcome: [skip, go]",
+    "      verdict: [skip, go]",
     "    onVerdict:",
     "      skip: deliver",
     "  - id: implement",
@@ -102,14 +102,16 @@ test("未结束批次在重新确认需求或删除环节后仍在跑，无结�
   assert.equal(nextStep(workflow, "independent", record).kind, "arbitrate");
 });
 
-test("批次全员通过按顺序推进，修改流程后仍须裁决已入账的分歧", () => {
+test("批次全员通过按 pass 跳转，修改流程后仍须裁决已入账的分歧", () => {
   const workflow = workflowOf([...REVIEW, "    tools: [read]", "    executors: [{id: a}, {id: b}]",
     "    onVerdict: {pass: deliver}", "  - id: assemble"]);
   const record = recordOf(
     runOf("review", { id: "r-a", batchId: "b-1", verdict: "pass", endedAt: "2026-11-15T01:15:00.000Z" }),
     runOf("review", { id: "r-b", batchId: "b-1", verdict: "pass" }),
   );
-  assert.equal(stepOf(workflow, "independent", record), "assemble");
+  assert.equal(stepOf(workflow, "independent", record), "close");
+  const sequential = workflowOf([...REVIEW, "    tools: [read]", "    executors: [{id: a}, {id: b}]", "  - id: assemble"]);
+  assert.equal(stepOf(sequential, "independent", record), "assemble");
   assert.equal(lastPassedReview(record).id, "r-a");
   record.runs[1].verdict = "changes_requested";
   for (const updated of [workflow, workflowOf(["  - id: review"]), workflowOf(["  - id: implement"])]) {
@@ -120,7 +122,16 @@ test("批次全员通过按顺序推进，修改流程后仍须裁决已入账�
   assert.equal(lastPassedReview(record), undefined);
 });
 
-test("不算数的执行不影响下一步", () => {
+test("后续执行使旧审查失效，直到最新批次再次全部通过", () => {
+  const passed = runOf("review", { verdict: "pass" });
+  for (const later of [runOf("implement"), runOf("implement", { endedAt: null }),
+    runOf("review", { failure: "报告读不出来" }), runOf("review", { verdict: "changes_requested" })]) {
+    assert.equal(lastPassedReview(recordOf(passed, later)), undefined);
+  }
+  assert.equal(lastPassedReview(recordOf(passed, runOf("implement", { requirementDigest: "old" }))), passed);
+});
+
+test("未结束的单执行器优先于推进，需求变更后仍在运行", () => {
   const record = recordOf(
     runOf("implement"),
     runOf("review", { failure: "执行者中途退出" }),
@@ -128,13 +139,13 @@ test("不算数的执行不影响下一步", () => {
     runOf("review", { verdict: "pass", requirementDigest: "sha256:before" }),
   );
   assert.deepEqual(countedRuns(record), [record.runs[0]]);
-  assert.deepEqual(nextStep(PLAIN, "independent", record), { kind: "stage", stage: PLAIN.stages[1] });
-  assert.deepEqual(nextStep(PLAIN, "independent", recordOf(runOf("review", { endedAt: null }))),
-    { kind: "stage", stage: PLAIN.stages[0] });
+  const running = { kind: "running", stage: PLAIN.stages[1] };
+  assert.deepEqual(nextStep(PLAIN, "independent", record), running);
+  assert.deepEqual(nextStep(PLAIN, "independent", recordOf(runOf("review", { endedAt: null }))), running);
 
   const changed = { ...record, confirmedDigest: "sha256:later" };
   assert.deepEqual(countedRuns(changed), []);
-  assert.equal(stepOf(PLAIN, "independent", changed), "implement");
+  assert.deepEqual(nextStep(PLAIN, "independent", changed), running);
 });
 
 /** 实现、审查两个环节，审查不通过回到实现；`implement` 是加在实现环节下面的行。 */

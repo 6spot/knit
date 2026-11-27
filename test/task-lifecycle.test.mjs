@@ -438,6 +438,7 @@ test("补录路径仍受状态、确认摘要、未结束执行和参数约束",
   for (const status of ["ready", "active"]) {
     writeFileSync(task.file, renderTaskDocument({ ...read(task), frontmatter: { ...read(task).frontmatter, status, stage: status === "active" ? "implement" : null } }));
     refuse({ paths }, /--result 不能为空/);
+    refuse({ paths: [""], result: "完成" }, /--paths 要写项目内的相对路径/);
   }
   assert.equal(close(dir, task).kind, "done");
   const done = read(task);
@@ -499,13 +500,15 @@ test("独立审查任务按 Knit 审查记录决定是否需要收尾说明", (t
   const dir = project(t);
   const task = closeFixture(dir, { verification: "independent" });
   const before = files(task);
-  const refused = close(dir, task);
-  assert.equal(refused.kind, "refused");
-  assert.deepEqual(refused.problems, [REFUSED]);
-  assert.deepEqual(files(task), before);
+  for (const reason of [undefined, "", " \t "]) {
+    const refused = close(dir, task, { reason });
+    assert.equal(refused.kind, "refused");
+    assert.deepEqual(refused.problems, [REFUSED]);
+    assert.deepEqual(files(task), before);
+  }
 
   const native = closeFixture(dir, { verification: "independent", slug: "native" });
-  assert.equal(close(dir, native, { reason: "原生子 Agent 已独立检查并通过" }).kind, "done");
+  assert.equal(close(dir, native, { reason: "  原生子 Agent 已独立检查并通过  " }).kind, "done");
   assert.equal(read(native).result, "做完了\n\n未通过 Knit 独立审查记录，按说明完成：原生子 Agent 已独立检查并通过");
 
   // 最后一条带结论的执行不是 pass：仍然拒绝。
@@ -522,7 +525,9 @@ test("独立审查任务按 Knit 审查记录决定是否需要收尾说明", (t
 
   // 审查通过之后不需要理由，给了也不写进结果。
   const reviewed = closeFixture(dir, { verification: "independent", slug: "reviewed" });
-  withRuns(reviewed, runOf("r-1", "review", "changes_requested"), runOf("r-2", "review", "pass"), runOf("r-3", "implement", null));
+  withRuns(reviewed, runOf("r-1", "review", "pass"), runOf("r-2", "implement", null));
+  assert.equal(close(dir, reviewed).kind, "refused");
+  withRuns(reviewed, ...record(reviewed).runs, runOf("r-3", "review", "pass"));
   assert.equal(close(dir, reviewed, { reason: "用户要求" }).kind, "done");
   assert.equal(read(reviewed).result, "做完了");
 });
@@ -578,6 +583,39 @@ test("取消并归档：目录移到当月的归档目录，状态 cancelled，�
     [cancelled.frontmatter.status, cancelled.frontmatter.stage, cancelled.result],
     ["cancelled", null, "做了一半。\n\n已取消：方向变了"],
   );
+});
+
+test("执行中拒绝重确认，即使需求已变也保留原确认摘要", (t) => {
+  const root = runProject(t);
+  const task = closeFixture(root);
+  const run = prepare(root, task);
+  for (const extra of ["", "\n新增需求"]) {
+    if (extra) writeFileSync(task.file, renderTaskDocument({ ...read(task), requirement: REQUIREMENT + extra }));
+    const before = files(task);
+    const result = readyTask(root, task.id);
+    assert.equal(result.kind, "refused");
+    assert.match(result.problems[0], new RegExp(`${run.id} 还没有结束.*knit run cancel ${task.id}`));
+    assert.deepEqual(files(task), before);
+  }
+});
+
+test("取消归档移动失败会恢复原状态和结果，排除故障后可以重试", (t) => {
+  const root = project(t);
+  const task = closeFixture(root);
+  assert.equal(close(root, task).kind, "done");
+  const before = files(task);
+  const target = join(root, ".knit/tasks/archive", MONTH, basename(task.dir));
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(target, "occupied"), "已有文件");
+  const result = cancel(root, task);
+  assert.equal(result.kind, "refused");
+  assert.match(result.problems[0], /取消归档失败.*(?:ENOTEMPTY|EEXIST|EPERM)/);
+  assert.deepEqual(files(task), before);
+  assert.equal(readFileSync(join(target, "occupied"), "utf8"), "已有文件");
+  rmSync(target, { recursive: true });
+  const retry = cancel(root, task);
+  assert.equal(retry.kind, "cancelled");
+  assert.equal(readDirectory(root, retry.archiveDir).result, "做完了\n\n已取消：不做了");
 });
 
 test("跨目标检出归档遇到 EXDEV 时移走完整目录并清理暂存目录", (t) => {
@@ -1054,8 +1092,7 @@ test("需求改过之后以前的审查通过不算", (t) => {
   const stored = JSON.parse(readFileSync(record, "utf8"));
   const failed = { ...stored.runs.at(-1), id: "r-000000000000", verdict: null, failure: "执行者中途退出" };
   writeFileSync(record, `${JSON.stringify({ ...stored, runs: [...stored.runs, failed] }, null, 2)}\n`);
-  const closed = close(dir, failedLater);
-  assert.equal(closed.kind, "done");
+  assert.deepEqual(close(dir, failedLater), { kind: "refused", problems: [REFUSED] });
 });
 
 test("在 Git 仓库里交付过的任务显示提交", (t) => {

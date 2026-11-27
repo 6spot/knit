@@ -52,8 +52,10 @@ export function completedBatches(record: TaskRecord): TaskRun[][] {
 }
 
 export function lastPassedReview(record: TaskRecord): TaskRun | undefined {
-  const batch = completedBatches(record).findLast((members) => members.some((run) => run.verdict !== null || run.failure !== null));
-  if (!batch?.every((run) => run.failure === null && run.verdict === "pass")) return undefined;
+  const latest = record.runs.findLast((run) => run.requirementDigest === record.confirmedDigest);
+  if (!latest) return undefined;
+  const batch = batchOf(record, latest);
+  if (!batch.every((run) => run.endedAt !== null && run.failure === null && run.verdict === "pass")) return undefined;
   return batch.reduce((latest, run) => run.endedAt! >= latest.endedAt! ? run : latest);
 }
 
@@ -73,7 +75,7 @@ export function nextStep(
   verification: TaskFrontmatter["verification"],
   record: TaskRecord,
 ): NextStep {
-  const active = record.runs.find((run) => run.batchId !== undefined && run.endedAt === null);
+  const active = record.runs.find((run) => run.endedAt === null);
   if (active) return { kind: "running", stage: workflow.stages.find((stage) => stage.id === active.stage) ?? { id: active.stage } };
   const batch = completedBatches(record).at(-1) ?? [];
   const last = batch.at(-1);
@@ -130,7 +132,7 @@ function stageAfter(
   const current = workflow.stages[index];
   // 没有算数的执行，或者它所在的环节已经不在流程里：从头开始。
   if (last === undefined || current === undefined) return walked[0];
-  const verdict = last.batchId === undefined ? last.verdict : null;
+  const verdict = last.verdict;
   const target = verdict !== null && Object.hasOwn(current.onVerdict, verdict) ? current.onVerdict[verdict] : undefined;
   if (target === WORKFLOW_VERDICT_ANCHOR) return undefined;
   // 结论的去向按流程里的全部环节找，不限于任务要走的。
