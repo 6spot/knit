@@ -142,7 +142,7 @@ createdAt: 2026-11-14T13:36:56Z
 | `delivered` | 已归档；项目在 Git 仓库里时也已提交 | `deliver` |
 | `cancelled` | 已取消 | `task cancel` |
 
-主会话直接做的任务不经过 `active`：没有单独的开始命令，确认之后直接 `task close`，从 `ready` 到 `done`，改动文件在这时登记。
+主会话直接完成任务时，用 `task close` 写下结果，从 `ready` 进入 `done`，同时登记改动文件。交付前发现漏登记的文件时，可运行 `knit task close <id> --paths <path...>` 补录。任务必须为 `done`，需求摘要须与确认时一致，且所有执行均已结束。补录只接受项目内的相对路径，去重、排序后合入 `record.changedPaths`。改总结直接编辑 `task.md` 的「结果」。
 
 需求确认之后又改了需求部分，任务回到 `draft`，要重新确认。
 
@@ -450,7 +450,8 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 其它情况只在预览里提示，不拦：
 
 - 记录里的路径现在没有改动（可能已经提交过，或者改回去了）。
-- 工作区里有不属于本任务的改动（这些不会被提交）。
+- 工作区里有不属于本任务的改动时，按路径排序列出前 10 条，超过时注明总数。当前任务目录和 `.knit/.runtime/` 内的文件排除在外。
+- 开启 `worktree.autoMerge` 且任务有 Git Worktree 时，预览只读检查两类风险，每类最多列出前 10 条路径。主检出的未提交改动可能挡住自动合并，检查时排除当前任务原目录与 `.knit/.runtime/`。从主分支和任务分支的共同祖先起，主分支改过的路径如果与任务分支已有提交、预览待提交文件或随交付提交的原任务目录和归档目录重叠，自动合并可能冲突。
 - 子任务还没结束。
 - 有文件在审查通过之后又改过（标出来，不拦）。
 
@@ -505,6 +506,8 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 ```
 knit init [--pi] [--agy] [--workbuddy] [--qoder] [--force]
 knit task new | ready | close | cancel | list | show
+knit task close <id> --result <总结> [--paths <path...>] [--reason <理由>]   完成 ready 或 active 任务
+knit task close <id> --paths <path...>        给 done 任务补录改动文件，保留状态和结果
 knit task list [--archive]                查看活跃任务；--archive 平铺列出已归档任务
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]

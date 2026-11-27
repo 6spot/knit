@@ -245,7 +245,7 @@ function gitCommonDirectory(root: string): string | null {
  * 把改过的两个文件写回。读入之后有文件被别人改过时不写，返回是哪个文件。
  * 先写 record.json 再写 task.md：中间断掉时状态和确认摘要对不上，任务按 draft 算，重新确认一次即可。
  */
-export function saveTask(root: string, stored: StoredTask, document: TaskDocument, record: TaskRecord): string[] {
+export function saveTask(root: string, stored: StoredTask, document: TaskDocument | null, record: TaskRecord): string[] {
   if (root !== stored.storeRoot) return [`任务已在 Worktree 归档，只能读取：${join(stored.storeRoot, stored.dir)}`];
   const taskFile = join(root, stored.dir, TASK_FILE);
   const recordFile = join(root, stored.dir, RECORD_FILE);
@@ -263,7 +263,7 @@ export function saveTask(root: string, stored: StoredTask, document: TaskDocumen
       mode: 0o644,
     });
   }
-  atomicWrite({
+  if (document !== null) atomicWrite({
     path: taskFile,
     data: Buffer.from(renderTaskDocument(document)),
     expectedSha256: stored.versions.task,

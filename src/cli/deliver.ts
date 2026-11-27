@@ -21,16 +21,23 @@ function fileLines(taskDir: string, commit: DeliveryPreview["commit"]): string[]
   return files.length === 0 ? ["提交的文件: 没有，不会提交"] : ["提交的文件:", ...files];
 }
 
+function listedPaths(paths: readonly string[]): string {
+  return paths.slice(0, 10).join("、") + (paths.length > 10 ? ` 等共 ${paths.length} 处` : "");
+}
+
 function hintLines(preview: DeliveryPreview): string[] {
   const unchanged = preview.commit?.unchanged ?? [];
-  const others = preview.commit?.others ?? 0;
+  const others = preview.commit?.others ?? [];
+  const risks = preview.commit?.mergeRisks;
   const changed = preview.commit?.files.filter((file) => file.changedAfterReview).length ?? 0;
   const hints = [
     ...(changed > 0 ? [`有 ${changed} 个文件在审查通过之后又改过（上面标出来的），这些改动审查没有看过`] : []),
     ...(unchanged.length > 0
       ? [`记录里有 ${unchanged.length} 个路径现在没有改动，不会被提交：${unchanged.join("、")}`]
       : []),
-    ...(others > 0 ? [`工作区里还有 ${others} 处不属于这个任务的改动，不会被提交`] : []),
+    ...(others.length ? [`工作区里还有不属于这个任务的改动，不会被提交：${listedPaths(others)}`] : []),
+    ...(risks?.dirty.length ? [`主检出有未提交改动，可能挡住交付后的自动合并：${listedPaths(risks.dirty)}`] : []),
+    ...(risks?.overlap.length ? [`主分支与本任务都修改了以下路径，自动合并可能冲突：${listedPaths(risks.overlap)}`] : []),
     ...(preview.openChildren.length > 0
       ? [`子任务还没有结束：${preview.openChildren.map((child) => `${child.title}（${child.id}，${child.status}）`).join("、")}`]
       : []),

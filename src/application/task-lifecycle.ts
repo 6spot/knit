@@ -42,41 +42,50 @@ export function readyTask(root: string, id: string): TaskRefusal | RequirementPr
 }
 
 interface CloseOptions {
-  readonly result: string;
+  readonly result?: string;
   readonly paths: readonly string[];
   readonly reason?: string;
 }
 
-export function closeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done"; title: string } {
+export function closeTask(root: string, id: string, options: CloseOptions): TaskRefusal | { kind: "done"; title: string } |
+  { kind: "pathsRegistered"; title: string; paths: readonly string[] } {
   const loaded = readTask(root, id);
   if (loaded.kind === "refused") return loaded;
   const { stored, document, record } = loaded.task;
-  const result = options.result.trim();
-  if (result === "") return { kind: "refused", problems: ["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"] };
-  const refusal = closeRefusal(currentStatus(document, record), id);
+  const status = currentStatus(document, record);
+  const refusal = closeRefusal(status, id, options);
   if (refusal !== null) return { kind: "refused", problems: [refusal] };
-  const unreviewed = document.frontmatter.verification === "independent" &&
+  if (status === "done" && record.confirmedDigest !== requirementDigest(document)) {
+    return { kind: "refused", problems: ["当前需求与确认记录不符，不能补录改动路径"] };
+  }
+  const result = options.result?.trim() ?? "";
+  if (status !== "done" && result === "") return { kind: "refused", problems: ["--result 不能为空：写做成了什么、完成条件是否都满足、怎么验证的"] };
+  const unreviewed = status !== "done" && document.frontmatter.verification === "independent" &&
     lastPassedReview(record) === undefined;
   if (unreviewed && options.reason === undefined) {
     return { kind: "refused", problems: ["独立审查的任务要在审查通过后才能完成；用户明确要求直接完成时，加 --reason <理由>"] };
   }
-  const paths = options.paths.map((path) => ({ path, relative: projectRelative(path) }));
+  const paths = options.paths.map((path) => ({ path, relative: status === "done" && path === "" ? null : projectRelative(path) }));
   const problems = paths.filter((item) => item.relative === null).map((item) => `--paths 要写项目内的相对路径：${item.path}`);
   if (problems.length > 0) return { kind: "refused", problems };
   const running = unfinishedRunRefusal(record, id);
   if (running !== null) return running;
-  const conflicts = saveTask(root, stored, {
+  const registered = [...new Set(paths.flatMap((item) => item.relative ?? []))].sort();
+  const conflicts = saveTask(root, stored, status === "done" ? null : {
     ...document,
     frontmatter: { ...document.frontmatter, status: "done", stage: null },
     result: unreviewed ? `${result}\n\n没有经过独立审查，直接完成：${options.reason}` : result,
-  }, { ...record, changedPaths: [...new Set([...record.changedPaths, ...paths.flatMap((item) => item.relative ?? [])])].sort() });
-  return conflicts.length ? { kind: "refused", problems: conflicts } : { kind: "done", title: document.frontmatter.title };
+  }, { ...record, changedPaths: [...new Set([...record.changedPaths, ...registered])].sort() });
+  if (conflicts.length) return { kind: "refused", problems: conflicts };
+  return status === "done" ? { kind: "pathsRegistered", title: document.frontmatter.title, paths: registered }
+    : { kind: "done", title: document.frontmatter.title };
 }
 
-function closeRefusal(status: TaskStatus, id: string): string | null {
+function closeRefusal(status: TaskStatus, id: string, options: CloseOptions): string | null {
   if (status === "ready" || status === "active") return null;
   if (status === "draft") return `需求还没有确认，或确认之后改过；先运行 knit task ready ${id}`;
-  if (status === "done") return "任务已经完成；要改总结直接编辑 task.md 的「结果」";
+  if (status === "done") return options.result === undefined && options.reason === undefined && options.paths.length > 0
+    ? null : "任务已经完成；要改总结直接编辑 task.md 的「结果」，补录改动文件仅传 --paths <path...>";
   return `任务已经结束（${status}），不能再记为完成`;
 }
 

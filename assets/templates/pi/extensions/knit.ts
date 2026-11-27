@@ -115,7 +115,7 @@ export default function knitBridge(pi: Pi): void {
     name: "knit_task",
     label: "Knit task",
     description:
-      "管理 Knit 任务。new 建一份草稿（要有 title），返回任务标题、编号、task.md 的路径、draft 状态和当前会话是否选中了它；new 不改变当前的任务选择，创建失败时返回原因，选择不变。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），list 列出任务。task.md 的正文用普通的读写工具直接改。",
+      "管理 Knit 任务。new 建一份草稿（要有 title），返回任务标题、编号、task.md 的路径、draft 状态和当前会话是否选中了它；new 不改变当前的任务选择，创建失败时返回原因，选择不变。use 选中一个任务（之后每一轮都能看到它的状态、下一步及补充的环节规范；不带 taskId 是取消选中），ready 确认需求，close 把任务记为完成并写下结果（要有 result），对 done 任务仅传 paths 可补录改动文件，list 列出任务。task.md 的正文用普通的读写工具直接改。",
     parameters: {
       type: "object",
       properties: {
@@ -250,15 +250,16 @@ async function task(pi: Pi, params: TaskParams, ctx: Context): Promise<ToolResul
   if (params.action === "use") return use(pi, params.taskId);
   if (!params.taskId) return missing("taskId");
   if (params.action === "ready") return toResult(await runKnit(["task", "ready", params.taskId]));
-  if (!params.result) return missing("result");
+  if (params.result === undefined && !params.paths?.length) return missing("result 或 paths");
   return toResult(
     await runKnit([
       "task",
       "close",
       params.taskId,
-      `--result=${params.result}`,
-      ...several("--paths", params.paths),
-      ...single("--reason", params.reason),
+      ...(params.result === undefined ? [] : [`--result=${params.result}`]),
+      ...(params.paths ?? []).map((path) => `--paths=${path}`),
+      // 补录时 CLI 需要区分没有传 reason 和显式传入空字符串。
+      ...(params.result === undefined && params.reason === "" ? ["--reason="] : single("--reason", params.reason)),
     ]),
   );
 }

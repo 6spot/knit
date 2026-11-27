@@ -36,8 +36,9 @@ export interface DeliveryPreview {
     readonly taskDir: boolean;
     /** 记录里现在没有改动的路径。 */
     readonly unchanged: readonly string[];
-    /** 工作区里不属于这个任务的改动有几处。 */
-    readonly others: number;
+    /** 工作区里不属于这个任务的改动路径。 */
+    readonly others: readonly string[];
+    readonly mergeRisks: { readonly dirty: readonly string[]; readonly overlap: readonly string[] } | null;
   } | null;
   readonly openChildren: readonly { readonly id: string; readonly title: string; readonly status: string }[];
 }
@@ -82,7 +83,7 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (!options.preview && git && options.message === undefined && options.messageFile === undefined) {
     return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"] };
   }
-  const preview = options.preview ? previewDelivery(root, stored) : null;
+  const preview = options.preview ? previewDelivery(root, stored, mergeBranch !== null) : null;
   const file = git ? options.messageFile : undefined;
   if (file !== undefined && !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     return { kind: "refused", problems: [`读不到提交文案：${file}`] };
@@ -181,7 +182,7 @@ export function recordedPaths(record: TaskRecord): string[] {
 }
 
 /** 交付会做什么；只读。 */
-export function previewDelivery(root: string, stored: StoredTask): DeliveryPreview {
+export function previewDelivery(root: string, stored: StoredTask, autoMerge?: boolean): DeliveryPreview {
   const id = stored.document?.frontmatter.id;
   const openChildren = scanTasks(root, "active").flatMap((task) => {
     const frontmatter = task.document?.frontmatter;
@@ -207,9 +208,11 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
     passedFile !== null && existsSync(passedFile)
       ? (JSON.parse(readFileSync(passedFile, "utf8")) as WorkspaceSnapshot).files
       : null;
+  const taskDir = gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0;
+  const outsideTask = (path: string) => !path.startsWith(`${stored.dir}/`) && !path.startsWith(RUNTIME_PREFIX);
   return {
     archiveDir,
-    archiveRoot: deliveryArchiveRoot(root, stored.dir, worktree),
+    archiveRoot: taskDir ? workspace : root,
     worktree,
     commit: {
       files: files.map((path) => ({
@@ -217,16 +220,32 @@ export function previewDelivery(root: string, stored: StoredTask): DeliveryPrevi
         reviewed: reviewed.has(path),
         changedAfterReview: passed !== null && !matchesFingerprint(workspace, path, passed[path]),
       })),
-      taskDir: gitSync(["check-ignore", "-q", "--", `${stored.dir}/task.md`], workspace).code !== 0,
+      taskDir,
       unchanged: recorded.filter(
         (path) => !files.some((file) => file === path || file.startsWith(path.endsWith("/") ? path : `${path}/`)),
       ),
-      others: changedAmong(workspace, ["."]).filter(
-        (path) => !files.includes(path) && !path.startsWith(`${stored.dir}/`) && !path.startsWith(RUNTIME_PREFIX),
-      ).length,
+      others: changedAmong(workspace, ["."]).filter((path) => outsideTask(path) && !files.includes(path)),
+      mergeRisks: worktree !== null && (autoMerge ?? loadConfig(root).config?.worktree?.autoMerge) ? {
+        dirty: changedAmong(root, ["."]).filter(outsideTask),
+        overlap: mergeOverlap(root, worktree, files, taskDir ? [stored.dir, archiveDir] : []),
+      } : null,
     },
     openChildren,
   };
+}
+
+function mergeOverlap(root: string, worktree: TaskWorktree, files: readonly string[], taskDirs: readonly string[]): string[] {
+  const base = gitSync(["merge-base", "HEAD", worktree.branch], root).stdout.trim();
+  if (!base) return [];
+  const changedSinceBase = (ref: string) => gitSync(["diff", "--name-only", "--no-renames", "-z", `${base}..${ref}`, "--"], root)
+    .stdout.split("\0").filter(Boolean);
+  const main = changedSinceBase("HEAD");
+  if (!main.length) return [];
+  const task = new Set([...files, ...changedSinceBase(worktree.branch)]);
+  return main.filter((path) => task.has(path) || (
+    taskDirs.some((dir) => path === dir || path.startsWith(`${dir}/`)) &&
+    gitSync(["check-ignore", "-q", "--", path], worktree.path).code === 1
+  )).sort();
 }
 
 export interface CommitDeliveryInput {

@@ -204,6 +204,20 @@ function run(dir, task, verdict, change) {
   assert.deepEqual(problems, []);
 }
 
+test("未归属改动保留全部有序路径，提示只列前十处", (t) => {
+  const dir = gitProject(t);
+  const task = doneTask(dir);
+  const names = Array.from({ length: 11 }, (_, i) => `改动 ${String(i).padStart(2, "0")}.txt`);
+  names.toReversed().forEach((name) => writeFileSync(join(dir, name), "extra"));
+  mkdirSync(join(dir, ".knit/.runtime"), { recursive: true });
+  writeFileSync(join(dir, ".knit/.runtime/temp"), "runtime");
+  assert.deepEqual(previewDelivery(dir, findTask(dir, task.id)).commit.others, names);
+  const preview = knit(dir, "deliver", task.id, "--preview");
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.ok(preview.stdout.includes(`${names.slice(0, 10).join("、")} 等共 11 处\n`));
+  assert.ok(!preview.stdout.includes(names[10]));
+});
+
 test("在 Git 仓库里列出要提交的文件和提示", (t) => {
   const dir = runProject(t);
   mkdirSync(join(dir, "src"));
@@ -245,7 +259,7 @@ test("在 Git 仓库里列出要提交的文件和提示", (t) => {
       `  ${task.dir}/（整个目录，移到归档的位置）`,
       "提示:",
       "  - 记录里有 1 个路径现在没有改动，不会被提交：src/gone.ts",
-      "  - 工作区里还有 1 处不属于这个任务的改动，不会被提交",
+      "  - 工作区里还有不属于这个任务的改动，不会被提交：other.txt",
       `  - 子任务还没有结束：子任务（${childId}，draft）`,
       "结果:",
       "  做完了",
@@ -338,6 +352,7 @@ test("最后一次审查没有通过时不标", (t) => {
 
 test("不在 Git 仓库里只说明归档", (t) => {
   const dir = project(t);
+  writeFileSync(join(dir, ".knit/config.json"), JSON.stringify({ worktree: { autoMerge: true } }));
   const task = doneTask(dir, ["src/a.ts"]);
 
   const preview = deliverTask(dir, task.id, { preview: true });
@@ -383,6 +398,7 @@ function messageFile(t, text) {
   const head = git(dir, "rev-parse", "HEAD");
 
   const message = messageFile(t, "\nfeat: 加问候语\n\n# 说明一行\n\n");
+  assert.equal(deliverTask(dir, task.id, { preview: true }).preview.commit.mergeRisks, null);
   assertMainDelivery(dir, task, autoMerge, message);
   assert.equal(git(dir, "rev-parse", "HEAD~1"), head);
   assert.deepEqual(git(dir, "show", "--name-status", "--no-renames", "--format=", "HEAD").split("\n").sort(), [

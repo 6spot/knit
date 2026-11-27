@@ -266,6 +266,62 @@ test("完成一个已确认的任务：状态 done，写下结果，登记改动
   );
 });
 
+test("done 任务仅补录路径，保留手工排版的结果并更新交付预览", (t) => {
+  const dir = gitProject(t);
+  const task = closeFixture(dir, { verification: "independent" });
+  assert.equal(close(dir, task, { reason: "用户要求", paths: ["z.ts"] }).kind, "done");
+  const markdown = readFileSync(task.file, "utf8").replace("status: done", 'status: "done"') + "\n\n";
+  writeFileSync(task.file, markdown);
+  writeFileSync(join(dir, "a.ts"), "a");
+  const before = record(task);
+  const updated = knit(dir, "task", "close", task.id, "--paths", "b.ts", "a.ts", "./a.ts");
+  assert.deepEqual(updated, { code: 0, stdout: `已补录 任务（${task.id}）的改动路径：a.ts、b.ts\n`, stderr: "" });
+  assert.equal(readFileSync(task.file, "utf8"), markdown);
+  assert.deepEqual(record(task), { ...before, changedPaths: ["a.ts", "b.ts", "z.ts"] });
+  const preview = deliverTask(dir, task.id, { preview: true });
+  assert.equal(preview.kind, "preview");
+  assert.deepEqual(preview.preview.commit.files.map((file) => file.path), ["a.ts"]);
+  assert.deepEqual(preview.preview.commit.others, []);
+});
+
+test("补录路径仍受状态、确认摘要、未结束执行和参数约束", (t) => {
+  const dir = project(t);
+  const task = closeFixture(dir);
+  const refuse = (options, message) => {
+    const before = files(task);
+    const result = closeTask(dir, task.id, options);
+    assert.equal(result.kind, "refused");
+    assert.match(result.problems.join("\n"), message);
+    assert.deepEqual(files(task), before);
+  };
+  const paths = ["a.ts"];
+  for (const status of ["ready", "active"]) {
+    writeFileSync(task.file, renderTaskDocument({ ...read(task), frontmatter: { ...read(task).frontmatter, status, stage: status === "active" ? "implement" : null } }));
+    refuse({ paths }, /--result 不能为空/);
+  }
+  assert.equal(close(dir, task).kind, "done");
+  const done = read(task);
+  for (const options of [{ paths: [] }, { paths, result: "" }, { paths, reason: "" }]) {
+    refuse(options, /改总结直接编辑 task.md 的「结果」.*仅传 --paths/);
+  }
+  const before = files(task);
+  const invalid = knit(dir, "task", "close", task.id, "--paths", "../outside", "/absolute");
+  assert.equal(invalid.code, 1);
+  assert.match(invalid.stderr, /相对路径：\.\.\/outside/);
+  assert.match(invalid.stderr, /相对路径：\/absolute/);
+  assert.deepEqual(files(task), before);
+  refuse({ paths: [""] }, /项目内的相对路径/);
+  for (const status of ["draft", "delivered", "cancelled"]) {
+    writeFileSync(task.file, renderTaskDocument({ ...done, frontmatter: { ...done.frontmatter, status } }));
+    refuse({ paths }, /需求还没有确认|任务已经结束/);
+  }
+  writeFileSync(task.file, renderTaskDocument({ ...done, requirement: `${done.requirement}\n\n新增需求` }));
+  refuse({ paths }, /需求与确认记录不符/);
+  writeFileSync(task.file, renderTaskDocument(done));
+  writeFileSync(task.record, renderTaskRecord({ ...record(task), runs: [{ ...runOf("r-1", "implement", null), endedAt: null }] }));
+  refuse({ paths }, /执行 r-1 还没有结束/);
+});
+
 test("不能完成时说明下一步，不写文件", (t) => {
   const dir = project(t);
   const draft = closeFixture(dir, { ready: false });

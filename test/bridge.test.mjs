@@ -114,9 +114,21 @@ test("四个动作转交命令", async (t) => {
   const done = parseTaskDocument(readFileSync(join(dir, confirmed.dir, "task.md"), "utf8")).document;
   assert.equal(done.frontmatter.status, "done");
   assert.equal(done.result, "做完了。\n两个场景都验证过。");
+  const refusedSupplement = await bridge.tool("knit_task", { action: "close", taskId: confirmed.id, paths: ["extra.ts"], reason: "" });
+  assert.equal(refusedSupplement.isError, true);
+  assert.match(text(refusedSupplement), /补录改动文件仅传 --paths/);
+  const independent = readyTask(dir, { verification: "independent" });
+  const refusedClose = await bridge.tool("knit_task", { action: "close", taskId: independent.id, result: "完成", reason: "" });
+  assert.equal(refusedClose.isError, true);
+  assert.match(text(refusedClose), /独立审查.*--reason/);
+  const supplemented = await bridge.tool("knit_task", { action: "close", taskId: confirmed.id, paths: ["src/c.ts", "-notes.md"] });
+  assert.equal(supplemented.isError, undefined, text(supplemented));
+  assert.match(text(supplemented), /已补录.*src\/c\.ts/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, confirmed.dir, "record.json"), "utf8")).changedPaths, [
+    "-notes.md",
     "src/a.ts",
     "src/b.ts",
+    "src/c.ts",
   ]);
 });
 
@@ -128,7 +140,7 @@ test("参数不全和命令运行不了", async (t) => {
 
   assert.deepEqual(await bridge.tool("knit_task", { action: "ready" }), failed("knit_task 的 ready 要有 taskId"));
   assert.deepEqual(await bridge.tool("knit_task", { action: "new", title: "" }), failed("knit_task 的 new 要有 title"));
-  assert.deepEqual(await bridge.tool("knit_task", { action: "close", taskId: id }), failed("knit_task 的 close 要有 result"));
+  assert.deepEqual(await bridge.tool("knit_task", { action: "close", taskId: id }), failed("knit_task 的 close 要有 result 或 paths"));
   assert.deepEqual(snapshot(dir), before);
 
   // loadBridge 在测试结束时把 PATH 改回去。
@@ -296,7 +308,7 @@ test("草稿切换、取消选择和待交付任务：每轮保留讨论规范�
 test("用户明确要求后用现有工具建草稿、写需求，成功或失败都保持选择", async (t) => {
   const { dir, bridge } = await bridged(t);
   const description = bridge.definitions.find((tool) => tool.name === "knit_task").description;
-  for (const usage of [/new 建一份草稿（要有 title）/, /new 不改变当前的任务选择/, /use 选中一个任务/, /ready 确认需求/, /close 把任务记为完成/, /list 列出任务/]) {
+  for (const usage of [/new 建一份草稿（要有 title）/, /new 不改变当前的任务选择/, /use 选中一个任务/, /ready 确认需求/, /close 把任务记为完成/, /done 任务仅传 paths 可补录/, /list 列出任务/]) {
     assert.match(description, usage);
   }
   assert.doesNotMatch(description, /是否建 Knit 任务|委派|明确要求/);

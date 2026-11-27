@@ -147,6 +147,47 @@ function autoMergeConfig(root, autoMerge = true) {
   git(root, "commit", "-qm", "auto merge configuration", "--only", "--", ".knit/config.json");
 }
 
+test("预览分别列出主检出未提交改动和共同修改路径，两个检出均只读", async (t) => {
+  const { root, task, worktree, archive, cli } = await completed(t, true, false, null, "base\n");
+  autoMergeConfig(root);
+  writeFileSync(join(root, "dirty.txt"), "staged");
+  git(root, "add", "dirty.txt");
+  const snapshot = () => [root, worktree.path].map((cwd) => [
+    git(cwd, "rev-parse", "HEAD"), git(cwd, "--no-optional-locks", "status", "--porcelain", "-uall"),
+    readFileSync(git(cwd, "rev-parse", "--path-format=absolute", "--git-path", "index")),
+    ...taskFiles(cwd, task),
+  ]);
+  const preview = async () => {
+    const before = snapshot();
+    const result = await cli("--preview");
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(snapshot(), before);
+    return result.stdout;
+  };
+  const dirty = await preview();
+  assert.match(dirty, /主检出有未提交改动，可能挡住交付后的自动合并：dirty\.txt\n/);
+  assert.doesNotMatch(dirty, /自动合并可能冲突/);
+
+  writeFileSync(join(worktree.path, "branch.txt"), "branch");
+  writeFileSync(join(worktree.path, ".gitignore"), ".knit/.runtime/\n.knit/tasks/archive/**/ignored.txt\n");
+  git(worktree.path, "add", "branch.txt", ".gitignore");
+  git(worktree.path, "commit", "-qm", "task commit");
+  writeFileSync(join(root, "branch.txt"), "main");
+  writeFileSync(join(root, "src/a.txt"), "main");
+  mkdirSync(join(root, archive), { recursive: true });
+  writeFileSync(join(root, archive, "task.md"), "main");
+  writeFileSync(join(root, archive, "ignored.txt"), "main");
+  commitAll(root, "advance main");
+  const overlap = await preview();
+  assert.doesNotMatch(overlap, /主检出有未提交改动/);
+  const expected = [`${task.dir}/record.json`, `${task.dir}/task.md`, `${archive}/task.md`, "branch.txt", "src/a.txt"].sort();
+  assert.ok(overlap.includes(`自动合并可能冲突：${expected.join("、")}\n`), overlap);
+
+  autoMergeConfig(root, false);
+  writeFileSync(join(root, "dirty.txt"), "dirty again");
+  assert.doesNotMatch(await preview(), /主检出有未提交改动|自动合并可能冲突/);
+});
+
 describe("独立仓库的自动合并矩阵", { concurrency: 3 }, () => {
   [false, true].forEach((tracked) => test(`自动合并到主检出的当前分支并清理，非快进落成合并提交（任务目录${tracked ? "已" : "未"}入库）`, async (t) => {
     const { root, task, worktree, archive, deliver } = await completed(t, tracked);

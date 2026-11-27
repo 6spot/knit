@@ -213,18 +213,19 @@ export function registerTaskCommands(program: Command): void {
 
   task
     .command("close <id>")
-    .description("把一个任务记为完成，并写下结果")
-    .requiredOption("--result <总结>", "做成了什么、完成条件是否都满足、怎么验证的")
+    .description("完成任务并写下结果，或给 done 任务补录改动文件")
+    .option("--result <总结>", "完成 ready 或 active 任务时必填：做成了什么、完成条件是否都满足、怎么验证的")
     // 占位名用拉丁字母：commander 靠 `\w...>` 认出“可以给多个”，中文占位名认不出来。
     .option("--paths <path...>", "主会话自己改动的文件", [])
     .option("--reason <理由>", "独立审查的任务没有审查通过的记录时，直接完成的理由")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action((id: string, options: { result: string; paths: string[]; reason?: string; dir: string }) => {
+    .action((id: string, options: { result?: string; paths: string[]; reason?: string; dir: string }) => {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const result = closeTask(root, id, options);
       if (result.kind === "refused") return fail(result.problems);
-      process.stdout.write(`已完成 ${taskLabel(result.title, id)}\n`);
+      const label = taskLabel(result.title, id);
+      process.stdout.write(result.kind === "pathsRegistered" ? `已补录 ${label}的改动路径：${result.paths.join("、")}\n` : `已完成 ${label}\n`);
     });
 
   task
