@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { DEFAULT_HANDOFF_LIMITS, assembleHandoff, resumeMessage } from "../dist/application/handoff.js";
@@ -183,6 +183,41 @@ function taskNaming(dir, paths) {
 
 const STAGE = { id: "implement", prompt: ".knit/agents/implement.md" };
 const bytes = (text) => Buffer.byteLength(text);
+
+test("交接拒绝越界链接和目录角色或计划，普通目录资料仍可点名", (t) => {
+  const root = project(t);
+  const worktree = project(t);
+  const outside = project(t);
+  write(outside, { "sample.md": "仅限夹具外侧的样本文字" });
+  symlinkSync(join(outside, "sample.md"), join(worktree, "linked.md"));
+  symlinkSync(join(outside, "sample.md"), join(root, "role.md"));
+  mkdirSync(join(worktree, "docs"));
+  mkdirSync(join(root, "roles"));
+  const task = taskNaming(root, ["linked.md", "docs"]);
+  mkdirSync(join(root, task.dir, "plan.md"));
+  for (const [prompt, problem] of [
+    ["roles", "不是普通文件"], ["role.md", "无法安全解析"], ["../role.md", "无法安全解析"],
+  ]) {
+    const { problems, systemPrompt, firstMessage } = assembleHandoff({ root, worktree, task, stage: { ...IMPLEMENT, prompt }, previous: null });
+    assert.equal(problems.length, 3);
+    assert.match(problems[0], new RegExp(`角色文件${problem}`));
+    assert.match(problems[1], /任务计划不是普通文件：.*plan\.md/);
+    assert.match(problems[2], /相关资料无法安全解析.*linked\.md/);
+    assert.doesNotMatch(systemPrompt + firstMessage, /仅限夹具外侧的样本文字/);
+    assert.match(firstMessage, /<material path="docs">\n这是一个目录/);
+  }
+});
+
+test("同一计划目录经普通路径或带尾斜杠点名时只报告一次", (t) => {
+  const root = project(t);
+  const task = taskWith(root, (dir) => `- \`${dir}/plan.md/\``);
+  mkdirSync(join(root, task.dir, "plan.md"));
+  const input = { root, worktree: root, stage: { ...IMPLEMENT, prompt: null }, previous: null };
+  assert.deepEqual(assembleHandoff({ ...input, task }).problems, [`任务计划不是普通文件：${task.dir}/plan.md`]);
+  const repeated = taskWith(root, (dir) => `- \`${dir}/plan.md\`\n- \`${dir}/plan.md/\``);
+  mkdirSync(join(root, repeated.dir, "plan.md"));
+  assert.deepEqual(assembleHandoff({ ...input, task: repeated }).problems, [`任务计划不是普通文件：${repeated.dir}/plan.md`]);
+});
 
 test("单个文件超过上限时只给路径", (t) => {
   const dir = project(t);

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { sha256Text } from "../dist/contracts/primitives.js";
 import { atomicWrite, digestOf, fileFacts, listFiles } from "../dist/infrastructure/fs.js";
-import { normalizeRoot, hashKey, safeJoin, canonicalPath, samePath } from "../dist/infrastructure/paths.js";
+import { normalizeRoot, hashKey, projectRelative, resolveWithMissingTail, safeJoin, canonicalPath, samePath } from "../dist/infrastructure/paths.js";
 
 function freshDir(prefix) {
   return mkdtempSync(join(tmpdir(), `knit-infra-${prefix}-`));
@@ -132,6 +132,9 @@ test("指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸",
       const link = join(root, "link");
       execFileSync("ln", ["-s", outside, link]);
       assert.throws(() => safeJoin(root, "link/secret.txt"), (error) => error.code === "path_escape");
+      symlinkSync(join(outside, "missing"), join(root, "pending"));
+      assert.throws(() => safeJoin(root, "pending"), { code: "path_escape" });
+      assert.throws(() => safeJoin(root, "pending/child"), { code: "path_escape" });
       // 等价改名（目录内移动）不拒绝
       mkdirSync(join(root, "t1"));
       assert.equal(safeJoin(root, "t1/../t2"), join(root, "t2"));
@@ -141,6 +144,29 @@ test("指纹与路径：稳定键、safeJoin 拒绝越界与符号链接逃逸",
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("公共路径解析检查尾分隔符，并保留目录链接与 .. 的磁盘语义", (t) => {
+  const root = realpathSync(freshDir("tail"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "docs", "sub"), { recursive: true });
+  writeFileSync(join(root, "docs", "sample"), "ok");
+  symlinkSync("docs/sub", join(root, "alias"));
+  symlinkSync("missing", join(root, "pending"));
+  for (const suffix of ["", "/", "///", "/child/"]) {
+    assert.equal(resolveWithMissingTail(`${root}/pending${suffix}`), null);
+    assert.throws(() => safeJoin(root, `pending${suffix}`), { code: "path_escape" });
+  }
+  assert.equal(resolveWithMissingTail(`${root}/alias/`), join(root, "docs/sub"));
+  assert.equal(resolveWithMissingTail(`${root}/alias/../sample`), join(root, "docs/sample"));
+  assert.equal(resolveWithMissingTail(`${root}/alias/../new/file/`), join(root, "docs/new/file"));
+  assert.equal(safeJoin(root, "alias/new/file"), join(root, "docs/sub/new/file"));
+});
+
+test("项目相对路径拒绝空串与 NUL，保留合法路径的规整结果", () => {
+  assert.equal(projectRelative(""), null);
+  assert.equal(projectRelative("docs/a\0.md"), null);
+  assert.equal(projectRelative("./docs/role.md"), "docs/role.md");
 });
 
 test("文件事实：absent 如实记录，不抛错；链接按目标、文件含模式", () => {

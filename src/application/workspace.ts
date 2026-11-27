@@ -4,11 +4,12 @@
  * 审查通过时拍的那一份留在执行目录里（after.json），交付预览拿它看哪些文件之后又改过。
  */
 import { createHash } from "node:crypto";
+import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { workflowPrompts, type WorkflowDefinition } from "../domain/workflow.js";
-import { fileFacts } from "../infrastructure/fs.js";
-import { projectRelative } from "../infrastructure/paths.js";
+import { digestOf, fileFacts, listFiles } from "../infrastructure/fs.js";
+import { projectRelative, safeJoin } from "../infrastructure/paths.js";
 import { gitSync } from "../infrastructure/process.js";
 import { CONFIG_PATH, STANDARDS_DIR } from "./project-config.js";
 
@@ -32,9 +33,10 @@ export interface WorkspaceChanges {
 }
 
 /** 一个文件的指纹；`path` 是项目内的相对路径。已跟踪但磁盘上已经删掉的文件，类型是 absent。 */
-export function fingerprint(root: string, path: string): string {
+export function fingerprint(root: string, path: string, gitlink = false): string {
   try {
     const facts = fileFacts(join(root, path));
+    if (gitlink && facts.kind === "directory") return submoduleFingerprint(safeJoin(root, path));
     return [facts.kind, facts.mode ?? "-", facts.sha256 ?? "-"].join(" ");
   } catch (error) {
     // 最后一个使用者可能在 lstat 和读取内容之间卸载共享钩子。
@@ -43,12 +45,31 @@ export function fingerprint(root: string, path: string): string {
   }
 }
 
+function submoduleFingerprint(directory: string): string {
+  // 显式指定 .git，避免 Git 在子模块没有有效仓库时向上找到父仓库。
+  if (!lstatSync(join(directory, ".git"), { throwIfNoEntry: false })) return submoduleWorkFiles(directory, "uninitialized");
+  const repository = ["--git-dir=.git", "--work-tree=."];
+  const head = gitSync([...repository, "rev-parse", "--verify", "HEAD^{commit}"], directory);
+  const status = gitSync([...repository, "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--no-renames", "--untracked-files=all", "--ignore-submodules=none", "-z"], directory);
+  if (status.code !== 0) return submoduleWorkFiles(directory, `unreadable ${head.code === 0 ? head.stdout.trim() : "-"}`);
+  if (head.code !== 0) return submoduleWorkFiles(directory, "unborn");
+  const dirty = status.stdout.split("\0").filter(Boolean).map((entry) => [entry, fingerprint(directory, entry.slice(3))]);
+  const state = dirty.length ? createHash("sha256").update(JSON.stringify(dirty)).digest("hex") : "clean";
+  return `submodule ${head.stdout.trim()} ${state}`;
+}
+
+function submoduleWorkFiles(directory: string, state: string): string {
+  const files = listFiles(directory, ".git");
+  return Object.keys(files).length ? `submodule ${state} ${digestOf(files)}` : `submodule ${state}`;
+}
+
 export function takeSnapshot(root: string, protectedPaths: readonly string[] = [], before?: WorkspaceSnapshot): WorkspaceSnapshot {
   const resolved = gitSync(["rev-parse", "--verify", "--quiet", "HEAD"], root);
   const head = resolved.code === 0 ? resolved.stdout.trim() : null;
   const listed = gitSync(["ls-files", "-v", "--stage", "-z"], root);
   if (listed.code !== 0) throw new Error(`git ls-files 失败：${listed.stderr.trim()}`);
-  const status = gitSync(["-c", "core.filemode=true", "-c", "core.symlinks=true", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--no-renames", "--untracked-files=all", "-z"], root);
+  // gitlink 逐个取指纹，父仓库的 status 无需进入可能已损坏的子仓库。
+  const status = gitSync(["-c", "core.filemode=true", "-c", "core.symlinks=true", "-c", "core.fsmonitor=false", "status", "--ignore-submodules=all", "--porcelain=v1", "--no-renames", "--untracked-files=all", "-z"], root);
   if (status.code !== 0) throw new Error(`git status 失败：${status.stderr.trim()}`);
   const states = new Map<string, string>();
   for (const entry of status.stdout.split("\0").filter(Boolean)) {
@@ -59,11 +80,13 @@ export function takeSnapshot(root: string, protectedPaths: readonly string[] = [
     states.set(path, state);
   }
   // 旧快照只有原始字节指纹，结算时仍用原始字节和它比较。
-  const rawPaths = new Set([
-    ...protectedPaths.map(projectRelative),
-    ...Object.entries(before?.files ?? {}).filter(([, value]) => !value.startsWith("git ") && !value.includes("\0")).map(([path]) => path),
-  ]);
-  const raw = (path: string) => rawPaths.has(path) || (path.startsWith(".knit/") && !path.startsWith(".knit/tasks/archive/"));
+  const rawPaths = new Set(Object.entries(before?.files ?? {})
+    .filter(([, value]) => !value.startsWith("git ") && !value.includes("\0")).map(([path]) => path));
+  const roles = new Set(protectedPaths.map((path) => projectRelative(path)?.toLowerCase()));
+  const raw = (path: string) => {
+    const lower = path.toLowerCase();
+    return rawPaths.has(path) || roles.has(lower) || (lower.startsWith(".knit/") && !lower.startsWith(".knit/tasks/archive/"));
+  };
   const files: Record<string, string> = Object.create(null);
   const candidates = new Map<string, string>();
   const observed = (path: string, tracked: boolean) => {
@@ -76,7 +99,11 @@ export function takeSnapshot(root: string, protectedPaths: readonly string[] = [
     const [tag, mode, oid, stage] = entry.slice(0, tab).split(" ");
     const path = entry.slice(tab + 1);
     if (path.startsWith(RUNTIME_PREFIX) || Object.hasOwn(files, path)) continue;
-    // 非普通索引条目（冲突、gitlink、skip-worktree、assume-unchanged）仍实际读取。
+    if (mode === "160000") {
+      files[path] = fingerprint(root, path, true);
+      continue;
+    }
+    // 非普通索引条目（冲突、skip-worktree、assume-unchanged）仍实际读取。
     const clean = head !== null && tag === "H" && stage === "0" &&
       (mode === "100644" || mode === "100755" || mode === "120000") && !states.has(path) && !raw(path);
     files[path] = clean ? `git ${mode} ${oid}` : observed(path, true);
@@ -135,7 +162,7 @@ export function matchingFingerprints(root: string, paths: readonly string[], exp
   for (const path of paths) {
     const value = expected[path];
     if (typeof value !== "string") continue;
-    const raw = fingerprint(root, path);
+    const raw = fingerprint(root, path, value.startsWith("submodule "));
     if (value.startsWith("git ")) {
       candidates.push([path, raw]);
       continue;
@@ -166,9 +193,9 @@ export function changesBetween(before: WorkspaceSnapshot, after: WorkspaceSnapsh
 
 /** `changedPaths` 里执行者不能改的那些：规范、流程、配置，以及流程用到的角色文件。 */
 export function protectedChanges(changedPaths: readonly string[], workflow: WorkflowDefinition): string[] {
-  const prompts = new Set(workflowPrompts(workflow).map(projectRelative));
-  return changedPaths.filter(
-    (path) =>
-      path.startsWith(`${STANDARDS_DIR}/`) || path === WORKFLOW_CONFIG_PATH || path === CONFIG_PATH || prompts.has(path),
-  );
+  const prompts = new Set(workflowPrompts(workflow).map((path) => projectRelative(path)?.toLowerCase()));
+  return changedPaths.filter((path) => {
+    const lower = path.toLowerCase();
+    return lower.startsWith(`${STANDARDS_DIR}/`) || lower === WORKFLOW_CONFIG_PATH || lower === CONFIG_PATH || prompts.has(lower);
+  });
 }

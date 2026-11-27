@@ -3,15 +3,16 @@
  * 任务点名的资料、计划、上一个环节的报告，再次进入一个环节时还有它自己上一次的报告。
  * 「结果」、record.json 和没有点名的资料不给。
  */
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
 import { PITFALLS_PATH } from "../domain/pitfalls.js";
 import { standardReference, standardsForStage, type Standard } from "../domain/standards.js";
 import { referencesOf, sectionOf, type TaskDocument, type TaskReference } from "../domain/task.js";
 import type { WorkflowStage } from "../domain/workflow.js";
 import { gitSync } from "../infrastructure/process.js";
-import { projectRelative } from "../infrastructure/paths.js";
+import { InfrastructureError } from "../infrastructure/fs.js";
+import { projectRelative, safeJoin } from "../infrastructure/paths.js";
 import { DEFAULT_HANDOFF_LIMITS, loadStandards, type HandoffLimits } from "./project-config.js";
 import { TASKS_DIR } from "./task-store.js";
 
@@ -79,9 +80,14 @@ export function assembleHandoff(input: HandoffInput): Handoff {
     }),
     { worktree: input.worktree },
   );
-  const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt);
+  const problems: string[] = [];
+  const role = input.stage.prompt === null ? null : readText(input.root, input.stage.prompt, `环节 ${input.stage.id} 的角色文件`, problems);
   const planPath = `${input.task.dir}/plan.md`;
-  const plan = named.has(planPath) ? null : readText(input.root, planPath);
+  const namedPlan = named.has(planPath) || named.has(`${planPath}/`);
+  const plan = namedPlan ? null : readText(input.root, planPath, "任务计划", problems, true);
+  if (namedPlan && materials.materials.some((item) => item.reference.path === resolve(input.root, planPath) && item.kind === "directory")) {
+    problems.push(`任务计划不是普通文件：${planPath}`);
+  }
 
   const roleText = role === null ? [] : [trimBlankLines(role)];
   const taskBlock = {
@@ -140,9 +146,7 @@ export function assembleHandoff(input: HandoffInput): Handoff {
       ...[taskBlock, ...instructions, ...fitted].map(render),
     ].join("\n\n"),
     problems: [
-      ...(input.stage.prompt !== null && role === null
-        ? [`环节 ${input.stage.id} 的角色文件不存在：${input.stage.prompt}`]
-        : []),
+      ...problems,
       ...(missingPitfalls ? [`主检出里没有点名的规范：${PITFALLS_PATH}`] : []),
       ...materials.problems,
     ],
@@ -220,9 +224,23 @@ function render(block: Block): string {
   return `<${block.tag}${opening}>\n${block.content}\n</${block.tag}>`;
 }
 
-/** 文件不存在时是 null。 */
-function readText(root: string, path: string): string | null {
-  return existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : null;
+function inspectPath(root: string, path: string) {
+  try {
+    const file = safeJoin(root, path);
+    return { file, stats: statSync(file, { throwIfNoEntry: false }) };
+  } catch (error) {
+    if (error instanceof InfrastructureError && error.code === "path_escape") return `无法安全解析为项目内路径：${path}`;
+    throw error;
+  }
+}
+
+function readText(root: string, path: string, label: string, problems: string[], optional = false): string | null {
+  const entry = inspectPath(root, path);
+  if (typeof entry !== "string" && entry.stats?.isFile()) return readFileSync(entry.file, "utf8");
+  if (typeof entry !== "string" && entry.stats === undefined && optional) return null;
+  const reason = typeof entry === "string" ? entry : entry.stats ? `不是普通文件：${path}` : `不存在：${path}`;
+  problems.push(`${label}${reason}`);
+  return null;
 }
 
 function trimBlankLines(text: string): string {
@@ -260,17 +278,20 @@ function readMaterial(root: string, reference: TaskReference, handoff?: HandoffL
   // 任务目录交付之前没有入库，别的任务（例如主任务）的目录也一样，Worktree 里没有或者是旧的。
   const taskMaterial = handoff !== undefined && (path === TASKS_DIR || path.startsWith(`${TASKS_DIR}/`));
   const source = handoff !== undefined && !taskMaterial ? handoff.worktree : root;
-  const stats = statSync(join(source, path), { throwIfNoEntry: false });
-  if (stats === undefined) {
+  const entry = inspectPath(source, path);
+  if (typeof entry === "string") return `相关资料${entry}`;
+  if (entry.stats === undefined) {
+    const main = handoff !== undefined && !taskMaterial ? inspectPath(root, path) : null;
     return `相关资料里点名的文件不存在：${reference.path}${
-      handoff !== undefined && !taskMaterial && existsSync(join(root, path))
+      main && typeof main !== "string" && main.stats
         ? "；它还没有提交，所以任务的 Worktree 里没有。"
         : ""
     }`;
   }
   const supplied = taskMaterial ? { ...reference, path: resolve(root, path) } : reference;
-  if (stats.isDirectory()) return { reference: supplied, kind: "directory", text: null };
-  const text = readFileSync(join(source, path), "utf8");
+  if (entry.stats.isDirectory()) return { reference: supplied, kind: "directory", text: null };
+  if (!entry.stats.isFile()) return `相关资料不是普通文件：${reference.path}`;
+  const text = readFileSync(entry.file, "utf8");
   if (reference.anchor === null) return { reference: supplied, kind: "file", text };
   const section = sectionOf(text, reference.anchor);
   return section === null

@@ -13,6 +13,7 @@
  */
 import { isMap, isNode, isScalar, isSeq, LineCounter, parseDocument, type Node, type YAMLError } from "yaml";
 import type { ValidationError } from "@earendil-works/pi-schema";
+import { projectRelative } from "../infrastructure/paths.js";
 import { checkSchema, schemaErrors } from "../contracts/primitives.js";
 import {
   WORKFLOW_ANCHORS,
@@ -323,7 +324,15 @@ function validateSemantics(config: WorkflowConfig, positions: SourcePositions): 
   const duplicateIds = new Set<string>();
 
   config.stages.forEach((stage, index) => {
-    const idPointer = `/stages/${index}/id`;
+    const stagePointer = `/stages/${index}`;
+    const checkPrompt = (prompt: string | undefined, owner: string) => {
+      if (prompt === undefined || projectRelative(prompt) !== null) return;
+      const path = `${owner}/prompt`;
+      issues.push(makeIssue("invalid_structure", positions.at(path), path, `${readablePath(path)} 必须是项目内的相对路径`));
+    };
+    checkPrompt(stage.prompt, stagePointer);
+    stage.executors?.forEach((executor, i) => checkPrompt(executor.prompt, `${stagePointer}/executors/${i}`));
+    const idPointer = `${stagePointer}/id`;
     if (!WORKFLOW_STAGE_ID_REGEX.test(stage.id)) {
       // schema 已覆盖，保留兜底以免未来放宽 schema 时漏检。
       issues.push(

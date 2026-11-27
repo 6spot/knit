@@ -87,6 +87,25 @@ test("示例流程解析出两个环节并保留全部语义字段", () => {
   });
 });
 
+test("越界与绝对角色路径标出对应环节或执行器的行号", () => {
+  const source = `version: 1
+stages:
+  - id: implement
+    prompt: ../outside.md
+  - id: review
+    tools: [read]
+    prompt: /outside.md
+    executors:
+      - prompt: ../other.md
+      - prompt: /other.md
+`;
+  const result = assertInvalid(source, "invalid_structure");
+  assert.deepEqual(result.validation.issues.map(({ path, line }) => [path, line]), [
+    ["/stages/0/prompt", 4], ["/stages/1/prompt", 7],
+    ["/stages/1/executors/0/prompt", 9], ["/stages/1/executors/1/prompt", 10],
+  ]);
+});
+
 test("最简阶段使用 id 作为显示名，其余字段取安全缺省", () => {
   const workflow = assertValid("version: 1\nstages:\n  - id: implement\n");
   assert.deepEqual(workflow.stages[0], {

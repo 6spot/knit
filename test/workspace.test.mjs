@@ -84,6 +84,95 @@ test("干净普通文件免读内容，受保护路径始终保留字节指纹",
   assert.deepEqual(changesBetween(before, takeSnapshot(dir, roles)).changedPaths, changed.sort());
 });
 
+test("保护大小写变体并保留原路径与原始字节指纹", (t) => {
+  const dir = gitProject(t);
+  const roles = ["./Roles/Implement.md"];
+  const { workflow } = parseWorkflow(`version: 1\nstages:\n  - id: implement\n    prompt: ${roles[0]}\n`);
+  const paths = [".knit/Config.json", ".knit/Workflow.yaml", ".knit/Standards/extra.md", "roles/IMPLEMENT.md"].sort();
+  const empty = takeSnapshot(dir, roles);
+  paths.forEach((path) => write(dir, path, "first\n"));
+  const added = changesBetween(empty, takeSnapshot(dir, roles)).changedPaths;
+  assert.deepEqual(protectedChanges(added, workflow), paths);
+  commitAll(dir, "variants");
+  const before = takeSnapshot(dir, roles);
+  paths.forEach((path) => {
+    assert.equal(before.files[path], fingerprint(dir, path));
+    write(dir, path, "second\n");
+  });
+  const after = takeSnapshot(dir, roles, before);
+  assert.deepEqual(protectedChanges(changesBetween(before, after).changedPaths, workflow), paths);
+  paths.forEach((path) => assert.equal(after.files[path], fingerprint(dir, path)));
+});
+
+test("子模块快照使用实际 HEAD，并检出工作区内容及未跟踪文件变化", (t) => {
+  const source = gitProject(t);
+  const root = gitProject(t);
+  write(source, "sample.txt", "sample\n");
+  commitAll(source, "sample");
+  git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "module");
+  commitAll(root, "gitlink");
+  const module = join(root, "module");
+  const clean = takeSnapshot(root);
+  assert.equal(clean.files.module, `submodule ${git(module, "rev-parse", "HEAD")} clean`);
+  git(module, "checkout", "-q", "--detach", "HEAD~1");
+  assert.deepEqual(changesBetween(clean, takeSnapshot(root)).changedPaths, ["module"]);
+  git(module, "checkout", "-q", git(source, "rev-parse", "HEAD"));
+  assert.deepEqual(changesBetween(clean, takeSnapshot(root)).changedPaths, []);
+  write(module, "sample.txt", "edited\n");
+  const dirty = takeSnapshot(root);
+  assert.deepEqual(changesBetween(clean, dirty).changedPaths, ["module"]);
+  assert.ok(matchesFingerprint(root, "module", dirty.files.module));
+  write(module, "sample.txt", "edited again\n");
+  assert.deepEqual(changesBetween(dirty, takeSnapshot(root)).changedPaths, ["module"]);
+  git(module, "restore", "sample.txt");
+  write(module, "new.txt", "local\n");
+  assert.deepEqual(changesBetween(clean, takeSnapshot(root)).changedPaths, ["module"]);
+  git(root, "submodule", "deinit", "-q", "--force", "--", "module");
+  const uninitialized = takeSnapshot(root);
+  assert.equal(uninitialized.files.module, "submodule uninitialized");
+  assert.deepEqual(changesBetween(clean, uninitialized).changedPaths, ["module"]);
+});
+
+test("未初始化、无提交及 Git 元数据异常时按子模块工作文件核对快照和交付指纹", (t) => {
+  const root = gitProject(t);
+  const module = join(root, "module");
+  mkdirSync(module);
+  git(root, "update-index", "--add", "--cacheinfo", `160000,${git(root, "rev-parse", "HEAD")},module`);
+  git(root, "commit", "-qm", "gitlink");
+  const empty = takeSnapshot(root);
+  assert.equal(empty.files.module, "submodule uninitialized");
+  const outside = project(t);
+  write(outside, "sample", "initial");
+  symlinkSync(outside, join(module, "link"));
+  const checkWorkFiles = (state) => {
+    write(module, "docs/sample", "first");
+    const before = takeSnapshot(root);
+    assert.match(before.files.module, state);
+    assert.deepEqual(takeSnapshot(root, [], before), before);
+    assert.ok(matchesFingerprint(root, "module", before.files.module));
+    write(module, "docs/sample", "second");
+    const after = takeSnapshot(root, [], before);
+    assert.deepEqual(changesBetween(before, after).changedPaths, ["module"]);
+    assert.ok(!matchesFingerprint(root, "module", before.files.module));
+    write(module, "docs/sample", "first");
+    assert.ok(matchesFingerprint(root, "module", before.files.module));
+    return before;
+  };
+  const uninitialized = checkWorkFiles(/^submodule uninitialized /);
+  assert.deepEqual(changesBetween(empty, uninitialized).changedPaths, ["module"]);
+  write(outside, "sample", "changed");
+  assert.deepEqual(takeSnapshot(root), uninitialized);
+  git(module, "init", "-q");
+  checkWorkFiles(/^submodule unborn /);
+  commitAll(module, "sample");
+  const head = git(module, "rev-parse", "HEAD");
+  write(module, ".git/index", "invalid fixture index");
+  checkWorkFiles(new RegExp(`^submodule unreadable ${head} `));
+  rmSync(join(module, ".git"), { recursive: true });
+  write(module, ".git", "invalid fixture gitfile");
+  checkWorkFiles(/^submodule unreadable - /);
+});
+
 test("符号链接目标、类型变化及仅暂存状态变化", (t) => {
   const dir = gitProject(t);
   write(dir, "a.txt", "one\n");

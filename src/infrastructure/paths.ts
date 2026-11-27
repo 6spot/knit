@@ -3,7 +3,7 @@
  * 项目根先 realpath 解析为稳定键；路径别名解析到同一根。
  * safeJoin 拒绝越界与经父级符号链接逃出项目。
  */
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { InfrastructureError } from "./fs.js";
@@ -41,6 +41,21 @@ export function hashKey(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 32);
 }
 
+/** 已有路径取真实位置，缺失尾段逐级拼回。悬空链接或无法核实的目录返回 null。 */
+export function resolveWithMissingTail(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+    const parent = dirname(path);
+    const real = parent === path ? null : resolveWithMissingTail(parent);
+    if (real === null) return null;
+    // 先按磁盘解析父级，再检查末段本身，避免尾随分隔符让 lstat 解引用。
+    const candidate = join(real, basename(path));
+    return lstatSync(candidate, { throwIfNoEntry: false })?.isSymbolicLink() ? null : candidate;
+  }
+}
+
 /**
  * 项目内相对路径解析；拒绝绝对路径、NUL、`..` 越界，
  * 并用 realpath 核实既有父目录未通过符号链接逃出项目根。
@@ -52,29 +67,17 @@ export function safeJoin(root: string, relativePath: string): string {
   if (isAbsolute(relativePath)) {
     throw new InfrastructureError("path_escape", `path is absolute: ${relativePath}`);
   }
-  const realRoot = realpathSync(root);
+  const realRoot = realpathSync.native(root);
+  const prefix = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
   const target = resolve(realRoot, relativePath);
-  if (target !== realRoot && !target.startsWith(realRoot + sep)) {
+  if (target !== realRoot && !target.startsWith(prefix)) {
     throw new InfrastructureError("path_escape", `path escapes project root: ${relativePath}`);
   }
-  if (existsSync(target)) {
-    const realTarget = realpathSync(target);
-    if (realTarget !== realRoot && !realTarget.startsWith(realRoot + sep)) {
-      throw new InfrastructureError("path_escape", `symlink escapes project root: ${relativePath}`);
-    }
-    return realTarget;
+  const realTarget = resolveWithMissingTail(target);
+  if (realTarget === null || (realTarget !== realRoot && !realTarget.startsWith(prefix))) {
+    throw new InfrastructureError("path_escape", `cannot resolve path within project root: ${relativePath}`);
   }
-  // 新文件：核实最近存在祖先未逃逸，避免经父级符号链接写入项目外。
-  let existing = dirname(target);
-  while (!existsSync(existing) && existing !== dirname(existing)) {
-    existing = dirname(existing);
-  }
-  const realAncestor = realpathSync(existing);
-  if (!realAncestor.startsWith(realRoot + sep) && realAncestor !== realRoot) {
-    throw new InfrastructureError("path_escape", `parent symlink escapes project root: ${relativePath}`);
-  }
-  // 重建尚未存在的相对尾段（不含符号链接：这些路径尚不存在）。
-  return join(realAncestor, relative(existing, target));
+  return realTarget;
 }
 
 /**
@@ -82,7 +85,7 @@ export function safeJoin(root: string, relativePath: string): string {
  * 绝对路径和跑出项目根的路径返回 null。只看写法，不看文件在不在。
  */
 export function projectRelative(path: string): string | null {
-  if (isAbsolute(path)) return null;
+  if (path === "" || path.includes("\0") || isAbsolute(path)) return null;
   const normalized = posix.normalize(path);
   return normalized === ".." || normalized.startsWith("../") ? null : normalized;
 }

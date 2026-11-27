@@ -193,10 +193,11 @@ export function digestOf(entries: Record<string, unknown>): string {
 }
 
 /** 目录内全部常规文件的相对路径 → FileFacts；符号链接按目标字符串记 link，不含 ignored 过滤（由调用方决定）。 */
-export function listFiles(root: string): Record<string, FileFacts> {
-  const result: Record<string, FileFacts> = {};
+export function listFiles(root: string, excludedName?: string): Record<string, FileFacts> {
+  const result: Record<string, FileFacts> = Object.create(null);
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === excludedName) continue;
       const full = join(dir, entry.name);
       if (entry.isSymbolicLink()) {
         // 符号链接按目标字符串记 link（DESIGN §5.3），不展开目标子树。

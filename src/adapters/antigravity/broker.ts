@@ -2,8 +2,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { once } from "node:events";
-import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { resolveWithMissingTail } from "../../infrastructure/paths.js";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
@@ -155,18 +156,7 @@ exec ${client} "$KNIT_AGY_REQUEST"
     const protectedPaths = [...WORKSPACE_CONTROL, ...(this.launch.protectedPaths ?? [])];
     const allowed = (candidate: string) => inside(this.launch.cwd, candidate) &&
       !protectedPaths.some((protectedPath) => inside(resolve(this.launch.cwd, protectedPath), candidate));
-    // 尚未创建的文件也要检查最近的现有目录，避免沿符号链接写到运行时状态。
-    const realParent = (candidate: string): string | null => {
-      try {
-        return realpathSync.native(candidate);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || lstatSync(candidate, { throwIfNoEntry: false }) !== undefined) return null;
-        const parent = dirname(candidate);
-        const real = parent === candidate ? null : realParent(parent);
-        return real === null ? null : resolve(real, basename(candidate));
-      }
-    };
-    const pathInWorktree = realParent(absolute);
+    const pathInWorktree = resolveWithMissingTail(absolute);
     return pathInWorktree !== null && allowed(pathInWorktree);
   }
 
