@@ -1,18 +1,19 @@
 /** 派发后台执行进程、等待记录入账、取消并结算；CLI 和宿主桥接共用。 */
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AgentRegistry } from "../contracts/agent.js";
 import { RUNS_DIR, type TaskRecord, type TaskRun } from "../contracts/task.js";
-import type { TaskDocument } from "../domain/task.js";
+import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
+import { parseTaskRecord, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
 import { atomicWrite } from "../infrastructure/fs.js";
-import { pidAlive, processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree, withFileLock } from "../infrastructure/process.js";
+import { pidAlive, processIdentities, processTable, processTreePids, procStartTicks, recordedProcess, sameProcessStart, signalProcessTree, withFileLock } from "../infrastructure/process.js";
 import { readWorkflow } from "./project-config.js";
 import { finishRun } from "./run-finish.js";
 import { prepareRun, type PreparedRun, type PrepareRunInput, type PrepareRunResult } from "./run-prepare.js";
-import { findTask } from "./task-store.js";
+import { findTask, RECORD_FILE } from "./task-store.js";
 
 const EPHEMERAL_HOST_SANDBOX_ENV = [
   "CODEBUDDY_BROKERED_FS_HOOK_ENABLED",
@@ -75,25 +76,48 @@ export async function waitRun(
   deadline?: number,
   options?: { readonly pollMs?: number },
 ): Promise<WaitRunResult> {
-  const poll = async (watchedBatch: string | undefined, attempt: number): Promise<WaitRunResult> => {
-    const loaded = readRunTask(root, taskId);
-    if (loaded.task === null) return { ...loaded, workflow: null };
-    const workflow = readWorkflow(root);
+  const workflowPath = join(root, WORKFLOW_CONFIG_PATH);
+  const poll = async (
+    loaded: ReturnType<typeof readRunTask>,
+    cachedWorkflow: { readonly stamp: string; readonly workflow: WorkflowDefinition } | null,
+    watchedBatch: string | undefined,
+    attempt: number,
+  ): Promise<WaitRunResult> => {
+    if (loaded.task === null) return { task: null, problems: loaded.problems, workflow: null };
+    const stamp = fileStamp(workflowPath);
+    const workflow = cachedWorkflow !== null && stamp !== null && stamp === cachedWorkflow.stamp
+      ? { workflow: cachedWorkflow.workflow, problems: [] as readonly string[] }
+      : readWorkflow(root);
     if (workflow.workflow === null) return { task: null, ...workflow };
+    const nextWorkflow = stamp === null ? null : { stamp, workflow: workflow.workflow };
     const running = loaded.task.record.runs.filter((run) => run.endedAt === null &&
       (watchedBatch === undefined || run.batchId === watchedBatch));
     const watched = { workflow: workflow.workflow, batchId: watchedBatch ?? running[0]?.batchId };
-    if (!running.length) return { ...loaded, ...watched };
-    if (running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null)) {
-      return { ...readRunTask(root, taskId), ...watched };
-    }
+    const finished = !running.length || running.every((run) => !startingWorker(root, taskId, run) && liveWorker(root, run.id) === null);
     const remaining = deadline === undefined ? Infinity : deadline - Date.now();
-    if (remaining <= 0) return { ...loaded, ...watched, timedOut: true };
+    if (finished || remaining <= 0) {
+      const { task, problems } = attempt === 0 && !running.length ? loaded : readRunTask(root, taskId);
+      if (task === null) return { task, problems, workflow: null };
+      return { task, problems, ...watched, ...(!finished && { timedOut: true }) };
+    }
     const interval = options?.pollMs ?? WAIT_POLL_MS[Math.min(attempt, WAIT_POLL_MS.length - 1)]!;
     await sleep(Math.min(interval, remaining));
-    return poll(watched.batchId, attempt + 1);
+    const record = readPollingRecord(loaded.recordPath);
+    const next = record === null ? readRunTask(root, taskId) : { ...loaded, task: { ...loaded.task, record } };
+    return poll(next, nextWorkflow, watched.batchId, attempt + 1);
   };
-  return poll(batchId, 0);
+  return poll(readRunTask(root, taskId), null, batchId, 0);
+}
+
+function fileStamp(path: string): string | null {
+  const stat = statSync(path, { bigint: true, throwIfNoEntry: false });
+  return stat === undefined ? null : `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+}
+
+function readPollingRecord(path: string): TaskRecord | null {
+  try {
+    return parseTaskRecord(readFileSync(path, "utf8")).record;
+  } catch { return null; }
 }
 
 export async function cancelRun(input: {
@@ -121,11 +145,11 @@ export async function cancelRun(input: {
   return { cancelled: problems.length ? null : results[0]!, runs: results, problems };
 }
 
-function readRunTask(root: string, taskId: string): RunTaskResult {
+function readRunTask(root: string, taskId: string) {
   const stored = findTask(root, taskId);
-  if (stored === null) return { task: null, problems: [`没有任务 ${taskId}；用 knit task list 查看现有任务`] };
-  if (stored.document === null || stored.record === null) return { task: null, problems: stored.problems };
-  return { task: { dir: stored.dir, document: stored.document, record: stored.record }, problems: [] };
+  if (stored === null) return { task: null, problems: [`没有任务 ${taskId}；用 knit task list 查看现有任务`] } as const;
+  if (stored.document === null || stored.record === null) return { task: null, problems: stored.problems } as const;
+  return { task: { dir: stored.dir, document: stored.document, record: stored.record }, recordPath: join(stored.storeRoot, stored.dir, RECORD_FILE), problems: [] };
 }
 
 export const PANE_FILE = "pane.json";
@@ -163,18 +187,21 @@ export function livePane(root: string, runId: string): number | null {
 
 /** 后台和 Rex 窗格及其后代。 */
 export function workerProcesses(root: string, runId: string): WorkerProcess[] {
-  return processChains([liveWorker(root, runId), livePane(root, runId)]);
+  return processChains([liveWorker(root, runId), livePane(root, runId)])?.chain ?? [];
 }
 
-function processChains(roots: readonly (number | null)[]): WorkerProcess[] {
+function processChains(roots: readonly (number | null)[]) {
+  const live = roots.filter((pid) => pid !== null);
+  if (!live.length) return null;
   const table = processTable();
-  return roots.filter((pid) => pid !== null).flatMap(processTreePids).map((pid) => ({ pid, start: table.get(pid)?.startTicks ?? null }));
+  const chain = live.flatMap((pid) => processTreePids(pid, table)).map((pid) => ({ pid, start: table.get(pid)?.startTicks ?? null }));
+  return { chain, table };
 }
 
 /** Rex 关闭窗格时，进程可能仍在退出。 */
 export async function stopPaneProcesses(dir: string, graceMs?: number): Promise<void> {
   const pane = recordedProcess(join(dir, PANE_FILE));
-  if (pane !== null) await stopProcesses(processChains([pane]), graceMs);
+  if (pane !== null) await stopProcesses([pane], graceMs);
 }
 
 /** 窗格客户端先登记再核对后台进程，取消期间晚启动的客户端不再发送消息。 */
@@ -185,18 +212,23 @@ export function registerPane(dir: string): boolean {
 
 /** 等执行者及其后代全部停止；之后才能拍结算快照。 */
 export async function stopRunProcesses(root: string, runId: string, graceMs?: number): Promise<void> {
-  await stopProcesses(workerProcesses(root, runId), graceMs);
+  const roots = () => [liveWorker(root, runId), livePane(root, runId)];
+  await stopProcesses(roots(), graceMs);
   // 窗格客户端可能在后台退出期间才登记，再找一次。
-  await stopProcesses(workerProcesses(root, runId), graceMs);
+  await stopProcesses(roots(), graceMs);
 }
 
-async function stopProcesses(chain: readonly WorkerProcess[], graceMs?: number): Promise<void> {
+async function stopProcesses(roots: readonly (number | null)[], graceMs?: number): Promise<void> {
+  const snapshot = processChains(roots);
+  if (!snapshot) return;
+  const { chain, table } = snapshot;
   if (chain[0] === undefined) return;
   const waitMs = stopGraceMs(graceMs);
-  signalProcessTree(chain[0].pid, "SIGTERM", chain.map((item) => item.pid));
+  signalProcessTree(chain[0].pid, "SIGTERM", chain.map((item) => item.pid), table);
   const stubborn = await stillAlive(chain, Date.now() + waitMs);
   if (stubborn[0] === undefined) return;
-  signalProcessTree(stubborn[0].pid, "SIGKILL", stubborn.map((item) => item.pid));
+  const pids = stubborn.map((item) => item.pid);
+  signalProcessTree(stubborn[0].pid, "SIGKILL", pids, processIdentities([process.pid, ...pids]) ?? new Map());
   // 保留原有规则：等到上限仍然结算，不让任务永久卡在执行中。
   await stillAlive(stubborn, Date.now() + waitMs);
 }
@@ -210,12 +242,14 @@ async function stillAlive(processes: readonly WorkerProcess[], deadline: number)
 
 /** 其中现在还在的。 */
 export function aliveAmong(processes: readonly WorkerProcess[]): WorkerProcess[] {
-  const table = processTable();
-  return processes.filter((item) => {
-    const current = table.get(item.pid)?.startTicks ?? null;
-    if (item.start !== null && current !== null) return sameProcessStart(item.start, current);
-    if (item.start === null || table.size === 0) return pidAlive(item.pid);
-    return false;
+  const live = processes.filter((item) => pidAlive(item.pid));
+  const identified = live.filter((item) => item.start !== null);
+  if (!identified.length) return live;
+  const table = processIdentities(identified.map((item) => item.pid));
+  if (table === null) return live.filter((item) => pidAlive(item.pid));
+  return live.filter((item) => {
+    const current = table.get(item.pid)?.startTicks;
+    return item.start === null || (current != null && sameProcessStart(item.start, current));
   });
 }
 

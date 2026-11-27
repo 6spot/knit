@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gitSync, parseProcessTablePs, procStartTicks, processTreePids, recordedProcess, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
+import { aliveAmong } from "../dist/application/run-control.js";
+import { gitSync, parseProcessTablePs, procStartTicks, processIdentities, processTreePids, recordedProcess, sameProcessStart, signalProcessTree } from "../dist/infrastructure/process.js";
 
 /** 本机存活检查：权限未知视作仍存活。 */
 function isProcessAlive(pid) {
@@ -24,6 +25,57 @@ test("进程：procStartTicks 是当前进程的稳定启动身份", () => {
   assert.equal(procStartTicks(process.pid), ticks, "同一进程多次读取身份一致");
   if (process.platform === "linux") assert.match(ticks, /^\d+$/);
   assert.equal(procStartTicks(2 ** 22), null, "不存在进程返回 null");
+});
+
+test("进程身份：仅查询存活的目标 PID，批量判活共用一次 ps", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "knit-targeted-ps-"));
+  const path = process.env.PATH;
+  t.after(() => {
+    process.env.PATH = path;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const ps = join(dir, "ps");
+  writeFileSync(ps, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$0.log"\nexec /bin/ps "$@"\n', { mode: 0o755 });
+  process.env.PATH = `${dir}:${path}`;
+  const dead = 2147483647;
+  const file = join(dir, "worker.json");
+  writeFileSync(file, JSON.stringify({ pid: dead, start: "stale" }));
+  assert.equal(recordedProcess(file), null);
+  assert.equal(procStartTicks(dead), null);
+  assert.deepEqual(aliveAmong([{ pid: dead, start: "stale" }]), []);
+  assert.equal(existsSync(`${ps}.log`), false);
+
+  const pids = [process.pid, process.ppid];
+  const table = processIdentities([...pids, dead]);
+  assert.deepEqual([...table.keys()].sort(), [...pids].sort());
+  const workers = pids.map((pid) => ({ pid, start: table.get(pid).startTicks }));
+  assert.ok(workers.every((item) => typeof item.start === "string"));
+  assert.equal(procStartTicks(process.pid), workers[0].start);
+  writeFileSync(file, JSON.stringify(workers[0]));
+  assert.equal(recordedProcess(file), process.pid);
+  const unknown = { pid: process.pid, start: null };
+  assert.deepEqual(aliveAmong([...workers, { pid: process.pid, start: "stale" }, unknown]), [...workers, unknown]);
+  if (process.platform === "linux") assert.equal(existsSync(`${ps}.log`), false);
+  if (process.platform !== "linux") {
+    assert.deepEqual(readFileSync(`${ps}.log`, "utf8").trim().split("\n"), [pids, [process.pid], [process.pid], pids]
+      .map((ids) => `-p ${ids.join(",")} -o pid=,ppid=,pgid=,lstart=,comm=`));
+  }
+});
+
+test("进程树：目标与调用方共享进程组时仅终止目标", async () => {
+  const probe = spawn(process.execPath, ["--input-type=module", "-e", `
+    import { spawn } from 'node:child_process';
+    import { once } from 'node:events';
+    import { signalProcessTree } from ${JSON.stringify(new URL("../dist/infrastructure/process.js", import.meta.url).href)};
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { stdio: 'ignore' });
+    const exit = once(child, 'exit');
+    const { signaled, errors } = signalProcessTree(child.pid, 'SIGTERM');
+    console.log(JSON.stringify({ onlyChild: signaled.length === 1 && signaled[0] === child.pid, errors, exit: await exit }));
+  `], { detached: true, stdio: ["ignore", "pipe", "inherit"] });
+  const output = [];
+  probe.stdout.on("data", (chunk) => output.push(chunk));
+  assert.deepEqual(await once(probe, "close"), [0, null]);
+  assert.deepEqual(JSON.parse(Buffer.concat(output)), { onlyChild: true, errors: [], exit: [null, "SIGTERM"] });
 });
 
 test("Git：argv 调用与 NUL 解析、固定环境", () => {
@@ -117,7 +169,7 @@ test("recordedProcess：有启动标识时严格核对防 PID 复用，缺失 st
   }
 });
 
-test("macOS 沙箱禁止 /bin/ps 时，recordedProcess、processTreePids 与 signalProcessTree 正常判活和终止", { skip: process.platform !== "darwin" }, async () => {
+test("macOS 沙箱禁止 /bin/ps 时，recordedProcess、aliveAmong、processTreePids 与 signalProcessTree 正常判活和终止", { skip: process.platform !== "darwin" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "knit-ps-sandbox-"));
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
   const mod = fileURLToPath(new URL("../dist/infrastructure/process.js", import.meta.url));
@@ -129,10 +181,14 @@ test("macOS 沙箱禁止 /bin/ps 时，recordedProcess、processTreePids 与 sig
     const probe = spawnSync("sandbox-exec", [
       "-p", '(version 1)(allow default)(deny process-exec (literal "/bin/ps"))',
       process.execPath, "--input-type=module", "-e", `
-        import { processTable, processTreePids, recordedProcess, signalProcessTree } from ${JSON.stringify(mod)};
+        import { aliveAmong } from ${JSON.stringify(new URL("../dist/application/run-control.js", import.meta.url).href)};
+        import { readFileSync } from 'node:fs';
+        import { processIdentities, processTable, processTreePids, recordedProcess, signalProcessTree } from ${JSON.stringify(mod)};
         const pid = Number(process.argv[1]);
         const before = {
           tableSize: processTable().size,
+          identities: processIdentities([pid]),
+          alive: aliveAmong([JSON.parse(readFileSync(process.argv[3], 'utf8')), { pid: 2147483647, start: 'stale' }]).map((item) => item.pid),
           nullStart: recordedProcess(process.argv[2]),
           realStart: recordedProcess(process.argv[3]),
           tree: processTreePids(pid),
@@ -144,6 +200,8 @@ test("macOS 沙箱禁止 /bin/ps 时，recordedProcess、processTreePids 与 sig
     assert.equal(probe.status, 0, probe.stderr);
     const out = JSON.parse(probe.stdout.trim());
     assert.equal(out.tableSize, 0);
+    assert.equal(out.identities, null);
+    assert.deepEqual(out.alive, [child.pid]);
     assert.equal(out.nullStart, child.pid);
     assert.equal(out.realStart, child.pid);
     assert.deepEqual(out.tree, [child.pid]);

@@ -27,17 +27,7 @@ export function shellQuote(value: string): string {
  * （lstart 只精确到秒，追加可执行名降低同秒 PID 复用误判；同平台自洽）。
  */
 export function procStartTicks(pid: number): string | null {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
-    const fields = afterComm.split(" ");
-    // stat 全字段第 22 项（1 基）；去掉前两项（pid、comm）后是第 20 项（0 基）。
-    const value = fields[19];
-    return typeof value === "string" && /^\d+$/.test(value) ? value : null;
-  } catch {
-    // 非 Linux：/proc 不存在，走 ps 回退。
-    return processTable().get(pid)?.startTicks ?? null;
-  }
+  return processIdentities([pid])?.get(pid)?.startTicks ?? null;
 }
 
 /** ps 回退身份中 lstart 与可执行名的分隔符；Linux starttime 纯数字，不含此字符。 */
@@ -63,7 +53,7 @@ export function pidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -76,16 +66,11 @@ export function pidAlive(pid: number): boolean {
 export function recordedProcess(file: string): number | null {
   if (!existsSync(file)) return null;
   const recorded = JSON.parse(readFileSync(file, "utf8")) as { pid: number; start: string | null };
-  if (!Number.isInteger(recorded.pid) || recorded.pid <= 0) return null;
-  const table = processTable();
-  const current = table.get(recorded.pid)?.startTicks ?? null;
-  if (recorded.start !== null && current !== null) {
-    return sameProcessStart(recorded.start, current) ? recorded.pid : null;
-  }
-  if (recorded.start === null || table.size === 0) {
-    return pidAlive(recorded.pid) ? recorded.pid : null;
-  }
-  return null;
+  if (recorded.start === null) return pidAlive(recorded.pid) ? recorded.pid : null;
+  const table = processIdentities([recorded.pid]);
+  if (table === null) return pidAlive(recorded.pid) ? recorded.pid : null;
+  const current = table.get(recorded.pid)?.startTicks;
+  return current != null && sameProcessStart(recorded.start, current) ? recorded.pid : null;
 }
 
 /** Git 固定环境：禁 pager／fsmonitor／textconv，诊断读取不受用户配置干扰。 */
@@ -109,53 +94,61 @@ export function gitSync(args: string[], cwd: string, maxBuffer = 64 * 1024 * 102
   return { code: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? String(result.error ?? "") };
 }
 
-/**
- * 只读进程表：pid、ppid、进程组与启动标识；解析失败条目跳过。
- * Linux 直接读 /proc；其它平台（macOS 等）回退 `ps -eo`——startTicks 用 lstart 文本，
- * 只要写入与核对在同一平台就保持一致（同一份运行资料不支持跨平台混用）。
- */
-export function processTable(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
-  try {
-    const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
-    for (const name of readdirSync("/proc")) {
-      if (!/^\d+$/.test(name)) continue;
-      const pid = Number(name);
-      try {
-        const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-        const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
-        const fields = afterComm.split(" ");
-        const ppid = Number(fields[1]);
-        const pgid = Number(fields[2]);
-        const start = fields[19];
-        if (!Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
-        table.set(pid, { ppid, pgid, startTicks: typeof start === "string" && /^\d+$/.test(start) ? start : null });
-      } catch {
-        // 进程在枚举时退出。
-      }
-    }
-    return table;
-  } catch {
-    return processTablePs();
+type ProcessTable = Map<number, { ppid: number; pgid: number; startTicks: string | null }>;
+
+/** 定向查询。空表表示没有匹配的 PID；null 表示 ps 不可用，需要重新判活。 */
+export function processIdentities(pids: readonly number[]): ProcessTable | null {
+  const live = [...new Set(pids)].filter(pidAlive);
+  if (!live.length) return new Map();
+  if (process.platform === "linux") {
+    const table = readProcStats(live);
+    if (table.size || existsSync("/proc/self/stat")) return table;
   }
+  return processTablePs(["-p", live.join(","), "-o"]);
 }
 
-/** ps 回退进程表（macOS 等）；固定C语言环境，按字段解析而不假设lstart列宽；comm 放最后一列（可含空格）。 */
-function processTablePs(): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
-  const result = spawnSync("ps", ["-eo", "pid=,ppid=,pgid=,lstart=,comm="], {
+/** 根进程的后代可能属于其它进程组，查找它们需要整机快照。 */
+export function processTable(): ProcessTable {
+  if (process.platform === "linux") {
+    try {
+      return readProcStats(readdirSync("/proc").filter((name) => /^\d+$/.test(name)).map(Number));
+    } catch { /* /proc 未挂载时回退 ps。 */ }
+  }
+  return processTablePs(["-eo"]) ?? new Map();
+}
+
+function readProcStats(pids: readonly number[]): ProcessTable {
+  const table: ProcessTable = new Map();
+  for (const pid of pids) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      const ppid = Number(fields[1]);
+      const pgid = Number(fields[2]);
+      const start = fields[19];
+      if (!Number.isInteger(ppid) || !Number.isInteger(pgid)) continue;
+      table.set(pid, { ppid, pgid, startTicks: typeof start === "string" && /^\d+$/.test(start) ? start : null });
+    } catch { /* 进程在读取前退出。 */ }
+  }
+  return table;
+}
+
+function processTablePs(selection: string[]): ProcessTable | null {
+  const result = spawnSync("ps", [...selection, "pid=,ppid=,pgid=,lstart=,comm="], {
     encoding: "utf8",
     env: { ...process.env, LC_ALL: "C" },
     maxBuffer: 16 * 1024 * 1024,
   });
-  if (result.status !== 0 || !result.stdout) return new Map();
-  return parseProcessTablePs(result.stdout);
+  const table = parseProcessTablePs(result.stdout ?? "");
+  return table.size === 0 && (result.error || result.status !== 0) ? null : table;
 }
 
 /**
  * 纯解析入口用于Linux／macOS的ps夹具；身份为标准化lstart文本，有 comm 列时追加「|comm」。
  * lstart 只精确到秒，同秒复用 PID 时可执行名不同即可区分；同名同秒仍无法区分（已知限制）。
  */
-export function parseProcessTablePs(output: string): Map<number, { ppid: number; pgid: number; startTicks: string | null }> {
-  const table = new Map<number, { ppid: number; pgid: number; startTicks: string | null }>();
+export function parseProcessTablePs(output: string): ProcessTable {
+  const table: ProcessTable = new Map();
   for (const line of output.split("\n")) {
     const match = /^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3})\s+(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})(?:\s+(\S.*))?$/.exec(line.trim());
     if (match === null) continue;
@@ -172,8 +165,7 @@ export function parseProcessTablePs(output: string): Map<number, { ppid: number;
 }
 
 /** 根进程的完整后代 PID（含根）；只按当前 /proc 或 ps 快照，进程表不可用时退回根进程本身。 */
-export function processTreePids(rootPid: number): number[] {
-  const table = processTable();
+export function processTreePids(rootPid: number, table = processTable()): number[] {
   if (table.size === 0) return pidAlive(rootPid) ? [rootPid] : [];
   if (!table.has(rootPid)) return [];
   const children = new Map<number, number[]>();
@@ -200,11 +192,12 @@ export function processTreePids(rootPid: number): number[] {
 export function signalProcessTree(
   rootPid: number,
   signal: NodeJS.Signals,
-  knownPids: number[] = processTreePids(rootPid),
+  knownPids?: number[],
+  table = processTable(),
 ): { signaled: number[]; errors: string[] } {
-  const table = processTable();
+  const targets = knownPids ?? processTreePids(rootPid, table);
   const groups = new Set<number>();
-  for (const pid of knownPids) {
+  for (const pid of targets) {
     const entry = table.get(pid);
     if (entry !== undefined && entry.pgid > 0) groups.add(entry.pgid);
   }
@@ -212,6 +205,7 @@ export function signalProcessTree(
   const signaled: number[] = [];
   const errors: string[] = [];
   for (const pgid of groups) {
+    if (pgid === table.get(process.pid)?.pgid) continue;
     try {
       process.kill(-pgid, signal);
       signaled.push(-pgid);
@@ -220,7 +214,7 @@ export function signalProcessTree(
       if (code !== "ESRCH") errors.push(`${-pgid}:${code ?? String(error)}`);
     }
   }
-  for (const pid of knownPids) {
+  for (const pid of targets) {
     if (table.size > 0 && !table.has(pid)) continue;
     try {
       process.kill(pid, signal);

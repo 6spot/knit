@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -364,9 +364,17 @@ test("快速结束的执行不再整秒空等，且支持显式 pollMs 与超时
   writeFileSync(join(root, prepared.run.dir, "worker.json"), JSON.stringify({ pid: process.pid, start: procStartTicks(process.pid) }));
 
   const timedOutBefore = Date.now();
-  const timedOut = await waitRun(root, task.id, undefined, timedOutBefore + 120, { pollMs: 25 });
+  const limited = waitRun(root, task.id, undefined, timedOutBefore + 120, { pollMs: 10 });
+  const document = join(root, task.dir, "task.md");
+  const original = readFileSync(document, "utf8");
+  // 中间轮询只读 record.json；超时返回时才重读最新文档。
+  writeFileSync(document, "");
+  await sleep(35);
+  writeFileSync(document, original.replace("title: 加问候语", "title: 等待超时"));
+  const timedOut = await limited;
   const timedOutMs = Date.now() - timedOutBefore;
   assert.equal(timedOut.timedOut, true);
+  assert.equal(timedOut.task.document.frontmatter.title, "等待超时");
   assert.ok(timedOutMs >= 110 && timedOutMs < 600, `超时耗时异常：${timedOutMs}ms`);
 
   const quickBefore = Date.now();
@@ -379,6 +387,30 @@ test("快速结束的执行不再整秒空等，且支持显式 pollMs 与超时
   assert.equal(waited.timedOut, undefined);
   assert.equal(waited.task.record.runs.at(-1).endedAt !== null, true);
   assert.ok(quickMs < 500, `短执行不应整秒空等：${quickMs}ms`);
+});
+
+test("等待期间任务移动后重新定位，worker 退出时返回最新任务", async (t) => {
+  const root = runProject(t);
+  const task = readyTask(root);
+  const run = prepare(root, task);
+  const worker = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  const exit = once(worker, "exit");
+  t.after(async () => { worker.kill(); await exit; });
+  writeFileSync(join(root, run.dir, "worker.json"), JSON.stringify({ pid: worker.pid, start: procStartTicks(worker.pid) }));
+  const waiting = waitRun(root, task.id, undefined, Date.now() + 5000, { pollMs: 5 });
+  const moved = `${task.dir}-moved`;
+  await sleep(25);
+  renameSync(join(root, task.dir), join(root, moved));
+  assert.equal(await Promise.race([waiting, sleep(25, "pending")]), "pending");
+  const file = join(root, moved, "task.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("title: 加问候语", "title: 等待中改名"));
+  worker.kill();
+  const result = await waiting;
+  assert.deepEqual(result.problems, []);
+  assert.equal(result.timedOut, undefined);
+  assert.equal(result.task.dir, moved);
+  assert.equal(result.task.document.frontmatter.title, "等待中改名");
+  assert.equal(result.task.record.runs.at(-1).endedAt, null);
 });
 
 const recordOf = (dir, task) => readFileSync(join(dir, task.dir, "record.json"), "utf8");
