@@ -73,6 +73,17 @@ test("autoMerge 接受布尔值，未写时保持缺省关闭", (t) => {
   });
 });
 
+test("运行目录保留天数接受非负整数或 null", (t) => {
+  for (const retainDays of [null, 0, 3]) {
+    assert.deepEqual(loadConfig(projectWithConfig(t, JSON.stringify({ runtime: { retainDays } }))).config.runtime, { retainDays });
+  }
+  for (const runtime of [{ retainDays: -1 }, { retainDays: 1.5 }, { retainDays: "14" }, { days: 2 }, null]) {
+    const loaded = loadConfig(projectWithConfig(t, JSON.stringify({ runtime })));
+    assert.equal(loaded.config, null);
+    assert.match(loaded.problems.join("\n"), /^\.knit\/config\.json：.*runtime/);
+  }
+});
+
 test("配置写错时指出问题", (t) => {
   const cases = [
     ["{ not json", "不是合法的 JSON"],

@@ -61,7 +61,7 @@ export function registerDeliverCommand(program: Command): void {
 }
 
 function deliveredLines(root: string, id: string, result: Extract<DeliveryResult, { kind: "delivered" }>): string[] {
-  const { worktree, commit, integration } = result;
+  const { worktree, commit, integration, cleanup } = result;
   return [
     `已交付 ${taskLabel(result.title, id)}`,
     `归档: ${worktree === null ? result.archiveDir : join(result.archiveRoot, result.archiveDir)}`,
@@ -81,6 +81,8 @@ function deliveredLines(root: string, id: string, result: Extract<DeliveryResult
         ]
       : []),
     ...(integration === null ? [] : integrationLines(root, integration)),
+    ...cleanup.warnings.map((reason) => `运行目录清理告警：${reason}`),
+    ...(cleanup.removed ? [`已清理超期运行目录：${cleanup.removed} 个（保留 ${cleanup.retainDays} 天）`] : []),
   ];
 }
 

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { arr, bool, int, obj, opt, str, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, nullable, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { schemaProblems } from "../contracts/primitives.js";
 import { WORKFLOW_CONFIG_PATH } from "../contracts/workflow.js";
 import { PITFALLS_PATH, recordPitfall } from "../domain/pitfalls.js";
@@ -11,10 +11,12 @@ import { safeJoin } from "../infrastructure/paths.js";
 import { withFileLock } from "../infrastructure/process.js";
 
 export const CONFIG_PATH = ".knit/config.json";
+export const DEFAULT_RUNTIME_RETAIN_DAYS = 14;
 
 /** 字段都可以不写；不认识的字段算问题，写错字段名时能马上发现。 */
 const ConfigFileSchema = obj({
   handoff: opt(obj({ fileBytes: opt(int({ minimum: 1 })), totalBytes: opt(int({ minimum: 1 })) })),
+  runtime: opt(obj({ retainDays: opt(nullable(int({ minimum: 0 }))) })),
   worktree: opt(obj({ setup: opt(arr(str({ pattern: "\\S" }))), autoMerge: opt(bool()) })),
 });
 
@@ -30,6 +32,7 @@ export const DEFAULT_HANDOFF_LIMITS: HandoffLimits = { fileBytes: 16384, totalBy
 
 export interface ProjectConfig {
   readonly handoff: HandoffLimits;
+  readonly runtime?: { readonly retainDays?: number | null };
   readonly worktree?: { readonly setup?: readonly string[]; readonly autoMerge?: boolean };
 }
 
@@ -56,6 +59,7 @@ export function loadConfig(root: string): ConfigLoadResult {
   return {
     config: {
       handoff: { ...DEFAULT_HANDOFF_LIMITS, ...config.handoff },
+      ...(config.runtime === undefined ? {} : { runtime: config.runtime }),
       ...(config.worktree === undefined ? {} : { worktree: config.worktree }),
     },
     problems: [],

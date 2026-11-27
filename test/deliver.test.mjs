@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import { deliverTask, previewDelivery } from "../dist/application/delivery.js";
@@ -22,6 +22,121 @@ const now = new Date();
 const archived = (task) =>
   `.knit/tasks/archive/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}/${basename(task.dir)}`;
 const filesOf = (dir, taskDir) => ["task.md", "record.json"].map((name) => readFileSync(join(dir, taskDir, name), "utf8"));
+
+const runPath = (root, id) => join(root, ".knit/.runtime/runs", id);
+
+function recordRuns(root, taskDir, ages) {
+  const file = join(root, taskDir, "record.json");
+  const record = JSON.parse(readFileSync(file, "utf8"));
+  const runs = Object.entries(ages).map(([id, days]) => {
+    mkdirSync(runPath(root, id), { recursive: true });
+    return { id, stage: "implement", agent: "pi", startedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+      endedAt: days === null ? null : new Date(Date.now() - days * 86_400_000).toISOString(), verdict: null,
+      failure: null, requirementDigest: record.confirmedDigest, changedPaths: [], sessionFile: null, resumeId: null };
+  });
+  writeFileSync(file, JSON.stringify({ ...record, runs }));
+}
+
+function previousDelivery(root, ages) {
+  const task = doneTask(root);
+  const result = deliverTask(root, task.id, { authorization });
+  assert.equal(result.kind, "delivered");
+  recordRuns(root, result.archiveDir, ages);
+  return result.archiveDir;
+}
+
+test("交付只清理主检出归档中唯一归属且已超期的运行目录", (t) => {
+  const root = project(t);
+  const cancelled = readyTask(root);
+  assert.equal(cancelTask(root, cancelled.id, { reason: "取消" }).kind, "cancelled");
+  const archive = previousDelivery(root, { expired: 15, recent: 13, running: null, worker: 20, pane: 20, linked: 20, shared: 20 });
+  recordRuns(root, archived(cancelled), { cancelled: 30 });
+  recordRuns(root, readyTask(root).dir, { active: 30, shared: 20 });
+  const current = doneTask(root);
+  recordRuns(root, current.dir, { current: 30 });
+  mkdirSync(runPath(root, "orphan"));
+  for (const name of ["worker", "pane"]) {
+    writeFileSync(join(runPath(root, name), `${name}.json`), JSON.stringify({ pid: process.pid, start: null }));
+  }
+  const backup = join(root, ".knit/.runtime/backups");
+  mkdirSync(backup);
+  rmSync(runPath(root, "linked"), { recursive: true });
+  symlinkSync(backup, runPath(root, "linked"));
+  const names = () => readdirSync(runPath(root, "")).sort();
+  const before = names();
+  assert.equal(knit(root, "deliver", current.id, "--preview").code, 0);
+  assert.deepEqual(names(), before);
+  assert.equal(deliverTask(root, current.id, {}).kind, "refused");
+  assert.deepEqual(names(), before);
+  const delivered = knit(root, "deliver", current.id, "--authorization", authorization);
+  assert.equal(delivered.code, 0);
+  assert.equal(delivered.stderr, "");
+  assert.match(delivered.stdout, /已清理超期运行目录：2 个（保留 14 天）\n$/);
+  assert.deepEqual(names(), before.filter((name) => !["expired", "cancelled"].includes(name)));
+  assert.ok(existsSync(join(root, archive, "record.json")) && existsSync(backup));
+  assert.equal(deliverTask(root, doneTask(root).id, { authorization }).cleanup.removed, 1);
+  assert.equal(existsSync(runPath(root, "current")), false);
+});
+
+test("非法配置拒绝交付，关闭清理时保留目录，自定义天数只清理超期记录", (t) => {
+  const root = project(t);
+  previousDelivery(root, { older: 5, younger: 2 });
+  const config = (retainDays) => writeFileSync(join(root, ".knit/config.json"), JSON.stringify({ runtime: { retainDays } }));
+  const first = doneTask(root);
+  config(-1);
+  assert.equal(deliverTask(root, first.id, { authorization }).kind, "refused");
+  assert.equal(findTask(root, first.id).document.frontmatter.status, "done");
+  for (const [task, days] of [[first, null], [doneTask(root), 0], [doneTask(root), 3]]) {
+    config(days);
+    const result = deliverTask(root, task.id, { authorization });
+    assert.equal(result.kind, "delivered");
+    assert.equal(result.cleanup.removed, days === 3 ? 1 : 0);
+    assert.equal(existsSync(runPath(root, "older")), days !== 3);
+    assert.ok(existsSync(runPath(root, "younger")));
+  }
+});
+
+test("Worktree 的 Git 指针失效时，保留无法确认属于主检出的运行目录", (t) => {
+  const root = project(t);
+  previousDelivery(root, { expired: 30 });
+  const task = doneTask(root);
+  writeFileSync(join(root, ".git"), "gitdir: missing-worktree-metadata\n");
+  const result = knit(root, "deliver", task.id, "--authorization", authorization);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /运行目录清理告警：.*无法确认 Git 主检出：.+/);
+  assert.equal(findTask(root, task.id).document.frontmatter.status, "delivered");
+  assert.ok(existsSync(runPath(root, "expired")));
+});
+
+test("活跃任务记录损坏时保留所有运行目录并报告原因", (t) => {
+  const root = project(t);
+  previousDelivery(root, { shared: 20 });
+  const broken = readyTask(root);
+  writeFileSync(join(root, broken.dir, "record.json"), "{");
+  const result = deliverTask(root, doneTask(root).id, { authorization });
+  assert.equal(result.kind, "delivered");
+  assert.match(result.cleanup.warnings.join("\n"), /record\.json.*不是合法的 JSON/);
+  assert.ok(existsSync(runPath(root, "shared")));
+});
+
+test("删除权限不足仍成功交付，告警写入标准输出", { skip: process.getuid?.() === 0 }, (t) => {
+  const root = project(t);
+  previousDelivery(root, { expired: 30 });
+  const task = doneTask(root);
+  chmodSync(runPath(root, ""), 0o555);
+  try {
+    const result = knit(root, "deliver", task.id, "--authorization", authorization);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /运行目录清理告警：expired.*(?:EACCES|EPERM)/);
+    assert.doesNotMatch(result.stdout, /已清理超期运行目录/);
+    assert.equal(findTask(root, task.id).document.frontmatter.status, "delivered");
+    assert.ok(existsSync(runPath(root, "expired")));
+  } finally {
+    chmodSync(runPath(root, ""), 0o755);
+  }
+});
 
 function assertMainDelivery(dir, task, autoMerge, messageFile) {
   const options = { authorization: ` ${authorization} `, messageFile };
