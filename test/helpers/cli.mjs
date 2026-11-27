@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
-// 在 Rex 的终端里跑测试时，派发出去的执行者不能开到真的 Rex 窗格里；要测窗格的测试自己设这两个变量。
-delete process.env.REX_SESSION;
-delete process.env.REX_BLOCK;
+// 在 Rex 或宿主终端里跑测试时隔离外层宿主环境，避免带进普通 CLI 夹具；需要的测试自行设置。
+for (const key of ["REX_SESSION", "REX_BLOCK", "PI_CODING_AGENT", "KNIT_HOST", "KNIT_HOST_SESSION", "KNIT_SESSION_AGENT", "KNIT_PI_EXECUTOR"]) {
+  delete process.env[key];
+}
 
 const cli = new URL("../../dist/cli/knit.js", import.meta.url).pathname;
 

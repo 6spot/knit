@@ -2,6 +2,7 @@ import { buildSessionContext, contextBlocks, contextLines, statusLines } from ".
 import { initProject } from "../dist/application/init.js";
 import { waitRun } from "../dist/application/run-control.js";
 import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,6 +14,7 @@ import { prepareRun } from "../dist/application/run-prepare.js";
 import { ARCHIVE_DIR, createTask, findTask } from "../dist/application/task-store.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
+import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
 import { agents, readyTask, runProject } from "./helpers/run.mjs";
@@ -116,12 +118,44 @@ test("没有规范和已经结束的任务", (t) => {
   const cancelled = readyTask(dir);
   assert.equal(cancelTask(dir, cancelled.id, { reason: "不做了" }).kind, "cancelled");
 
-  assert.equal(standardsPart(dir, confirmed.id, confirmed.dir), "规范（implement 环节）: 没有\n");
+  assert.equal(standardsPart(dir, confirmed.id, confirmed.dir), "");
 
   const ended = contextLines(buildSessionContext(dir, cancelled.id)).join("\n");
   assert.match(ended, /^下一步: 任务已结束，可取消选中（knit context --unuse）$/m);
   assert.match(ended.split("\n").at(-1), /^目录: \.knit\/tasks\/archive\//);
   assert.equal(ended.split("任务:")[0], `规范（discuss 环节）:\n${builtinDiscussion}\n${A.block}`);
+});
+
+test("Pi 扩展逐轮提示任务工具，确认失效时标出需求变化", async (t) => {
+  const dir = runProject(t);
+  const task = readyTask(dir, { verification: "self" });
+  const previous = process.env;
+  process.env = { ...previous, PI_CODING_AGENT: "true" };
+  t.after(() => { process.env = previous; });
+  const bridge = await loadBridge(t, dir);
+  await bridge.tool("knit_task", { action: "use", taskId: task.id });
+  const turn = async () => {
+    const sections = {};
+    await bridge.fire("before_agent_start", { systemPromptOptions: { sections } });
+    return sections.knit;
+  };
+  assert.match(await turn(), /^下一步: .*knit_run action=start/m);
+  const file = join(dir, task.dir, "task.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("加一个问候语。", "改成两句问候语。"));
+  const stale = await turn();
+  assert.match(stale, /^状态: draft（确认后改过需求）$/m);
+  assert.match(stale, /^下一步: .*knit_task action=ready/m);
+  assert.equal(confirmTask(dir, task.id).kind, "ready");
+  ranStage(dir, task.id, null);
+  assert.match(await turn(), /^下一步: .*knit_task action=close .*result=<总结>/m);
+  assert.equal(closeTask(dir, task.id, { result: "完成", paths: [] }).kind, "done");
+  assert.match(await turn(), /^下一步: .*knit_deliver/m);
+  const cancelled = readyTask(dir);
+  assert.equal(cancelTask(dir, cancelled.id, { reason: "取消" }).kind, "cancelled");
+  await bridge.tool("knit_task", { action: "use", taskId: cancelled.id });
+  const ended = await turn();
+  assert.match(ended, /^下一步: .*knit_task action=use，省略 taskId/m);
+  assert.doesNotMatch(ended, /knit context --unuse/);
 });
 
 test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", async (t) => {
@@ -144,6 +178,26 @@ test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归�
   assert.equal(findTask(root, archived.id)?.archived, true);
 });
 
+test("独立初始化的子项目供 CLI 和钩子共同选用，指令文件错误在派发前报告", (t) => {
+  const root = runProject(t);
+  const child = join(root, "child");
+  const nested = join(child, "nested");
+  mkdirSync(nested, { recursive: true });
+  const task = initProject(child).task;
+  assert.match(knit(nested, "task", "list").stdout, new RegExp(task.id));
+  assert.equal(knit(nested, "workflow", "validate").code, 0);
+  const cli = new URL("../dist/cli/knit.js", import.meta.url).pathname;
+  const selected = spawnSync(process.execPath, [cli, "context", "--use", task.id], { cwd: nested, encoding: "utf8",
+    env: { ...process.env, KNIT_HOST: "agy", KNIT_HOST_SESSION: "nested" } });
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(JSON.parse(readFileSync(join(child, ".knit/.runtime/host-sessions/agy-nested.json"))).taskId, task.id);
+  for (const file of [join(child, "missing"), nested]) {
+    const invalid = knit(nested, "run", "start", task.id, "--instruction-file", file);
+    assert.equal(invalid.code, 1);
+    assert.equal(invalid.stderr, `读不到修改指令：--instruction-file 需要已有的普通文件：${file}\n`);
+  }
+});
+
 test("初始化直接使用安装包中的通用规范", (t) => {
   const dir = project(t);
   initProject(dir);
@@ -162,6 +216,12 @@ test("初始化直接使用安装包中的通用规范", (t) => {
       "knit:standards/task-writing.md",
     ],
   );
+  assert.match(unselected.stdout, /按当前宿主指引派发外部执行者或使用原生子 Agent/);
+  for (const role of ["implement", "review"]) {
+    const prompt = readFileSync(join(dir, `.knit/agents/${role}.md`), "utf8");
+    assert.match(prompt, /新会话的交接消息/);
+    assert.match(prompt, /续聊.*本轮增量消息/);
+  }
   assert.match(unselected.stdout, /## 指称任务[\s\S]*标题（ID）/);
 });
 

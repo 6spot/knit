@@ -207,7 +207,11 @@ test("从空清单写入、补充适用条目，按当前流程分区查看", (t
   savePitfall(dir, "audit", "运行夹具", "再检查输出");
   const saved = readFileSync(file, "utf8");
   savePitfall(dir, "audit", "运行夹具", "再检查输出");
-  assert.match(record("", "无效", "空分区").stderr, /分区要写/);
+  for (const section of ["", "implement,"]) {
+    const invalid = record(section, "无效", "空分区");
+    assert.equal(invalid.code, 1);
+    assert.match(invalid.stderr, /分区要写.*环节 id 都不能为空/);
+  }
   assert.equal(record("review", "无效", "错误分区").code, 1);
   assert.equal(readFileSync(file, "utf8"), saved);
   assert.equal(saved.match(/### 运行夹具/g).length, 1);
@@ -219,4 +223,8 @@ test("从空清单写入、补充适用条目，按当前流程分区查看", (t
   assert.equal(show("review").code, 1);
   assert.doesNotMatch(standardsForStage(checklist, "deliver")[0].body, /运行夹具/);
   assert.match(knit(dir, "standards", "list").stdout, /分区：通用 \/ implement, audit \/ deliver/);
+  writeFileSync(file, "---\ntitle: 避坑清单\n## 通用");
+  const broken = show("audit");
+  assert.equal(broken.code, 1);
+  assert.match(broken.stderr, /pitfalls\.md：开头声明没有结束/);
 });

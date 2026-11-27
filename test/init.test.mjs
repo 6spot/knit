@@ -16,7 +16,7 @@ import { knit, project } from "./helpers/cli.mjs";
 import { gitProject } from "./helpers/git.mjs";
 import { writeArchiveHistory } from "./helpers/run.mjs";
 
-const hostGuide = "请按客户端运行 knit init --pi / knit init --workbuddy / knit init --qoder / knit init --agy 安装主会话桥接，再运行 knit workflow validate --env 检查派发环境。";
+const hostGuide = "请按客户端运行 knit init --pi / knit init --agy / knit init --qoder / knit init --workbuddy 安装主会话桥接。Pi、Antigravity 可运行 knit workflow validate --env 检查派发环境；Qoder、WorkBuddy 使用宿主自身工具与原生子 Agent。";
 const targets = CORE_TEMPLATES.map((item) => item.target);
 const draft = { title: "试一下", slug: "task", priority: "P2", verification: "self", parent: null, dependsOn: [] };
 const template = (name) => readFileSync(new URL(`../assets/templates/${name}`, import.meta.url), "utf8");
@@ -118,10 +118,15 @@ test("桌面端保留已有设置，显式补装时提示接入钩子", (t) => {
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(readFileSync(join(dir, target)), own);
     const lines = result.stdout.trimEnd().split("\n");
-    assert.ok(lines.includes(`警告：${target} 保留了已有配置，尚未接入 Knit 钩子。请手工合入 SessionStart、UserPromptSubmit、PreToolUse 钩子，或运行 knit init --force --${host} 备份后恢复模板。`));
+    assert.ok(lines.includes(`警告：${target} 保留了已有配置。请手工合入缺少的 SessionStart、UserPromptSubmit、PreToolUse 钩子，或运行 knit init --force --${host} 备份后恢复模板。`));
     assert.ok(lines.includes(hostGuide));
     assert.match(lines.at(-1), /^初始化任务: 完善项目的开发规范/);
     assert.doesNotMatch(knit(dir, "init").stdout, /警告/);
+    const settings = JSON.parse(template(target.slice(1)));
+    writeFileSync(join(dir, target), JSON.stringify({ hooks: { SessionStart: settings.hooks.SessionStart } }));
+    const partial = knit(dir, "init", `--${host}`);
+    assert.equal(partial.code, 0, partial.stderr);
+    assert.match(partial.stdout, /缺少的 UserPromptSubmit、PreToolUse 钩子/);
     writeFileSync(join(dir, target), template(target.slice(1)));
     const again = knit(dir, "init", `--${host}`);
     assert.equal(again.code, 0, again.stderr);

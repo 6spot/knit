@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Option, type Command } from "commander";
 import { builtinAgents, sessionAgentName } from "../adapters/agents.js";
@@ -6,11 +6,9 @@ import { RexPaneHost } from "../adapters/rex/pane.js";
 import { cancelRun, startRun, waitRun } from "../application/run-control.js";
 import { loadConfig } from "../application/project-config.js";
 import { executeRun, readResume } from "../application/run-execute.js";
-import { RUNS_DIR } from "../application/run-prepare.js";
-import { buildTaskStatus, statusLines } from "../application/session-context.js";
+import { THINKING_LEVELS } from "../contracts/workflow.js";
+import { buildTaskStatus, cliDispatchMode, statusLines } from "../application/session-context.js";
 import { fail, knitRoot, loadTask, loadWorkflow, taskLabel } from "./shared.js";
-
-export { statusLines };
 
 async function waitForRun(dir: string, id: string, timeout?: number): Promise<string[] | null> {
   const root = knitRoot(dir);
@@ -20,7 +18,7 @@ async function waitForRun(dir: string, id: string, timeout?: number): Promise<st
     fail(waited.problems);
     return null;
   }
-  const lines = statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId));
+  const lines = statusLines(buildTaskStatus(root, waited.task.dir, waited.workflow, waited.task.document, waited.task.record, waited.batchId), cliDispatchMode());
   return waited.timedOut ? [...lines, `等待 ${timeout} 秒后批次仍在运行，可再次运行 knit run wait ${id}`] : lines;
 }
 
@@ -35,7 +33,7 @@ export function registerRunCommands(program: Command): void {
     .option("--fresh", "强制使用全新会话和完整交接")
     .option("--stage <环节>", "主会话裁决时指定派发环节")
     .option("--model <模型>", "这一次用的模型（Pi 用 provider/模型，agy 用模型 ID）")
-    .option("--thinking <等级>", "这一次用的思考等级：off、minimal、low、medium、high、xhigh、max")
+    .option("--thinking <等级>", `这一次用的思考等级：${THINKING_LEVELS.join("、")}`)
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((id: string, options: { model?: string; thinking?: string; instruction?: string; instructionFile?: string; fresh?: boolean; stage?: string; dir: string }) => {
       const root = knitRoot(options.dir);
@@ -43,9 +41,9 @@ export function registerRunCommands(program: Command): void {
       const { config, problems } = loadConfig(root);
       if (config === null) return fail(problems);
       const workflow = loadWorkflow(root);
-      if (workflow === null) {
-        process.exitCode = 1;
-        return;
+      if (workflow === null) return;
+      if (options.instructionFile !== undefined && !statSync(options.instructionFile, { throwIfNoEntry: false })?.isFile()) {
+        return fail([`读不到修改指令：--instruction-file 需要已有的普通文件：${options.instructionFile}`]);
       }
       const sessionAgent = sessionAgentName();
       const prepared = startRun({
@@ -78,11 +76,8 @@ export function registerRunCommands(program: Command): void {
       const loaded = loadTask(options.dir, id);
       if (loaded === null) return;
       const workflow = loadWorkflow(loaded.root);
-      if (workflow === null) {
-        process.exitCode = 1;
-        return;
-      }
-      const lines = statusLines(buildTaskStatus(loaded.root, loaded.stored.dir, workflow, loaded.document, loaded.record));
+      if (workflow === null) return;
+      const lines = statusLines(buildTaskStatus(loaded.root, loaded.stored.dir, workflow, loaded.document, loaded.record), cliDispatchMode());
       process.stdout.write(lines.map((line) => `${line}\n`).join(""));
     });
 
@@ -108,10 +103,7 @@ export function registerRunCommands(program: Command): void {
       const loaded = loadTask(options.dir, id);
       if (loaded === null) return;
       const workflow = loadWorkflow(loaded.root);
-      if (workflow === null) {
-        process.exitCode = 1;
-        return;
-      }
+      if (workflow === null) return;
       const { root } = loaded;
       const taskId = loaded.document.frontmatter.id;
       const result = await cancelRun({ root, taskId, workflow, agents: builtinAgents, runId: options.run });
@@ -135,10 +127,7 @@ export function registerRunCommands(program: Command): void {
       const root = knitRoot(options.dir);
       if (root === null) return;
       const workflow = loadWorkflow(root);
-      if (workflow === null) {
-        process.exitCode = 1;
-        return;
-      }
+      if (workflow === null) return;
       const problems = await executeRun({
         root,
         taskId: options.task,

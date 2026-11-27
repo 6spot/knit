@@ -42,7 +42,8 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
   const bridges = HOST_SPECS.flatMap((host) => {
     const items = host.templates.map((template) => ({ template, target: `.${template}`, restore: true }));
     const shared = "sharedSettings" in host ? host.sharedSettings : undefined;
-    return hosts[host.id] || (force && items.some((item) => installedBridge(root, item.target, shared))) ? items : [];
+    return hosts[host.id] || (force && items.some((item) => item.target === shared?.target
+      ? installedEvents(root, shared).length > 0 : existsSync(join(root, item.target)))) ? items : [];
   });
   const templates = [...CORE_TEMPLATES, ...bridges];
   const missing = templates.filter((item) => !existsSync(join(root, item.target)));
@@ -74,36 +75,37 @@ export function initProject(root: string, force = false, hosts: HostOptions = {}
 }
 
 export function initGuidance(root: string, hosts: HostOptions, force: boolean, kept: readonly string[]): string[] {
-  const hasBridge = HOST_SPECS.some((host) => host.templates.every((template) =>
-    installedBridge(root, `.${template}`, "sharedSettings" in host ? host.sharedSettings : undefined)));
-  const warnings = HOST_SPECS.flatMap((host) => {
-    if (force || !hosts[host.id] || !("sharedSettings" in host)) return [];
-    const settings = host.sharedSettings;
-    if (!kept.includes(settings.target) || installedBridge(root, settings.target, settings)) return [];
-    return [`警告：${settings.target} 保留了已有配置，尚未接入 Knit 钩子。请手工合入 ${settings.events.join("、")} 钩子，或运行 knit init --force --${host.id} 备份后恢复模板。`];
+  const inspected = HOST_SPECS.map((host) => {
+    const settings = "sharedSettings" in host ? host.sharedSettings : undefined;
+    const installed = settings ? installedEvents(root, settings) : [];
+    const missing = settings?.events.filter((event) => !installed.includes(event)) ?? [];
+    return { host, settings, missing, complete: !missing.length && host.templates.every((template) => existsSync(join(root, `.${template}`))) };
   });
-  if (hasBridge) return warnings;
-  const commands = HOST_SPECS.map((host) => `knit init --${host.id}`).join(" / ");
-  return [...warnings, `请按客户端运行 ${commands} 安装主会话桥接，再运行 knit workflow validate --env 检查派发环境。`];
+  const warnings = inspected.flatMap(({ host, settings, missing }) => {
+    if (force || !hosts[host.id] || !settings || !kept.includes(settings.target) || !missing.length) return [];
+    return [`警告：${settings.target} 保留了已有配置。请手工合入缺少的 ${missing.join("、")} 钩子，或运行 knit init --force --${host.id} 备份后恢复模板。`];
+  });
+  if (inspected.some((entry) => entry.complete)) return warnings;
+  const commands = HOST_SPECS.toSorted((a, b) => a.optionOrder - b.optionOrder).map((host) => `knit init --${host.id}`).join(" / ");
+  return [...warnings, `请按客户端运行 ${commands} 安装主会话桥接。Pi、Antigravity 可运行 knit workflow validate --env 检查派发环境；Qoder、WorkBuddy 使用宿主自身工具与原生子 Agent。`];
 }
 
-function installedBridge(root: string, target: string, shared?: SharedSettings): boolean {
-  const path = join(root, target);
-  if (!existsSync(path)) return false;
-  if (target !== shared?.target) return true;
+function installedEvents(root: string, shared: SharedSettings): string[] {
+  const path = join(root, shared.target);
+  if (!existsSync(path)) return [];
   const launcherPath = shared.launcher.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const launcher = new RegExp(String.raw`(?:^|[/'"\s])${launcherPath}(?=["'\s]|$)`);
   // 设置文件由项目共用，只有事件钩子引用启动脚本才表示启用了桥接。
   try {
     type Group = { hooks?: { type?: string; command?: string }[] };
     const settings: { hooks?: Record<string, Group[]> } | null = JSON.parse(readFileSync(path, "utf8"));
-    return shared.events.some((event) => {
+    return shared.events.filter((event) => {
       const groups = settings?.hooks?.[event];
       return Array.isArray(groups) && groups.some((group) => Array.isArray(group?.hooks) && group.hooks.some((hook) =>
         hook?.type === "command" && typeof hook.command === "string" && launcher.test(hook.command)));
     });
   } catch {
-    return false;
+    return [];
   }
 }
 

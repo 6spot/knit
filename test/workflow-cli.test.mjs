@@ -24,6 +24,7 @@ stages:
     name: 审查
     model: p/b
     thinking: off
+    resume: true
     maxVisits: 7
     prompt: .knit/agents/review.md
     tools: [read, write, exec]
@@ -62,9 +63,10 @@ test("配置正确：show 打印流程和两个环节，validate 退出码为 0"
   assert.ok(lines.includes("     工具: read、write、exec"), show.stdout);
   assert.ok(lines.includes("     报告字段: verdict(pass|changes_requested|blocked)"), show.stdout);
   assert.ok(lines.includes("     按结论跳转: changes_requested → implement；blocked → review"), show.stdout);
-  assert.deepEqual(lines.filter(line => line.startsWith("     模型:")), ["     模型: p/a", "     模型: p/b"]);
-  assert.deepEqual(lines.filter(line => line.startsWith("     思考等级:")), ["     思考等级: high", "     思考等级: off"]);
-  assert.deepEqual(lines.filter(line => line.startsWith("     进入次数上限:")), ["     进入次数上限: 2", "     进入次数上限: 7"]);
+  assert.deepEqual(lines.filter(line => line.startsWith("     模型:")), ["     模型: （由派发入口决定，Pi 用 p/a，agy 用客户端缺省）", "     模型: p/b"]);
+  assert.deepEqual(lines.filter(line => line.startsWith("     思考等级:")), ["     思考等级: （由派发入口决定，Pi 用 high，agy 用客户端缺省）", "     思考等级: off"]);
+  assert.deepEqual(lines.filter(line => line.includes("首次之后最多再进入:")), ["     首次之后最多再进入: 2", "     首次之后最多再进入: 7"]);
+  assert.deepEqual(lines.filter(line => line.includes("续聊（resume）:")), ["     续聊（resume）: false", "     续聊（resume）: true"]);
 
   const validate = run("validate", dir);
   assert.equal(validate.status, 0, validate.stderr);
@@ -170,6 +172,20 @@ test("--env 按当前宿主检查隐式 Antigravity，按工具组合复用版�
   assert.deepEqual(readdirSync(process.env.KNIT_HOME), []);
 });
 
+test("--env 按实际入口复核隐式执行器的模型和 thinking", (t) => {
+  const dir = gitProject(t);
+  const file = join(dir, ".knit/workflow.yaml");
+  writeFileSync(file, "version: 1\nstages:\n  - id: implement\n    model: agy-model\n");
+  const pi = run("validate", dir, ["--env"], { KNIT_SESSION_AGENT: "pi", KNIT_PI_BIN: process.execPath });
+  assert.equal(pi.status, 1);
+  assert.match(pi.stdout, /失败  implement pi 模型：agy-model 要写成 provider\/模型/);
+  writeFileSync(file, "version: 1\nstages:\n  - id: implement\n    tools: []\n    model: provider/model\n    thinking: minimal\n");
+  const agy = run("validate", dir, ["--env"], { KNIT_SESSION_AGENT: "antigravity", KNIT_AGY_BIN: join(dir, "absent") });
+  assert.equal(agy.status, 1);
+  assert.match(agy.stdout, /失败  implement antigravity 模型：provider\/model 要写成 Antigravity 模型 ID/);
+  assert.match(agy.stdout, /失败  implement antigravity 思考等级：minimal 只允许 low／medium／high／xhigh／max/);
+});
+
 test("只读审查可并列两个执行器，按各自的 Agent 展示模型、思考等级和角色文件", (t) => {
   const parsed = parseWorkflow(parallelWorkflow);
   assert.deepEqual(parsed.validation.issues, []);
@@ -190,8 +206,8 @@ test("只读审查可并列两个执行器，按各自的 Agent 展示模型、�
     "       模型: gemini-reviewer", "       思考等级: high",
   ].join("\n")), show.stdout);
   assert.doesNotMatch(show.stdout, /执行器: executor-1/);
-  assert.match(show.stdout, /模型: （没有指定，用主会话的模型）/);
-  assert.match(show.stdout, /思考等级: （没有指定，用主会话的等级）/);
+  assert.match(show.stdout, /模型: （由派发入口决定，Pi 用 主会话模型，agy 用客户端缺省）/);
+  assert.match(show.stdout, /思考等级: （由派发入口决定，Pi 用 主会话等级，agy 用客户端缺省）/);
   const agy = run("show", project(t, "version: 1\nmodel: p/a\nthinking: off\nstages:\n  - id: review\n    agent: antigravity\n"));
   assert.equal(agy.status, 0, agy.stderr);
   assert.match(agy.stdout, /模型: （用 agy 的缺省）/);

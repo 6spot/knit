@@ -1,18 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import { Option, type Command } from "commander";
 import { builtinAgents, piCommand, sessionAgentName } from "../adapters/agents.js";
 import { hostProjectRoot, selectHostTask } from "../application/host-hook.js";
 import { initGuidance, initProject } from "../application/init.js";
-import { buildSessionContext, contextLines } from "../application/session-context.js";
+import { buildSessionContext, cliDispatchMode, contextLines } from "../application/session-context.js";
 import { CONFIG_PATH, legacyStandardCopies, loadConfig, loadStandards, readWorkflow, savePitfall } from "../application/project-config.js";
 import { taskWorktree } from "../application/worktree.js";
 import { HOST_SPECS, type HostOptions } from "../contracts/host.js";
 import { AGENT_SPECS, DEFAULT_AGENT, TOOL_CAPABILITIES, WORKFLOW_ANCHORS, WORKFLOW_CONFIG_PATH, isReportEnum } from "../contracts/workflow.js";
 import { PITFALLS_PATH, pitfallScope, pitfallSections } from "../domain/pitfalls.js";
 import { standardsForStage, type Standard } from "../domain/standards.js";
-import { WORKFLOW_ANCHOR_NAMES, workflowPrompts, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
+import { WORKFLOW_ANCHOR_NAMES, validateAgentTarget, workflowPrompts, type WorkflowDefinition, type WorkflowExecutor, type WorkflowStage } from "../domain/workflow.js";
 import { findExecutable, gitSync } from "../infrastructure/process.js";
 import { fail, knitRoot, loadWorkflow, projectRoot, taskLabel } from "./shared.js";
 
@@ -69,9 +69,10 @@ export function registerContextCommand(program: Command): void {
       }
       const root = knitRoot(options.dir);
       if (root === null) return;
-      const context = buildSessionContext(root, id);
+      const mode = cliDispatchMode();
+      const context = buildSessionContext(root, id, mode === "tools");
       if (context.kind === "refused") return fail(context.problems);
-      process.stdout.write(`${contextLines(context).join("\n")}\n`);
+      process.stdout.write(`${contextLines(context, mode).join("\n")}\n`);
     });
 }
 
@@ -87,9 +88,7 @@ function stagesColumn(standard: Standard, known: readonly string[]): string {
 
 function knownStages(dir: string): string[] | null {
   const workflow = loadWorkflow(dir);
-  if (workflow) return [...WORKFLOW_ANCHORS, ...workflow.stages.map((stage) => stage.id)];
-  process.exitCode = 1;
-  return null;
+  return workflow && [...WORKFLOW_ANCHORS, ...workflow.stages.map((stage) => stage.id)];
 }
 
 export function registerStandardsCommands(program: Command): void {
@@ -118,6 +117,7 @@ export function registerStandardsCommands(program: Command): void {
       if (!known) return;
       if (!known.includes(stage)) return fail([`流程里没有的环节：${stage}`]);
       const checklist = loadStandards(projectRoot(options.dir)).filter(({ path }) => path === PITFALLS_PATH);
+      if (checklist[0]?.problems.length) return fail(checklist[0].problems.map((problem) => `${PITFALLS_PATH}：${problem}`));
       const [selected] = standardsForStage(checklist, stage);
       process.stdout.write(`${selected?.body ?? "没有适用的避坑条目"}\n`);
     });
@@ -132,7 +132,7 @@ export function registerStandardsCommands(program: Command): void {
       const known = knownStages(options.dir);
       if (!known) return;
       const stages = pitfallScope(options.section);
-      if (!stages) return fail(["分区要写通用或逗号分隔的环节 id"]);
+      if (!stages) return fail(["分区要写通用或逗号分隔的环节 id，每个环节 id 都不能为空"]);
       const unknown = stages.filter((id) => !known.includes(id));
       if (unknown.length) return fail([`流程里没有的环节：${unknown.join("、")}`]);
       try {
@@ -150,15 +150,15 @@ function chainLine(workflow: WorkflowDefinition): string {
 }
 
 function executorLines(executor: WorkflowExecutor, workflow: WorkflowDefinition, parallel: boolean): string[] {
-  const spec = AGENT_SPECS[executor.agent ?? DEFAULT_AGENT];
-  const defaults = spec.inheritsWorkflowDefaults ? workflow : null;
+  const spec = executor.agent === null ? null : AGENT_SPECS[executor.agent];
+  const defaults = spec?.inheritsWorkflowDefaults ? workflow : null;
   const indent = parallel ? "       " : "     ";
   return [
     ...(parallel ? [`     执行器: ${executor.id}`] : []),
     `${indent}角色文件: ${executor.prompt ?? "（没有指定）"}`,
     `${indent}Agent: ${executor.agent ?? `（由派发入口决定，普通终端用 ${DEFAULT_AGENT}）`}`,
-    `${indent}模型: ${executor.model ?? defaults?.model ?? spec.modelDefaultLabel}`,
-    `${indent}思考等级: ${executor.thinking ?? defaults?.thinking ?? spec.thinkingDefaultLabel}`,
+    `${indent}模型: ${executor.model ?? defaults?.model ?? spec?.modelDefaultLabel ?? `（由派发入口决定，Pi 用 ${workflow.model ?? "主会话模型"}，agy 用客户端缺省）`}`,
+    `${indent}思考等级: ${executor.thinking ?? defaults?.thinking ?? spec?.thinkingDefaultLabel ?? `（由派发入口决定，Pi 用 ${workflow.thinking ?? "主会话等级"}，agy 用客户端缺省）`}`,
   ];
 }
 
@@ -175,17 +175,9 @@ function stageLines(stage: WorkflowStage, index: number, workflow: WorkflowDefin
     `     工具: ${tools}`,
     ...(report.length === 0 ? [] : [`     报告字段: ${report.join("、")}`]),
     ...(jumps.length === 0 ? [] : [`     按结论跳转: ${jumps.join("；")}`]),
-    `     进入次数上限: ${stage.maxVisits === null ? "无" : String(stage.maxVisits)}`,
+    `     续聊（resume）: ${stage.resume}`,
+    `     首次之后最多再进入: ${stage.maxVisits === null ? "无" : String(stage.maxVisits)}`,
   ];
-}
-
-/** validate 在普通仓库和链接工作树里都只靠 .git 定位，不启动 Git。 */
-function validationRoot(dir: string): string {
-  const path = resolve(dir);
-  if (!existsSync(path)) return path;
-  const ancestors = (current: string): string => existsSync(join(current, ".git")) ? current
-    : dirname(current) === current ? path : ancestors(dirname(current));
-  return ancestors(realpathSync(path));
 }
 
 function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
@@ -212,10 +204,20 @@ function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
   }, "派发需要可用的 Git 和有初始提交的工作区");
 
   const session = sessionAgentName();
-  const targets = workflow.stages.flatMap((stage) => stage.executors.map((executor) => ({
-    agent: executor.agent ?? session, tools: TOOL_CAPABILITIES.filter((tool) => stage.tools === null || stage.tools.includes(tool)),
-    model: executor.model ?? workflow.model, location: stage.executors.length === 1 ? stage.id : `${stage.id}/${executor.id}`,
-  })));
+  const sessionDefaults = builtinAgents[session].sessionDefaults();
+  const targets = workflow.stages.flatMap((stage) => stage.executors.map((executor) => {
+    const agent = executor.agent ?? session;
+    const defaults = AGENT_SPECS[agent].inheritsWorkflowDefaults ? workflow : null;
+    const inherited = defaults && agent === session ? sessionDefaults : null;
+    const model = executor.model ?? defaults?.model ?? null;
+    const thinking = executor.thinking ?? defaults?.thinking ?? inherited?.thinking ?? null;
+    const location = stage.executors.length === 1 ? stage.id : `${stage.id}/${executor.id}`;
+    const effectiveModel = model ?? inherited?.model ?? null;
+    const target = validateAgentTarget({ agent, model: effectiveModel, thinking });
+    if (target.modelProblem) check(`${location} ${agent} 模型`, () => `${effectiveModel} ${target.modelProblem}`, "请修正 model");
+    if (target.thinkingProblem) check(`${location} ${agent} 思考等级`, () => `${thinking} ${target.thinkingProblem}`, "请修正 thinking");
+    return { agent, model, location, tools: TOOL_CAPABILITIES.filter((tool) => stage.tools === null || stage.tools.includes(tool)) };
+  }));
   if (targets.some((target) => target.agent === "pi")) {
     check("Pi 客户端", () => findExecutable(piCommand()) === null ? `找不到可执行文件 ${piCommand()}` : null, "请安装 Pi 并检查 PATH");
   }
@@ -231,7 +233,7 @@ function reportEnvironment(root: string, workflow: WorkflowDefinition): void {
     }
     const missing = group.filter((item) => item.model === null).map((item) => item.location);
     const hint = "不在 Pi 主会话里派发时，需在 workflow.yaml 写 model 或传 --model";
-    const inherits = missing.length > 0 && session === "pi" && builtinAgents.pi.sessionDefaults().model !== null;
+    const inherits = missing.length > 0 && session === "pi" && sessionDefaults.model !== null;
     check(`${label} 模型${inherits ? `（${missing.join("、")} 使用主会话模型。${hint}）` : ""}`,
       () => missing.length && !inherits ? `${missing.join("、")} 未配置模型` : null, hint);
   }
@@ -251,10 +253,7 @@ export function registerWorkflowCommands(program: Command): void {
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string }) => {
       const loaded = loadWorkflow(options.dir);
-      if (loaded === null) {
-        process.exitCode = 1;
-        return;
-      }
+      if (loaded === null) return;
       const lines = [chainLine(loaded), `环节（${loaded.stages.length}）：`, ...loaded.stages.flatMap((stage, index) => stageLines(stage, index, loaded))];
       process.stdout.write(`${lines.join("\n")}\n`);
     });
@@ -265,7 +264,7 @@ export function registerWorkflowCommands(program: Command): void {
     .option("--env", "配置有效后，只读检查本机派发环境")
     .option("--dir <目录>", "项目目录", process.cwd())
     .action((options: { dir: string; env?: boolean }) => {
-      const root = validationRoot(options.dir);
+      const root = projectRoot(options.dir);
       const loaded = readWorkflow(root);
       if (loaded.workflow === null) return fail(loaded.problems);
       process.stdout.write(`配置有效\n${chainLine(loaded.workflow)}\n`);

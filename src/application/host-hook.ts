@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
@@ -22,17 +22,26 @@ interface SessionState {
   digests?: Partial<Record<BlockName, string>>;
 }
 
-export function hostProjectRoot(dir: string): string | null {
-  const path = resolve(dir);
-  const knitDir = join(path, ".knit");
-  if (statSync(knitDir, { throwIfNoEntry: false })?.isDirectory()) {
-    // 用户目录也有 .knit/worktrees，只有初始化过的项目才在这里读取工作流。
-    const userStore = path === homedir() || (process.env.KNIT_HOME && resolve(path, process.env.KNIT_HOME) === knitDir);
-    if (userStore && existsSync(join(knitDir, "worktrees")) && !existsSync(join(path, WORKFLOW_CONFIG_PATH))) return null;
-    return path;
+export function locateProject(dir: string) {
+  if (!existsSync(dir)) return { root: resolve(dir), initialized: false };
+  const start = realpathSync(dir);
+  for (let path = start; ; path = dirname(path)) {
+    const knitDir = join(path, ".knit");
+    if (statSync(knitDir, { throwIfNoEntry: false })?.isDirectory()) {
+      const store = resolve(path, process.env.KNIT_HOME || join(homedir(), ".knit"));
+      if (existsSync(join(knitDir, "worktrees")) && !existsSync(join(path, WORKFLOW_CONFIG_PATH)) &&
+          (path === homedir() || (existsSync(store) && realpathSync(store) === knitDir))) break;
+      return { root: path, initialized: true };
+    }
+    if (existsSync(join(path, ".git"))) return { root: path, initialized: false };
+    if (dirname(path) === path) break;
   }
-  if (dirname(path) === path || existsSync(join(path, ".git"))) return null;
-  return hostProjectRoot(dirname(path));
+  return { root: start, initialized: false };
+}
+
+export function hostProjectRoot(dir: string): string | null {
+  const project = locateProject(dir);
+  return project.initialized ? project.root : null;
 }
 
 function withSession<T>(root: string, session: HostSession, action: (path: string) => T): T {
@@ -96,8 +105,11 @@ function sessionBlocks(root: string, taskId: string | null, guidance?: string, d
   const context = readContext(root, taskId);
   if (context.kind === "refused") {
     const discussion = buildSessionContext(root);
+    const blocks = discussion.kind === "context" ? contextBlocks(discussion) : null;
     return {
-      discussion: discussion.kind === "context" ? contextBlocks(discussion).discussion : undefined,
+      discussion: blocks?.discussion,
+      pitfalls: blocks?.pitfalls,
+      guidance,
       status: [
         `选中的 Knit 任务 ${taskId} 读不出来`, ...context.problems,
         ...(discussion.kind === "refused" ? discussion.problems : []),
@@ -114,7 +126,7 @@ function sessionBlocks(root: string, taskId: string | null, guidance?: string, d
 
 function readContext(root: string, taskId: string | null) {
   try {
-    return buildSessionContext(root, taskId ?? undefined);
+    return buildSessionContext(root, taskId ?? undefined, true);
   } catch (error) {
     if (taskId === null) throw error;
     return { kind: "refused", problems: [String(error)] } as const;

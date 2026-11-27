@@ -166,6 +166,7 @@ createdAt: 2026-11-14T13:36:56Z
 
 ## 4. 规范
 
+- 内置讨论规范按宿主指引委派。Pi 和 Antigravity 可派发外部执行者，WorkBuddy 和 Qoder 使用宿主自身工具与原生子 Agent。
 - Knit 从安装包 `assets/standards/` 加载讨论、任务编写、任务拆分和交付规范，标识分别为 `knit:standards/discussion.md`、`knit:standards/task-writing.md`、`knit:standards/task-splitting.md` 和 `knit:standards/delivery.md`。升级安装包后下次读取即生效。
 - 内置规范和角色模板随安装包进入每个项目，只写任务怎么讨论、拆分、编写和交付。代码怎么分层、测试怎么组织、哪些改动要独立审查或单独授权，由项目写在自己的 `.knit/standards/` 和 `AGENTS.md` 里，不写进内置规范和角色模板。项目不能用同名文件覆盖内置规范，内容有偏差时直接改内置文本。
 - `knit init` 和 `knit standards list` 会列出旧版留在 `.knit/standards/` 顶层的四份同名副本并提示迁移。原文保留，任务点名旧路径会解析到对应的内置资源。项目可在另名文件中调整提问数量、提交文案语言等团队约定。任务状态、交付授权、受保护文件和报告字段仍由对应操作的代码核验。
@@ -217,7 +218,7 @@ createdAt: 2026-11-14T13:36:56Z
 - Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 和 `knit workflow validate --env` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。宿主环境中的 `KNIT_SESSION_AGENT` 缺失或为空且命令未显式指定时，钩子为派发和环境预检补上 `KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT:-antigravity}"`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - Qoder 仅在默认主 Agent（`agent:default`）加载项目级 `.qoder/settings.json`。`SessionStart` 和 `UserPromptSubmit` 返回对应的 `hookEventName` 和 `additionalContext`。优先取事件的 `cwd`，缺省时依次取 `QODER_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和进程工作目录。
-- WorkBuddy 和 Qoder 选中 `ready` 或 `active` 任务且下一步需要派发环节时，状态块提示使用当前宿主自身工具与原生子 Agent 完成该环节，再运行 `knit task close <id> --result <总结>`。`independent` 任务缺少有效的 Knit 审查通过记录时，提示在原生独立检查通过后用 `--reason` 写明检查说明。Antigravity、Pi 和普通 CLI 在待派发时提示 `knit run start <id>`。
+- WorkBuddy 和 Qoder 选中 `ready` 或 `active` 任务且下一步需要派发环节时，状态块提示使用当前宿主自身工具与原生子 Agent 完成该环节，再运行 `knit task close <id> --result <总结>`。`independent` 任务缺少有效的 Knit 审查通过记录时，提示在原生独立检查通过后用 `--reason` 写明检查说明。待裁决时先列出批次各成员的报告，再由主会话汇总，交给原生子 Agent 处理。Antigravity 和普通 CLI 提示 `knit run start <id>`。Pi 主会话按状态提示 `knit_task`、`knit_run` 或 `knit_deliver`。
 - 钩子宿主按项目、宿主和原生会话标识分别保存任务选择，以及普通讨论规范、当前环节补充规范、适用避坑分区、任务状态和宿主指引的摘要。首轮注入全部适用内容；之后只发送变化的规范或指引块，并带上最新任务状态。任务状态单独变化时只发状态；内容未变或不在 Knit 项目时不注入。避坑分区变更不触发普通规范重发。
 - WorkBuddy 的 `PreToolUse` 只订阅 `Bash`。`knit context --use`、`--unuse` 与 `knit task new` 通过 `updatedInput.command` 取得 `KNIT_HOST=workbuddy` 和当前会话标识。`updatedInput` 保留原始 `tool_input` 中除 `command` 外的全部字段。`knit run start` 直接返回 `permissionDecision: deny` 并提示改用 WorkBuddy 原生工具与子 Agent（或在外部终端/Pi/Antigravity 中派发）。交付时只读 `transcript_path`，排除宿主合成消息和 `<system-reminder>`。桌面端以 `<user_query>` 包裹正文时，提取其中的用户输入并去掉宿主附加的 `<query_source>` 来源标记。共用内核核对整条或完整一行原话。预览直接放行，原话核对失败时返回 `permissionDecision: deny` 及继续做法。
 - Qoder 的 `PreToolUse` 只订阅 `Bash`。选择、取消选择和建草稿的命令带上 `KNIT_HOST=qoder` 与 `KNIT_HOST_SESSION`。Qoder 用 `updatedInput` 整对象替换 `tool_input`，因此返回改写后的 `command` 及其余全部原始字段。预览直接放行。实际交付从 `transcript_path` 的 JSONL 中读取用户文本，排除摘要、元消息、工具结果与非用户来源，剥离 `<system-reminder>`、`<hook_context>` 和 `<loaded_context>`。标签残缺的消息不参与核对。授权原话须匹配整条或完整一行，匹配失败返回 `permissionDecision: deny`，放行时 stdout 为空。
@@ -273,7 +274,7 @@ stages:
 - 环节的 `agent` 接受 `pi` 和 `antigravity`。省略时取派发入口的客户端。Pi 桥接传入 `pi`，其他调用方可通过 `KNIT_SESSION_AGENT` 传入客户端。普通终端缺省为 `pi`。新执行记录写入实际 `agent`，历史记录省略该字段时按 `pi` 读取。`run status`、`run wait` 和 Pi 的续跑通知显示实际 Agent。
 - Pi 模型写成 `provider/模型`，依次取本次 `--model`、环节、流程顶层、主会话。四处都没有模型时拒绝派发。思考等级按相同顺序取本次 `--thinking`、环节、流程顶层、主会话，允许 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。有值时传给 Pi 的 `--thinking`，Pi 按模型能力收窄。省略时由 Pi 取缺省。
 - Antigravity 模型使用 `agy` 自己的 ID。模型和思考等级依次取本次命令行覆盖和环节值。思考等级允许 `low`、`medium`、`high`、`xhigh`、`max`，传给 `--effort`。缺省参数由 CLI 决定。`knit workflow validate` 给出显式配置的错误行号。省略 `agent` 时，模型格式和思考等级还要在派发时按实际客户端核对。
-- Pi 桥接把 `ctx.model.provider`、`ctx.model.id` 和 `ctx.thinkingLevel` 放进子进程的 `PI_PROVIDER`、`PI_MODEL`、`PI_REASONING_LEVEL`，Pi 的 bash 工具也会注入这些变量。`knit workflow show` 显示环节的 Agent 和流程可确定的模型与思考等级。主会话和命令行覆盖值在派发时取用。
+- Pi 桥接把 `ctx.model.provider`、`ctx.model.id` 和 `ctx.thinkingLevel` 放进子进程的 `PI_PROVIDER`、`PI_MODEL`、`PI_REASONING_LEVEL`，Pi 的 bash 工具也会注入这些变量。`knit workflow show` 显示各环节的 `resume` 值和首次之后最多再进入的次数。省略 `agent` 时，模型与思考等级的缺省来源随派发入口显示。主会话和命令行覆盖值在派发时取用。
 - 返工上限写在顶层的 `maxRepairRounds`，不写是 5。
 - 每个环节可以写：`id`、`name`、`description`、`agent`、`model`、`thinking`、`prompt`（角色文件）、`resume`（允许返工时续聊，默认 `false`）、`tools`（能力：`read`、`write`、`exec`、`external`、`network`）、`report`（额外的报告字段）、`onVerdict`（按结论跳到哪个环节）、`maxVisits`（第一次之后最多再进入几次，`null` 是不设上限）。
 - `executors` 是非空列表。使用列表时，把 `agent`、`model`、`thinking` 写在成员上。各成员的 `prompt` 缺省沿用环节角色文件。`id` 在环节内唯一，省略时按顺序取 `executor-1`、`executor-2` 等。命令行的模型或思考等级覆盖对每位成员生效。
@@ -530,9 +531,11 @@ knit workflow show
 knit workflow validate [--env]
 ```
 
-`knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。预检也会逐一核对流程引用的角色文件，路径相对项目根目录解析。缺失或非普通文件的路径会一并列出，提示补齐角色文件，默认角色文件可用 `knit init` 补齐。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
+CLI 和宿主钩子从当前目录往上查找最近的项目 `.knit/`，到 Git 工作树边界为止。尚未初始化时，`init` 在 Git 工作树根目录生成文件，非 Git 项目在指定目录生成文件。
 
-`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。初始化结束时，若没有配齐任何主会话桥接，输出会列出各客户端的安装命令，提示安装后运行 `knit workflow validate --env`。本次创建了初始化任务时，引导和第 10 节的桌面钩子告警都在 `初始化任务:` 行之前。
+`knit workflow validate` 校验流程文件，错误按行号列出。加 `--env` 时，流程有效后再逐项检查 Node ≥ 24、`.knit/config.json`、Git 工作区与初始提交，以及各环节和并行执行器用到的客户端。预检也会逐一核对流程引用的角色文件，路径相对项目根目录解析。缺失或非普通文件的路径会一并列出，提示补齐角色文件，默认角色文件可用 `knit init` 补齐。省略 `agent` 时按当前派发入口选择，普通终端默认用 Pi。预检按实际 Agent 核对生效的模型格式和思考等级，并指出不兼容的环节或执行器。Pi 检查可执行文件和模型来源，模型可取执行器、流程顶层或 Pi 主会话的设置。Antigravity 按不同 `tools` 组合检查 `agy` 版本和 macOS 隔离条件，以当前 `HEAD` 预检新任务。整个检查只读，无需创建工作树或调用模型。全部通过时输出环境就绪并返回 0，有阻碍派发的问题时列出原因及修复建议并返回 1。
+
+`knit init` 默认只生成 `.knit/`。首次初始化或以后补装时，`--pi`、`--agy`、`--workbuddy`、`--qoder` 可以任意组合。初始化结束时，若没有配齐任何主会话桥接，输出会列出各客户端的安装命令，提示 Pi 和 Antigravity 检查派发环境，Qoder 和 WorkBuddy 使用原生工具与子 Agent。本次创建了初始化任务时，引导和第 10 节的桌面钩子告警都在 `初始化任务:` 行之前。
 
 `knit task list` 保留优先级、ID、状态和标题，将活跃子任务缩进在父任务下，每层两个空格。顶层和同级子任务各按优先级、创建时间排序。父任务已归档、缺失或未命中筛选时，子任务在顶层显示 `父:<ID>`。`阻塞:<ID 列表>` 列出尚未归档交付、已取消或任务分支尚未合并进当前 `HEAD` 的依赖。
 
@@ -544,9 +547,9 @@ knit workflow validate [--env]
 
 执行期间，任务行显示 `正在启动`、`运行中 3m`（不足一分钟为 `运行中 <1m`）或 `进程已退出`。并行批次需要主会话裁决时显示 `待裁决`。流程文件缺失或无效时仍可查看层级、依赖和进程状态。在 Git 仓库中，列表末尾列出不属于活跃任务且尚未合并进 `HEAD` 的本地 `knit/*` 分支及 `git merge --no-edit <分支>` 命令。
 
-`knit run status`、`knit run wait` 和 `knit context <任务>` 共用任务状态。并行成员结束且 `report.md` 存在时显示报告路径。执行已记为失败，或启动阶段已过、进程退出而执行尚未结算时，若执行目录中有 `worker.log`，状态中会显示日志的项目相对路径。已交付和已取消任务提示可运行 `knit context --unuse` 取消选中。
+`knit run status`、`knit run wait` 和 `knit context <任务>` 共用任务状态。并行成员结束且 `report.md` 存在时显示报告路径。执行已记为失败，或启动阶段已过、进程退出而执行尚未结算时，若执行目录中有 `worker.log`，状态中会显示日志的项目相对路径。状态块用 `（确认后改过需求）` 标出确认失效。已交付和已取消任务在 Pi 中提示使用 `knit_task` 的 `use` 动作并省略 `taskId`，命令型宿主提示 `knit context --unuse`。
 
-`knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，只报告错误，必要时附未发送的普通讨论规范；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
+`knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，报告错误并附上尚未发送或有变化的讨论规范、避坑分区和宿主指引；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
 WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。WorkBuddy 与 Qoder 的钩子脚本将 Homebrew 和用户级工具目录前置，找不到 `knit` 或 Node 低于 24 时再启动登录 shell。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
 
@@ -582,7 +585,7 @@ Pi 桥接有 3 个工具：
 4. 测试只在临时目录里建夹具，不读本仓库的 `.knit/`、`.pi/` 和 `AGENTS.md`。测试夹具优先通过应用层入口和只读模板仓库复制构造，减少重复启动 CLI 与 `git init` 子进程。
 5. 交付不依赖 `AGENTS.md` 或任何规范文件的摘要。
 6. 普通初始化只补齐核心和本次显式指定的宿主模板。`--force` 还纳入项目中已有任一 Knit 桥接文件的宿主，并补齐该宿主缺少的文件。对 `workflow.yaml`、角色文件和这些宿主的桥接，先将与模板不同的副本按项目相对路径备份到 `.knit/.runtime/backups/<时间>/`，再恢复模板内容。已有的 `config.json`、`.gitignore`、项目规范和任务保留原样。旧版内置规范副本按第 4 节提示迁移。
-7. WorkBuddy 和 Qoder 各自在 `.workbuddy/` 和 `.qoder/` 下安装桥接。目录中的 `knit-hook.sh` 存在，或 `settings.json` 的三个项目钩子之一包含引用本宿主脚本的命令时，`--force` 才自动识别该宿主。普通安装保留已有的自定义设置。显式选择桌面宿主且保留的 `settings.json` 在三个事件中都没有引用本宿主启动脚本的命令钩子时，输出会指出文件路径，提示从模板手工合入 `SessionStart`、`UserPromptSubmit`、`PreToolUse` 钩子，或使用该宿主的强制安装命令。显式指定 `--force --workbuddy` 或 `--force --qoder` 会备份有差异的文件并恢复对应模板。Antigravity 执行者可以读取这两个目录中的文件，两个目录都受写保护。
+7. WorkBuddy 和 Qoder 各自在 `.workbuddy/` 和 `.qoder/` 下安装桥接。目录中的 `knit-hook.sh` 存在，或 `settings.json` 的三个项目钩子之一包含引用本宿主脚本的命令时，`--force` 才自动识别该宿主。普通安装保留已有的自定义设置。显式选择桌面宿主且保留自定义 `settings.json` 时，会逐项核对 `SessionStart`、`UserPromptSubmit`、`PreToolUse` 是否引用本宿主启动脚本，列出缺少的事件，并提示手工合入或使用该宿主的强制安装命令。显式指定 `--force --workbuddy` 或 `--force --qoder` 会备份有差异的文件并恢复对应模板。Antigravity 执行者可以读取这两个目录中的文件，两个目录都受写保护。
 
 ## 11. 不做与延后
 

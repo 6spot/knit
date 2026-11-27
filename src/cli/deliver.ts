@@ -50,7 +50,7 @@ export function registerDeliverCommand(program: Command): void {
     .command("deliver <id>")
     .description("交付一个完成的任务：归档；项目在 Git 仓库里时再提交一次")
     .option("--preview", "只列出会做什么，什么都不改")
-    .option("--authorization <引用>", "用户是在哪条消息里同意交付的")
+    .option("--authorization <引用>", "用户同意交付的原话（整条或完整一行）")
     .addOption(new Option("--message <文案>", "提交文案").conflicts("messageFile"))
     .option("--message-file <文件>", "从文件读取提交文案")
     .option("--dir <目录>", "项目目录", process.cwd())

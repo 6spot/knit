@@ -91,7 +91,7 @@ function performDelivery(root: string, id: string, options: DeliveryOptions): De
     : null;
   const authorization = options.authorization?.trim() ?? "";
   if (!options.preview && authorization === "") {
-    return { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"] };
+    return { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，填写用户同意交付的原话（整条或完整一行）"] };
   }
   if (!options.preview && git && options.message === undefined && options.messageFile === undefined) {
     return { kind: "refused", problems: ["在 Git 仓库里交付要给提交文案：加 --message <文案> 或 --message-file <文件>"] };

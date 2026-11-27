@@ -1,22 +1,18 @@
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { locateProject } from "../application/host-hook.js";
 import { readTask, type LoadedTask } from "../application/task-store.js";
 import { readWorkflow } from "../application/project-config.js";
 import type { WorktreeCleanup, WorktreeIntegration } from "../application/worktree.js";
 import type { TaskRecord } from "../contracts/task.js";
 import { currentStatus, type TaskDocument } from "../domain/task.js";
 import type { WorkflowDefinition } from "../domain/workflow.js";
-import { gitSync } from "../infrastructure/process.js";
 
 /** 面向用户的任务标识：`标题（id）`。 */
 export function taskLabel(title: string, id: string): string {
   return `${title}（${id}）`;
 }
 
-/** 项目根：目录在 Git 仓库里时是仓库的顶层目录，否则是这个目录本身。 */
 export function projectRoot(dir: string): string {
-  const top = gitSync(["rev-parse", "--show-toplevel"], dir);
-  return top.code === 0 ? top.stdout.trim() : resolve(dir);
+  return locateProject(dir).root;
 }
 
 export function fail(problems: readonly string[]): void {
@@ -26,8 +22,8 @@ export function fail(problems: readonly string[]): void {
 
 /** 有 `.knit/` 目录的项目根；没有时报错并返回 null。 */
 export function knitRoot(dir: string): string | null {
-  const root = projectRoot(dir);
-  if (existsSync(join(root, ".knit"))) return root;
+  const project = locateProject(dir);
+  if (project.initialized) return project.root;
   fail(["这个项目里没有 .knit/ 目录；运行 knit init 生成"]);
   return null;
 }
@@ -56,7 +52,7 @@ export function shownStatus(document: TaskDocument, record: TaskRecord): { text:
 /** 读取并校验项目的流程文件；文件不存在或有问题时把原因写到标准错误，返回 null。 */
 export function loadWorkflow(dir: string): WorkflowDefinition | null {
   const loaded = readWorkflow(projectRoot(dir));
-  if (loaded.workflow === null) process.stderr.write(loaded.problems.map((problem) => `${problem}\n`).join(""));
+  if (loaded.workflow === null) fail(loaded.problems);
   return loaded.workflow;
 }
 

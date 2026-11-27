@@ -36,8 +36,8 @@
 
 ## 3. 接入工作流执行者
 
-1. **登记派发目标。** 在工作流契约的 `AgentNameSchema` 和 `AGENT_SPECS` 定义 `agent` 名、模型格式、思考等级及缺省值策略，在 `builtinAgents` 增加 `AgentRegistration`，提供 `createAdapter` 和 `sessionDefaults`。Pi 要求 `provider/模型`，可继承工作流或主会话的缺省值。Antigravity 使用自己的模型 ID，省略时由 `agy` 决定。省略 `agent` 时，`knit workflow validate` 可接受任一已登记客户端支持的格式，派发时再按实际客户端复核。命令入口可通过 `KNIT_SESSION_AGENT` 指定客户端，普通终端默认 `pi`。旧执行记录缺少 `agent` 时按 Pi 读取。[工作流契约](../src/contracts/workflow.ts) · [目标校验](../src/domain/agent-target.ts) · [执行者注册表](../src/adapters/agents.ts)
-2. **实现一次会话。** 实现 `AgentAdapter.createSession`，接收 `AgentLaunch` 并返回 `AgentSession`。`root` 是任务资料所在的主检出，`cwd` 是执行者工作的 Worktree，`dir` 是本次执行目录。Knit 准备好 `system.md`、`message.md` 和声明的报告字段。`start()` 报告启动结果，`prompt()` 在原会话发消息，等本轮真正结束才返回报告原文或失败原因，`stop()` 停掉客户端。报告落盘、字段校验、同会话补报一次及执行入账均由 Knit 负责。有交互界面的客户端等待用户输入或审批时，保持进行中的状态。[适配器契约](../src/contracts/agent.ts) · [会话与报告处理](../src/application/run-session.ts)
+1. **登记派发目标。** 在工作流契约的 `AgentNameSchema` 和 `AGENT_SPECS` 定义 `agent` 名、模型格式、思考等级及缺省值策略，在 `builtinAgents` 增加 `AgentRegistration`，提供 `createAdapter` 和 `sessionDefaults`。Pi 要求 `provider/模型`，可继承工作流或主会话的缺省值。Antigravity 使用自己的模型 ID，省略时由 `agy` 决定。省略 `agent` 时，`knit workflow validate` 可接受任一已登记客户端支持的格式，派发时再按实际客户端复核。命令入口可通过 `KNIT_SESSION_AGENT` 指定客户端，普通终端默认 `pi`。旧执行记录缺少 `agent` 时按 Pi 读取。[工作流契约](../src/contracts/workflow.ts) · [目标校验](../src/domain/workflow.ts) · [执行者注册表](../src/adapters/agents.ts)
+2. **实现一次会话。** 实现 `AgentAdapter.createSession`，接收 `AgentLaunch` 并返回 `AgentSession`。`root` 是任务资料所在的主检出，`cwd` 是执行者工作的 Worktree，`dir` 是本次执行目录。Knit 准备好 `system.md`、`message.md` 和声明的报告字段。`start()` 报告启动结果，`prompt()` 在原会话发消息，等本轮真正结束才返回报告原文或失败原因，`stop()` 停掉客户端。报告落盘、字段校验、同会话补报一次及执行入账均由 Knit 负责。有交互界面的客户端等待用户输入或审批时，保持进行中的状态。[适配器契约](../src/contracts/agent.ts) · [会话与报告处理](../src/application/run-execute.ts)
 3. **限制环节可用的工具。** 将 `read`、`write`、`exec`、`network` 和 `external` 映射到客户端实际开放的能力。省略 `tools` 或写 `all` 表示请求全部能力，`[]` 关闭项目工具。同一环节配置两个及以上 `executors` 时，必须显式列出 `tools` 并排除 `write`。需要隔离前置条件的客户端通过 `checkDispatch` 检查，无法满足时在派发前返回具体原因。需要在 Worktree 写临时配置的客户端可登记 `workspaceCopies` 和 `cleanRun`，供快照核对和结算清理使用。[派发准备](../src/application/run-prepare.ts) · [执行者注册表](../src/adapters/agents.ts)
 4. **接通可选能力。** `paneCommand` 提供交互启动命令，返回 `null` 时走后台。Rex 窗格的打开、监控和回退由 Knit 负责。支持原生续聊时返回可核实的 `resumeId`、实现 `checkResume`，再用 `resume: true` 验证同需求、环节、执行器和 Agent 的续聊。恢复不可用或启动失败时用完整交接新开会话。已经开始执行本轮指令后发生的错误按本轮结果结算，避免重复执行。[Pi 适配器](../src/adapters/pi/execution.ts) · [Antigravity 适配器](../src/adapters/antigravity/execution.ts) · [设计第 7 节](design/DESIGN.md)
 
@@ -61,7 +61,7 @@ stages:
 | 执行者从派发到结算 | 用 `knit run start <id>` 从真实入口派发，核对实际 Agent、工作目录、能力及报告。让首次报告的末尾 JSON 代码块漏掉 `summary`，观察 Knit 在同一会话要求补报，核对 `report.md` 中的最终结果。另一次执行中用 `knit run cancel <id>` 取消，检查进程已退出、`knit run status <id>` 已记下结果。 |
 | 声明支持的续聊、窗格或通知 | 分别触发支持的路径。续聊核对原生会话标识，恢复失败后核对完整交接。窗格中等待输入时检查任务仍在执行，窗格不可用时观察后台回退。声称能自动通知时，观察发起派发的主会话是否实际收到结果。 |
 
-在记录里给出版本、平台、实际入口、操作、观察结果及证据位置，逐项标明真实客户端、模拟输入或待实测。模板有变更时，用 `npm run pack:check` 检查发布包，在临时项目验证初始化生成物、重复初始化和 `--force` 的备份。改动适配器时运行 `npm run typecheck` 和 `npm test`，再用目标版本的真实客户端复核关键路径。[初始化回归](../test/init.test.mjs) · [宿主协议回归](../test/host-hook.test.mjs) · [原会话补报回归](../test/run-report-retry.test.mjs)
+在记录里给出版本、平台、实际入口、操作、观察结果及证据位置，逐项标明真实客户端、模拟输入或待实测。模板有变更时，用 `npm run pack:check` 检查发布包，在临时项目验证初始化生成物、重复初始化和 `--force` 的备份。改动适配器时运行 `npm run typecheck` 和 `npm test`，再用目标版本的真实客户端复核关键路径。[初始化回归](../test/init.test.mjs) · [宿主协议回归](../test/host-hook.test.mjs) · [原会话补报回归](../test/run-execute.test.mjs)
 
 真实会话的证据放在 `validation/` 或对应任务目录里。接入后，在仓库首页列出可用角色和启动入口，在设计第 5 至 7 节及第 9 至 10 节的对应位置更新交接、执行、命令或安装行为。[现行设计](design/DESIGN.md)
 

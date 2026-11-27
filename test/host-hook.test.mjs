@@ -22,7 +22,8 @@ import { buildSessionContext, contextLines } from "../dist/application/session-c
 import { createTask } from "../dist/application/task-store.js";
 import { HOST_SPECS } from "../dist/contracts/host.js";
 import { knit, project } from "./helpers/cli.mjs";
-import { agents, readyTask, runProject } from "./helpers/run.mjs";
+import { git } from "./helpers/git.mjs";
+import { agents, doneTask, readyTask, runProject } from "./helpers/run.mjs";
 
 const cli = fileURLToPath(new URL("../dist/cli/knit.js", import.meta.url));
 const session = "ec33ebf9-0cba-4100-8142-c61503f6c587";
@@ -222,6 +223,7 @@ test("AGY 从 stdin 注入、按会话去重，选择和状态变化后刷新", 
     return spawnSync("/bin/sh", ["-c", modified.overwrite.CommandLine], { encoding: "utf8", cwd: subdir,
       env: { ...process.env, PATH: `${plain}:${process.env.PATH}` } });
   };
+  assert.ok(knit(subdir, "task", "list").stdout.includes(task.id));
   const used = await select(`TASK_ID=${task.id} sh -c 'knit context --use="$TASK_ID"'`);
   assert.equal(used.status, 0);
   assert.equal(used.stdout, `已选中 加问候语（${task.id}）\n`);
@@ -304,7 +306,7 @@ test("环节、项目规范和避坑分区分别更新；同环节开始执行�
   assert.deepEqual(standardPaths(active), []);
   assert.deepEqual(finishRun({ agents, root, taskId: task.id, runId: run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
   const finished = await injected();
-  assert.match(finished, /^下一步: 核对之后运行 knit task close /m);
+  assert.match(finished, /^下一步: 核对之后运行 knit task close \S+ --result <总结>$/m);
   assert.match(finished, /交付避坑新版/);
   assert.doesNotMatch(finished, /实现避坑新版/);
   assert.deepEqual(standardPaths(finished), ["knit:standards/delivery.md", pitfalls]);
@@ -471,6 +473,73 @@ test("WorkBuddy 和 Qoder 为待派发环节注入原生工具和收尾命令", 
   assert.deepEqual(problems, []);
   assert.deepEqual(finishRun({ agents, root: cwd, taskId: independent.id, runId: run.id, workflow, verdict: null, failure: null, sessionFile: null }), []);
   await check(independent, "审查", "active(implement)", "user-prompt-submit");
+});
+
+test("已交付任务在独立钩子进程间按任务与记录版本复用提交摘要", (t) => {
+  const root = runProject(t);
+  const task = doneTask(root);
+  const delivered = deliverTask(root, task.id, { authorization: "同意交付", message: "交付摘要" });
+  assert.equal(delivered.kind, "delivered");
+  selectHostTask(root, { host: "agy", sessionId: session }, task.id);
+  const trace = join(process.env.KNIT_HOME, "git.trace");
+  const hook = () => {
+    writeFileSync(trace, "");
+    const result = spawnSync(process.execPath, [cli, "hook", "agy", "PreInvocation"], { encoding: "utf8",
+      input: JSON.stringify({ cwd: root, conversationId: session }), env: { ...process.env, GIT_TRACE: trace } });
+    assert.equal(result.status, 0, result.stderr);
+    return { output: JSON.parse(result.stdout), searched: readFileSync(trace, "utf8").includes("git log") };
+  };
+  const first = hook();
+  assert.match(JSON.stringify(first.output), /提交: [a-f0-9]+ 交付摘要/);
+  assert.equal(first.searched, true);
+  assert.deepEqual(hook(), { output: {}, searched: false });
+  for (const name of ["record.json", "task.md"]) {
+    const file = join(root, delivered.archiveDir, name);
+    writeFileSync(file, readFileSync(file, "utf8") + "\n");
+    assert.equal(hook().searched, true, name);
+    assert.equal(hook().searched, false, name);
+  }
+  git(root, "commit", "--amend", "-q", "-m", `修订提交摘要\n\nKnit-Task: ${task.id}`);
+  const amended = hook();
+  assert.equal(amended.searched, true);
+  assert.match(JSON.stringify(amended.output), /提交: [a-f0-9]+ 修订提交摘要/);
+  assert.deepEqual(hook(), { output: {}, searched: false });
+});
+
+test("原生宿主汇总并行裁决报告，任务损坏仍收到首次规范和宿主指引", async (t) => {
+  const cwd = runProject(t);
+  writeFileSync(join(cwd, ".knit/workflow.yaml"), `version: 1
+model: p/a
+stages:
+  - id: review
+    tools: [read]
+    executors: [{id: first}, {id: second}]
+    report: {verdict: [pass, changes_requested]}
+`);
+  const task = readyTask(cwd);
+  const workflow = readWorkflow(cwd).workflow;
+  const batch = prepareRun({ root: cwd, taskId: task.id, workflow, config: loadConfig(cwd).config, model: null });
+  assert.deepEqual(batch.problems, []);
+  batch.runs.forEach((run, index) => assert.deepEqual(finishRun({ agents, root: cwd, taskId: task.id, runId: run.id,
+    workflow, verdict: index ? "pass" : "changes_requested", failure: null, sessionFile: null }), []));
+  for (const [host, hook] of [["qoder", qoderHostHook], ["workbuddy", workbuddyHostHook]]) {
+    selectHostTask(cwd, { host, sessionId: session }, task.id);
+    const text = (await hook("session-start", { cwd, session_id: session })).hookSpecificOutput.additionalContext;
+    const next = text.slice(text.indexOf("下一步:"), text.indexOf("目录:"));
+    assert.match(next, /等待主会话裁决汇总/);
+    for (const run of batch.runs) assert.ok(next.includes(`${run.id}/report.md`));
+    assert.match(next, /原生子 Agent/);
+    assert.doesNotMatch(next, /knit run start/);
+  }
+  const fresh = { cwd, session_id: "missing-task" };
+  selectHostTask(cwd, { host: "workbuddy", sessionId: fresh.session_id }, task.id);
+  writeStandard(cwd, "pitfalls", "title: 避坑清单", "## 通用\n\n读报告");
+  renameSync(join(cwd, task.dir, "task.md"), join(cwd, task.dir, "bad"));
+  const error = (await workbuddyHostHook("session-start", fresh)).hookSpecificOutput.additionalContext;
+  assert.match(error, /读不出来/);
+  assert.match(error, /读报告/);
+  assert.match(error, /不调用 knit run start/);
+  assert.equal(await workbuddyHostHook("user-prompt-submit", fresh), null);
 });
 
 test("WorkBuddy 改写 Bash 命令时保留其余工具参数", async () => {

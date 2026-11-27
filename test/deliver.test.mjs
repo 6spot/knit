@@ -314,7 +314,7 @@ test("不能交付时什么都不变", (t) => {
   assert.deepEqual(deliverTask(dir, ready.id, { authorization }), { kind: "refused",
     problems: [`任务 ${ready.id} 还没有完成（ready）；完成之后再交付：knit task close ${ready.id}`] });
   for (const options of [{}, { authorization: "  " }]) {
-    assert.deepEqual(deliverTask(dir, done.id, options), { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，写明用户是在哪条消息里同意的"] });
+    assert.deepEqual(deliverTask(dir, done.id, options), { kind: "refused", problems: ["交付要有用户的授权：加 --authorization <引用>，填写用户同意交付的原话（整条或完整一行）"] });
   }
   assert.deepEqual([...filesOf(dir, ready.dir), ...filesOf(dir, done.dir)], before);
 });
