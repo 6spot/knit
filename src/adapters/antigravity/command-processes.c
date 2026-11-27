@@ -18,21 +18,27 @@ static int belongs_to_command(pid_t pid, const char *scope, const char *control)
 
 static int stop_commands(const char *scope, const char *control) {
     const int needed = proc_listpids(PROC_UID_ONLY, getuid(), NULL, 0);
-    if (needed <= 0) return -1;
-    const int size = needed + 64 * sizeof(pid_t);
-    pid_t *pids = malloc(size);
-    if (pids == NULL) return -1;
-    const int bytes = proc_listpids(PROC_UID_ONLY, getuid(), pids, size);
-    if (bytes <= 0 || bytes >= size) {
+    const size_t max_size = 4 * 1024 * 1024;
+    if (needed <= 0 || (size_t)needed > max_size - 64 * sizeof(pid_t)) return -1;
+    size_t size = (size_t)needed + 64 * sizeof(pid_t);
+    pid_t *pids = NULL;
+    int bytes;
+    for (unsigned retry = 0; ; retry++) {
+        pids = malloc(size);
+        if (pids == NULL) return -1;
+        bytes = proc_listpids(PROC_UID_ONLY, getuid(), pids, (int)size);
+        if (bytes > 0 && (size_t)bytes < size) break;
         free(pids);
-        return -1;
+        if (bytes <= 0 || retry == 4 || size > max_size / 2) return -1;
+        size *= 2;
     }
 
+    const pid_t self = getpid();
     int stopped = 0;
     for (size_t i = 0; i < (size_t)bytes / sizeof(pid_t); i++) {
         const pid_t pid = pids[i];
         struct proc_bsdinfo before, current;
-        if (pid <= 1 || proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, sizeof(before)) != sizeof(before) ||
+        if (pid <= 1 || pid == self || proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, sizeof(before)) != sizeof(before) ||
             before.pbi_status == SZOMB || !belongs_to_command(pid, scope, control)) continue;
         if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &current, sizeof(current)) != sizeof(current) ||
             current.pbi_start_tvsec != before.pbi_start_tvsec || current.pbi_start_tvusec != before.pbi_start_tvusec) continue;
@@ -51,17 +57,21 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     const char *scope = argv[2];
     char control[128];
-    if (snprintf(control, sizeof(control), "%s.control", scope) >= (int)sizeof(control)) return 2;
+    const int length = snprintf(control, sizeof(control), "%s.control", scope);
+    if (length < 0 || (size_t)length >= sizeof(control)) return 2;
     if (strcmp(argv[1], "probe") == 0) return belongs_to_command(getpid(), scope, control) ? 0 : 1;
     if (strcmp(argv[1], "stop") != 0) return 2;
 
-    for (;;) {
+    const useconds_t delays[] = {10000, 20000, 50000, 100000};
+    for (unsigned scan = 0; scan < 40; scan++) {
         const int stopped = stop_commands(scope, control);
         if (stopped < 0) {
             fputs("无法枚举或停止 Antigravity 命令进程\n", stderr);
             return 1;
         }
         if (stopped == 0) return 0;
-        usleep(10000);
+        usleep(delays[scan < 3 ? scan : 3]);
     }
+    fputs("等待 Antigravity 命令进程退出超时\n", stderr);
+    return 1;
 }

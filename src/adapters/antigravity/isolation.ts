@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 import { HOST_SPECS } from "../../contracts/host.js";
 import type { ToolCapability } from "../../contracts/workflow.js";
+import { resolveWithMissingTail } from "../../infrastructure/paths.js";
 import { findExecutable, gitSync } from "../../infrastructure/process.js";
 
 export const SANDBOX = "/usr/bin/sandbox-exec";
@@ -96,6 +97,11 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
   if (version.status !== 0 || version.stdout.trim() !== "1.5.13") {
     return `Antigravity 需要经过隔离验证的 agy 1.5.13 和可用的 sandbox-exec（${version.error?.message ?? (version.stderr?.trim() || version.stdout?.trim() || "无法启动")}）`;
   }
+  const workspace = preflightWorkspace(root, cwd, branch);
+  return checkHook(workspace, tools) ?? checkCommands(tools) ?? checkExternal(workspace, tools);
+}
+
+function preflightWorkspace(root: string, cwd: string, branch: string) {
   const existing = existsSync(join(cwd, ".git"));
   const ref = gitSync(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], root).code === 0 ? `refs/heads/${branch}` : "HEAD";
   const ignoreCase = !existing && gitSync(["config", "--type=bool", "--get", "core.ignoreCase"], root).stdout.trim() === "true";
@@ -121,15 +127,7 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
   const directory = diskTarget(cwd) ?? cwd;
   const agents = join(directory, CUSTOMIZATION_DIR);
   const custom = existing ? lstatSync(agents, { throwIfNoEntry: false }) : undefined;
-  const trackedAgents = trackedChild("", CUSTOMIZATION_DIR);
-  const hasHook = existing ? custom?.isDirectory() && lstatSync(join(cwd, HOOKS), { throwIfNoEntry: false }) !== undefined :
-    trackedAgents?.mode === "040000" && trackedChild(trackedAgents.name, "hooks.json") !== undefined;
-  if ((custom !== undefined && !custom.isDirectory()) || (trackedAgents !== undefined && trackedAgents.mode !== "040000") || hasHook) {
-    return `Antigravity 无法安装隔离钩子，Worktree 中已有 ${HOOKS} 或 .agents 不是普通目录`;
-  }
-  const canonicalAgents = custom === undefined ? agents : realpathSync.native(agents);
-  const hidesKnitHook = (target: string, source: string) => samePath(target, canonicalAgents) || samePath(target, join(canonicalAgents, "hooks.json")) ||
-    (source === KNIT_PLUGIN && inside(target, directory));
+  const canonicalAgents = custom?.isDirectory() ? realpathSync.native(agents) : agents;
   const trackedTarget = (parts: readonly string[], parent = "", linksLeft = 40): string | null => {
     const [name, ...rest] = parts;
     if (name === undefined) return join(directory, parent);
@@ -166,10 +164,25 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     return trackedDiskTarget(entry ? realpathSync.native(path) : path, rest, linksLeft);
   };
   const workspaceTarget = (path: string) => existing ? join(directory, path) : trackedTarget(path.split(sep));
+  return { root, directory, existing, custom, canonicalAgents, trackedChild, trackedChildren, samePath, workspaceTarget };
+}
+
+type PreflightWorkspace = ReturnType<typeof preflightWorkspace>;
+
+function checkHook(workspace: PreflightWorkspace, tools: readonly ToolCapability[] | null): string | null {
+  const { directory, existing, custom, canonicalAgents, trackedChild, samePath } = workspace;
+  const trackedAgents = trackedChild("", CUSTOMIZATION_DIR);
+  const hasHook = existing ? custom?.isDirectory() && lstatSync(join(directory, HOOKS), { throwIfNoEntry: false }) !== undefined :
+    trackedAgents?.mode === "040000" && trackedChild(trackedAgents.name, "hooks.json") !== undefined;
+  if ((custom !== undefined && !custom.isDirectory()) || (trackedAgents !== undefined && trackedAgents.mode !== "040000") || hasHook) {
+    return `Antigravity 无法安装隔离钩子，Worktree 中已有 ${HOOKS} 或 .agents 不是普通目录`;
+  }
+  const hidesKnitHook = (target: string, source: string) => samePath(target, canonicalAgents) || samePath(target, join(canonicalAgents, "hooks.json")) ||
+    (source === KNIT_PLUGIN && inside(target, directory));
   const blockedWorkspaceInputs = permits(tools, "external") ? WORKSPACE_STARTUP : WORKSPACE_EXTERNAL;
   const alias = [...COMPAT_CUSTOMIZATION_DIRS, ...blockedWorkspaceInputs, KNIT_PLUGIN].find((path) => {
     if (!existing) {
-      const target = trackedTarget(path.split(sep));
+      const target = workspace.workspaceTarget(path);
       return target !== null && hidesKnitHook(target, path);
     }
     const link = join(directory, path);
@@ -183,7 +196,10 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
     return basename(target).toLowerCase() === "hooks.json" && dirname(target) === canonicalAgents &&
       existsSync(upperAgents) && realpathSync.native(upperAgents) === canonicalAgents;
   });
-  if (alias !== undefined) return `Antigravity 的 ${alias} 指向 ${CUSTOMIZATION_DIR}，无法屏蔽兼容钩子而保留 Knit 隔离钩子`;
+  return alias === undefined ? null : `Antigravity 的 ${alias} 指向 ${CUSTOMIZATION_DIR}，无法屏蔽兼容钩子而保留 Knit 隔离钩子`;
+}
+
+function checkCommands(tools: readonly ToolCapability[] | null): string | null {
   if (permits(tools, "exec")) {
     if (!permits(tools, "read")) return "Antigravity 的通用命令需要 read，命令进程无法关闭文件读取";
     if (!existsSync(COMMAND_TRACKER)) return "Antigravity 缺少 macOS 命令进程跟踪器，无法回收通用命令的子进程";
@@ -192,7 +208,12 @@ export function agyPreflight(root: string, cwd: string, branch: string, tools: r
       { encoding: "utf8", timeout: 5000 });
     if (probe.status !== 0) return `Antigravity 无法验证 macOS 命令进程跟踪（${probe.error?.message ?? (probe.stderr?.trim() || "沙箱标识不可用")}）`;
   }
+  return null;
+}
+
+function checkExternal(workspace: PreflightWorkspace, tools: readonly ToolCapability[] | null): string | null {
   if (permits(tools, "external")) {
+    const { root, directory, existing, trackedChildren, trackedChild, samePath, workspaceTarget } = workspace;
     if (!permits(tools, "network")) return "Antigravity 无法在开放 external 时限制外部工具联网";
     const trackedItem = (target: string) => trackedChild(relative(directory, dirname(target)), basename(target));
     const pluginConflict = (names: string[]) => {
@@ -262,7 +283,13 @@ export function inside(root: string, path: string): boolean {
 }
 
 const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`;
-const protectedPath = (path: string) => existsSync(path) ? [subpath(path), subpath(realpathSync.native(path))] : [subpath(path)];
+function protectedTarget(path: string): string {
+  const target = resolveWithMissingTail(path);
+  if (target === null) throw new Error(`Antigravity 无法核实受保护路径：${path}`);
+  return target;
+}
+
+const protectedPath = (path: string) => [...new Set([path, protectedTarget(path)])].map(subpath);
 
 type SandboxInput = {
   cwd: string; dir: string; paths: readonly string[]; cli?: { home: string; temporary: string; external: boolean }; command?: { socket: string; temporary: string }; network: boolean; write: boolean;
@@ -278,7 +305,7 @@ export function commandSandboxProfile(input: SandboxInput & { cli?: never; comma
   return () => {
     // 真实目标可能在两条命令之间变化；固定规则可复用，链接目标按当前路径保护。
     const linked = Array.from(paths).flatMap((path) => {
-      const target = existsSync(path) ? realpathSync.native(path) : path;
+      const target = protectedTarget(path);
       if (target === path) return [];
       return [`(deny file-write* ${subpath(target)})`, ...(path === plugin ? [`(deny file-read-data ${subpath(target)})`] : [])];
     });
@@ -289,7 +316,7 @@ export function commandSandboxProfile(input: SandboxInput & { cli?: never; comma
 export function sandboxProfile(input: SandboxInput, pathRules = protectedPath): string {
   const literal = (path: string) => `(literal ${JSON.stringify(path)})`;
   const state = input.cli === undefined ? [] : [
-    ...["annotations", "bin", "brain", "builtin", "cache", "conversations", "crashes", "implicit", "log", "mcp", "persistent_terminals", "presence", "skills"].map((path) => subpath(join(input.cli!.home, ".gemini/antigravity-cli", path))),
+    ...["annotations", "bin", "brain", "builtin", "cache", "conversations", "crashes", "implicit", "log", "mcp", "persistent_terminals", "presence"].map((path) => subpath(join(input.cli!.home, ".gemini/antigravity-cli", path))),
     ...["cli.log", "conversation_summaries.db", "conversation_summaries.db-shm", "conversation_summaries.db-wal", "history.jsonl", "installation_id", "jetbox_summaries_proto.pb", "jetski_state.pbtxt"].map((path) => literal(join(input.cli!.home, ".gemini/antigravity-cli", path))),
     subpath(input.cli.temporary), '(literal "/dev/ptmx")', '(regex #"^/dev/ttys[0-9]+$")',
   ];
@@ -304,7 +331,7 @@ export function sandboxProfile(input: SandboxInput, pathRules = protectedPath): 
     "(version 1)", "(allow default)", "(deny file-write*)",
     `(allow file-write* (literal "/dev/null") ${state.join(" ")} ${input.write ? subpath(input.cwd) : ""})`,
     ...(input.command ? [`(allow file-write* ${subpath(input.command.temporary)})`] : []),
-    `(deny file-write* ${knitPlugin} ${[...controls, ...readable].flatMap(pathRules).join(" ")})`,
+    `(deny file-write* ${knitPlugin} ${[...controls, ...externalInputs].flatMap(pathRules).join(" ")})`,
     `(deny file-read-data ${knitPlugin})`,
     "(deny file-link)",
     ...(input.cli === undefined ? [

@@ -13,7 +13,8 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { AntigravityExecutionAdapter, cleanAgyRuntime } from "../dist/adapters/antigravity/execution.js";
 import { AgyBroker } from "../dist/adapters/antigravity/broker.js";
-import { WORKSPACE_CONTROL, agyPreflight, commandSandboxProfile } from "../dist/adapters/antigravity/isolation.js";
+import { transcriptTurn } from "../dist/adapters/antigravity/protocol.js";
+import { WORKSPACE_CONTROL, agyPreflight, commandSandboxProfile, sandboxProfile } from "../dist/adapters/antigravity/isolation.js";
 import { initProject } from "../dist/application/init.js";
 import { loadConfig } from "../dist/application/project-config.js";
 import { finishRun } from "../dist/application/run-finish.js";
@@ -230,6 +231,177 @@ process.stdin.once('data', () => console.log(${JSON.stringify(result)}));\n`, { 
   assert.equal(readFileSync(log, "utf8"), ['{"previous":true}', result, ...tail, ""].join("\n"));
 });
 
+test("后台退出时回收同组进程并在脱离组的后代仍持管道时结束", isolated, async (t) => {
+  const root = agyTempDir();
+  const dir = join(root, "runs/current");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "system.md"), "fixture");
+  const bin = join(root, "agy");
+  writeFileSync(bin, `#!${process.execPath}
+import { spawn } from 'node:child_process';
+process.stdin.once('data', () => {
+  const pids = [false, true].map(detached => spawn('/bin/sleep', ['8'], { detached, stdio: ['ignore', 1, 2] }).pid);
+  const response = 'KNIT_AGY_SUBMIT\\n' + JSON.stringify({ pids, model: process.env.PI_MODEL });
+  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response } }));
+  process.exit(0);
+});`, { mode: 0o755 });
+  const saved = { KNIT_AGY_BIN: process.env.KNIT_AGY_BIN, HOME: process.env.HOME, PI_MODEL: process.env.PI_MODEL };
+  Object.assign(process.env, { KNIT_AGY_BIN: bin, HOME: root, PI_MODEL: "private" });
+  const adapter = new AntigravityExecutionAdapter();
+  const session = adapter.createSession({ root, cwd: root, dir, capabilities: ["read"], model: null, thinking: null });
+  t.after(async () => {
+    await session.stop();
+    Object.entries(saved).forEach(([key, value]) => value === undefined ? delete process.env[key] : process.env[key] = value);
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = join(root, ".gemini/antigravity-cli/conversations");
+  mkdirSync(db, { recursive: true });
+  for (const id of [".", "..", "", "../outside"]) assert.match(adapter.checkResume(id), /无效/);
+  writeFileSync(join(db, "empty.db"), "");
+  mkdirSync(join(db, "dir.db"));
+  for (const id of ["missing", "empty", "dir"]) assert.match(adapter.checkResume(id), /不存在或文件无效/);
+  assert.equal(await session.start(), null);
+  const reply = await session.prompt("启动");
+  assert.equal(reply.failure, null);
+  const { pids, model } = JSON.parse(reply.report);
+  t.after(() => pids.forEach((pid) => { if (alive(pid)) process.kill(pid, "SIGKILL"); }));
+  assert.equal(model, undefined);
+  await until(() => session.childExited);
+  const start = performance.now();
+  assert.match((await session.prompt("补报")).failure, /会话已退出/);
+  await session.stop();
+  assert.ok(performance.now() - start < 2000);
+  assert.ok(!alive(pids[0]));
+  assert.ok(alive(pids[1]));
+});
+
+test("最后一个 owner 删除被打断和旧版空 owners 都能重复清理", (t) => {
+  const cwd = agyTempDir();
+  t.after(() => rmSync(cwd, { recursive: true }));
+  const dir = join(cwd, "runs/current");
+  const owners = join(cwd, "agy-hooks", basename(cwd));
+  const owner = join(owners, "current");
+  const hook = join(cwd, ".agents/hooks.json");
+  mkdirSync(dir, { recursive: true });
+  mkdirSync(dirname(hook));
+  mkdirSync(owners, { recursive: true });
+  const generated = JSON.stringify({ knit: { Stop: [] } });
+  writeFileSync(join(dir, "agy-hooks.json"), generated);
+  writeFileSync(hook, generated);
+  writeFileSync(owner, "");
+  const remove = rmSync;
+  const interrupted = t.mock.method(fs, "rmSync", (file, opts) => {
+    if (file === owner) { assert.equal(existsSync(hook), false); throw new Error("interrupted"); }
+    return remove(file, opts);
+  });
+  syncBuiltinESMExports();
+  try { assert.throws(() => cleanAgyRuntime(cwd, dir), /interrupted/); }
+  finally { interrupted.mock.restore(); syncBuiltinESMExports(); }
+  assert.ok(existsSync(owner));
+  cleanAgyRuntime(cwd, dir);
+  for (const content of [generated, "user hook"]) {
+    mkdirSync(owners, { recursive: true });
+    writeFileSync(hook, content);
+    cleanAgyRuntime(cwd, dir);
+    cleanAgyRuntime(cwd, dir);
+    assert.equal(existsSync(owners), false);
+    assert.equal(existsSync(hook), content !== generated);
+  }
+});
+
+test("空转录和分段 UTF-8 行从已消费字节继续读取", (t) => {
+  const cwd = agyTempDir();
+  t.after(() => rmSync(cwd, { recursive: true }));
+  const file = join(cwd, "transcript");
+  writeFileSync(file, "");
+  assert.equal(transcriptTurn(file, 0).cursor, 0);
+  const line = (content) => Buffer.from(JSON.stringify({ source: "MODEL", type: "PLANNER_RESPONSE", content }) + "\n");
+  const first = line("首行");
+  const next = line("第二轮");
+  const split = next.indexOf("第") + 1;
+  fs.appendFileSync(file, Buffer.concat([first, Buffer.from("\n"), next.subarray(0, split)]));
+  const turn = transcriptTurn(file, 0);
+  assert.deepEqual(turn, { response: "首行", cursor: first.length + 1, denied: [], errors: [] });
+  fs.appendFileSync(file, next.subarray(split));
+  const read = fs.readSync;
+  const observed = t.mock.method(fs, "readSync", (...args) => read(...args));
+  syncBuiltinESMExports();
+  try {
+    assert.equal(transcriptTurn(file, turn.cursor).response, "第二轮");
+    assert.equal(observed.mock.calls[0].arguments[4], turn.cursor);
+  } finally { observed.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test("Seatbelt 两种 external 配置都只允许写入必需的 CLI 状态", (t) => {
+  const cwd = agyTempDir();
+  t.after(() => rmSync(cwd, { recursive: true }));
+  const state = join(cwd, "home/.gemini/antigravity-cli");
+  const skills = join(state, "skills");
+  for (const external of [false, true]) {
+    const profile = sandboxProfile({ cwd, dir: join(cwd, "run"), paths: [], cli: { home: join(cwd, "home"), temporary: join(cwd, "tmp"), external }, network: true, write: false });
+    const rule = (action) => profile.split("\n").filter((line) => line.startsWith(`(${action} `)).join("\n");
+    assert.ok(!rule("allow file-write*").includes(skills));
+    assert.ok(rule("allow file-write*").includes(join(state, "brain")));
+    assert.ok(rule("deny file-write*").includes(skills));
+    assert.equal(rule("deny file-read-data").includes(skills), !external);
+  }
+});
+
+test("Broker 对慢读 socket 暂停双流，命令启动失败和未领取授权可回收", isolated, async (t) => {
+  const root = realpathSync.native(mkdtempSync("/tmp/knit-broker-"));
+  const path = join(root, "sock");
+  const broker = new AgyBroker({ root, cwd: root, dir: join(root, "run"), capabilities: ["read", "exec"] }, path, async () => ({}));
+  await broker.start();
+  t.after(() => { broker.stop(); rmSync(root, { recursive: true }); });
+  const authorize = async (CommandLine, Cwd) => {
+    const hook = createConnection(path);
+    hook.end(JSON.stringify({ kind: "hook", key: broker.hookEnv.KNIT_AGY_HOOK_KEY, event: "PreToolUse", payload: { toolCall: { name: "run_command", args: { CommandLine, Cwd } } } }));
+    return /^KNIT_AGY_REQUEST=(\S+)/.exec(JSON.parse(await text(hook)).overwrite.CommandLine)[1];
+  };
+  const run = (key) => {
+    const client = createConnection(path);
+    client.write(JSON.stringify({ kind: "command", key }) + "\n");
+    return client;
+  };
+  const client = run(await authorize("head -c 4194304 /dev/zero; head -c 4194304 /dev/zero >&2"));
+  const child = await until(() => [...broker.commands][0]);
+  await until(() => child.stdout.isPaused() && child.stderr.isPaused());
+  const rows = (await text(client)).trim().split("\n").map(JSON.parse);
+  for (const channel of ["stdout", "stderr"]) assert.equal(rows.reduce((size, row) => size + (row[channel] ? Buffer.byteLength(row[channel], "base64") : 0), 0), 4194304);
+  assert.equal(rows.at(-1).code, 0);
+  const cwd = join(root, "gone");
+  mkdirSync(cwd);
+  const key = await authorize("pwd", cwd);
+  rmSync(cwd, { recursive: true });
+  assert.match(JSON.parse(await text(run(key))).error, /ENOENT/);
+  assert.equal(broker.commands.size, 0);
+  assert.equal(broker.pending.size, 0);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await authorize("pwd");
+  assert.equal(broker.pending.size, 1);
+  t.mock.timers.tick(5 * 60_000);
+  assert.equal(broker.pending.size, 0);
+  await authorize("pwd");
+  broker.stop();
+  assert.equal(broker.pending.size, 0);
+});
+
+test("跟踪器只停止带指定 scope 的夹具进程", isolated, async (t) => {
+  const tracker = fileURLToPath(new URL("../dist/adapters/antigravity/command-processes", import.meta.url));
+  const scope = `org.knit.fixture-${process.pid}`;
+  const profile = `(version 1)(allow default)(deny mach-lookup (global-name "${scope}"))`;
+  execFileSync("/usr/bin/sandbox-exec", ["-p", profile, tracker, "probe", scope]);
+  const child = childProcess.spawn("/usr/bin/sandbox-exec", ["-p", profile, "/bin/sh", "-c", "echo ready; exec /bin/sleep 8"]);
+  t.after(() => child.kill("SIGKILL"));
+  await once(child.stdout, "data");
+  const exit = once(child, "exit");
+  execFileSync(tracker, ["stop", `${scope}-other`]);
+  assert.ok(alive(child.pid));
+  execFileSync(tracker, ["stop", scope]);
+  assert.deepEqual(await exit, [null, "SIGKILL"]);
+  execFileSync(tracker, ["stop", scope]);
+});
+
 test("Broker 的固定规则复用期间仍按当前真实目标保护链接", (t) => {
   const cwd = agyTempDir();
   t.after(() => rmSync(cwd, { recursive: true }));
@@ -245,6 +417,10 @@ test("Broker 的固定规则复用期间仍按当前真实目标保护链接", (
     assert.ok(current.startsWith(initial));
     assert.ok(current.includes(`(deny file-read-data (subpath ${JSON.stringify(target)}))`));
     assert.ok(current.includes(`(deny file-write* (subpath ${JSON.stringify(target)}))`));
+    if (name === "second") {
+      rmSync(target, { recursive: true });
+      assert.throws(profile, /无法核实受保护路径/);
+    }
     rmSync(plugin);
     assert.equal(profile(), initial);
   }
@@ -265,8 +441,9 @@ test("Broker 回收未结束时仍能答复钩子，命令等待回收且可提�
   for (const mode of ["success", "error", "disconnect"]) {
     const started = Promise.withResolvers();
     // 让跟踪器在管道上等待测试放行，长 scope 走真实的回收失败路径。
+    const log = t.mock.method(console, "error", () => {});
     const tracker = t.mock.method(childProcess, "execFile", (file, args, options, callback) => {
-      const scope = mode === "error" ? "x".repeat(128) : args[1];
+      const scope = mode === "success" ? args[1] : "x".repeat(128);
       const child = execute("/bin/sh", ["-c", 'read release && exec "$0" "$1" "$2"', file, args[0], scope], options, callback);
       started.resolve(child);
       return child;
@@ -274,29 +451,36 @@ test("Broker 回收未结束时仍能答复钩子，命令等待回收且可提�
     syncBuiltinESMExports();
     try {
       const command = mode === "disconnect"
-        ? "(while [ ! -f release-output ]; do sleep 0.01; done; echo out; echo err >&2; touch output-done) & exit 7" : "exit 7";
+        ? "sleep 5 & echo $! > child.pid; exit 7" : "exit 7";
       const reply = await hook("PreToolUse", { toolCall: { name: "run_command", args: { CommandLine: command } } });
       const accepted = once(broker.server, "connection");
       const client = createConnection(path);
       const [socket] = await accepted;
-      const messages = text(client);
+      const messages = mode === "disconnect" ? assert.rejects(text(client), { code: "ERR_STREAM_PREMATURE_CLOSE" }) : text(client);
       client.write(JSON.stringify({ kind: "command", key: /^KNIT_AGY_REQUEST=(\S+)/.exec(reply.overwrite.CommandLine)[1] }) + "\n");
       const child = await started.promise;
       assert.deepEqual(await hook("SessionStart", {}), { ok: true });
       assert.equal(client.readableEnded, false);
       if (mode === "disconnect") {
-        socket.destroy();
+        client.destroy();
+        await once(socket, "close");
         t.mock.method(socket, "write", () => assert.fail("对已销毁的 socket 转发了输出"));
         t.mock.method(socket, "end", () => assert.fail("对已销毁的 socket 发送了退出结果"));
-        writeFileSync(join(root, "release-output"), "");
-        await until(() => existsSync(join(root, "output-done")));
+        const pid = Number(readFileSync(join(root, "child.pid"), "utf8"));
+        await until(() => !alive(pid));
       }
       const closed = once(child, "close");
       child.stdin.end("release\n");
       await closed;
-      assert.deepEqual((await messages).trim().split("\n").filter(Boolean).map(JSON.parse),
-        mode === "disconnect" ? [] : mode === "error" ? [{ error: "Antigravity 命令进程回收失败：2" }] : [{ code: 7 }]);
+      if (mode === "disconnect") {
+        await messages;
+        await until(() => log.mock.calls.some(({ arguments: args }) => /回收失败：2/.test(args[0])));
+      } else {
+        assert.deepEqual(JSON.parse(await messages), mode === "error" ? { error: "Antigravity 命令进程回收失败：2" } : { code: 7 });
+      }
+      assert.equal(broker.commands.size, 0);
     } finally {
+      log.mock.restore();
       tracker.mock.restore();
       syncBuiltinESMExports();
     }
@@ -435,10 +619,11 @@ async function independentRuns(suite) {
       ["find_by_name", "SearchDirectory", { Pattern: "*.txt" }],
       ["grep_search", "SearchPath", { Query: "original" }],
     ].flatMap(([name, field, args]) => [
-      { name, args }, { name, args: { ...args, [field]: "" } }, { name, args: { ...args, [field]: join(runs, "previous") } },
+      [{ name, args }, "deny"], [{ name, args: { ...args, [field]: "" } }, "deny"],
+      [{ name, args: { ...args, [field]: "." } }, "allow"], [{ name, args: { ...args, [field]: join(runs, "previous") } }, "allow"],
     ]);
     const cases = [
-      ...searches.map((tool) => [tool, "allow"]),
+      ...searches,
       [view(plan), "allow"], [view(report), "allow"], [{ name: "read_file", args: { Path: "project.txt" } }, "allow"],
       [view(join(dir, "system.md")), "deny"], [view(join(tasks, "current-link/system.md")), "deny"],
       [view(join(f.root, ".knit/workflow.yaml")), "deny"], [view(f.home), "deny"],
@@ -605,7 +790,7 @@ async function independentRuns(suite) {
     const gate = join(f.dir, "continue");
     const hook = join(worktreeOf(f.root, f.task), ".agents/hooks.json");
     const runs = () => JSON.parse(readFileSync(join(f.root, f.task.dir, "record.json"), "utf8")).runs;
-    await f.start({ wait: gate, tools: [{ name: "list_dir", args: {} }] });
+    await f.start({ wait: gate, tools: [{ name: "list_dir", args: { DirectoryPath: "." } }] });
     try {
       const [a, b] = runs();
       for (const run of [a, b]) {
@@ -847,12 +1032,12 @@ async function independentRuns(suite) {
       commitAll(f.root, "text customization fixtures");
       const texts = [...workspace, ...home];
       const external = tools !== "[read, write, exec]";
-      await f.start({ configReads: [...texts, ...emptyConfigs], configWrites: external ? texts : [] });
+      await f.start({ configReads: [...texts, ...emptyConfigs], configWrites: texts });
       const run = await f.ended();
       assert.equal(run.verdict, "pass", run.failure);
       const result = readRows(f.transcripts()[0])[0];
       assert.deepEqual(result.configReads, [...texts.map(() => external ? "allowed" : "EPERM"), ...emptyConfigs.map(() => "EPERM")]);
-      assert.deepEqual(result.configWrites, external ? texts.map(() => "EPERM") : []);
+      assert.deepEqual(result.configWrites, texts.map(() => "EPERM"));
     });
   }
 

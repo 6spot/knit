@@ -20,7 +20,12 @@ if (requestedId && script.rejectResume) process.exit(1);
 const conversationId = requestedId && !script.ignoreResume ? requestedId : randomUUID();
 const conversations = join(homedir(), ".gemini/antigravity-cli/conversations");
 mkdirSync(conversations, { recursive: true });
-writeFileSync(join(conversations, `${conversationId}.db`), "", { flag: "a" });
+const database = join(conversations, `${conversationId}.db`);
+if (!existsSync(database)) {
+  const db = new (process.getBuiltinModule("node:sqlite").DatabaseSync)(database);
+  db.exec("CREATE TABLE conversation (message TEXT)");
+  db.close();
+}
 const brain = join(homedir(), ".gemini/antigravity-cli/brain");
 mkdirSync(brain, { recursive: true });
 const transcriptPath = join(brain, `${conversationId}.jsonl`);

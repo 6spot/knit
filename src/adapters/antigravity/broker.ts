@@ -8,7 +8,7 @@ import { resolveWithMissingTail } from "../../infrastructure/paths.js";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { AgentLaunch } from "../../contracts/agent.js";
-import { executorEnv, shellQuote } from "../../infrastructure/process.js";
+import { executorEnv, shellQuote, signalProcessGroup } from "../../infrastructure/process.js";
 import { COMMAND_CLIENT, commandSandboxProfile, commandScope, commandScopeRule, handoffReadPaths, inside, permits, SANDBOX, stopCommandProcessesAsync, WORKSPACE_CONTROL } from "./isolation.js";
 import { object, type AgyObject } from "./protocol.js";
 
@@ -23,7 +23,7 @@ export { shellQuote };
 
 export class AgyBroker {
   private readonly hooksKey = randomUUID();
-  private readonly pending = new Map<string, { command: string; cwd: string }>();
+  private readonly pending = new Map<string, { command: string; cwd: string; expiry: NodeJS.Timeout }>();
   private readonly commands = new Set<ChildProcess>();
   private readonly connections = new Set<Socket>();
   private readonly profile: () => string;
@@ -67,7 +67,9 @@ exec ${client} "$KNIT_AGY_REQUEST"
   }
 
   stop(): void {
-    this.commands.forEach((child) => child.kill("SIGKILL"));
+    this.pending.forEach(({ expiry }) => clearTimeout(expiry));
+    this.pending.clear();
+    this.commands.forEach(killCommand);
     this.connections.forEach((socket) => socket.destroy());
     this.server.close();
   }
@@ -79,9 +81,11 @@ exec ${client} "$KNIT_AGY_REQUEST"
     const requests = createInterface({ input: socket });
     requests.on("error", () => socket.destroy());
     requests.once("line", (line: string) => {
+      requests.close();
+      socket.resume(); // 继续接收客户端断开事件。
       const request = object(line);
       if (request?.kind === "command" && typeof request.key === "string") {
-        this.runCommand(socket, request.key);
+        try { this.runCommand(socket, request.key); } catch (error) { socket.end(`${JSON.stringify({ error: String(error) })}\n`); }
         return;
       }
       if (request?.kind !== "hook" || request.key !== this.hooksKey || typeof request.event !== "string") {
@@ -89,7 +93,7 @@ exec ${client} "$KNIT_AGY_REQUEST"
         return;
       }
       const payload = object(request.payload) ?? {};
-      const reply = this.handle(request.event, payload).then((result) => request.event === "PreToolUse" ? this.gate(payload) : result);
+      const reply = this.handle(request.event, payload).then((result) => !socket.destroyed && request.event === "PreToolUse" ? this.gate(payload) : result);
       void reply.then((result) => {
         if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify(result));
       }, (error: unknown) => {
@@ -106,8 +110,9 @@ exec ${client} "$KNIT_AGY_REQUEST"
     if (LOCAL_TOOLS.has(name)) return { decision: "allow" };
     if (READ_TOOLS.has(name)) {
       if (!permits(this.launch.capabilities, "read")) return deny("需要 read");
-      const path = args.AbsolutePath ?? args.Path ?? args.DirectoryPath ?? args.SearchDirectory ?? args.SearchPath ?? "";
-      const real = typeof path === "string" ? this.realPath(resolve(this.launch.cwd, path)) : null;
+      const path = args.AbsolutePath ?? args.Path ?? args.DirectoryPath ?? args.SearchDirectory ?? args.SearchPath;
+      if (typeof path !== "string" || !path.trim()) return deny("缺少读取路径");
+      const real = this.realPath(resolve(this.launch.cwd, path));
       const roots = [this.launch.cwd, ...handoffReadPaths(this.launch.root)];
       if (real === null || !roots.some((root) => inside(root, real)) || inside(this.launch.dir, real)) {
         return deny("只允许读取 Worktree 和主检出的交接资料");
@@ -130,7 +135,9 @@ exec ${client} "$KNIT_AGY_REQUEST"
       const cwd = typeof args.Cwd === "string" && args.Cwd ? this.realPath(resolve(this.launch.cwd, args.Cwd)) : this.launch.cwd;
       if (cwd === null || !inside(this.launch.cwd, cwd)) return deny("工作目录必须在 Worktree 内");
       const key = randomUUID();
-      this.pending.set(key, { command: args.CommandLine, cwd });
+      // agy 拒绝命令后不会调用转发入口，未领取的授权自行过期。
+      const expiry = setTimeout(() => this.pending.delete(key), 5 * 60_000).unref();
+      this.pending.set(key, { command: args.CommandLine, cwd, expiry });
       return {
         decision: "auto_approve",
         reason: `执行命令 ${args.CommandLine}`,
@@ -166,6 +173,7 @@ exec ${client} "$KNIT_AGY_REQUEST"
       if (!socket.destroyed && !socket.writableEnded) socket.end(JSON.stringify({ error: "命令未获授权或已执行" }));
       return;
     }
+    clearTimeout(request.expiry);
     this.pending.delete(key);
     const scope = commandScope(dirname(this.socketPath));
     const command = `${scope}.${key}`;
@@ -178,14 +186,26 @@ exec ${client} "$KNIT_AGY_REQUEST"
       env: { ...env, PWD: request.cwd, TMPDIR: this.commandTemp },
     });
     this.commands.add(child);
+    const resume = () => { child.stdout.resume(); child.stderr.resume(); };
     const forward = (channel: "stdout" | "stderr", data: Buffer) => {
-      if (!socket.destroyed && !socket.writableEnded) socket.write(`${JSON.stringify({ [channel]: data.toString("base64") })}\n`);
+      if (socket.destroyed || socket.writableEnded) return;
+      if (!socket.write(`${JSON.stringify({ [channel]: data.toString("base64") })}\n`) && !child[channel].isPaused()) {
+        child.stdout.pause();
+        child.stderr.pause();
+        socket.once("drain", resume);
+      }
     };
     child.stdout.on("data", (data: Buffer) => forward("stdout", data));
     child.stderr.on("data", (data: Buffer) => forward("stderr", data));
     // manage_task kill closes the forwarding client. Reap descendants by scope on exit.
-    socket.once("end", () => child.kill("SIGKILL"));
-    socket.once("close", () => child.kill("SIGKILL"));
+    const disconnect = () => {
+      socket.removeListener("drain", resume);
+      killCommand(child);
+      resume();
+    };
+    // command 客户端保持写端打开。EOF 表示转发进程已经断开。
+    socket.once("end", () => socket.destroy());
+    socket.once("close", disconnect);
     let cleanup: Promise<string | null> | undefined;
     child.once("exit", () => {
       cleanup = stopCommandProcessesAsync(command).then((error) => {
@@ -198,12 +218,22 @@ exec ${client} "$KNIT_AGY_REQUEST"
       });
     });
     child.once("error", (error) => {
+      this.commands.delete(child);
       if (!socket.destroyed && !socket.writableEnded) socket.end(`${JSON.stringify({ error: error.message })}\n`);
     });
     child.once("close", async (code) => {
       this.commands.delete(child);
+      socket.removeListener("close", disconnect);
       const error = await cleanup;
-      if (!socket.destroyed && !socket.writableEnded) socket.end(`${JSON.stringify(error ? { error } : { code: code ?? 1 })}\n`);
+      if (socket.destroyed || socket.writableEnded) {
+        if (error) console.error(error);
+        return;
+      }
+      socket.end(`${JSON.stringify(error ? { error } : { code: code ?? 1 })}\n`);
     });
   }
+}
+
+function killCommand(child: ChildProcess): void {
+  if (child.pid) signalProcessGroup(child.pid, "SIGKILL", { exited: child.exitCode !== null || child.signalCode !== null });
 }

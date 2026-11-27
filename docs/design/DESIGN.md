@@ -411,7 +411,7 @@ Pi 用 `--session <路径>`，核对原生文件中的会话头、历史交接�
 
 首版的隔离环境是 macOS 和 `agy` 1.5.13。派发在创建 Worktree 和执行记录之前核对客户端、系统沙箱及欠缺的能力。`exec` 同时需要 `read` 和可用的 macOS 命令进程跟踪器。跟踪器由带 macOS 开发工具的构建生成并随包安装，派发前会在系统沙箱里验证它。Worktree 中已有 `.agents/hooks.json`，或配置链接会屏蔽 Knit 隔离钩子时，派发给出具体原因。准备命令完成后再次核对隔离条件，发现冲突就撤回本次新建的 Worktree，执行记录还未登记。
 
-- `tools` 省略或写 `all` 时请求所有能力。显式数组为能力上限，`[]` 关闭项目工具。`PreToolUse` 对原生工具核对能力及文件的实际路径。具备 `read` 时，省略路径或传空串的读取工具使用 Worktree 根目录。第 5.2 节的主检出任务目录与历史运行目录通过 `read_file` 目录规则只读放行，当前执行目录除外。`allowNonWorkspaceAccess` 保持 `false`，`trustedWorkspaces` 只列 Worktree，启动时无需 `--add-dir`。`edit_file` 与其它原生写入工具共用 Worktree 的写入边界。
+- `tools` 省略或写 `all` 时请求所有能力。显式数组为能力上限，`[]` 关闭项目工具。`PreToolUse` 对原生工具核对能力及文件的实际路径。读取工具需要显式提供非空路径，读取 Worktree 根目录可传 `.`。第 5.2 节的主检出任务目录与历史运行目录通过 `read_file` 目录规则只读放行，当前执行目录除外。`allowNonWorkspaceAccess` 保持 `false`，`trustedWorkspaces` 只列 Worktree，启动时无需 `--add-dir`。`edit_file` 与其它原生写入工具共用 Worktree 的写入边界。
 - 会话继承用户的许可与拒绝规则。后台和 Rex 窗格均清空询问规则，对允许的 Worktree 读写与命令统一返回 `auto_approve`（避免最小化的 Rex 窗格卡在审批卡），同时用 `permissionOverrides` 将原命令交给 `agy` 核对用户拒绝规则。命中拒绝规则或超出能力上限的调用仍直接拒绝；通过校验的命令直接在命令沙箱内执行。
 - 环节没有 `external` 时，主目录的外部定制不影响派发。启动 `agy` 的系统沙箱屏蔽工作区和主目录的 MCP、插件、外部钩子以及 `skills`、`rules`、`workflows`、`agents` 文本定制，覆盖兼容目录、发现清单和对应的符号链接目标。
 - `external` 需要同时声明 `network`。`agy` 可以读取上述定制文本和清单，包括 `~/.gemini/antigravity-cli/skills/`。外层沙箱保护这些只读输入及其符号链接目标，`PreToolUse` 继续核对工具调用。

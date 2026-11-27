@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import type { AgentResult } from "../../contracts/agent.js";
 
 export type AgyObject = Record<string, unknown>;
@@ -39,11 +39,30 @@ export function resultOf(response: unknown, errors: readonly string[], denied: r
 }
 
 export function transcriptTurn(path: string, cursor: number) {
-  const lines = readFileSync(path, "utf8").trimEnd().split("\n");
-  const rows = lines.slice(cursor).map(object).filter((row) => row !== null);
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    const start = cursor <= size ? cursor : 0;
+    const buffer = Buffer.allocUnsafe(size - start);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = readSync(fd, buffer, length, buffer.length - length, start + length);
+      if (count === 0) break;
+      length += count;
+    }
+    const bytes = buffer.subarray(0, length);
+    const lastLine = bytes.lastIndexOf(10) + 1;
+    // 接受没有换行的完整末行；写到一半的 JSON 留到下一次 Stop。
+    const end = lastLine === length || object(bytes.toString("utf8", lastLine)) ? length : lastLine;
+    return parseTurn(bytes.toString("utf8", 0, end), start + end);
+  } finally { closeSync(fd); }
+}
+
+function parseTurn(text: string, cursor: number) {
+  const rows = text.split("\n").filter(Boolean).map(object).filter((row) => row !== null);
   const turn = rows.slice(rows.findLastIndex((row) => row.type === "USER_INPUT") + 1);
   return {
-    cursor: lines.length,
+    cursor,
     response: turn.findLast((row) => row.source === "MODEL" && row.type === "PLANNER_RESPONSE" && typeof row.content === "string")?.content,
     errors: turn.filter((row) => row.status === "ERROR").map((row) => errorText(row.error) || errorText(row.content)).filter(Boolean),
     denied: turn.flatMap((row) => Array.isArray(row.denied_actions) ? row.denied_actions : []),
