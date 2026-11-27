@@ -16,7 +16,7 @@ import { taskWorktree } from "../dist/application/worktree.js";
 import { parseWorkflow } from "../dist/domain/workflow.js";
 import { project } from "./helpers/cli.mjs";
 import { commitAll, git } from "./helpers/git.mjs";
-import { agents, readyTask, runProject } from "./helpers/run.mjs";
+import { agents, doneTask, readyTask, runProject } from "./helpers/run.mjs";
 
 // macOS 的系统 git 是工具链启动器。让临时仓库的 Git 调用直接使用同一安装的可执行文件。
 if (process.platform === "darwin") process.env.PATH = `${execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim()}:${process.env.PATH}`;
@@ -112,6 +112,31 @@ async function completed(t, tracked = false, ignored = false, device = null, bas
   const cli = (...args) => knit(root, "deliver", task.id, "--authorization", "user:delivery", "--message-file", message, ...args);
   return { root, task, worktree, archive: archiveDirOf(task), deliver, cli, message };
 }
+
+test("未合并的 Worktree 归档保留运行资料，合并后只在另一次交付成功时清理", async (t) => {
+  const { root, task, worktree, deliver, message } = await completed(t);
+  const file = join(root, task.dir, "record.json");
+  const record = JSON.parse(readFileSync(file, "utf8"));
+  record.runs[0].startedAt = "2000-01-01T00:00:00.000Z";
+  record.runs[0].endedAt = "2000-01-01T01:00:00.000Z";
+  writeFileSync(file, JSON.stringify(record));
+  const run = join(root, ".knit/.runtime/runs", record.runs[0].id);
+  const options = { authorization: "user:delivery", messageFile: message };
+  assert.equal(deliver().kind, "delivered");
+  assert.equal(deliverTask(root, doneTask(root).id, options).cleanup.removed, 0);
+  assert.ok(existsSync(run));
+  git(root, "merge", "--no-edit", worktree.branch);
+  const next = doneTask(root);
+  const hook = join(root, ".git/hooks/pre-commit");
+  mkdirSync(join(root, ".git/hooks"), { recursive: true });
+  git(root, "config", "core.hooksPath", join(root, ".git/hooks"));
+  writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  assert.equal(deliverTask(root, next.id, options).kind, "rolledBack");
+  assert.ok(existsSync(run));
+  rmSync(hook);
+  assert.equal(deliverTask(root, next.id, options).cleanup.removed, 1);
+  assert.equal(existsSync(run), false);
+});
 
 const taskFiles = (root, task) => ["task.md", "record.json"].map((file) => readFileSync(join(root, task.dir, file), "utf8"));
 const mainIdentity = (root) => [git(root, "branch", "--show-current"), git(root, "rev-parse", "HEAD")];

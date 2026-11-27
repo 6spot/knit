@@ -10,6 +10,7 @@ import { currentStatus } from "../domain/task.js";
 import { moveDirectory, removeCopy } from "../infrastructure/fs.js";
 import { gitSync } from "../infrastructure/process.js";
 import { loadConfig } from "./project-config.js";
+import { cleanArchivedRuns } from "./runtime-cleanup.js";
 import { RUNS_DIR } from "./run-prepare.js";
 import { archiveDirOf, findTask, readTask, saveTask, scanTasks, type StoredTask, type TaskRefusal } from "./task-store.js";
 import { matchesFingerprint, RUNTIME_PREFIX, type WorkspaceSnapshot } from "./workspace.js";
@@ -53,7 +54,8 @@ export type DeliveryResult = TaskRefusal
   | { kind: "rolledBack"; reason: "move"; error: unknown }
   | { kind: "rolledBack"; reason: "commit"; error: string; taskDir: string }
   | { kind: "delivered"; title: string; archiveDir: string; archiveRoot: string; worktree: TaskWorktree | null;
-      commit: Exclude<DeliveryCommit, { kind: "refused" }> | null; integration: WorktreeIntegration | null };
+      commit: Exclude<DeliveryCommit, { kind: "refused" }> | null; integration: WorktreeIntegration | null;
+      cleanup: ReturnType<typeof cleanArchivedRuns> };
 
 export function deliverTask(root: string, id: string, options: DeliveryOptions): DeliveryResult {
   const loaded = readTask(root, id);
@@ -63,9 +65,9 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   if (status === "delivered" || status === "cancelled") return { kind: "refused", problems: [`任务 ${id} 已经结束（${status}），不能交付`] };
   if (status !== "done") return { kind: "refused", problems: [`任务 ${id} 还没有完成（${status}）；完成之后再交付：knit task close ${id}`] };
   const worktree = deliveryWorktree(root, stored.dir);
-  const config = worktree === null ? null : loadConfig(root);
-  if (config?.config === null) return { kind: "refused", problems: config.problems };
-  const mergeBranch = config?.config?.worktree?.autoMerge === true
+  const config = loadConfig(root);
+  if (config.config === null) return { kind: "refused", problems: config.problems };
+  const mergeBranch = worktree !== null && config.config.worktree?.autoMerge === true
     ? gitSync(["branch", "--show-current"], root).stdout.trim() || "HEAD"
     : null;
   const git = insideGit(root);
@@ -137,7 +139,8 @@ export function deliverTask(root: string, id: string, options: DeliveryOptions):
   const integration = worktree !== null && mergeBranch !== null ? mergeAndCleanWorktree(root, worktree, mergeBranch) : null;
   // --abort 会恢复主检出里已入库的旧任务目录；当前记录已经在任务 Worktree 的归档里。
   if (integration?.merged === false && archiveRoot !== root) removeCopy(source);
-  return { kind: "delivered", title: document.frontmatter.title, archiveDir, archiveRoot: integration?.merged ? root : archiveRoot, worktree, commit, integration };
+  const cleanup = cleanArchivedRuns(root, id, record.runs, git, config.config.runtime?.retainDays);
+  return { kind: "delivered", title: document.frontmatter.title, archiveDir, archiveRoot: integration?.merged ? root : archiveRoot, worktree, commit, integration, cleanup };
 }
 
 export function insideGit(root: string): boolean {

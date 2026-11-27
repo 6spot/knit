@@ -286,7 +286,7 @@ export function archiveTask(root: string, stored: StoredTask, targetRoot = root)
   return dir;
 }
 
-function* taskDirectories(root: string, scope: TaskScope) {
+export function* taskDirectories(root: string, scope: TaskScope) {
   if (scope !== "archived") {
     for (const name of directoryNames(join(root, TASKS_DIR))) {
       if (name !== "archive") yield { dir: `${TASKS_DIR}/${name}`, archived: false };
