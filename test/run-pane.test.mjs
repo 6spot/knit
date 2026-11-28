@@ -314,8 +314,11 @@ test("RexPaneHost.waitClosed 收到中止信号时立即终止 rex wait 进程",
   });
   const pidFile = join(bin, "wait.pid");
   writeFileSync(join(bin, "rex"), `#!${process.execPath}
-import { writeFileSync } from "node:fs";
-writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+import { renameSync, writeFileSync } from "node:fs";
+const pidFile = ${JSON.stringify(pidFile)};
+const tempFile = pidFile + ".tmp";
+writeFileSync(tempFile, String(process.pid));
+renameSync(tempFile, pidFile);
 setInterval(() => {}, 10_000);
 `, { mode: 0o755 });
   process.env.PATH = `${bin}${delimiter}${savedPath}`;
