@@ -50,9 +50,10 @@ export function registerContextCommand(program: Command): void {
     .command("context [id]")
     .description("主会话每轮收到的讨论规范；指定任务时追加状态、下一步和当前环节的补充规范")
     .addOption(new Option("--use <id>", "为当前宿主会话选中任务").conflicts("unuse"))
+    .addOption(new Option("--json", "按讨论规范、任务状态、环节规范和避坑分区输出 JSON").conflicts(["use", "unuse"]))
     .option("--unuse", "清除当前宿主会话的任务选择")
     .option("--dir <目录>", "项目目录", process.cwd())
-    .action(async (id: string | undefined, options: { dir: string; use?: string; unuse?: boolean }) => {
+    .action(async (id: string | undefined, options: { dir: string; use?: string; unuse?: boolean; json?: boolean }) => {
       if (options.use !== undefined || options.unuse) {
         if (id !== undefined) return fail(["选择任务时请使用 knit context --use <id> 或 knit context --unuse"]);
         const host = process.env.KNIT_HOST;
@@ -68,8 +69,17 @@ export function registerContextCommand(program: Command): void {
       }
       const root = knitRoot(options.dir);
       if (root === null) return;
-      const { buildSessionContext, cliDispatchMode, contextLines } = await import("../application/session-context.js");
+      const { buildSessionContext, cliDispatchMode, contextBlocks, contextLines, readSelectedContext } = await import("../application/session-context.js");
       const mode = cliDispatchMode();
+      if (options.json) {
+        const selected = readSelectedContext(root, id, mode === "tools");
+        const context = selected.kind === "refused" ? buildSessionContext(root) : selected;
+        if (context.kind === "refused") return fail(context.problems);
+        const blocks = contextBlocks(context, mode);
+        if (selected.kind === "refused") blocks.status = [`选中的 Knit 任务 ${id} 读不出来：`, ...selected.problems].join("\n");
+        process.stdout.write(`${JSON.stringify(blocks)}\n`);
+        return;
+      }
       const context = buildSessionContext(root, id, mode === "tools");
       if (context.kind === "refused") return fail(context.problems);
       process.stdout.write(`${contextLines(context, mode).join("\n")}\n`);

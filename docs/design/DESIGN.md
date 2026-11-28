@@ -194,7 +194,7 @@ createdAt: 2026-11-14T13:36:56Z
 
 | 接收方 | 收到的内容 |
 | --- | --- |
-| 主会话 | `discuss` 的普通规范，通用及当前环节的避坑条目。选中任务时追加任务标题、状态、下一步和当前环节的补充规范。Pi 每轮完整替换；钩子宿主首轮完整注入，之后按块更新 |
+| 主会话 | `discuss` 的普通规范，通用及当前环节的避坑条目。选中任务时追加任务标题、状态、下一步和当前环节的补充规范。Pi 将普通讨论规范放入系统段，动态块按当前分支可见的内容增量追加。钩子宿主首轮完整注入，之后按块更新 |
 | 使用全新会话的环节执行者 | 需求部分；「相关资料」点名的文件或章节；`plan.md`（如有）；主会话本轮修改指令（如有）；上一批每位执行者的报告或失败原因；本执行器上一次进入本环节的报告（如有）；适用本环节的规范；本环节的角色文件 |
 | 恢复原会话的环节执行者 | 主会话本轮修改指令、上一批每位执行者的报告路径与结论或失败原因、本轮执行规则和报告格式。环节未授予 `read` 时，在交接字节上限内同时附上审查报告原文 |
 
@@ -215,7 +215,8 @@ createdAt: 2026-11-14T13:36:56Z
 - `.knit/tasks/` 下的点名资料（本任务的，和别的任务的，例如主任务的设计）、`task.md` 的需求部分、`plan.md` 和各次报告从主检出读，块上的路径给主检出里的绝对路径，章节路径保留 `#标题`。有 `read` 权限的执行者可以按绝对路径读取当前资料。
 - 第一条消息由 Knit 生成一段工作位置说明：执行者在任务的 Worktree 里工作，任务目录和以前的报告在主检出，只读、不要改；同时给出 Worktree、主检出和任务目录的位置。这段不写进角色文件，也不改变资料的字节预算；相同输入得到逐字相同的输出。
 - 内置规范从安装包读取。角色文件、项目规范和避坑分区从主检出读取。系统提示先给角色，再给内置和项目规范，各来源内按路径排序。
-- Pi 主会话的规范放在桥接维护的系统提示里。Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 和 `knit workflow validate --env` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。宿主环境中的 `KNIT_SESSION_AGENT` 缺失或为空且命令未显式指定时，钩子为派发和环境预检补上 `KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT:-antigravity}"`。插件直接使用钩子和 CLI，无需 MCP 服务。
+- Pi 主会话的 `sections.knit` 只放普通讨论规范。`before_agent_start` 将有变化的任务状态、环节补充规范和避坑分区合为一条隐藏的 `knit.context` 自定义消息，追加到本轮输入末尾。有工具结果的 `turn_end` 在下一拍前同样检查变化，保留边界已有条目。补充规范或避坑分区清空时，消息明确提示旧条目已失效。两处都沿用当前运行，无需唤醒模型。
+- Knit 派发的 Pi 执行者从环节交接取得规范，即使开放扩展发现，也会跳过 Knit 主会话桥接的初始化。Antigravity 从项目插件加载命令说明，在 `SessionStart` 和 `PreInvocation` 通过 `PATH` 上的 `knit hook agy <事件>` 读取上下文，内容变化时由 `injectSteps` 注入系统消息。`PreToolUse` 订阅 `run_command`，为 `knit context --use/--unuse` 绑定会话，为 `knit run start` 和 `knit workflow validate --env` 提供宿主默认执行者，并对照用户消息核对 `knit deliver --authorization`。宿主环境中的 `KNIT_SESSION_AGENT` 缺失或为空且命令未显式指定时，钩子为派发和环境预检补上 `KNIT_SESSION_AGENT="${KNIT_SESSION_AGENT:-antigravity}"`。插件直接使用钩子和 CLI，无需 MCP 服务。
 - WorkBuddy 在受信任的工作区加载 `.workbuddy/settings.json`。`SessionStart` 与 `UserPromptSubmit` 通过 `hookSpecificOutput.additionalContext` 注入上下文，首轮另附桌面主会话指引。启动事件缺少 `cwd` 时依次取 `CODEBUDDY_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和钩子进程工作目录。
 - Qoder 仅在默认主 Agent（`agent:default`）加载项目级 `.qoder/settings.json`。`SessionStart` 和 `UserPromptSubmit` 返回对应的 `hookEventName` 和 `additionalContext`。优先取事件的 `cwd`，缺省时依次取 `QODER_PROJECT_DIR`、`CLAUDE_PROJECT_DIR` 和进程工作目录。
 - WorkBuddy 和 Qoder 选中 `ready` 或 `active` 任务且下一步需要派发环节时，状态块提示使用当前宿主自身工具与原生子 Agent 完成该环节，再运行 `knit task close <id> --result <总结>`。`independent` 任务缺少有效的 Knit 审查通过记录时，提示在原生独立检查通过后用 `--reason` 写明检查说明。待裁决时先列出批次各成员的报告，再由主会话汇总，交给原生子 Agent 处理。Antigravity 和普通 CLI 提示 `knit run start <id>`。Pi 主会话按状态提示 `knit_task`、`knit_run` 或 `knit_deliver`。
@@ -224,7 +225,7 @@ createdAt: 2026-11-14T13:36:56Z
 - Qoder 的 `PreToolUse` 只订阅 `Bash`。选择、取消选择和建草稿的命令带上 `KNIT_HOST=qoder` 与 `KNIT_HOST_SESSION`。Qoder 用 `updatedInput` 整对象替换 `tool_input`，因此返回改写后的 `command` 及其余全部原始字段。预览直接放行。实际交付从 `transcript_path` 的 JSONL 中读取用户文本，排除摘要、元消息、工具结果与非用户来源，剥离 `<system-reminder>`、`<hook_context>` 和 `<loaded_context>`。标签残缺的消息不参与核对。授权原话须匹配整条或完整一行，匹配失败返回 `permissionDecision: deny`，放行时 stdout 为空。
 - 规范不写进角色文件：角色文件是 Knit 的模板，升级时会重新生成。
 
-放系统提示的理由：Pi 压缩会话时保留系统提示，把旧消息压成摘要。本机记录里一次执行中位 13 分钟、最长 141 分钟，规范放在消息里可能被压掉。
+Pi 压缩会话时保留系统提示，把旧消息压成摘要。执行者从系统提示持续取得环节规范。主会话从完整分支的最新 `knit.selection` 读取任务选择，从模型仍可见的 `knit.context` 消息归并各块摘要。恢复或切换分支时，`before_agent_start` 和有工具结果的 `turn_end` 都按该分支已提供的动态块计算差量。若 Pi 在工具边界之后、下一次请求之前自动压缩，`context_with_system` 在压缩后的首个请求末尾补齐缺块。桥接用 `pi.appendEntry` 将这条补充消息和它相对压缩摘要的位置记为当前分支的 `knit.compaction-context` 扩展条目。后续请求和会话重开时都在原位置投影同一条消息，新的状态变化继续追加到末尾。再次压缩后以新的压缩条目为准。旧会话首次使用新桥接时，原全量系统段收敛为讨论规范。
 
 另外两个工具的做法：
 
@@ -517,7 +518,7 @@ knit task show <id>                       查看任务详情和执行历史
 knit task cancel <任务> --reason <原因>       取消并归档；派发过的任务强制清理 Worktree 和分支
 knit run start <任务> [--model <模型>] [--thinking <等级>] [--instruction <修改清单> | --instruction-file <文件>] [--stage <裁决目标环节>] [--fresh]
 knit run status | wait | cancel 都按任务 id
-knit context [任务]                      讨论规范；指定任务时追加任务信息和环节的补充规范
+knit context [任务] [--json]              讨论规范、任务信息和补充规范，可按块输出 JSON
 knit context --use <任务> | --unuse       选中或清除当前宿主会话的任务
 knit hook agy <事件>                     Antigravity 插件钩子的入口
 knit hook workbuddy <事件>               WorkBuddy 项目钩子的隐藏入口
@@ -549,7 +550,7 @@ CLI 和宿主钩子从当前目录往上查找最近的项目 `.knit/`，到 Git
 
 `knit run status`、`knit run wait` 和 `knit context <任务>` 共用任务状态。并行成员结束且 `report.md` 存在时显示报告路径。执行已记为失败，或启动阶段已过、进程退出而执行尚未结算时，若执行目录中有 `worker.log`，状态中会显示日志的项目相对路径。状态块用 `（确认后改过需求）` 标出确认失效。已交付和已取消任务在 Pi 中提示使用 `knit_task` 的 `use` 动作并省略 `taskId`，命令型宿主提示 `knit context --unuse`。
 
-`knit context [任务]` 始终输出完整内容，Pi 用它每轮替换系统提示。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，报告错误并附上尚未发送或有变化的讨论规范、避坑分区和宿主指引；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
+`knit context [任务]` 默认输出完整纯文本。`--json` 返回 `discussion`、`status`、`supplement` 和 `pitfalls` 四个字符串，空块为空字符串。指定任务无法读取时仍返回讨论规范和讨论环节的避坑分区，`status` 说明任务 ID 和错误详情。Pi 用该命令取得分块。在工具模式中，JSON 和纯文本入口共用已交付任务的提交摘要缓存。Pi 会话的上下文摘要随自定义消息保存在当前分支。Antigravity、WorkBuddy 和 Qoder 则由钩子按第 5 节做增量注入。`knit context --use <任务>` 和 `--unuse` 在钩子宿主中只刷新动态状态摘要，不清除已发送的规范或指引摘要。选中任务无法读取时，钩子保留选择，报告错误并附上尚未发送或有变化的讨论规范、避坑分区和宿主指引；错误未变时不再注入。旧的 `.knit/.runtime/host-sessions/` 文件保留任务选择，下一次注入时按当前内容重建分块摘要。
 
 WorkBuddy GUI 的 `PATH` 可能优先使用内置 Node 22。WorkBuddy 与 Qoder 的钩子脚本优先使用宿主已有的 `PATH`，再补入用户级工具、版本管理器和 Homebrew 目录。CLI 启动时检查 Node 版本；低于 24 时在读取钩子输入前交回启动脚本。找不到 `knit`、`node` 或版本过低时，脚本通过登录 shell 重试。`sh`、`bash`、`zsh`、`ksh` 可直接使用，其他 shell 或未设置 `SHELL` 时使用 `/bin/sh`。自定义安装可通过登录配置或 shims 提供 Node 24 以上和 `knit`。这些路径调整只作用于钩子进程。
 
@@ -575,7 +576,7 @@ Pi 桥接有 3 个工具：
 - 用户可以全程在会话里讨论。什么时候问用户要不要建任务、建了之后怎么确认和开始实施，只写在内置讨论规范里；工具说明和注入的结尾提示不重复这些规则。`knit_task` 的说明只写每个动作做什么、要什么参数、返回什么：`new` 建一份草稿，返回标题、编号、`task.md` 路径、`draft` 状态及当前会话是否选中，不改变当前任务选择，失败时返回原因。主会话随后用普通读写工具把已讨论清楚的需求写入 `task.md`。Knit 不解析用户消息来自动建任务。
 - 每次成功调用 `task new` 都创建一份独立的草稿，包括同一轮中分别创建的多份草稿。Pi、Antigravity、WorkBuddy 和 Qoder 的建草稿入口向 CLI 传入宿主与会话标识，CLI 逐份返回标题、编号、`task.md` 链接、`draft` 状态及选择情况。
 - 通过 Pi 的 `knit_run` 工具派发时，`start` 动作传递宿主与模型环境。通过 `knit_deliver` 或 `bash` 执行实际交付时，桥接在当前会话分支中核对用户原话。预览可直接执行。
-- 每轮注入：没有选中任务时读取 `knit context` 的全部讨论规范，结尾只提示没有选中任务和怎么查看、选中；选中任务时读取 `knit context <任务>`，先给讨论规范，再给任务标题、状态、下一步、目录和第 5 节说的补充规范。选中的任务读不出来时显示错误，仍通过不带任务的 `knit context` 提供讨论规范，不改变选择；讨论规范读取失败时也显示原因，不使用旧缓存。当前任务的选择写在 Pi 会话记录里。
+- 桥接用 `knit context [任务] --json` 更新第 5 节的系统段与动态消息。未选中任务时，状态块提示用 `knit_task` 查看和选中。任务读取失败时保留选择，通过状态块给出原因。若 CLI 自身运行失败或返回无效分块，桥接从当前可见的系统消息恢复上次讨论规范，并在动态消息中说明故障。成功返回的空讨论块会清除该系统段。`knit.context` 的 `details` 记录版本和该条消息提供的动态块摘要。同一分支内容仍可见且摘要相同时，桥接跳过追加。
 
 ## 10. 用 Knit 开发 Knit
 

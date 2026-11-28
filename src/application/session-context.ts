@@ -74,6 +74,15 @@ export function buildSessionContext(root: string, id?: string, cacheCommit = fal
   } } as const;
 }
 
+export function readSelectedContext(root: string, id?: string, cacheCommit = false) {
+  try {
+    return buildSessionContext(root, id, cacheCommit);
+  } catch (error) {
+    if (id === undefined) throw error;
+    return { kind: "refused", problems: [String(error)] } as const;
+  }
+}
+
 function cachedTaskCommit(task: LoadedTask): string | null {
   const file = join(task.root, ".knit/.runtime/task-commits", task.document.frontmatter.id);
   const refs = gitSync(["cat-file", "--batch-check"], task.root, undefined,

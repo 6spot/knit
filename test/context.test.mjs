@@ -1,11 +1,12 @@
 import { buildSessionContext, contextBlocks, contextLines, statusLines } from "../dist/application/session-context.js";
+import { deliverTask } from "../dist/application/delivery.js";
 import { initProject } from "../dist/application/init.js";
 import { waitRun } from "../dist/application/run-control.js";
 import { cancelTask, closeTask, readyTask as confirmTask } from "../dist/application/task-lifecycle.js";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { loadConfig } from "../dist/application/project-config.js";
@@ -17,7 +18,7 @@ import { parseWorkflow } from "../dist/domain/workflow.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll } from "./helpers/git.mjs";
-import { agents, readyTask, runProject } from "./helpers/run.mjs";
+import { agents, doneTask, readyTask, runProject } from "./helpers/run.mjs";
 
 const REQUIREMENT =
   "## 目标与范围\n\n加一个问候语。\n\n## 完成条件\n\n### Requirement: 问候\n#### Scenario: 打招呼\n- WHEN 运行程序\n- THEN 输出问候语\n\n## 待澄清\n\n## 相关资料";
@@ -133,17 +134,32 @@ test("Pi 扩展逐轮提示任务工具，确认失效时标出需求变化", as
   process.env = { ...previous, PI_CODING_AGENT: "true" };
   t.after(() => { process.env = previous; });
   const bridge = await loadBridge(t, dir);
+  writeFileSync(join(dir, B.path), B.text);
+  writeFileSync(join(dir, ".knit/standards/pitfalls.md"), "---\ntitle: 避坑清单\n---\n\n## implement\n\n实现时核实。\n");
+  const sections = {};
+  const turn = async () => (await bridge.fire("before_agent_start", { systemPromptOptions: { sections } }))?.message.content;
+  const boundary = (toolResults, entries = []) => bridge.fire("turn_end", { toolResults, entries });
+  assert.match(await turn(), /没有选中 Knit 任务/);
+  const stable = sections.knit;
   await bridge.tool("knit_task", { action: "use", taskId: task.id });
-  const turn = async () => {
-    const sections = {};
-    await bridge.fire("before_agent_start", { systemPromptOptions: { sections } });
-    return sections.knit;
-  };
-  assert.match(await turn(), /^下一步: .*knit_run action=start/m);
+  assert.equal(await boundary([]), undefined);
+  const other = { type: "custom", customType: "fixture", data: {} };
+  const next = await boundary([{ role: "toolResult" }], [other]);
+  assert.deepEqual(next.entries[0], other);
+  assert.equal(next.entries.length, 2);
+  const message = next.entries[1];
+  assert.deepEqual([message.type, message.customType, message.display], ["custom_message", "knit.context", false]);
+  assert.match(message.content, /^下一步: .*knit_run action=start/m);
+  assert.match(message.content, /实现时核实。/);
+  assert.ok(message.content.includes(B.path));
+  assert.equal(await boundary([{ role: "toolResult" }]), undefined);
+  assert.equal(await turn(), undefined);
   const file = join(dir, task.dir, "task.md");
   writeFileSync(file, readFileSync(file, "utf8").replace("加一个问候语。", "改成两句问候语。"));
   const stale = await turn();
   assert.match(stale, /^状态: draft（确认后改过需求）$/m);
+  assert.match(stale, /此前注入的环节补充规范已不再适用/);
+  assert.match(stale, /此前注入的避坑条目已不再适用/);
   assert.match(stale, /^下一步: .*knit_task action=ready/m);
   assert.equal(confirmTask(dir, task.id).kind, "ready");
   ranStage(dir, task.id, null);
@@ -156,6 +172,8 @@ test("Pi 扩展逐轮提示任务工具，确认失效时标出需求变化", as
   const ended = await turn();
   assert.match(ended, /^下一步: .*knit_task action=use，省略 taskId/m);
   assert.doesNotMatch(ended, /knit context --unuse/);
+  assert.equal(sections.knit, stable);
+  assert.deepEqual(bridge.messages, []);
 });
 
 test("按 ID 查活跃任务时跳过归档，活跃未命中时仍能找到归档任务", async (t) => {
@@ -267,6 +285,46 @@ test("主会话随讨论、实现、审查和交付切换清单，正文与 CLI 
   assert.equal(check("review", task.id), "## 通用\n\n每轮核实\n\n## implement, review\n\n执行共用\n\n## review\n\n审查专用\n");
   ranStage(dir, task.id, "pass");
   assert.equal(check("deliver", task.id), "## 通用\n\n每轮核实\n\n## deliver\n\n交付专用\n");
+});
+
+test("context --json 和完整 CLI 输出共用规范，选中任务损坏时仍提供讨论与错误详情", (t) => {
+  const dir = projectWith(t, [A, B]);
+  const task = readyTask(dir);
+  const blocks = (id) => {
+    const result = knit(dir, "context", id, "--json");
+    assert.equal(result.code, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  assert.deepEqual(blocks(task.id), contextBlocks(buildSessionContext(dir, task.id)));
+  assert.equal(knit(dir, "context", task.id).stdout, `${contextLines(buildSessionContext(dir, task.id)).join("\n")}\n`);
+  const record = join(dir, task.dir, "record.json");
+  rmSync(record);
+  mkdirSync(record);
+  const broken = blocks(task.id);
+  assert.equal(broken.discussion, contextBlocks(buildSessionContext(dir)).discussion);
+  assert.match(broken.status, new RegExp(task.id));
+  assert.match(broken.status, /EISDIR|目录|普通文件/);
+  assert.equal(broken.supplement, "");
+});
+
+test("Pi context --json 在两次进程间复用已交付提交摘要", (t) => {
+  const dir = runProject(t);
+  const task = doneTask(dir);
+  assert.equal(deliverTask(dir, task.id, { authorization: "同意交付", message: "交付摘要" }).kind, "delivered");
+  const trace = join(process.env.KNIT_HOME, "json.trace");
+  const read = () => {
+    writeFileSync(trace, "");
+    const result = spawnSync(process.execPath, [new URL("../dist/cli/knit.js", import.meta.url).pathname, "context", task.id, "--json"], {
+      cwd: dir, encoding: "utf8", env: { ...process.env, KNIT_HOST: "pi", GIT_TRACE: trace },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return { stdout: result.stdout, logs: readFileSync(trace, "utf8").match(/built-in: git log\b/g)?.length ?? 0 };
+  };
+  const first = read();
+  assert.match(JSON.parse(first.stdout).status, /^提交: [0-9a-f]+ 交付摘要$/m);
+  assert.equal(first.logs, 1);
+  assert.deepEqual(read(), { stdout: first.stdout, logs: 0 });
+  assert.equal(existsSync(join(dir, ".knit/.runtime/host-sessions")), false);
 });
 
 test("状态没变时输出逐字不变", (t) => {

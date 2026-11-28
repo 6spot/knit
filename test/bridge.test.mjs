@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import fsPromises from "node:fs/promises";
-import { syncBuiltinESMExports } from "node:module";
+import { findPackageJSON, syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { buildSessionContext, contextLines } from "../dist/application/session-context.js";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildSessionContext, contextBlocks } from "../dist/application/session-context.js";
 import { createTask } from "../dist/application/task-store.js";
 import { parseTaskDocument, renderTaskDocument } from "../dist/domain/task.js";
+import { findExecutable } from "../dist/infrastructure/process.js";
 import { loadBridge } from "./helpers/bridge.mjs";
 import { knit, project } from "./helpers/cli.mjs";
 import { commitAll, git, gitProject } from "./helpers/git.mjs";
@@ -305,10 +306,8 @@ async function newTask(bridge, title) {
   return { id: /^已创建 .+（(k-[0-9a-f]+)）$/.exec(first)[1], file };
 }
 
-function contextText(dir, id) {
-  const context = buildSessionContext(dir, id);
-  assert.equal(context.kind, "context");
-  return contextLines(context).join("\n").trimEnd();
+function discussion(dir) {
+  return contextBlocks(buildSessionContext(dir)).discussion;
 }
 
 async function sectionsAfterTurn(bridge, sections = {}) {
@@ -326,16 +325,17 @@ test("首轮直接讨论，每轮完整提供 discuss 规范，不改任务和�
   readyTask(dir, { verification: "self" });
   const before = snapshot(join(dir, ".knit"));
   bridge.entries.push({ type: "message", id: "user-1", message: { role: "user", content: "我想给程序加问候语，先聊聊需求。" } });
-  const entries = structuredClone(bridge.entries);
   const first = await sectionsAfterTurn(bridge, { other: "别的扩展的一段" });
-  assert.deepEqual(first, { other: "别的扩展的一段", knit: `${contextText(dir)}\n${HINT}` });
+  assert.deepEqual(first, { other: "别的扩展的一段", knit: discussion(dir) });
   assert.deepEqual(paths(first.knit), [...DISCUSSION_PATHS, ".knit/standards/nested/writing.md"]);
   assert.match(first.knit, /^- 保留项目特有的讨论约束。$/m);
   assert.doesNotMatch(first.knit, /^任务:|^状态:|^下一步:/m);
   assert.deepEqual(await sectionsAfterTurn(bridge, structuredClone(first)), first);
   assert.deepEqual(snapshot(join(dir, ".knit")), before);
-  assert.deepEqual(bridge.entries, entries);
-  assert.deepEqual(bridge.messages, []);
+  assert.equal(bridge.entries.length, 2);
+  assert.equal(bridge.entries[1].customType, "knit.context");
+  assert.equal(bridge.entries[1].display, false);
+  assert.match(bridge.entries[1].content, /没有选中 Knit 任务/);
 });
 
 test("草稿切换、取消选择和待交付任务：每轮保留讨论规范并按路径去重", async (t) => {
@@ -347,25 +347,31 @@ test("草稿切换、取消选择和待交付任务：每轮保留讨论规范�
   const discussionPaths = [...DISCUSSION_PATHS, ".knit/standards/shared.md"];
   for (const task of drafts) {
     await bridge.tool("knit_task", { action: "use", taskId: task.id });
-    const selected = (await sectionsAfterTurn(bridge)).knit;
-    assert.equal(selected, contextText(dir, task.id));
-    assert.deepEqual(paths(selected), discussionPaths);
+    const sections = await sectionsAfterTurn(bridge);
+    assert.equal(sections.knit, discussion(dir));
+    assert.deepEqual(paths(sections.knit), discussionPaths);
+    const selected = bridge.entries.at(-1).content;
+    assert.deepEqual(paths(selected), []);
     assert.match(selected, new RegExp(`^任务: .+（${task.id}）$`, "m"));
     assert.match(selected, /^状态: draft$/m);
     assert.match(selected, new RegExp(`^下一步: 先确认需求（knit task ready ${task.id}）$`, "m"));
     assert.doesNotMatch(selected.slice(selected.indexOf("任务:")), /<standard/);
   }
   await bridge.tool("knit_task", { action: "use" });
-  assert.deepEqual(await sectionsAfterTurn(bridge), { knit: `${contextText(dir)}\n${HINT}` });
+  assert.deepEqual(await sectionsAfterTurn(bridge), { knit: discussion(dir) });
+  assert.ok(bridge.entries.at(-1).content.includes(HINT));
 
   const completed = doneTask(dir);
   await bridge.tool("knit_task", { action: "use", taskId: completed.id });
   const before = snapshot(join(dir, ".knit"));
   const delivered = await sectionsAfterTurn(bridge);
-  assert.deepEqual(paths(delivered.knit), [...discussionPaths, "knit:standards/delivery.md", ".knit/standards/delivery-only.md"]);
-  assert.match(delivered.knit, /^状态: done$/m);
-  assert.match(delivered.knit, new RegExp(`^下一步: 用户授权后交付（knit deliver ${completed.id}）$`, "m"));
+  assert.deepEqual(paths(delivered.knit), discussionPaths);
+  const last = bridge.entries.at(-1);
+  assert.deepEqual(paths(last.content), ["knit:standards/delivery.md", ".knit/standards/delivery-only.md"]);
+  assert.match(last.content, /^状态: done$/m);
+  assert.match(last.content, new RegExp(`^下一步: 用户授权后交付（knit deliver ${completed.id}）$`, "m"));
   assert.deepEqual(await sectionsAfterTurn(bridge, structuredClone(delivered)), delivered);
+  assert.equal(bridge.entries.at(-1), last);
   assert.deepEqual(snapshot(join(dir, ".knit")), before);
 });
 
@@ -378,7 +384,8 @@ test("用户明确要求后用现有工具建草稿、写需求，成功或失�
   assert.doesNotMatch(description, /是否建 Knit 任务|委派|明确要求/);
   const first = await newTask(bridge, "现有草稿");
   assert.deepEqual(bridge.entries, []);
-  assert.match((await sectionsAfterTurn(bridge)).knit, /没有选中 Knit 任务/);
+  await sectionsAfterTurn(bridge);
+  assert.match(bridge.entries.at(-1).content, /没有选中 Knit 任务/);
   await bridge.tool("knit_task", { action: "use", taskId: first.id });
   bridge.entries.push({ type: "message", id: "user-1", message: { role: "user", content: "问候语输出到标准输出，不做配置和界面；把这些建成任务，先不要实施。" } });
   const entries = structuredClone(bridge.entries);
@@ -396,14 +403,16 @@ test("用户明确要求后用现有工具建草稿、写需求，成功或失�
   assert.equal(existsSync(join(dir, dirname(created.file), "record.json")), false);
   assert.deepEqual(bridge.entries, entries);
   assert.deepEqual(snapshot(join(dir, dirname(first.file))), oldTask);
-  assert.match((await sectionsAfterTurn(bridge)).knit, new RegExp(`^任务: 现有草稿（${first.id}）$`, "m"));
+  await sectionsAfterTurn(bridge);
+  assert.match(bridge.entries.at(-1).content, new RegExp(`^任务: 现有草稿（${first.id}）$`, "m"));
+  const current = structuredClone(bridge.entries);
 
   const beforeFailure = snapshot(join(dir, ".knit"));
   const failed = await bridge.tool("knit_task", { action: "new", title: "创建失败", parent: "k-000000000000" });
   assert.equal(failed.isError, true);
   assert.match(failed.content[0].text, /k-000000000000/);
   assert.deepEqual(snapshot(join(dir, ".knit")), beforeFailure);
-  assert.deepEqual(bridge.entries, entries);
+  assert.deepEqual(bridge.entries, current);
   assert.deepEqual(paths((await sectionsAfterTurn(bridge)).knit), DISCUSSION_PATHS);
 });
 
@@ -416,11 +425,227 @@ test("选中任务读不出来时仍保留讨论规范，缺少事件 sections �
   const missing = buildSessionContext(dir, task.id);
   assert.equal(missing.kind, "refused");
   assert.ok(missing.problems.length > 0);
-  assert.deepEqual(await sectionsAfterTurn(bridge), {
-    knit: `${contextText(dir)}\n选中的 Knit 任务 ${task.id} 读不出来：\n${missing.problems.join("\n")}`,
-  });
-  assert.deepEqual(bridge.entries, before);
+  assert.deepEqual(await sectionsAfterTurn(bridge), { knit: discussion(dir) });
+  assert.ok(bridge.entries.at(-1).content.includes(`选中的 Knit 任务 ${task.id} 读不出来：\n${missing.problems.join("\n")}`));
+  assert.deepEqual(bridge.entries.slice(0, -1), before);
   await bridge.fire("before_agent_start", {});
+});
+
+test("每轮新建 sections 时，读取失败沿用当前分支的讨论规范，成功的空块生效", async (t) => {
+  const { bridge } = await bridged(t);
+  const stable = await sectionsAfterTurn(bridge);
+  bridge.appendMessage({ role: "system", content: "", sections: { knit: `<knit>\n${stable.knit}\n</knit>` } });
+  const bin = emptyDir(t);
+  const calls = join(bin, "calls");
+  writeFileSync(join(bin, "knit"), `#!/bin/sh\necho call >> '${calls}'\necho '临时读取故障' >&2\nexit 1\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  await bridge.reload();
+  assert.deepEqual(await sectionsAfterTurn(bridge, {}), stable);
+  assert.match(bridge.entries.at(-1).content, /Knit 上下文读不出来：[\s\S]*临时读取故障/);
+  const count = bridge.entries.length;
+  await bridge.requestMessages();
+  assert.deepEqual(await sectionsAfterTurn(bridge, {}), stable);
+  assert.equal(bridge.entries.length, count);
+  assert.equal(readFileSync(calls, "utf8"), "call\ncall\n");
+  writeFileSync(join(bin, "knit"), "#!/bin/sh\necho '{'\n");
+  assert.deepEqual(await sectionsAfterTurn(bridge, {}), stable);
+  assert.match(bridge.entries.at(-1).content, /未返回有效的分块/);
+  writeFileSync(join(bin, "knit"), `#!/bin/sh\necho '{"discussion":"","status":"","supplement":"","pitfalls":""}'\n`);
+  assert.deepEqual(await sectionsAfterTurn(bridge, {}), { knit: "" });
+});
+
+for (const projection of ["buildSessionContext", "buildSessionProjection", null]) {
+  test(`Pi 恢复、压缩与分支切换按可见块重建（${projection ?? "旧版分支"}）`, async (t) => {
+    const dir = project(t);
+    const bridge = await loadBridge(t, dir, { projection });
+    const first = doneTask(dir);
+    const second = doneTask(dir);
+    const use = (task) => bridge.tool("knit_task", { action: "use", taskId: task.id });
+    await use(first);
+    const bareBranch = [...bridge.entries];
+    const stable = await sectionsAfterTurn(bridge, { knit: knit(dir, "context", first.id).stdout });
+    assert.equal(stable.knit, discussion(dir));
+    const complete = bridge.entries.at(-1);
+    assert.match(complete.content, /knit:standards\/delivery\.md/);
+    const fullBranch = [...bridge.entries];
+    await bridge.reload();
+    assert.deepEqual(await sectionsAfterTurn(bridge), stable);
+    assert.deepEqual(bridge.entries, fullBranch);
+
+    await use(second);
+    await sectionsAfterTurn(bridge);
+    const delta = bridge.entries.at(-1);
+    assert.deepEqual(Object.keys(delta.details.digests), ["status"]);
+    bridge.compact(projection ? delta.id : null);
+    assert.deepEqual(await sectionsAfterTurn(bridge), stable);
+    const restored = bridge.entries.at(-1);
+    assert.match(restored.content, /knit:standards\/delivery\.md/);
+    assert.deepEqual(Object.keys(restored.details.digests), projection ? ["supplement"] : ["status", "supplement"]);
+    assert.ok(bridge.projectContext().messages.some((m) => m.role === "custom" && m.content.includes(second.id)));
+    bridge.switchBranch(bareBranch);
+    await sectionsAfterTurn(bridge);
+    assert.equal(bridge.entries.at(-1).content, complete.content);
+    bridge.switchBranch(fullBranch);
+    await sectionsAfterTurn(bridge);
+    assert.deepEqual(bridge.entries, fullBranch);
+  });
+}
+
+test("压缩后首个请求补足缺块，投影随分支、再次压缩和恢复重建", async (t) => {
+  const { dir, bridge } = await bridged(t);
+  const task = doneTask(dir);
+  await bridge.tool("knit_task", { action: "use", taskId: task.id });
+  await sectionsAfterTurn(bridge);
+  const full = [...bridge.entries];
+  const toolResult = { role: "toolResult", content: [{ type: "text", text: "完成" }], timestamp: 1 };
+  const kept = bridge.appendMessage(toolResult);
+  await bridge.fire("turn_end", { toolResults: [toolResult] });
+  bridge.compact(kept);
+  const first = await bridge.requestMessages();
+  assert.match(first.at(-1).content, /knit:standards\/delivery.md/);
+  const branch = [...bridge.entries];
+  bridge.appendMessage({ role: "user", content: "再看一次", timestamp: 2 });
+  await bridge.reload();
+  await sectionsAfterTurn(bridge);
+  assert.deepEqual((await bridge.requestMessages()).slice(0, -1), first);
+  bridge.switchBranch(full);
+  assert.equal((await bridge.requestMessages()).filter((m) => m.customType === "knit.context").length, 1);
+  assert.deepEqual(bridge.entries, full);
+  bridge.switchBranch(branch);
+  bridge.compact();
+  const rebuilt = await bridge.requestMessages();
+  assert.equal(rebuilt.length, 2);
+  assert.deepEqual(rebuilt.at(-1), first.at(-1));
+});
+
+test("Pi 1.7.0 Responses 离线重放多次请求的前缀与工具声明", async (t) => {
+  const pi = findExecutable("pi");
+  if (!pi || spawnSync(pi, ["--version"], { encoding: "utf8" }).stdout?.trim() !== "1.7.0") {
+    return t.skip("需要本机 Pi 1.7.0 的 Responses 转换器");
+  }
+  const launcher = realpathSync(pi);
+  const release = join(dirname(launcher), "../install/releases/1.7.0");
+  const anchor = pathToFileURL(existsSync(release) ? join(release, "index.js") : launcher);
+  const agent = findPackageJSON("@earendil-works/pi-coding-agent", anchor);
+  assert.equal(JSON.parse(readFileSync(agent)).version, "1.7.0");
+  const ai = findPackageJSON("@earendil-works/pi-ai", pathToFileURL(agent));
+  const { prepareResponsesPrompt } = await import(pathToFileURL(join(dirname(ai), "dist/api/openai-responses-shared.js")));
+  const { convertToLlm } = await import(pathToFileURL(join(dirname(agent), "dist/core/messages.js")));
+  const { dir, bridge } = await bridged(t);
+  const task = readyTask(dir, { verification: "self" });
+  const sections = {};
+  const model = { id: "fixture", provider: "fixture", api: "openai-responses", reasoning: true, input: ["text"] };
+  const start = () => sectionsAfterTurn(bridge, sections);
+  const request = () => prepareResponsesPrompt(model, { messages: [
+    { role: "system", content: "离线测试", sections: { knit: `<knit>\n${sections.knit}\n</knit>` },
+      toolsAdded: bridge.definitions.map(({ name, description, parameters }) => ({ name, description, parameters })), timestamp: 0 },
+    ...convertToLlm(bridge.projectContext().messages),
+  ] }, new Set(), { supportsMidConvoSystemMessages: false });
+  const user = (id) => bridge.entries.push(userSaid(id, "查看当前状态"));
+  user("u1");
+  await start();
+  const first = request();
+  assert.equal(first.input[0].role, "developer");
+  assert.ok(first.input[0].content.includes(discussion(dir)));
+  assert.equal(first.requestTools.length, 3);
+  const params = { action: "use", taskId: task.id };
+  const used = await bridge.tool("knit_task", params);
+  const toolResult = { role: "toolResult", toolCallId: "call", toolName: "knit_task", content: used.content, isError: false, timestamp: 1 };
+  bridge.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "knit_task", arguments: params }],
+    api: model.api, model: model.id, provider: model.provider, stopReason: "toolUse", timestamp: 1 } }, { type: "message", message: toolResult });
+  await bridge.fire("turn_end", { toolResults: [toolResult] });
+  const selected = request();
+  assert.deepEqual(selected.input.slice(first.input.length).map((item) => item.type ?? item.role), ["function_call", "function_call_output", "user"]);
+  assert.match(selected.input.at(-1).content[0].text, /^状态: ready$/m);
+  assert.equal((await bridge.tool("knit_task", { action: "close", taskId: task.id, result: "离线验证" })).isError, undefined);
+  user("u2");
+  await start();
+  const closed = request();
+  assert.equal(closed.input.length, selected.input.length + 2);
+  assert.match(closed.input.at(-1).content[0].text, /^状态: done$/m);
+  assert.match(closed.input.at(-1).content[0].text, /knit:standards\/delivery.md/);
+  user("u3");
+  await start();
+  const repeated = request();
+  assert.equal(repeated.input.length, closed.input.length + 1);
+  assert.equal(repeated.input.at(-1).content[0].text, "查看当前状态");
+  for (const [before, after] of [[first, selected], [selected, closed], [closed, repeated]]) {
+    assert.deepEqual(after.input.slice(0, before.input.length), before.input);
+    assert.deepEqual(after.requestTools, before.requestTools);
+  }
+  t.diagnostic(`4 次离线请求的 input 项数 ${[first, selected, closed, repeated].map((p) => p.input.length).join(" → ")}，各次工具声明均为 ${first.requestTools.length} 个`);
+
+  const { SessionManager } = await import(pathToFileURL(join(dirname(agent), "dist/core/session-manager.js")));
+  const manager = SessionManager.inMemory(dir);
+  const native = bridge;
+  await native.reload(manager);
+  const tasks = [doneTask(dir), doneTask(dir)];
+  writeFileSync(join(dir, ".knit/standards/pitfalls.md"), "---\ntitle: 避坑清单\n---\n\n## deliver\n\n核实交付结果。\n");
+  const use = (b, task) => b.tool("knit_task", { action: "use", taskId: task.id });
+  const render = async (b) => prepareResponsesPrompt(model, { messages: convertToLlm(await b.requestMessages()) },
+    new Set(), { supportsMidConvoSystemMessages: false });
+  const prefix = (a, b) => {
+    assert.deepEqual(b.input.slice(0, a.input.length), a.input);
+    assert.deepEqual(b.requestTools, a.requestTools);
+  };
+  const toolBeat = (b, call) => {
+    const id = b.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: call, name: "knit_task", arguments: { action: "list" } }],
+      api: model.api, model: model.id, provider: model.provider, stopReason: "toolUse", timestamp: 2 });
+    b.appendMessage({ ...toolResult, toolCallId: call, content: [{ type: "text", text: "已查阅" }] });
+    return id;
+  };
+  native.appendMessage({ role: "system", content: "离线测试", sections: { knit: `<knit>\n${discussion(dir)}\n</knit>` },
+    toolsAdded: native.definitions.map(({ name, description, parameters }) => ({ name, description, parameters })), timestamp: 0 });
+  await use(native, tasks[0]);
+  await sectionsAfterTurn(native);
+  await use(native, tasks[1]);
+  await sectionsAfterTurn(native);
+  const deltaId = manager.getLeafId();
+  assert.deepEqual(Object.keys(manager.getLeafEntry().details.digests), ["status"]);
+  const callId = toolBeat(native, "before_compact");
+  assert.equal(await native.fire("turn_end", { toolResults: [toolResult] }), undefined);
+  const original = manager.getLeafId();
+  for (const partial of [false, true]) {
+    await native.reload(manager);
+    manager.branch(original);
+    native.compact(partial ? deltaId : callId);
+    const repaired = await render(native);
+    const repair = manager.getLeafEntry().data.message;
+    assert.deepEqual(Object.keys(repair.details.digests), partial ? ["supplement", "pitfalls"] : ["status", "supplement", "pitfalls"]);
+    assert.equal(repaired.input.at(-1).content[0].text, repair.content);
+    assert.match(repair.content, /核实交付结果。/);
+    assert.match(repair.content, /knit:standards\/delivery.md/);
+    assert.ok(JSON.stringify(repaired.input).includes(tasks[1].id));
+    assert.equal(repaired.input[0].role, "developer");
+    assert.ok(repaired.input[0].content.includes(discussion(dir)));
+    assert.deepEqual(repaired.requestTools, first.requestTools);
+    toolBeat(native, "after_compact");
+    assert.equal(await native.fire("turn_end", { toolResults: [toolResult] }), undefined);
+    const continued = await render(native);
+    prefix(repaired, continued);
+    assert.equal(continued.input.length, repaired.input.length + 2);
+
+    const reopened = SessionManager.inMemory(dir, undefined, JSON.parse(JSON.stringify([manager.getHeader(), ...manager.getBranch()])));
+    await native.reload(reopened);
+    const oldLeaf = reopened.getLeafId();
+    assert.equal((await sectionsAfterTurn(native, {})).knit, discussion(dir));
+    assert.equal(reopened.getLeafId(), oldLeaf);
+    native.appendMessage({ role: "user", content: "继续", timestamp: 3 });
+    const resumed = await render(native);
+    prefix(continued, resumed);
+    assert.equal(resumed.input.length, continued.input.length + 1);
+    await use(native, tasks[0]);
+    toolBeat(native, "changed");
+    const changed = await native.fire("turn_end", { toolResults: [toolResult] });
+    assert.deepEqual(Object.keys(changed.entries.at(-1).details.digests), ["status"]);
+    const updated = await render(native);
+    prefix(resumed, updated);
+    assert.equal(updated.input.length, resumed.input.length + 3);
+    assert.ok(updated.input.at(-1).content[0].text.includes(tasks[0].id));
+    assert.equal(await native.fire("turn_end", { toolResults: [toolResult] }), undefined);
+    assert.deepEqual(await render(native), updated);
+    t.diagnostic(`${partial ? "部分" : "完整"}移除后的首条、续拍、重开和状态更新 input 项数 ${[repaired, continued, resumed, updated].map((p) => p.input.length).join(" → ")}`);
+  }
 });
 
 /** 加载了桥接的临时 Git 仓库，初始化生成的文件已经提交。 */
@@ -560,9 +785,15 @@ test("找不到原话时不交付", async (t) => {
     { type: "custom_message", id: "c-1", customType: "knit.run-ended", content: "同意交付", display: true },
   );
   const task = doneTask(dir);
+  writeFileSync(join(dir, ".knit/standards/quote.md"), "---\ntitle: 离线样例\nstages: [deliver]\n---\n仅宿主上下文提到的授权\n");
+  await bridge.tool("knit_task", { action: "use", taskId: task.id });
+  await sectionsAfterTurn(bridge);
+  assert.match(bridge.entries.at(-1).content, /^仅宿主上下文提到的授权$/m);
+  const shell = await bridge.fire("tool_call", { toolName: "bash", input: { command: `knit deliver ${task.id} --authorization 仅宿主上下文提到的授权` } });
+  assert.equal(shell.block, true);
   const before = filesOf(dir, task.dir);
 
-  for (const quote of ["同意交付", "交付", "可以交付"]) {
+  for (const quote of ["仅宿主上下文提到的授权", "同意交付", "交付", "可以交付"]) {
     assert.deepEqual(
       await bridge.tool("knit_deliver", { taskId: task.id, authorization: quote }),
       failed(

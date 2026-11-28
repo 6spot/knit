@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { sha256Text } from "../contracts/primitives.js";
 import { atomicWrite, readWithVersion } from "../infrastructure/fs.js";
 import { withFileLock } from "../infrastructure/process.js";
-import { buildSessionContext, contextBlocks, type DispatchMode } from "./session-context.js";
+import { buildSessionContext, contextBlocks, readSelectedContext, type DispatchMode } from "./session-context.js";
 import { readTask } from "./task-store.js";
 
 export interface HostSession {
@@ -75,7 +75,7 @@ export function hostContext(root: string, session: HostSession, guidance?: strin
 }
 
 function sessionBlocks(root: string, taskId: string | null, guidance?: string, dispatchMode?: DispatchMode): Partial<Record<BlockName, string>> {
-  const context = readContext(root, taskId);
+  const context = readSelectedContext(root, taskId ?? undefined, true);
   if (context.kind === "refused") {
     const discussion = buildSessionContext(root);
     const blocks = discussion.kind === "context" ? contextBlocks(discussion) : null;
@@ -95,13 +95,4 @@ function sessionBlocks(root: string, taskId: string | null, guidance?: string, d
     status: taskId === null ? "没有选中 Knit 任务。用 knit task list 查看任务，用 knit context --use <id> 选中任务。" : blocks.status,
     guidance,
   };
-}
-
-function readContext(root: string, taskId: string | null) {
-  try {
-    return buildSessionContext(root, taskId ?? undefined, true);
-  } catch (error) {
-    if (taskId === null) throw error;
-    return { kind: "refused", problems: [String(error)] } as const;
-  }
 }
