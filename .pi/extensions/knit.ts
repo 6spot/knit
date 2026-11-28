@@ -5,6 +5,7 @@
  * 只 import Node 自带的模块，只用去掉之后不影响运行的类型写法：Pi 去掉类型之后直接运行这个文件。
  */
 import { type ChildProcess, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -26,7 +27,9 @@ interface Pi {
   }): void;
   /** 写一条扩展自己的会话记录，不进模型的上下文。 */
   appendEntry(customType: string, data: unknown): void;
-  on(event: "before_agent_start", handler: (event: TurnStart, ctx: Context) => Promise<void>): void;
+  on(event: "before_agent_start", handler: (event: TurnStart, ctx: Context) => Promise<{ message: ContextMessage } | undefined>): void;
+  on(event: "turn_end", handler: (event: { toolResults: unknown[]; entries: unknown[]; context?: { contextMessages: VisibleMessage[] } }, ctx: Context) => Promise<{ entries: unknown[] } | undefined>): void;
+  on(event: "context_with_system", handler: (event: { messages: VisibleMessage[] }, ctx: Context) => Promise<{ messages: VisibleMessage[] } | undefined>): void;
   on(event: "tool_call", handler: (event: { toolName: string; input: Record<string, unknown> }, ctx: Context) => Promise<{ block: true; reason: string } | undefined>): void;
   on(event: "session_shutdown", handler: () => Promise<void>): void;
   /** 这条消息进模型的上下文。followUp：智能体正在做事时等它这一轮做完再送到；triggerTurn：空闲时立即触发一轮。 */
@@ -45,7 +48,12 @@ interface Context {
   model?: { provider: string; id: string };
   thinkingLevel?: string;
   /** 当前分支上的全部会话记录，从最早到最新；压缩之前的也在。 */
-  sessionManager: { getBranch(): SessionEntry[]; getSessionId(): string };
+  sessionManager: {
+    getBranch(): SessionEntry[];
+    getSessionId(): string;
+    buildSessionContext?(): { messages: VisibleMessage[] };
+    buildSessionProjection?(): { messages: VisibleMessage[] };
+  };
 }
 
 /** 只写用到的成员。用户、智能体的消息是 `message`；扩展发的是 `custom_message`，不是用户消息。 */
@@ -54,7 +62,28 @@ interface SessionEntry {
   id: string;
   customType?: string;
   data?: unknown;
+  details?: unknown;
   message?: { role: string; content: string | { type: string; text?: string }[] };
+}
+
+const dynamicBlocks = ["status", "supplement", "pitfalls"] as const;
+type BlockName = typeof dynamicBlocks[number];
+type Blocks = Record<BlockName, string> & { discussion?: string };
+type Digests = Partial<Record<BlockName, string>>;
+
+interface VisibleMessage {
+  role: string;
+  timestamp?: number;
+  sections?: Record<string, string | null>;
+  customType?: string;
+  details?: unknown;
+}
+
+interface ContextMessage {
+  customType: "knit.context";
+  display: false;
+  content: string;
+  details: { version: 1; digests: Digests };
 }
 
 interface CommandResult {
@@ -102,6 +131,12 @@ interface DeliverParams {
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 const SELECTION = "knit.selection";
+const PROJECTION = "knit.compaction-context";
+
+interface SavedProjection {
+  afterSummary: number;
+  message: ContextMessage & { role: "custom"; timestamp: number };
+}
 
 // 与 src/application/host-command.ts 中的判定保持一致；模板须能独立运行。
 export function canSkipHostCommand(command: string): boolean {
@@ -181,29 +216,54 @@ export default function knitBridge(pi: Pi): void {
     execute: (_toolCallId, params, _signal, _onUpdate, ctx) => deliver(params, ctx),
   });
 
-  // 每一轮都提供讨论规范，再按选择补充任务信息和环节规范。
-  // 放系统提示而不是消息：Pi 压缩会话时保留系统提示。不缓存，每轮读取；任务读不出时仍读取讨论规范。
+  // 叶子之后出现新的压缩条目时，请求需重新核对。无需补块的检查只记在内存里。
+  const checkedLeaf = new Map<string, string>();
+  const markChecked = (ctx: Context) => {
+    const leaf = ctx.sessionManager.getBranch().at(-1);
+    if (leaf) checkedLeaf.set(ctx.sessionManager.getSessionId(), leaf.id);
+  };
   pi.on("before_agent_start", async (event, ctx) => {
+    const blocks = await readBlocks(ctx);
+    const visible = visibleMessages(ctx);
     const sections = event.systemPromptOptions?.sections;
-    if (sections === undefined) return;
-    const taskId = selectedTask(ctx);
-    const context = await runKnit(["context", ...(taskId === null ? [] : [taskId])]);
-    if (taskId === null) {
-      sections.knit = [
-        context.code === 0 ? context.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${context.stderr.trimEnd()}`,
-        "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中。",
-      ].join("\n");
+    if (sections) {
+      // Pi 每轮重建 sections。历史 system 消息保存的是 Pi 已包裹的 XML 段。
+      const discussion = blocks.discussion ?? visible.findLast((m) => m.role === "system" && m.sections?.knit !== undefined)
+        ?.sections?.knit?.replace(/^<knit>\n([\s\S]*)\n<\/knit>$/, "$1");
+      if (discussion !== undefined) sections.knit = discussion;
+    }
+    const message = contextDelta(blocks, withSavedProjection(ctx, visible));
+    markChecked(ctx);
+    if (message) return { message };
+  });
+
+  pi.on("turn_end", async (event, ctx) => {
+    if (!event.toolResults.length) return;
+    const visible = event.context?.contextMessages ?? visibleMessages(ctx);
+    const message = contextDelta(await readBlocks(ctx), withSavedProjection(ctx, visible));
+    markChecked(ctx);
+    if (message) return { entries: [...event.entries, { type: "custom_message", ...message }] };
+  });
+
+  pi.on("context_with_system", async ({ messages }, ctx) => {
+    const summary = messages.findIndex((m) => m.role === "compactionSummary");
+    if (summary < 0) return;
+    const tail = compactionTail(ctx);
+    if (!tail.length) return;
+    const saved = savedProjection(tail);
+    if (saved) return { messages: insertProjection(messages, summary, saved) };
+    if (tail.some((entry) => entry.id === checkedLeaf.get(ctx.sessionManager.getSessionId()))) return;
+    const message = contextDelta(await readBlocks(ctx), messages);
+    if (!message) {
+      markChecked(ctx);
       return;
     }
-    if (context.code === 0) {
-      sections.knit = context.stdout.trimEnd();
-      return;
-    }
-    const discussion = await runKnit(["context"]);
-    sections.knit = [
-      discussion.code === 0 ? discussion.stdout.trimEnd() : `Knit 讨论规范读不出来：\n${discussion.stderr.trimEnd()}`,
-      `选中的 Knit 任务 ${taskId} 读不出来：\n${context.stderr.trimEnd()}`,
-    ].join("\n");
+    const projection: SavedProjection = {
+      afterSummary: messages.length - summary - 1,
+      message: { ...message, role: "custom", timestamp: messages[summary]!.timestamp ?? 0 },
+    };
+    pi.appendEntry(PROJECTION, projection);
+    return { messages: [...messages, projection.message] };
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -230,10 +290,79 @@ export default function knitBridge(pi: Pi): void {
     if (typeof command === "string") event.input.command = command;
   });
 
-  // 会话重新加载或重开之后不接着等：结果在下一轮的系统提示里能看到，也可以用 status 查。
+  // 会话重新加载或重开之后不接着等：结果在下一轮的上下文里能看到，也可以用 status 查。
   pi.on("session_shutdown", async () => {
     [...waiting.keys()].forEach((taskId) => stopWaiting(waiting, taskId));
   });
+}
+
+async function readBlocks(ctx: Context): Promise<Blocks> {
+  const taskId = selectedTask(ctx);
+  const result = await runKnit(["context", "--json", ...(taskId ? [taskId] : [])]);
+  if (result.code !== 0) return { status: `Knit 上下文读不出来：\n${result.stderr.trimEnd()}`, supplement: "", pitfalls: "" };
+  const blocks = parseBlocks(result.stdout);
+  if (!blocks) return { status: "Knit 上下文读不出来：context --json 未返回有效的分块。", supplement: "", pitfalls: "" };
+  return { ...blocks, status: taskId ? blocks.status : "没有选中 Knit 任务。用 knit_task 的 list 查看任务，use 选中。" };
+}
+
+function parseBlocks(stdout: string): Blocks | undefined {
+  try {
+    const blocks = JSON.parse(stdout);
+    if (blocks && ["discussion", ...dynamicBlocks].every((name) => typeof blocks[name] === "string")) return blocks;
+  } catch {
+    return;
+  }
+}
+
+function visibleMessages(ctx: Context): VisibleMessage[] {
+  const manager = ctx.sessionManager;
+  const projected = manager.buildSessionContext?.() ?? manager.buildSessionProjection?.();
+  if (projected) return projected.messages;
+  const branch = manager.getBranch();
+  return branch.slice(branch.findLastIndex((entry) => entry.type === "compaction") + 1)
+    .filter((entry) => entry.type === "custom_message").map((entry) => ({ ...entry, role: "custom" }));
+}
+
+function compactionTail(ctx: Context) {
+  const branch = ctx.sessionManager.getBranch();
+  const compact = branch.findLastIndex((entry) => entry.type === "compaction");
+  return compact < 0 ? [] : branch.slice(compact);
+}
+
+function savedProjection(tail: SessionEntry[]): SavedProjection | undefined {
+  return tail.findLast((entry) => entry.type === "custom" && entry.customType === PROJECTION)?.data as SavedProjection | undefined;
+}
+
+function insertProjection(messages: VisibleMessage[], summary: number, saved: SavedProjection) {
+  return messages.toSpliced(summary + 1 + saved.afterSummary, 0, saved.message);
+}
+
+function withSavedProjection(ctx: Context, messages: VisibleMessage[]) {
+  const summary = messages.findIndex((m) => m.role === "compactionSummary");
+  if (summary < 0) return messages;
+  const saved = savedProjection(compactionTail(ctx));
+  return saved ? insertProjection(messages, summary, saved) : messages;
+}
+
+function contextDelta(blocks: Blocks, messages: VisibleMessage[]): ContextMessage | undefined {
+  const previous: Digests = {};
+  for (const message of messages) {
+    if (message.role !== "custom" || message.customType !== "knit.context") continue;
+    const details = message.details as Partial<ContextMessage["details"]> | undefined;
+    if (details?.version === 1) Object.assign(previous, details.digests);
+  }
+  // 只记录这条消息实际提供的块。压缩可能保留状态增量，同时移除含规范正文的消息。
+  const digests: Digests = {};
+  const content = dynamicBlocks.flatMap((name) => {
+    const text = blocks[name];
+    if (!text && !previous[name]) return [];
+    const digest = createHash("sha256").update(text).digest("hex");
+    if (digest === previous[name]) return [];
+    digests[name] = digest;
+    return [text || (name === "pitfalls" ? "此前注入的避坑条目已不再适用。" : "此前注入的环节补充规范已不再适用。")];
+  });
+  if (!content.length) return;
+  return { customType: "knit.context", display: false, details: { version: 1, digests }, content: ["[Knit 上下文]", ...content].join("\n\n") };
 }
 
 function parseHookResult(stdout: string): { quotes?: string[]; command?: string } | undefined {
